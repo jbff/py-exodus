@@ -54,6 +54,7 @@ class Action:
     weapon: WeaponType | None = None
     armor: ArmorType | None = None
     item: str | None = None
+    target_member: Any | None = None
 
     @classmethod
     def move(cls, direction: Direction | str) -> Action:
@@ -75,13 +76,18 @@ class Action:
         return cls(ActionType.FLEE, direction=d)
 
     @classmethod
-    def cast(cls, spell: Any, direction: Direction | str | None = None) -> Action:
+    def cast(
+        cls,
+        spell: Any,
+        direction: Direction | str | None = None,
+        target_member: Any | None = None,
+    ) -> Action:
         d = (
             (direction if isinstance(direction, Direction) else Direction.from_name_or_key(direction))
             if direction is not None
             else None
         )
-        return cls(ActionType.CAST, spell=spell, direction=d)
+        return cls(ActionType.CAST, spell=spell, direction=d, target_member=target_member)
 
 
 @dataclass
@@ -93,6 +99,7 @@ class ActionResult:
     message: str = ""
     attack_res: AttackResolution | None = None
     fled: bool = False
+    spell_res: Any | None = None
 
 
 @dataclass
@@ -174,6 +181,7 @@ class CombatArena:
         self.is_fled = False
         self.chest_spawned = False
         self.round_count = 1
+        self.freeze_rounds = 0
         self.is_party_round_done = False
         self.log_messages: list[str] = []
         self.last_monster_death_pos: tuple[int, int] | None = None
@@ -271,6 +279,9 @@ class CombatArena:
         for i, member in enumerate(self.party.members):
             member.fled = False
             member.combat_map_exit_direction = None
+            member.used_free_spell_in_combat = False
+            if hasattr(member, "character") and hasattr(member.character, "used_free_spell_in_combat"):
+                member.character.used_free_spell_in_combat = False
             if not member.is_dead() and member.hp > 0:
                 sx, sy = starts[i % len(starts)]
                 self.player_positions[i] = (sx, sy)
@@ -327,10 +338,12 @@ class CombatArena:
             res = self._handle_player_attack(member_idx, member, cur_pos, act)
         elif act.type == ActionType.FLEE:
             res = self._handle_player_flee(member_idx, member, act.direction or Direction.SOUTH)
+        elif act.type == ActionType.CAST:
+            res = self._handle_player_cast(member_idx, member, act)
         elif act.type == ActionType.PASS:
             res = ActionResult(success=True, action=act, message=f"{member.name} passes.")
         else:
-            # Other actions (READY, WEAR, CAST, USE)
+            # Other actions (READY, WEAR, USE)
             res = ActionResult(success=True, action=act, message=f"{member.name} acts.")
 
         self.log_messages.append(res.message)
@@ -540,6 +553,26 @@ class CombatArena:
                 attack_res=attack_res,
             )
 
+    def _handle_player_cast(
+        self, member_idx: int, member: PartyMember, action: Action
+    ) -> ActionResult:
+        from py_exodus.combat.magic import cast_spell
+
+        spell_res = cast_spell(
+            spell=action.spell,
+            caster=member,
+            target_dir=action.direction,
+            arena=self,
+            target_member=action.target_member,
+            party=self.party,
+        )
+        return ActionResult(
+            success=spell_res.success,
+            action=action,
+            message=spell_res.message,
+            spell_res=spell_res,
+        )
+
     def _advance_player_turn(self, current_member_idx: int) -> None:
         count = len(self.party.members)
         next_idx = None
@@ -562,6 +595,18 @@ class CombatArena:
     def execute_monster_turns(self) -> list[MonsterTurnResult]:
         """Execute turn for each active monster, apply poison damage, and check win/loss."""
         if self.is_finished:
+            return []
+
+        if getattr(self, "freeze_rounds", 0) > 0:
+            self.freeze_rounds -= 1
+            self.log_messages.append("Monsters are frozen in time!")
+            self._apply_poison_tick()
+            self._evaluate_party_status()
+            if len(self.monsters) == 0 and not self.is_finished:
+                self._handle_victory()
+            self.round_count += 1
+            self.is_party_round_done = False
+            self.active_party_member_idx = self._find_first_eligible_member_idx()
             return []
 
         results: list[MonsterTurnResult] = []

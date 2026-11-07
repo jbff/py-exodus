@@ -1,5 +1,6 @@
 """Combat package for py-exodus (Tactical Combat Arena & Resolvers)."""
 from py_exodus.combat.arena import Action, ActionResult, ActionType, CombatArena, CombatMonster
+from py_exodus.combat.magic import SpellResult, cast_spell
 from py_exodus.combat.resolver import (
     AttackResolution,
     AttackResult,
@@ -21,6 +22,8 @@ __all__ = [
     "AttackVector",
     "CombatArena",
     "CombatMonster",
+    "SpellResult",
+    "cast_spell",
     "calculate_monster_damage",
     "calculate_player_damage",
     "resolve_monster_attack",
