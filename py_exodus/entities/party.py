@@ -24,10 +24,8 @@ class PartyMember:
         used_free_spell_in_combat: bool = False,
         **kwargs: Any,
     ) -> None:
-        if args and isinstance(args[0], Character):
-            char = args[0]
-        elif args and isinstance(args[0], PartyMember):
-            char = args[0].character
+        if args and (isinstance(args[0], PartyMember) or isinstance(args[0], Character)):
+            char = getattr(args[0], "character", args[0])
         else:
             char = Character(*args, **kwargs)
 
@@ -269,7 +267,7 @@ class Party:
             if 0 <= target_index < len(self.members):
                 total = self.gold + total_member_gold
                 self.members[target_index].gold = total
-                self.gold = total
+                self.gold = 0
                 return total
             self.gold += total_member_gold
             return self.gold

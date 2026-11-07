@@ -1,10 +1,14 @@
 """Character entity and character creation validation for Ultima III."""
 from __future__ import annotations
 
+import builtins
 import random
 from typing import Any
 
 from py_exodus.constants import ArmorType, Profession, Race, Sex, Status, WeaponType
+
+_builtin_str = builtins.str
+_builtin_int = builtins.int
 
 
 class CharacterMeta(type):
@@ -21,32 +25,32 @@ class Character(metaclass=CharacterMeta):
 
     def __init__(
         self,
-        name: str = "",
-        sex: Sex | str = Sex.MALE,
-        race: Race | str = Race.HUMAN,
-        profession: Profession | str = Profession.FIGHTER,
-        strength: int = 15,
-        dexterity: int = 15,
-        intelligence: int = 10,
-        wisdom: int = 10,
-        hp: int | None = None,
-        max_hp: int | None = None,
-        mp: int | None = None,
-        max_mp: int | None = None,
-        level: int = 1,
-        exp: int = 0,
-        status: Status | str = Status.GOOD,
-        weapon: WeaponType | str = WeaponType.NONE,
-        armor: ArmorType | str = ArmorType.NONE,
-        cards: list[int] | None = None,
-        marks: list[int] | None = None,
-        keys: int = 0,
-        gems: int = 0,
-        torches: int = 0,
-        powder: int = 0,
-        food: int = 150,
-        gold: int = 150,
-        portrait_index: int = 43,
+        name: _builtin_str = "",
+        sex: Sex | _builtin_str = Sex.MALE,
+        race: Race | _builtin_str = Race.HUMAN,
+        profession: Profession | _builtin_str = Profession.FIGHTER,
+        strength: _builtin_int = 15,
+        dexterity: _builtin_int = 15,
+        intelligence: _builtin_int = 10,
+        wisdom: _builtin_int = 10,
+        hp: _builtin_int | None = None,
+        max_hp: _builtin_int | None = None,
+        mp: _builtin_int | None = None,
+        max_mp: _builtin_int | None = None,
+        level: _builtin_int = 1,
+        exp: _builtin_int = 0,
+        status: Status | _builtin_str = Status.GOOD,
+        weapon: WeaponType | _builtin_str = WeaponType.NONE,
+        armor: ArmorType | _builtin_str = ArmorType.NONE,
+        cards: list[_builtin_int] | None = None,
+        marks: list[_builtin_int] | None = None,
+        keys: _builtin_int = 0,
+        gems: _builtin_int = 0,
+        torches: _builtin_int = 0,
+        powder: _builtin_int = 0,
+        food: _builtin_int = 150,
+        gold: _builtin_int = 150,
+        portrait_index: _builtin_int = 43,
         **kwargs: Any,
     ) -> None:
         self.name = name
@@ -55,14 +59,14 @@ class Character(metaclass=CharacterMeta):
         if isinstance(sex, Sex):
             self.sex = sex
         else:
-            s = str(sex).strip().upper()
+            s = _builtin_str(sex).strip().upper()
             self.sex = Sex.MALE if s.startswith("M") else Sex.FEMALE
 
         # Race resolution
         if isinstance(race, Race):
             self.race = race
         else:
-            r = str(race).strip()
+            r = _builtin_str(race).strip()
             if r.upper() in Race.__members__:
                 self.race = Race[r.upper()]
             elif len(r) == 1:
@@ -74,7 +78,7 @@ class Character(metaclass=CharacterMeta):
         if isinstance(profession, Profession):
             self.profession = profession
         else:
-            p = str(profession).strip().upper()
+            p = _builtin_str(profession).strip().upper()
             if p in Profession.__members__:
                 self.profession = Profession[p]
             else:
@@ -99,7 +103,7 @@ class Character(metaclass=CharacterMeta):
         if isinstance(status, Status):
             self.status = status
         else:
-            st = str(status).strip().upper()
+            st = _builtin_str(status).strip().upper()
             lookup = {
                 "G": Status.GOOD,
                 "GOOD": Status.GOOD,
@@ -132,17 +136,17 @@ class Character(metaclass=CharacterMeta):
         if isinstance(weapon, WeaponType):
             self.weapon = weapon
         else:
-            w = str(weapon).strip().upper()
+            w = _builtin_str(weapon).strip().upper()
             self.weapon = WeaponType[w] if w in WeaponType.__members__ else WeaponType(w)
 
         if isinstance(armor, ArmorType):
             self.armor = armor
         else:
-            a = str(armor).strip().upper()
+            a = _builtin_str(armor).strip().upper()
             self.armor = ArmorType[a] if a in ArmorType.__members__ else ArmorType(a)
 
-        self.weapons: dict[WeaponType, int] = {wt: 0 for wt in WeaponType}
-        self.armors: dict[ArmorType, int] = {at: 0 for at in ArmorType}
+        self.weapons: dict[WeaponType, _builtin_int] = {wt: 0 for wt in WeaponType}
+        self.armors: dict[ArmorType, _builtin_int] = {at: 0 for at in ArmorType}
 
         # Cards (Death, Sol, Moon, Love) & Marks (Kings, Fire, Force, Snake)
         self.cards = list(cards) if cards is not None else [0, 0, 0, 0]
@@ -159,121 +163,121 @@ class Character(metaclass=CharacterMeta):
 
     # --- Stat properties & aliases ---
     @property
-    def str(self) -> int:
+    def str(self) -> _builtin_int:
         return self._str
 
     @str.setter
-    def str(self, val: int) -> None:
+    def str(self, val: _builtin_int) -> None:
         self._str = val
 
     @property
-    def strength(self) -> int:
+    def strength(self) -> _builtin_int:
         return self._str
 
     @strength.setter
-    def strength(self, val: int) -> None:
+    def strength(self, val: _builtin_int) -> None:
         self._str = val
 
     @property
-    def dex(self) -> int:
+    def dex(self) -> _builtin_int:
         return self._dex
 
     @dex.setter
-    def dex(self, val: int) -> None:
+    def dex(self, val: _builtin_int) -> None:
         self._dex = val
 
     @property
-    def dexterity(self) -> int:
+    def dexterity(self) -> _builtin_int:
         return self._dex
 
     @dexterity.setter
-    def dexterity(self, val: int) -> None:
+    def dexterity(self, val: _builtin_int) -> None:
         self._dex = val
 
     @property
-    def int(self) -> int:
+    def int(self) -> _builtin_int:
         return self._int
 
     @int.setter
-    def int(self, val: int) -> None:
+    def int(self, val: _builtin_int) -> None:
         self._int = val
 
     @property
-    def intelligence(self) -> int:
+    def intelligence(self) -> _builtin_int:
         return self._int
 
     @intelligence.setter
-    def intelligence(self, val: int) -> None:
+    def intelligence(self, val: _builtin_int) -> None:
         self._int = val
 
     @property
-    def wis(self) -> int:
+    def wis(self) -> _builtin_int:
         return self._wis
 
     @wis.setter
-    def wis(self, val: int) -> None:
+    def wis(self, val: _builtin_int) -> None:
         self._wis = val
 
     @property
-    def wisdom(self) -> int:
+    def wisdom(self) -> _builtin_int:
         return self._wis
 
     @wisdom.setter
-    def wisdom(self, val: int) -> None:
+    def wisdom(self, val: _builtin_int) -> None:
         self._wis = val
 
     # --- Health & Mana properties ---
     @property
-    def max_hp(self) -> int:
+    def max_hp(self) -> _builtin_int:
         return self._max_hp
 
     @max_hp.setter
-    def max_hp(self, val: int) -> None:
+    def max_hp(self, val: _builtin_int) -> None:
         self._max_hp = val
 
     @property
-    def health(self) -> int:
+    def health(self) -> _builtin_int:
         return self.hp
 
     @health.setter
-    def health(self, val: int) -> None:
+    def health(self, val: _builtin_int) -> None:
         self.hp = val
 
     @property
-    def max_health(self) -> int:
+    def max_health(self) -> _builtin_int:
         return self.max_hp
 
     @max_health.setter
-    def max_health(self, val: int) -> None:
+    def max_health(self, val: _builtin_int) -> None:
         self.max_hp = val
 
     @property
-    def max_mp(self) -> int:
+    def max_mp(self) -> _builtin_int:
         if self._max_mp is not None:
             return self._max_mp
         return self.compute_max_mp()
 
     @max_mp.setter
-    def max_mp(self, val: int | None) -> None:
+    def max_mp(self, val: _builtin_int | None) -> None:
         self._max_mp = val
 
     @property
-    def mana(self) -> int:
+    def mana(self) -> _builtin_int:
         return self.mp
 
     @mana.setter
-    def mana(self, val: int) -> None:
+    def mana(self, val: _builtin_int) -> None:
         self.mp = val
 
     @property
-    def max_mana(self) -> int:
+    def max_mana(self) -> _builtin_int:
         return self.max_mp
 
     @max_mana.setter
-    def max_mana(self, val: int | None) -> None:
+    def max_mana(self, val: _builtin_int | None) -> None:
         self.max_mp = val
 
-    def compute_max_mp(self) -> int:
+    def compute_max_mp(self) -> _builtin_int:
         """Calculate maximum MP based on profession and casting attributes."""
         prof = self.profession
         if prof in (Profession.BARBARIAN, Profession.FIGHTER, Profession.THIEF):
@@ -334,20 +338,20 @@ class Character(metaclass=CharacterMeta):
     @classmethod
     def validate_creation(
         cls,
-        race: Race | str,
-        profession: Profession | str,
-        strength: int,
-        dexterity: int,
-        intelligence: int,
-        wisdom: int,
-        max_points: int = 50,
-        min_stat: int = 5,
-        max_stat: int = 25,
-    ) -> tuple[bool, str]:
+        race: Race | _builtin_str,
+        profession: Profession | _builtin_str,
+        strength: _builtin_int,
+        dexterity: _builtin_int,
+        intelligence: _builtin_int,
+        wisdom: _builtin_int,
+        max_points: _builtin_int = 50,
+        min_stat: _builtin_int = 5,
+        max_stat: _builtin_int = 25,
+    ) -> tuple[bool, _builtin_str]:
         """Validate attribute allocations according to Ultima III character creation rules."""
-        if isinstance(race, str):
+        if isinstance(race, _builtin_str):
             race = Race[race.upper()] if race.upper() in Race.__members__ else Race(race.lower())
-        if isinstance(profession, str):
+        if isinstance(profession, _builtin_str):
             prof_str = profession.strip().upper()
             profession = (
                 Profession[prof_str]
@@ -385,14 +389,14 @@ class Character(metaclass=CharacterMeta):
     @classmethod
     def create(
         cls,
-        name: str,
-        sex: Sex | str = Sex.MALE,
-        race: Race | str = Race.HUMAN,
-        profession: Profession | str = Profession.FIGHTER,
-        strength: int = 15,
-        dexterity: int = 15,
-        intelligence: int = 10,
-        wisdom: int = 10,
+        name: _builtin_str,
+        sex: Sex | _builtin_str = Sex.MALE,
+        race: Race | _builtin_str = Race.HUMAN,
+        profession: Profession | _builtin_str = Profession.FIGHTER,
+        strength: _builtin_int = 15,
+        dexterity: _builtin_int = 15,
+        intelligence: _builtin_int = 10,
+        wisdom: _builtin_int = 10,
         validate: bool = True,
     ) -> Character:
         """Factory helper creating and optionally validating a character."""
@@ -420,19 +424,19 @@ class Character(metaclass=CharacterMeta):
         )
 
     # --- Serialization ---
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[_builtin_str, Any]:
         """Serialize character state to dictionary."""
         return {
             "name": self.name,
-            "sex": self.sex.value if isinstance(self.sex, Sex) else str(self.sex),
-            "race": self.race.value if isinstance(self.race, Race) else str(self.race),
+            "sex": self.sex.value if isinstance(self.sex, Sex) else _builtin_str(self.sex),
+            "race": self.race.value if isinstance(self.race, Race) else _builtin_str(self.race),
             "profession": (
                 self.profession.value
                 if isinstance(self.profession, Profession)
-                else str(self.profession)
+                else _builtin_str(self.profession)
             ),
             "status": (
-                self.status.value if isinstance(self.status, Status) else str(self.status)
+                self.status.value if isinstance(self.status, Status) else _builtin_str(self.status)
             ),
             "hp": self.hp,
             "max_hp": self.max_hp,
@@ -447,13 +451,23 @@ class Character(metaclass=CharacterMeta):
             "weapon": (
                 self.weapon.value
                 if isinstance(self.weapon, WeaponType)
-                else str(self.weapon)
+                else _builtin_str(self.weapon)
             ),
             "armor": (
                 self.armor.value
                 if isinstance(self.armor, ArmorType)
-                else str(self.armor)
+                else _builtin_str(self.armor)
             ),
+            "weapons": {
+                wt.value: count
+                for wt, count in self.weapons.items()
+                if count > 0
+            },
+            "armors": {
+                at.value: count
+                for at, count in self.armors.items()
+                if count > 0
+            },
             "cards": list(self.cards),
             "marks": list(self.marks),
             "keys": self.keys,
@@ -466,9 +480,9 @@ class Character(metaclass=CharacterMeta):
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> Character:
+    def from_dict(cls, data: dict[_builtin_str, Any]) -> Character:
         """Instantiate character from serialized dictionary."""
-        return cls(
+        char = cls(
             name=data.get("name", ""),
             sex=data.get("sex", Sex.MALE),
             race=data.get("race", Race.HUMAN),
@@ -496,13 +510,28 @@ class Character(metaclass=CharacterMeta):
             gold=data.get("gold", 150),
             portrait_index=data.get("portrait_index", 43),
         )
+        if "weapons" in data and isinstance(data["weapons"], dict):
+            for k, count in data["weapons"].items():
+                k_str = _builtin_str(k).strip().upper()
+                wt = WeaponType[k_str] if k_str in WeaponType.__members__ else WeaponType(k_str)
+                char.weapons[wt] = _builtin_int(count)
 
-    def __repr__(self) -> str:
-        race_name = self.race.name if isinstance(self.race, Race) else str(self.race)
+        if "armors" in data and isinstance(data["armors"], dict):
+            for k, count in data["armors"].items():
+                k_str = _builtin_str(k).strip().upper()
+                at = ArmorType[k_str] if k_str in ArmorType.__members__ else ArmorType(k_str)
+                char.armors[at] = _builtin_int(count)
+
+        return char
+
+    def __repr__(self) -> _builtin_str:
+        race_name = self.race.name if isinstance(self.race, Race) else _builtin_str(self.race)
         prof_name = (
-            self.profession.name if isinstance(self.profession, Profession) else str(self.profession)
+            self.profession.name
+            if isinstance(self.profession, Profession)
+            else _builtin_str(self.profession)
         )
-        status_val = self.status.value if isinstance(self.status, Status) else str(self.status)
+        status_val = self.status.value if isinstance(self.status, Status) else _builtin_str(self.status)
         return (
             f"Character({self.name!r}, {race_name}, {prof_name}, "
             f"Lvl:{self.level}, HP:{self.hp}/{self.max_hp}, MP:{self.mp}/{self.max_mp}, "

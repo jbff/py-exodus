@@ -473,3 +473,73 @@ def test_save_system_missing_file_errors():
 
     with pytest.raises(FileNotFoundError):
         SaveSystem.load_roster("non_existent_roster.json")
+
+
+def test_pool_gold_no_duplication():
+    """Verify calling pool_gold(target_index) then pool_gold() does not duplicate gold."""
+    p = Party()
+    c1 = Character(name="C1", gold=100)
+    c2 = Character(name="C2", gold=200)
+    p.add_member(c1)
+    p.add_member(c2)
+
+    # First pool into member 0
+    total = p.pool_gold(0)
+    assert total == 300
+    assert p.members[0].gold == 300
+    assert p.members[1].gold == 0
+    assert p.gold == 0  # Party pool must be 0 to avoid duplication
+
+    # Now pool into party without arguments
+    p.pool_gold()
+    assert p.gold == 300  # Must remain exactly 300, not 600!
+    assert p.members[0].gold == 0
+    assert p.members[1].gold == 0
+
+
+def test_party_member_unwrap_order():
+    """Verify PartyMember wrapping does not double-wrap an existing PartyMember."""
+    char = Character(name="Original", gold=50)
+    pm1 = PartyMember(char)
+    assert pm1.character is char
+
+    # Passing existing PartyMember to PartyMember constructor
+    pm2 = PartyMember(pm1)
+    assert pm2.character is char
+    assert not isinstance(pm2.character, PartyMember)
+
+    # Mutating via pm2 updates char directly
+    pm2.gold = 75
+    assert char.gold == 75
+    assert pm1.gold == 75
+
+
+def test_inventory_weapons_armors_serialization():
+    """Verify carried weapons and armors count dictionary serialization."""
+    from py_exodus.constants import ArmorType, WeaponType
+
+    p = Party()
+    c = Character(name="Armorer")
+    c.weapons[WeaponType.DAGGER] = 3
+    c.weapons[WeaponType.BOW] = 1
+    c.armors[ArmorType.LEATHER] = 2
+    c.armors[ArmorType.CHAIN] = 1
+    p.add_member(c)
+
+    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+        tmp_name = f.name
+
+    try:
+        SaveSystem.save_game(p, tmp_name)
+        loaded = SaveSystem.load_game(tmp_name)
+
+        loaded_char = loaded.members[0]
+        assert loaded_char.weapons[WeaponType.DAGGER] == 3
+        assert loaded_char.weapons[WeaponType.BOW] == 1
+        assert loaded_char.weapons[WeaponType.SWORD] == 0
+        assert loaded_char.armors[ArmorType.LEATHER] == 2
+        assert loaded_char.armors[ArmorType.CHAIN] == 1
+        assert loaded_char.armors[ArmorType.PLATE] == 0
+    finally:
+        if os.path.exists(tmp_name):
+            os.remove(tmp_name)
