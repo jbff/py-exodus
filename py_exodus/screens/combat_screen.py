@@ -15,6 +15,7 @@ from py_exodus.constants import (
     Direction,
     Spell,
 )
+from py_exodus.entities.party import PartyMember
 from py_exodus.screens.base import BaseScreen
 from py_exodus.ui.renderer import WorldRenderer
 from py_exodus.ui.stats_panel import StatsPanel
@@ -111,8 +112,6 @@ class CombatScreen(BaseScreen):
         if self.arena.is_finished:
             if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE, pygame.K_ESCAPE):
                 self.exit_screen()
-                if self.manager is not None:
-                    self.manager.pop_screen()
             return
 
         # Standard combat keys
@@ -205,8 +204,6 @@ class CombatScreen(BaseScreen):
             elif self.arena.is_fled:
                 self.text_log.add_message("Escaped from combat!")
                 self.exit_screen()
-                if self.manager is not None:
-                    self.manager.pop_screen()
 
     def update(self, dt: float) -> None:
         pass

@@ -666,6 +666,18 @@ class DungeonState:
             tile=self.current_tile,
         )
 
+    def turn_around(self) -> DungeonEvent:
+        """Turn 180 degrees to face opposite direction."""
+        self.dir = self.dir.reverse()
+        return DungeonEvent(
+            type=DungeonEventType.TURNED,
+            message=f"Turned around, now facing {self.dir.name}.",
+            x=self.x,
+            y=self.y,
+            z=self.z,
+            tile=self.current_tile,
+        )
+
     def move_forward(self) -> DungeonEvent:
         """Step one tile forward in the current viewing direction."""
         fwd, _, _ = get_relative_offsets(self.dir)
@@ -952,6 +964,14 @@ class DungeonState:
             z=self.z,
             tile=tile,
         )
+
+    def climb_ladder_up(self) -> DungeonEvent:
+        """Alias for klimb_up()."""
+        return self.klimb_up()
+
+    def climb_ladder_down(self) -> DungeonEvent:
+        """Alias for klimb_down()."""
+        return self.klimb_down()
 
     def drink_fountain(self, member_index: int = 0) -> DungeonEvent:
         """Inspect and drink from a dungeon fountain."""

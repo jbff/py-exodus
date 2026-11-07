@@ -130,10 +130,10 @@ class DungeonScreen(BaseScreen):
             evt = self.state.turn_right()
             self._process_event(evt)
         elif event.key == pygame.K_u:
-            evt = self.state.climb_ladder_up()
+            evt = self.state.klimb_up()
             self._process_event(evt)
         elif event.key == pygame.K_j:  # Down ladder
-            evt = self.state.climb_ladder_down()
+            evt = self.state.klimb_down()
             self._process_event(evt)
         elif event.key == pygame.K_t:
             self._use_torch()
@@ -155,10 +155,14 @@ class DungeonScreen(BaseScreen):
         if evt.type == DungeonEventType.EXIT_DUNGEON:
             self.text_log.add_message("Leaving dungeon...")
             self.exit_screen()
-            if self.manager is not None:
-                self.manager.pop_screen()
         elif evt.type == DungeonEventType.COMBAT:
-            self._trigger_combat(evt.creature or "skeleton")
+            c_name = "skeleton"
+            if evt.creature is not None:
+                if hasattr(evt.creature, "tile"):
+                    c_name = evt.creature.tile
+                elif hasattr(evt.creature, "name"):
+                    c_name = evt.creature.name.lower()
+            self._trigger_combat(c_name)
 
     def _trigger_combat(self, creature_name: str) -> None:
         """Launch combat screen from dungeon encounter."""
@@ -191,10 +195,12 @@ class DungeonScreen(BaseScreen):
 
     def _use_torch(self) -> None:
         """Light a torch from party inventory."""
-        self.state.torch_rounds += 50
-        self.text_log.add_message("Torch ignited! Corridors illuminate.")
-        if self.audio is not None:
-            self.audio.play_sfx("fire_field_walking")
+        if self.state.light_torch():
+            self.text_log.add_message("Torch ignited! Corridors illuminate.")
+            if self.audio is not None:
+                self.audio.play_sfx("fire_field_walking")
+        else:
+            self.text_log.add_message("No torches left in inventory!")
 
     def _cast_spell(self) -> None:
         def _on_spell(code: str) -> None:
@@ -203,13 +209,11 @@ class DungeonScreen(BaseScreen):
                 self.state.light_spell = True
                 self.text_log.add_message("LORUM casts bright radiance!")
             elif c == "D":  # DOR_ACRON (down level)
-                self.state.climb_ladder_down()
+                self.state.klimb_down()
             elif c == "E":  # SUR_ACRON (up level)
-                self.state.climb_ladder_up()
+                self.state.klimb_up()
             elif c == "I":  # SEQUITU (exit)
                 self.exit_screen()
-                if self.manager is not None:
-                    self.manager.pop_screen()
 
         self.text_log.prompt("Spell? (A-P):", callback=_on_spell)
 

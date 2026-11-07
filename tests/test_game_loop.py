@@ -178,6 +178,35 @@ def test_state_machine_screen_finish_transition(pygame_setup, asset_mgr):
     assert sm.current_screen is s2
 
 
+def test_state_machine_multi_level_stack_preservation(pygame_setup, asset_mgr):
+    s_overworld = MockScreen("overworld")
+    s_town = MockScreen("town")
+    s_combat = MockScreen("combat")
+
+    sm = StateMachine(asset_mgr, initial_screen=s_overworld)
+    assert sm.screen_stack == [s_overworld]
+
+    # Enter Town
+    sm.push_screen(s_town)
+    assert sm.screen_stack == [s_overworld, s_town]
+
+    # Enter Combat from Town
+    sm.push_screen(s_combat)
+    assert sm.screen_stack == [s_overworld, s_town, s_combat]
+
+    # Combat finishes and returns to Town
+    s_combat.exit_screen()
+    sm.update(0.1)
+    assert sm.current_screen is s_town
+    assert sm.screen_stack == [s_overworld, s_town]  # Overworld preserved!
+
+    # Town finishes and returns to Overworld
+    s_town.exit_screen()
+    sm.update(0.1)
+    assert sm.current_screen is s_overworld
+    assert sm.screen_stack == [s_overworld]
+
+
 # --- Audio Manager Tests ---
 
 
@@ -449,6 +478,75 @@ def test_dungeon_screen_render(pygame_setup, asset_mgr, sample_party):
     surf = pygame.Surface((320, 200))
     dungeon.render(surf)
     assert surf.get_at((0, 0)) is not None
+
+
+def test_dungeon_screen_turn_around_and_ladders(pygame_setup, asset_mgr, sample_party):
+    from py_exodus.world.map import DungeonTile
+
+    sm = StateMachine(asset_mgr)
+    dungeon = DungeonScreen(
+        party=sample_party,
+        map_id=14,
+        asset_mgr=asset_mgr,
+        manager=sm,
+    )
+    sm.push_screen(dungeon)
+
+    # 1. Turn around (180 degrees)
+    initial_dir = dungeon.state.dir
+    dungeon.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_DOWN))
+    assert dungeon.state.dir == initial_dir.reverse()
+
+    # 2. Ladder down on ladder tile
+    dungeon.dungeon_map.set_tile(dungeon.state.x, dungeon.state.y, dungeon.state.z, DungeonTile.LADDER_DOWN)
+    dungeon.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_j))
+    assert dungeon.state.z == 1
+
+    # 3. Ladder up on ladder tile
+    dungeon.dungeon_map.set_tile(dungeon.state.x, dungeon.state.y, dungeon.state.z, DungeonTile.LADDER_UP)
+    dungeon.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_u))
+    assert dungeon.state.z == 0
+
+
+def test_dungeon_screen_torch_inventory_consumption(pygame_setup, asset_mgr, sample_party):
+    # Give member 2 torches
+    sample_party.members[0].character.torches = 2
+
+    dungeon = DungeonScreen(
+        party=sample_party,
+        map_id=14,
+        asset_mgr=asset_mgr,
+    )
+    dungeon.state.torch_rounds = 0
+
+    # Ignite torch
+    dungeon._use_torch()
+    assert sample_party.members[0].character.torches == 1
+    assert dungeon.state.torch_rounds == 100
+    assert any("Torch ignited" in msg for msg in dungeon.text_log.history)
+
+
+def test_dungeon_screen_combat_encounter_trigger(pygame_setup, asset_mgr, sample_party):
+    from py_exodus.entities.defs import CreatureDef
+    from py_exodus.world.dungeon import DungeonEvent, DungeonEventType
+
+    sm = StateMachine(asset_mgr)
+    dungeon = DungeonScreen(
+        party=sample_party,
+        map_id=14,
+        asset_mgr=asset_mgr,
+        manager=sm,
+    )
+    sm.push_screen(dungeon)
+
+    # Simulate combat encounter event where creature is CreatureDef
+    c_def = CreatureDef(id=1, name="Orc", tile="orc", basehp=48, hp=48, exp=5)
+    evt = DungeonEvent(type=DungeonEventType.COMBAT, creature=c_def, message="Ambushed by Orc!")
+    dungeon._process_event(evt)
+
+    # Should have pushed CombatScreen
+    assert isinstance(sm.current_screen, CombatScreen)
+    assert sm.current_screen.creature_tile == "orc"
 
 
 # --- GameApp Main Loop Tests ---

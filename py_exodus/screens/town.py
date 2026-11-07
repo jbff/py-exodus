@@ -154,8 +154,6 @@ class TownScreen(BaseScreen):
     def _exit_town(self) -> None:
         self.text_log.add_message("Leaving city...")
         self.exit_screen()
-        if self.manager is not None:
-            self.manager.pop_screen()
 
     def _prompt_talk(self) -> None:
         def _on_dir(d_str: str) -> None:

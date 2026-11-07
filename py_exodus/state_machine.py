@@ -107,15 +107,22 @@ class StateMachine:
 
     def _check_screen_transition(self, cur: BaseScreen) -> None:
         """Process screen completion or requested transition."""
+        if cur is not self.current_screen:
+            return
+
         if not cur.is_finished:
             return
 
-        if cur.next_screen is not None:
-            next_scr = cur.next_screen
-            cur.next_screen = None
+        next_scr = cur.next_screen
+        cur.next_screen = None
+
+        if next_scr is not None and next_scr is not cur.return_screen:
+            # Genuine transition to a new screen
             self.set_screen(next_scr)
         elif len(self.screen_stack) > 1:
+            # Pop the finished screen to reveal the parent screen on stack
             self.pop_screen()
+        elif next_scr is not None:
+            self.set_screen(next_scr)
         elif cur.return_screen is not None:
-            ret_scr = cur.return_screen
-            self.set_screen(ret_scr)
+            self.set_screen(cur.return_screen)
