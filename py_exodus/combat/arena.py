@@ -313,6 +313,14 @@ class CombatArena:
 
     # --- Player Turn Execution ---
 
+    def execute_turn(self, action: Action | ActionType | Direction | str) -> ActionResult:
+        """Execute turn for the current active party member, triggering monster AI if round ends."""
+        idx = self.active_party_member_idx
+        res = self.execute_player_action(idx, action)
+        if self.is_party_round_done and not self.is_finished:
+            self.execute_monster_turns()
+        return res
+
     def execute_player_action(
         self, member_idx: int, action: Action | ActionType | Direction | str
     ) -> ActionResult:
