@@ -102,6 +102,26 @@ class CombatScreen(BaseScreen):
 
         # If waiting for prompt input (e.g. Direction or Spell code)
         if self.text_log.is_waiting_for_input:
+            # Check for direct directional keys if prompt is asking for Direction
+            if "Direction" in self.text_log.current_prompt:
+                dir_mapped = None
+                if event.key in (pygame.K_UP, pygame.K_KP8, pygame.K_n):
+                    dir_mapped = Direction.NORTH
+                elif event.key in (pygame.K_DOWN, pygame.K_KP2, pygame.K_s):
+                    dir_mapped = Direction.SOUTH
+                elif event.key in (pygame.K_LEFT, pygame.K_KP4, pygame.K_w):
+                    dir_mapped = Direction.WEST
+                elif event.key in (pygame.K_RIGHT, pygame.K_KP6, pygame.K_e):
+                    dir_mapped = Direction.EAST
+
+                if dir_mapped is not None:
+                    cb = self.text_log._callback
+                    self.text_log.handle_escape()  # Clear prompt state
+                    self.text_log.add_message(f"Direction? {dir_mapped.name}")
+                    if cb is not None:
+                        cb(dir_mapped.name)
+                    return
+
             self.text_log.handle_event(event)
             return
 
@@ -119,20 +139,20 @@ class CombatScreen(BaseScreen):
         if active_member is None:
             return
 
-        # Movement keys
-        if event.key in (pygame.K_UP, pygame.K_w):
+        # Movement keys (Arrow keys and Keypad)
+        if event.key in (pygame.K_UP, pygame.K_KP8):
             self._execute_action(Action.move(Direction.NORTH))
-        elif event.key in (pygame.K_DOWN, pygame.K_s):
+        elif event.key in (pygame.K_DOWN, pygame.K_KP2):
             self._execute_action(Action.move(Direction.SOUTH))
-        elif event.key in (pygame.K_LEFT, pygame.K_a):
+        elif event.key in (pygame.K_LEFT, pygame.K_KP4):
             self._execute_action(Action.move(Direction.WEST))
-        elif event.key in (pygame.K_RIGHT, pygame.K_d):
+        elif event.key in (pygame.K_RIGHT, pygame.K_KP6):
             self._execute_action(Action.move(Direction.EAST))
         elif event.key in (pygame.K_SPACE, pygame.K_p):
             self._execute_action(Action.pass_turn())
         elif event.key == pygame.K_f:
             self._execute_action(Action(ActionType.FLEE, direction=Direction.SOUTH))
-        elif event.key == pygame.K_k:  # Attack command
+        elif event.key == pygame.K_a:  # Attack command
             self._prompt_attack()
         elif event.key == pygame.K_c:  # Cast command
             self._prompt_cast()

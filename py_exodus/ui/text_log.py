@@ -25,42 +25,62 @@ EGA_BRIGHT_MAGENTA = (255, 85, 255)
 EGA_YELLOW = (255, 255, 85)
 EGA_WHITE = (255, 255, 255)
 
-_FONT_CACHE: dict[tuple[str, int], pygame.font.Font] = {}
+_FONT_CACHE: dict[tuple[str | None, int], pygame.font.Font] = {}
 
 _CANDIDATE_FONT_PATHS = [
+    Path("src/main/resources/assets/fonts/gnuolane.ttf"),
+    Path("assets/fonts/gnuolane.ttf"),
     Path("src/main/resources/assets/fonts/ultima.ttf"),
     Path("assets/fonts/ultima.ttf"),
+    Path(__file__).parent.parent.parent / "src/main/resources/assets/fonts/gnuolane.ttf",
     Path(__file__).parent.parent.parent / "src/main/resources/assets/fonts/ultima.ttf",
 ]
 
 
-def get_hud_font(size: int = 16, font_name: str = "ultima.ttf") -> pygame.font.Font:
+def get_hud_font(size: int = 14, font_name: str | None = None) -> pygame.font.Font:
     """Retrieve or load cached TrueType/bitmap font with graceful fallback."""
     key = (font_name, size)
     if key in _FONT_CACHE:
-        return _FONT_CACHE[key]
+        font_obj = _FONT_CACHE[key]
+        try:
+            # Check if font is still valid in case pygame.font.quit() was called
+            font_obj.get_linesize()
+            return font_obj
+        except (pygame.error, Exception):
+            _FONT_CACHE.pop(key, None)
 
     if not pygame.font.get_init():
         pygame.font.init()
 
     font_obj: pygame.font.Font | None = None
 
-    # Search candidate paths for font asset
-    for base in _CANDIDATE_FONT_PATHS:
-        candidate = base.parent / font_name if font_name != "ultima.ttf" else base
-        if candidate.exists():
-            try:
-                font_obj = pygame.font.Font(str(candidate), size)
-                break
-            except (pygame.error, OSError, RuntimeError):
-                continue
+    # If no font name specified, use Pygame's clean built-in pixel font
+    if font_name is None or font_name in ("default", "hud"):
+        try:
+            font_obj = pygame.font.Font(None, size)
+        except (pygame.error, OSError, RuntimeError):
+            pass
 
+    # Search candidate paths for requested font asset
+    if font_obj is None and font_name:
+        for base in _CANDIDATE_FONT_PATHS:
+            candidate = base.parent / font_name
+            if candidate.exists():
+                try:
+                    font_obj = pygame.font.Font(str(candidate), size)
+                    break
+                except (pygame.error, OSError, RuntimeError):
+                    continue
+
+    # Fallback to default font or system font
     if font_obj is None:
         try:
-            # Fallback to monospaced system font or default pygame font
-            font_obj = pygame.font.SysFont("Courier, monospace", size)
-        except (pygame.error, OSError, RuntimeError):
             font_obj = pygame.font.Font(None, size)
+        except (pygame.error, OSError, RuntimeError):
+            try:
+                font_obj = pygame.font.SysFont("Courier, monospace", size)
+            except (pygame.error, OSError, RuntimeError):
+                font_obj = pygame.font.Font(None, size)
 
     _FONT_CACHE[key] = font_obj
     return font_obj

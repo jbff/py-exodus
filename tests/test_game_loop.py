@@ -429,6 +429,38 @@ def test_combat_screen_turns_and_actions(pygame_setup, asset_mgr, sample_party):
     assert len(combat.text_log.history) > 0
 
 
+def test_combat_screen_attack_key_and_directional_strike(pygame_setup, asset_mgr, sample_party):
+    """Verify pressing 'A' prompts for direction and arrow key executes attack."""
+    from py_exodus.world.loader import MapLoader
+
+    loader = MapLoader(asset_mgr)
+    c_map = loader.load_conflict_map("CNFLCT_G.ULT")
+
+    sm = StateMachine(asset_mgr)
+    combat = CombatScreen(
+        party=sample_party,
+        combat_map=c_map,
+        creature_tile="orc",
+        asset_mgr=asset_mgr,
+        monster_count=2,
+        manager=sm,
+    )
+    sm.push_screen(combat)
+
+    # Pressing 'A' should trigger attack prompt, NOT move west
+    pos_before = (combat.active_party_member.x, combat.active_party_member.y)
+    combat.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_a))
+    assert combat.text_log.is_waiting_for_input
+    assert "Direction?" in combat.text_log.current_prompt
+    assert (combat.active_party_member.x, combat.active_party_member.y) == pos_before
+
+    # Now press North arrow to attack North
+    combat.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_UP))
+    assert not combat.text_log.is_waiting_for_input
+    # Turn was executed as attack
+    assert any("attacks" in msg or "misses" in msg or "hits" in msg or "Direction? NORTH" in msg for msg in combat.text_log.history)
+
+
 def test_combat_screen_render(pygame_setup, asset_mgr, sample_party):
     from py_exodus.world.loader import MapLoader
 

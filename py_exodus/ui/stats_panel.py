@@ -66,8 +66,8 @@ class StatsPanel:
 
         # Dynamic font sizing based on target width
         is_large = target_rect.width >= 240
-        f_title = self.font or get_hud_font(size=16 if is_large else 10)
-        f_text = self.small_font or get_hud_font(size=14 if is_large else 9)
+        f_title = self.font or get_hud_font(size=16 if is_large else 12)
+        f_text = self.small_font or get_hud_font(size=14 if is_large else 10)
 
         line_h = max(10, f_text.get_linesize())
         x_left = target_rect.x + (10 if is_large else 4)
@@ -93,21 +93,25 @@ class StatsPanel:
                 (target_rect.x + 2, sep_y),
                 (target_rect.right - 2, sep_y),
             )
-            curr_y += 6 if is_large else 4
+            curr_y += 5 if is_large else 3
 
-        # 1. Transport Header
+        # 1. Party Header with Count
+        party_count_str = f"PARTY ({len(party.members)}/4)"
+        draw_line(party_count_str, EGA_YELLOW, use_title_font=True)
+
+        # 2. Transport Header
         trans_name = "FOOT"
         if party.transport == Transport.SHIP:
             trans_name = f"SHIP (HULL:{party.ship_hull})"
         elif party.transport == Transport.HORSE:
             trans_name = "HORSE"
-        draw_line(f"TRANS: {trans_name}", EGA_BRIGHT_CYAN, use_title_font=True)
+        draw_line(f"TRANS: {trans_name}", EGA_BRIGHT_CYAN)
 
-        # 2. Pooled Resources (Food & Gold)
-        draw_line(f"FOOD:{party.food:<5} GOLD:{party.gold}", EGA_YELLOW)
+        # 3. Pooled Resources (Food & Gold)
+        draw_line(f"FOOD:{party.food:<5} GOLD:{party.gold}", EGA_WHITE)
         draw_separator()
 
-        # 3. Party Members (up to 4)
+        # 4. Party Members (up to 4)
         for i, pm in enumerate(party.members):
             is_active = (i == party.active_member_index)
             marker = ">" if is_active else " "
@@ -133,9 +137,9 @@ class StatsPanel:
                 member_col = EGA_WHITE
 
             char_name = pm.name.upper()[:8]
-            draw_line(f"{marker}{i+1}:{char_name:<8} {st_abbr}", member_col)
+            draw_line(f"{marker}[{i+1}] {char_name:<8} {st_abbr}", member_col)
             draw_line(
-                f"  H:{pm.hp:<4} M:{pm.mp:<3} F:{pm.food}",
+                f"    H:{pm.hp:<4} M:{pm.mp:<3} F:{pm.food}",
                 EGA_LIGHT_GRAY if not is_active else EGA_YELLOW,
             )
 

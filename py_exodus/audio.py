@@ -6,6 +6,13 @@ from typing import Any
 
 import pygame
 
+try:
+    import sounddevice as sd
+    import soundfile as sf
+    _HAVE_SOUNDDEVICE = True
+except Exception:
+    _HAVE_SOUNDDEVICE = False
+
 # Default track filename mapping (case-insensitive keys)
 MUSIC_TRACKS: dict[str, str] = {
     "alive": "Alive.ogg",
@@ -121,7 +128,7 @@ class AudioManager:
         volume: float | None = None,
     ) -> bool:
         """Stream and play background music in a loop."""
-        if not self.enabled or not self._ensure_mixer():
+        if not self.enabled:
             return False
 
         file_path = self.resolve_sound_file(track_name)
@@ -129,29 +136,48 @@ class AudioManager:
             return False
 
         vol = self.music_volume if volume is None else max(0.0, min(1.0, volume))
-        try:
-            mixer = pygame.mixer
-            music = mixer.music
-            if self.current_track == str(file_path) and music.get_busy():
-                return True
 
-            music.load(str(file_path))
-            music.set_volume(vol)
-            music.play(loops)
-            self.current_track = str(file_path)
-            return True
-        except (NotImplementedError, AttributeError, pygame.error, Exception):
-            return False
+        if self._ensure_mixer():
+            try:
+                mixer = pygame.mixer
+                music = mixer.music
+                if self.current_track == str(file_path) and music.get_busy():
+                    return True
+
+                music.load(str(file_path))
+                music.set_volume(vol)
+                music.play(loops)
+                self.current_track = str(file_path)
+                return True
+            except (NotImplementedError, AttributeError, pygame.error, Exception):
+                pass
+
+        if _HAVE_SOUNDDEVICE:
+            try:
+                data, fs = sf.read(str(file_path))
+                sd.stop()
+                sd.play(data * vol, fs, loop=(loops != 0))
+                self.current_track = str(file_path)
+                return True
+            except Exception:
+                pass
+
+        return False
 
     def stop_music(self) -> None:
         """Stop active background music."""
-        if not self._mixer_initialized:
-            return
-        try:
-            pygame.mixer.music.stop()
-            self.current_track = None
-        except (NotImplementedError, AttributeError, pygame.error, Exception):
-            pass
+        if self._mixer_initialized:
+            try:
+                pygame.mixer.music.stop()
+                self.current_track = None
+            except (NotImplementedError, AttributeError, pygame.error, Exception):
+                pass
+        if _HAVE_SOUNDDEVICE:
+            try:
+                sd.stop()
+                self.current_track = None
+            except Exception:
+                pass
 
     def pause_music(self) -> None:
         """Pause active background music."""
@@ -186,27 +212,41 @@ class AudioManager:
 
     def play_sfx(self, sfx_name: str, volume: float | None = None) -> bool:
         """Load and play a sound effect with caching."""
-        if not self.enabled or not self._ensure_mixer():
+        if not self.enabled:
             return False
 
-        snd = self._sfx_cache.get(sfx_name.lower())
-        if snd is None:
-            file_path = self.resolve_sound_file(sfx_name)
-            if file_path is None or not file_path.exists():
-                return False
-            try:
-                snd = pygame.mixer.Sound(str(file_path))
-                self._sfx_cache[sfx_name.lower()] = snd
-            except (NotImplementedError, AttributeError, pygame.error, Exception):
-                return False
+        file_path = self.resolve_sound_file(sfx_name)
+        if file_path is None or not file_path.exists():
+            return False
 
         vol = self.sfx_volume if volume is None else max(0.0, min(1.0, volume))
-        try:
-            snd.set_volume(vol)
-            snd.play()
-            return True
-        except (NotImplementedError, AttributeError, pygame.error, Exception):
-            return False
+
+        if self._ensure_mixer():
+            snd = self._sfx_cache.get(sfx_name.lower())
+            if snd is None:
+                try:
+                    snd = pygame.mixer.Sound(str(file_path))
+                    self._sfx_cache[sfx_name.lower()] = snd
+                except (NotImplementedError, AttributeError, pygame.error, Exception):
+                    snd = None
+
+            if snd is not None:
+                try:
+                    snd.set_volume(vol)
+                    snd.play()
+                    return True
+                except (NotImplementedError, AttributeError, pygame.error, Exception):
+                    pass
+
+        if _HAVE_SOUNDDEVICE:
+            try:
+                data, fs = sf.read(str(file_path))
+                sd.play(data * vol, fs)
+                return True
+            except Exception:
+                pass
+
+        return False
 
     def set_sfx_volume(self, volume: float) -> None:
         """Set default sound effect volume between 0.0 and 1.0."""

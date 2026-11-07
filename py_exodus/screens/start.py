@@ -199,9 +199,9 @@ class StartScreen(BaseScreen):
             surface.blit(scaled_bg, (0, 0))
 
         # Title banner
-        title_font = get_hud_font(size=20)
+        title_font = get_hud_font(size=24, font_name="ultima.ttf")
         sub_font = get_hud_font(size=14)
-        info_font = get_hud_font(size=10)
+        info_font = get_hud_font(size=11)
 
         title_surf = title_font.render("ULTIMA III: EXODUS", True, EGA_YELLOW)
         surface.blit(
@@ -233,20 +233,26 @@ class StartScreen(BaseScreen):
         """Begin or resume the adventure in the overworld."""
         party = self.party
         if party is None:
-            # Attempt to load binary or json party, fallback to default
+            # Check JSON save first, then binary save
             try:
                 from py_exodus.save_system import SaveSystem
 
-                save_p = Path("assets/data/party.ult")
-                if not save_p.exists():
-                    save_p = Path("src/main/resources/assets/data/party.ult")
-                if save_p.exists():
-                    party = SaveSystem.load_binary_party(save_p)
+                json_p = Path("saves/party.json")
+                if json_p.exists():
+                    party = SaveSystem.load_game(json_p)
+                else:
+                    save_p = Path("assets/data/party.ult")
+                    if not save_p.exists():
+                        save_p = Path("src/main/resources/assets/data/party.ult")
+                    if save_p.exists():
+                        party = SaveSystem.load_binary_party(save_p)
             except Exception:
                 party = None
 
         if party is None or not party.members:
-            party = create_default_starter_party()
+            # No saved party exists: open Roster to form party
+            self._new_game()
+            return
 
         self.party = party
 
@@ -266,9 +272,21 @@ class StartScreen(BaseScreen):
             self.is_finished = True
 
     def _new_game(self) -> None:
-        """Create fresh party and begin journey."""
-        self.party = create_default_starter_party()
-        self._start_journey()
+        """Open Roster and Party formation screen to select and assemble party."""
+        from py_exodus.screens.roster_screen import RosterScreen
+
+        roster_scr = RosterScreen(
+            party=self.party,
+            asset_mgr=self.asset_mgr,
+            audio=self.audio,
+            return_screen=self,
+            manager=self.manager,
+        )
+        if self.manager is not None:
+            self.manager.push_screen(roster_scr)
+        else:
+            self.next_screen = roster_scr
+            self.is_finished = True
 
     def _open_book(self) -> None:
         """Open spellbook reference manual screen."""
