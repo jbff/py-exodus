@@ -10,8 +10,7 @@ from py_exodus.constants import Direction, Status, TileAttrib
 
 if TYPE_CHECKING:
     from py_exodus.entities.character import Character
-    from py_exodus.entities.defs import ArmorDef, CreatureDef, WeaponDef
-    from py_exodus.entities.party import PartyMember
+    from py_exodus.entities.defs import ArmorDef, WeaponDef
     from py_exodus.world.map import ConflictMap
 
 
@@ -253,25 +252,26 @@ def resolve_monster_attack(
     if killed:
         char.status = Status.DEAD
 
-    # Special creature on-hit effects
+    # Special creature on-hit effects (only if target survived)
     poisoned = False
     stolen_food = 0
     stolen_gold = 0
 
-    # Poison check
-    if getattr(monster, "poisons", False) or (is_ranged and getattr(monster, "ranged_hit_tile", "") == "poison"):
-        if char.status != Status.POISONED and random.randint(0, 1) == 0:
-            char.status = Status.POISONED
-            poisoned = True
+    if not killed:
+        # Poison check
+        if getattr(monster, "poisons", False) or (is_ranged and getattr(monster, "ranged_hit_tile", "") == "poison"):
+            if char.status != Status.POISONED and random.randint(0, 1) == 0:
+                char.status = Status.POISONED
+                poisoned = True
 
-    # Steal effects
-    steals = getattr(monster, "steals", None)
-    if steals == "food" and random.randint(0, 7) == 0:
-        stolen_food = random.randint(1, 10)
-        char.food = max(0, char.food - stolen_food)
-    elif steals == "gold" and random.randint(0, 7) == 0:
-        stolen_gold = random.randint(1, 40)
-        char.gold = max(0, char.gold - stolen_gold)
+        # Steal effects
+        steals = getattr(monster, "steals", None)
+        if steals == "food" and random.randint(0, 7) == 0:
+            stolen_food = random.randint(1, 10)
+            char.food = max(0, char.food - stolen_food)
+        elif steals == "gold" and random.randint(0, 7) == 0:
+            stolen_gold = random.randint(1, 40)
+            char.gold = max(0, char.gold - stolen_gold)
 
     msg = f"{monster.name} struck {char.name} for {damage} dmg."
     if killed:

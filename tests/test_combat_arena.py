@@ -2,33 +2,26 @@
 import pytest
 from py_exodus.assets import AssetManager
 from py_exodus.world.loader import MapLoader
-from py_exodus.world.map import ConflictMap
-from py_exodus.entities.party import Party, PartyMember
+from py_exodus.entities.party import Party
 from py_exodus.entities.character import Character
 from py_exodus.constants import (
-    ArmorType,
     Direction,
     Profession,
     Race,
     Status,
-    TileAttrib,
     Transport,
     WeaponType,
 )
 from py_exodus.combat.arena import (
     Action,
-    ActionType,
     CombatArena,
     CombatMonster,
 )
 from py_exodus.combat.resolver import (
-    AttackResult,
     calculate_monster_damage,
     calculate_player_damage,
     resolve_monster_attack,
-    resolve_player_attack,
     roll_hit,
-    trace_projectile_path,
 )
 
 
@@ -336,3 +329,29 @@ def test_combat_resolver_calculations(asset_mgr):
     # Monster damage formula
     m_dmg = calculate_monster_damage(basehp=48)
     assert m_dmg >= 1
+
+
+def test_poisonous_monster_fatal_blow_preserves_dead_status(asset_mgr):
+    # Verify that fatal damage from a poisonous monster leaves character DEAD, not POISONED
+    m_def = asset_mgr.get_creature("snake")
+    if m_def is None:
+        from py_exodus.entities.defs import CreatureDef
+        m_def = CreatureDef(id=99, name="Viper", tile="snake", basehp=48, poisons=True)
+    else:
+        m_def.poisons = True
+
+    monster = CombatMonster(m_def, x=5, y=5)
+    char = Character("Hero", "M", Race.HUMAN, Profession.FIGHTER, hp=1, status=Status.GOOD)
+
+    # Over 20 trials, every lethal hit must result in Status.DEAD and never Status.POISONED
+    for _ in range(20):
+        char.hp = 1
+        char.status = Status.GOOD
+        res = resolve_monster_attack(monster=monster, target_player=char)
+        if res.hit:
+            assert res.killed
+            assert char.hp == 0
+            assert char.status == Status.DEAD
+            assert char.status != Status.POISONED
+            assert not res.poisoned
+

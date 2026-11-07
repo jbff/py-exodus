@@ -1,7 +1,7 @@
 """11x11 Tactical Combat Arena, turn sequencing, monster AI, and victory/defeat management."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 import random
 from typing import TYPE_CHECKING, Any
@@ -17,8 +17,6 @@ from py_exodus.constants import (
 from py_exodus.combat.resolver import (
     AttackResolution,
     AttackResult,
-    calculate_monster_damage,
-    calculate_player_damage,
     resolve_monster_attack,
     resolve_player_attack,
     trace_projectile_path,
@@ -27,8 +25,6 @@ from py_exodus.entities.defs import CreatureDef
 
 if TYPE_CHECKING:
     from py_exodus.assets import AssetManager
-    from py_exodus.constants import Spell
-    from py_exodus.entities.character import Character
     from py_exodus.entities.party import Party, PartyMember
     from py_exodus.world.map import ConflictMap
 
@@ -453,7 +449,7 @@ class CombatArena:
 
         is_ranged = weapon_def is not None and weapon_def.range > 1
 
-        if is_ranged:
+        if is_ranged and weapon_def is not None:
             # Trace projectile path
             max_range = weapon_def.range
             attack_through = weapon_def.attack_through_objects
