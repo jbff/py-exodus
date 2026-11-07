@@ -244,7 +244,7 @@ class TextLog:
                     0,
                     int(150 * scale),
                     int(176 * scale),
-                    int((h - 150) * scale),
+                    h - int(150 * scale),
                 )
         else:
             target_rect = pygame.Rect(rect)
