@@ -1,6 +1,7 @@
 """Ambrosia Shrine Screen for py-exodus."""
 from __future__ import annotations
 
+import textwrap
 from typing import TYPE_CHECKING, Any
 
 import pygame
@@ -178,7 +179,6 @@ class ShrineScreen(BaseScreen):
     def render(self, surface: pygame.Surface) -> None:
         """Draw the 11x11 shrine chamber, altar, avatar, and HUD prompt."""
         width = surface.get_width()
-        height = surface.get_height()
 
         # Background fill
         surface.fill(EGA_BLACK)
@@ -194,7 +194,7 @@ class ShrineScreen(BaseScreen):
             from py_exodus.ui.renderer import WorldRenderer
 
             renderer = WorldRenderer(self.asset_mgr)
-            renderer.render(
+            renderer.render_viewport(
                 surface=surface,
                 game_map=self.game_map,
                 center_x=5,
@@ -224,31 +224,41 @@ class ShrineScreen(BaseScreen):
             )
             pygame.draw.rect(surface, EGA_BRIGHT_CYAN, avatar_rect)
 
-        # Title bar
-        title_surf = font.render(f"AMBROSIA SHRINE OF {self.stat_display.upper()}", True, EGA_YELLOW)
-        surface.blit(title_surf, (viewport_rect.right + 16, 12))
+        # Right Column HUD (x = viewport_rect.right + 12 .. width - 8)
+        col_x = viewport_rect.right + 12
+
+        # Title
+        title_surf = small_font.render("SHRINE OF", True, EGA_YELLOW)
+        surface.blit(title_surf, (col_x, 8))
+        stat_surf = font.render(self.stat_display.upper()[:10], True, EGA_YELLOW)
+        surface.blit(stat_surf, (col_x, 20))
 
         # Party gold
-        gold_surf = font.render(f"PARTY GOLD: {self.party.gold}", True, EGA_WHITE)
-        surface.blit(gold_surf, (viewport_rect.right + 16, 36))
+        gold_surf = small_font.render(f"GOLD: {self.party.gold}", True, EGA_WHITE)
+        surface.blit(gold_surf, (col_x, 38))
 
         # Member list & current stat
-        y_offset = 64
+        y_offset = 52
         for i, m in enumerate(self.party.members):
             cur = getattr(m, self.stat_attr)
             cap = getattr(m.race, self.stat_cap_attr)
             color = EGA_BRIGHT_GREEN if i == self.selected_member_idx else EGA_WHITE
-            line = f"{i + 1}: {m.name:<8} {self.stat_display[:3].upper()}: {cur}/{cap}"
+            line = f"{i + 1}:{m.name[:5]} {cur}/{cap}"
             text_surf = small_font.render(line, True, color)
-            surface.blit(text_surf, (viewport_rect.right + 16, y_offset))
-            y_offset += 18
+            surface.blit(text_surf, (col_x, y_offset))
+            y_offset += 13
 
-        # Message Log Area at bottom
-        log_y = height - 60
-        pygame.draw.line(surface, EGA_DARK_GRAY, (8, log_y - 6), (width - 8, log_y - 6))
+        # Divider between party stats and message log in the right column
+        pygame.draw.line(surface, EGA_DARK_GRAY, (col_x - 4, 108), (width - 8, 108))
 
-        recent_msgs = self.log_messages[-3:]
-        for msg in recent_msgs:
-            msg_surf = small_font.render(msg, True, EGA_BRIGHT_CYAN)
-            surface.blit(msg_surf, (12, log_y))
-            log_y += 16
+        # Message Log and Prompts in right column (leaving 176x176 viewport unobstructed)
+        lines: list[str] = []
+        for msg in self.log_messages[-3:]:
+            wrapped = textwrap.wrap(msg, width=17) or [msg]
+            lines.extend(wrapped)
+
+        log_y = 114
+        for line in lines[-5:]:
+            msg_surf = small_font.render(line, True, EGA_BRIGHT_CYAN)
+            surface.blit(msg_surf, (col_x, log_y))
+            log_y += 14

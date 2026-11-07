@@ -90,7 +90,7 @@ class FinalScreen(BaseScreen):
             return "moons"
         return c
 
-    def insert_card(self, card_name: str, member_idx: int = 0) -> bool:
+    def insert_card(self, card_name: str, member_idx: int | None = None) -> bool:
         """Attempt to insert a card into the next panel of Exodus.
 
         Checks sequence: Love -> Sol -> Moons -> Death.
@@ -101,15 +101,32 @@ class FinalScreen(BaseScreen):
 
         # Verify party member ownership if party is provided
         member = None
-        if self.party and 0 <= member_idx < len(self.party.members):
-            member = self.party.get_member(member_idx)
-            char = getattr(member, "player", member)
-            if (
-                card_idx is not None
-                and hasattr(char, "cards")
-                and card_idx < len(char.cards)
-                and char.cards[card_idx] <= 0
-            ):
+        if self.party and self.party.members:
+            if member_idx is not None:
+                if 0 <= member_idx < len(self.party.members):
+                    candidate = self.party.get_member(member_idx)
+                    char = getattr(candidate, "player", candidate)
+                    if (
+                        card_idx is not None
+                        and hasattr(char, "cards")
+                        and card_idx < len(char.cards)
+                        and char.cards[card_idx] > 0
+                    ):
+                        member = candidate
+            else:
+                # Search all members for whoever carries this card
+                for candidate in self.party.members:
+                    char = getattr(candidate, "player", candidate)
+                    if (
+                        card_idx is not None
+                        and hasattr(char, "cards")
+                        and card_idx < len(char.cards)
+                        and char.cards[card_idx] > 0
+                    ):
+                        member = candidate
+                        break
+
+            if member is None:
                 msg = f"None owned! You do not have the Card of {c_norm.capitalize()}."
                 self.last_message = msg
                 self.log_messages.append(msg)
@@ -129,7 +146,7 @@ class FinalScreen(BaseScreen):
             # Consume card from member inventory
             if member is not None and card_idx is not None:
                 char = getattr(member, "player", member)
-                if card_idx < len(char.cards):
+                if hasattr(char, "cards") and card_idx < len(char.cards):
                     char.cards[card_idx] = max(0, char.cards[card_idx] - 1)
 
             msg = f"The Card of {c_norm.capitalize()} clicks into panel {next_step + 1}!"
@@ -147,8 +164,9 @@ class FinalScreen(BaseScreen):
             self.last_message = msg
             self.log_messages.append(msg)
 
-            if member is not None:
-                char = getattr(member, "player", member)
+            target_m = member or (self.party.get_member(0) if self.party and self.party.members else None)
+            if target_m is not None:
+                char = getattr(target_m, "player", target_m)
                 char.hp = max(0, char.hp - 50)
 
             return False
@@ -306,6 +324,7 @@ class FinalScreen(BaseScreen):
             skip_surf = small_font.render("[SPACE / ESC] Continue", True, EGA_DARK_GRAY)
             target_surf.blit(skip_surf, (width // 2 - skip_surf.get_width() // 2, height - 16))
 
-        # Blit target surface with shake offset
+        # Blit target surface with shake offset onto a cleared display surface
+        surface.fill(EGA_BLACK)
         ox, oy = self.shake_offset
         surface.blit(target_surf, (ox, oy))

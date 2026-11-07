@@ -69,25 +69,25 @@ class BookScreen(BaseScreen):
 
         if event.key in (pygame.K_ESCAPE, pygame.K_q):
             self.exit_screen()
-        elif event.key in (pygame.K_TAB, pygame.K_LEFT, pygame.K_RIGHT):
+        elif event.key == pygame.K_TAB:
             self.switch_book()
         elif event.key == pygame.K_w:
             self.switch_book("wizard")
         elif event.key == pygame.K_c:
             self.switch_book("cleric")
-        elif event.key in (pygame.K_DOWN, pygame.K_PAGEUP):
-            self.scroll_index = min(len(self.get_spells()) - 1, self.scroll_index + 1)
-        elif event.key in (pygame.K_UP, pygame.K_PAGEDOWN):
-            self.scroll_index = max(0, self.scroll_index - 1)
+        elif event.key in (pygame.K_DOWN, pygame.K_PAGEDOWN, pygame.K_RIGHT):
+            self.scroll_index = 8
+        elif event.key in (pygame.K_UP, pygame.K_PAGEUP, pygame.K_LEFT):
+            self.scroll_index = 0
         elif event.key in (pygame.K_SPACE, pygame.K_RETURN):
-            # Toggle between first 8 (A-H) and second 8 (I-P)
-            self.scroll_index = 8 if self.scroll_index == 0 else 0
+            # Toggle between page 1 (A-H) and page 2 (I-P)
+            self.scroll_index = 8 if self.scroll_index < 8 else 0
 
     def update(self, dt: float) -> None:
         """Advance time-based animations if needed."""
 
     def render(self, surface: pygame.Surface) -> None:
-        """Draw the spellbook pages, title banner, spell entries, and navigation footer."""
+        """Draw paginated spellbook, title banner, spell entries, and navigation footer."""
         width = surface.get_width()
         height = surface.get_height()
 
@@ -112,45 +112,40 @@ class BookScreen(BaseScreen):
             title_color = EGA_YELLOW
 
         title_surf = font.render(title, True, title_color)
-        surface.blit(title_surf, (outer_rect.centerx - title_surf.get_width() // 2, 14))
+        surface.blit(title_surf, (outer_rect.centerx - title_surf.get_width() // 2, 10))
 
         prompt_surf = small_font.render(tab_prompt, True, EGA_LIGHT_GRAY)
-        surface.blit(prompt_surf, (outer_rect.centerx - prompt_surf.get_width() // 2, 34))
+        surface.blit(prompt_surf, (outer_rect.centerx - prompt_surf.get_width() // 2, 26))
+
+        # Paginated spells (items_per_page = 8: Page 1 for A-H, Page 2 for I-P)
+        spells = self.get_spells()
+        page = 0 if self.scroll_index < 8 else 1
+        start_idx = page * self.items_per_page
+        page_spells = spells[start_idx : start_idx + self.items_per_page]
+
+        page_info = f"PAGE {page + 1} OF 2  (Spells {page_spells[0].code} - {page_spells[-1].code})"
+        page_surf = small_font.render(page_info, True, EGA_YELLOW)
+        surface.blit(page_surf, (outer_rect.centerx - page_surf.get_width() // 2, 38))
 
         pygame.draw.line(surface, EGA_DARK_GRAY, (16, 50), (width - 16, 50))
 
-        # Render 16 spells in 2 columns of 8 or scrolling view
-        spells = self.get_spells()
-        y_start = 58
-        line_height = 16
+        # Render 8 spells for current page with comfortable vertical spacing
+        y_start = 54
+        spacing = max(15, (height - 84) // self.items_per_page)
 
-        # Column 1: A to H (indices 0 to 7)
-        for i in range(8):
-            if i < len(spells):
-                s = spells[i]
-                y = y_start + i * line_height
-                code_text = f"{s.code}: {s.name:<11} ({s.mp_cost:>2} MP)"
-                s_surf = small_font.render(code_text, True, EGA_WHITE)
-                surface.blit(s_surf, (20, y))
+        for i, s in enumerate(page_spells):
+            y = y_start + i * spacing
+            code_text = f"{s.code}: {s.name:<11} ({s.mp_cost:>2} MP)"
+            s_surf = small_font.render(code_text, True, EGA_WHITE)
+            surface.blit(s_surf, (20, y))
 
-                desc_surf = small_font.render(f"- {s.desc[:26]}", True, EGA_LIGHT_GRAY)
-                surface.blit(desc_surf, (20, y + 8))
-
-        # Column 2: I to P (indices 8 to 15)
-        for i in range(8, 16):
-            if i < len(spells):
-                s = spells[i]
-                y = y_start + (i - 8) * line_height
-                code_text = f"{s.code}: {s.name:<11} ({s.mp_cost:>2} MP)"
-                s_surf = small_font.render(code_text, True, EGA_WHITE)
-                surface.blit(s_surf, (outer_rect.centerx + 8, y))
-
-                desc_surf = small_font.render(f"- {s.desc[:26]}", True, EGA_LIGHT_GRAY)
-                surface.blit(desc_surf, (outer_rect.centerx + 8, y + 8))
+            desc_text = f"- {s.desc}"
+            desc_surf = small_font.render(desc_text, True, EGA_LIGHT_GRAY)
+            surface.blit(desc_surf, (140, y))
 
         # Footer
-        footer_y = height - 26
+        footer_y = height - 20
         pygame.draw.line(surface, EGA_DARK_GRAY, (16, footer_y - 4), (width - 16, footer_y - 4))
-        footer_text = "[TAB] Switch Book    [ESC / Q] Close"
+        footer_text = "[UP/DOWN/SPACE] Turn Page   [TAB] Switch Book   [ESC] Close"
         foot_surf = small_font.render(footer_text, True, EGA_BRIGHT_GREEN)
         surface.blit(foot_surf, (outer_rect.centerx - foot_surf.get_width() // 2, footer_y))

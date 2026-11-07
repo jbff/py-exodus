@@ -2,6 +2,7 @@
 import pygame
 import pytest
 
+from py_exodus.assets import AssetManager
 from py_exodus.constants import Profession, Race
 from py_exodus.entities.character import Character
 from py_exodus.entities.party import Party
@@ -267,3 +268,63 @@ def test_base_screen_interface():
     surf = pygame.Surface((10, 10))
     scr.render(surf)
     scr.handle_event(pygame.event.Event(pygame.NOEVENT))
+
+
+def test_shrine_render_with_asset_manager():
+    """Verify ShrineScreen.render() uses render_viewport() and does not crash with real AssetManager."""
+    am = AssetManager(assets_dir="src/main/resources/assets")
+    am.load_tiles()
+    am.load_xml_definitions()
+
+    p = Party()
+    c = Character("Hero", "M", Race.HUMAN, Profession.FIGHTER)
+    p.add_member(c)
+    p.gold = 500
+
+    scr = ShrineScreen(party=p, stat_name="strength", return_screen=None, asset_mgr=am)
+    assert scr.game_map is not None
+
+    surface = pygame.Surface((320, 200))
+    scr.render(surface)
+
+
+def test_book_screen_pagination():
+    """Verify BookScreen paginates 8 spells per page without overlap."""
+    scr = BookScreen(return_screen=None)
+    surface = pygame.Surface((320, 200))
+
+    # Page 1 (spells A-H)
+    assert scr.scroll_index == 0
+    scr.render(surface)
+
+    # Turn to page 2 (spells I-P)
+    event_down = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_DOWN)
+    scr.handle_event(event_down)
+    assert scr.scroll_index == 8
+    scr.render(surface)
+
+    # Space toggles back to page 1
+    event_space = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_SPACE)
+    scr.handle_event(event_space)
+    assert scr.scroll_index == 0
+
+
+def test_final_screen_card_from_any_party_member():
+    """Verify any party member carrying a card can insert it via key event."""
+    p = Party()
+    c1 = Character("Fighter", "M", Race.HUMAN, Profession.FIGHTER)
+    c2 = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC)
+    # c1 has no cards, c2 has the Love card
+    c1.cards = [0, 0, 0, 0]
+    c2.cards = [1, 0, 0, 0]
+    p.add_member(c1)
+    p.add_member(c2)
+
+    scr = FinalScreen(party=p, return_screen=None)
+    # Press 'L' to insert Love card without selecting a member
+    event_l = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_l)
+    scr.handle_event(event_l)
+
+    assert scr.panels_inserted == ["love"]
+    assert c2.cards[0] == 0  # Consumed from c2
+
