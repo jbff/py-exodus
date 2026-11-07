@@ -7,8 +7,6 @@ import pygame
 
 from py_exodus.combat.arena import Action, ActionType, CombatArena
 from py_exodus.constants import (
-    BASE_HEIGHT,
-    BASE_WIDTH,
     COMBAT_HEIGHT,
     COMBAT_WIDTH,
     TILE_SIZE,
@@ -25,7 +23,6 @@ from py_exodus.ui.text_log import (
     EGA_BRIGHT_GREEN,
     EGA_BRIGHT_RED,
     EGA_DARK_GRAY,
-    EGA_LIGHT_GRAY,
     EGA_WHITE,
     EGA_YELLOW,
     TextLog,
@@ -111,7 +108,10 @@ class CombatScreen(BaseScreen):
         # If combat is finished, any key acknowledges and exits
         if self.arena.is_finished:
             if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE, pygame.K_ESCAPE):
-                self.exit_screen()
+                if self.arena.is_defeat:
+                    self._handle_defeat_exit()
+                else:
+                    self.exit_screen()
             return
 
         # Standard combat keys
@@ -175,7 +175,7 @@ class CombatScreen(BaseScreen):
 
     def _execute_action(self, action: Action) -> None:
         """Execute action in CombatArena, update audio, and sync logs."""
-        result = self.arena.execute_turn(action)
+        self.arena.execute_turn(action)
 
         # Sync arena log messages to HUD
         for msg in self.arena.log_messages:
@@ -204,6 +204,48 @@ class CombatScreen(BaseScreen):
             elif self.arena.is_fled:
                 self.text_log.add_message("Escaped from combat!")
                 self.exit_screen()
+
+    def _handle_defeat_exit(self) -> None:
+        """Handle wipeout defeat: warp party to Castle British, revive, and transition to TownScreen."""
+        self.party.map_id = 1
+        self.party.x = 32
+        self.party.y = 61
+        self.party.revive_all()
+
+        from py_exodus.screens.overworld import OverworldScreen
+        from py_exodus.screens.town import TownScreen
+
+        ow_screen = self.return_screen
+        if isinstance(ow_screen, TownScreen) and isinstance(ow_screen.return_screen, OverworldScreen):
+            ow_screen = ow_screen.return_screen
+
+        if not isinstance(ow_screen, OverworldScreen):
+            ow_screen = OverworldScreen(
+                party=self.party,
+                map_id=0,
+                asset_mgr=self.asset_mgr,
+                audio=self.audio,
+                start_x=45,
+                start_y=18,
+                manager=self.manager,
+            )
+
+        castle_screen = TownScreen(
+            party=self.party,
+            map_id=1,
+            asset_mgr=self.asset_mgr,
+            audio=self.audio,
+            return_screen=ow_screen,
+            start_x=32,
+            start_y=61,
+            manager=self.manager,
+        )
+
+        self.is_finished = True
+        self.is_active = False
+        self.next_screen = castle_screen
+        if self.manager is not None:
+            self.manager.set_screen(castle_screen)
 
     def update(self, dt: float) -> None:
         pass

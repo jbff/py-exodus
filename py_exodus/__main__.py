@@ -13,8 +13,6 @@ from py_exodus.constants import (
     BASE_HEIGHT,
     BASE_WIDTH,
     SCALE,
-    SCREEN_HEIGHT,
-    SCREEN_WIDTH,
 )
 from py_exodus.state_machine import StateMachine
 

@@ -19,6 +19,7 @@ from py_exodus.constants import (
     Profession,
     Race,
     Sex,
+    Status,
     Transport,
     WeaponType,
 )
@@ -566,3 +567,142 @@ def test_game_app_loop(pygame_setup):
     app.run(max_frames=3)
     assert not app.running or app.state_machine.current_screen is not None
     app.cleanup()
+
+
+# --- Wipeout Respawn & Lord British Resurrection Tests ---
+
+
+def test_combat_screen_defeat_respawns_at_castle_british(pygame_setup, asset_mgr, sample_party):
+    from py_exodus.world.loader import MapLoader
+
+    loader = MapLoader(asset_mgr)
+    c_map = loader.load_conflict_map("CNFLCT_B.ULT")
+
+    combat = CombatScreen(
+        party=sample_party,
+        combat_map=c_map,
+        creature_tile="orc",
+        asset_mgr=asset_mgr,
+    )
+
+    # Simulate party wipeout
+    combat.party.kill_all()
+    combat.arena.is_defeat = True
+    combat.arena.is_finished = True
+
+    assert combat.party.is_party_dead()
+
+    # Press Enter / Space after defeat message
+    combat.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RETURN))
+
+    assert combat.is_finished
+    assert isinstance(combat.next_screen, TownScreen)
+    assert combat.next_screen.map_id == 1
+    assert combat.party.map_id == 1
+    assert combat.party.x == 32
+    assert combat.party.y == 61
+    assert combat.party.is_anyone_alive()
+    assert all(m.status == Status.GOOD for m in combat.party.members)
+
+
+def test_combat_screen_defeat_via_state_machine_transition(pygame_setup, asset_mgr, sample_party):
+    from py_exodus.world.loader import MapLoader
+
+    sm = StateMachine(asset_mgr)
+    loader = MapLoader(asset_mgr)
+    c_map = loader.load_conflict_map("CNFLCT_B.ULT")
+
+    # Start with overworld screen
+    ow = OverworldScreen(party=sample_party, map_id=0, asset_mgr=asset_mgr, manager=sm)
+    sm.set_screen(ow)
+
+    combat = CombatScreen(
+        party=sample_party,
+        combat_map=c_map,
+        creature_tile="orc",
+        asset_mgr=asset_mgr,
+        return_screen=ow,
+        manager=sm,
+    )
+    sm.push_screen(combat)
+    assert sm.current_screen is combat
+
+    # Simulate defeat
+    combat.party.kill_all()
+    combat.arena.is_defeat = True
+    combat.arena.is_finished = True
+
+    # User presses Space
+    sm.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_SPACE))
+
+    # Active screen in state machine must now be Castle British TownScreen
+    assert isinstance(sm.current_screen, TownScreen)
+    assert sm.current_screen.map_id == 1
+    assert sample_party.map_id == 1
+    assert sample_party.x == 32
+    assert sample_party.y == 61
+    assert sample_party.is_anyone_alive()
+
+
+def test_lord_british_revives_dead_and_ashes_members(pygame_setup, asset_mgr, sample_party):
+    # Member 0: Dead, Member 1: Ashes, Member 2: Good
+    sample_party.members[0].status = Status.DEAD
+    sample_party.members[0].hp = 0
+    sample_party.members[1].status = Status.ASHES
+    sample_party.members[1].hp = 0
+    sample_party.members[2].status = Status.GOOD
+
+    town = TownScreen(
+        party=sample_party,
+        map_id=1,
+        asset_mgr=asset_mgr,
+    )
+
+    town._interact_lord_british()
+
+    # Members 0 and 1 must be resurrected to GOOD status with full hp
+    assert sample_party.members[0].status == Status.GOOD
+    assert sample_party.members[0].hp == sample_party.members[0].max_hp
+    assert sample_party.members[1].status == Status.GOOD
+    assert sample_party.members[1].hp == sample_party.members[1].max_hp
+    assert "Lord British says: 'Thou art resurrected!'" in " ".join(town.text_log.history)
+
+
+def test_lord_british_revives_and_advances_eligible_member(pygame_setup, asset_mgr, sample_party):
+    # Member has enough EXP to advance from level 1 to level 2, but is dead
+    sample_party.members[0].status = Status.DEAD
+    sample_party.members[0].hp = 0
+    sample_party.members[0].level = 1
+    sample_party.members[0].exp = 150  # Eligible for level 2
+
+    town = TownScreen(
+        party=sample_party,
+        map_id=1,
+        asset_mgr=asset_mgr,
+    )
+
+    town._interact_lord_british()
+
+    # Must be resurrected AND advanced
+    assert sample_party.members[0].status == Status.GOOD
+    assert sample_party.members[0].level == 2
+    assert "Lord British says: 'Thou art resurrected!'" in " ".join(town.text_log.history)
+    assert any("Thou hast been advanced!" in msg for msg in town.text_log.history)
+
+
+def test_town_screen_exit_resets_map_id_from_castle_british(pygame_setup, asset_mgr, sample_party):
+    sample_party.map_id = 1
+    sample_party.x = 32
+    sample_party.y = 61
+
+    town = TownScreen(
+        party=sample_party,
+        map_id=1,
+        asset_mgr=asset_mgr,
+    )
+
+    town._exit_town()
+
+    assert sample_party.map_id == 0
+    assert sample_party.x == 45
+    assert sample_party.y == 18

@@ -6,10 +6,8 @@ from typing import TYPE_CHECKING, Any
 import pygame
 
 from py_exodus.constants import (
-    BASE_HEIGHT,
-    BASE_WIDTH,
-    TILE_SIZE,
     Direction,
+    Status,
     TileAttrib,
     Transport,
 )
@@ -18,21 +16,13 @@ from py_exodus.ui.renderer import WorldRenderer, can_move_to
 from py_exodus.ui.stats_panel import StatsPanel
 from py_exodus.ui.text_log import (
     EGA_BLACK,
-    EGA_BRIGHT_CYAN,
-    EGA_BRIGHT_GREEN,
-    EGA_BRIGHT_RED,
-    EGA_DARK_GRAY,
-    EGA_LIGHT_GRAY,
-    EGA_WHITE,
-    EGA_YELLOW,
     TextLog,
-    get_hud_font,
 )
 
 if TYPE_CHECKING:
     from py_exodus.assets import AssetManager
     from py_exodus.audio import AudioManager
-    from py_exodus.entities.defs import VendorDef, VendorItemDef
+    from py_exodus.entities.defs import VendorDef
     from py_exodus.entities.party import Party
     from py_exodus.world.map import GameMap, MapNpc
 
@@ -153,6 +143,10 @@ class TownScreen(BaseScreen):
 
     def _exit_town(self) -> None:
         self.text_log.add_message("Leaving city...")
+        if self.party.map_id == 1 or str(self.map_id) in ("1", "british", "castle"):
+            self.party.map_id = 0
+            self.party.x = 45
+            self.party.y = 18
         self.exit_screen()
 
     def _prompt_talk(self) -> None:
@@ -217,6 +211,18 @@ class TownScreen(BaseScreen):
 
     def _interact_lord_british(self) -> None:
         """Handle Lord British character level advancements and resurrection."""
+        revived_any = False
+        for pm in self.party.members:
+            if pm.status in (Status.DEAD, Status.ASHES):
+                pm.status = Status.GOOD
+                pm.hp = pm.max_hp
+                revived_any = True
+
+        if revived_any:
+            self.text_log.add_message("Lord British says: 'Thou art resurrected!'")
+            if self.audio is not None:
+                self.audio.play_sfx("magic")
+
         advanced_any = False
         for member in self.party.members:
             char = member.character
@@ -227,7 +233,7 @@ class TownScreen(BaseScreen):
             self.text_log.add_message("Lord British says:\n'Thou hast been advanced!'")
             if self.audio is not None:
                 self.audio.play_sfx("magic")
-        else:
+        elif not revived_any:
             self.text_log.add_message("Lord British says:\n'Welcome my child..\nExperience more!'")
 
     def _start_vendor_shopping(self, vendor: VendorDef) -> None:
