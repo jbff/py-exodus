@@ -16,9 +16,13 @@ class CaseInsensitiveDict(dict):
         self.update(*args, **kwargs)
 
     def __setitem__(self, key: Any, value: Any) -> None:
-        super().__setitem__(key, value)
         if isinstance(key, str):
-            self._lower_map[key.lower()] = key
+            lower_k = key.lower()
+            old_key = self._lower_map.get(lower_k)
+            if old_key is not None and old_key != key:
+                super().__delitem__(old_key)
+            self._lower_map[lower_k] = key
+        super().__setitem__(key, value)
 
     def __getitem__(self, key: Any) -> Any:
         if isinstance(key, str):
@@ -46,6 +50,29 @@ class CaseInsensitiveDict(dict):
                 super().__delitem__(mapped)
                 return
         super().__delitem__(key)
+
+    def clear(self) -> None:
+        super().clear()
+        self._lower_map.clear()
+
+    def pop(self, key: Any, *default: Any) -> Any:
+        if isinstance(key, str):
+            mapped = self._lower_map.pop(key.lower(), None)
+            if mapped is not None:
+                return super().pop(mapped, *default)
+        return super().pop(key, *default)
+
+    def popitem(self) -> tuple[Any, Any]:
+        k, v = super().popitem()
+        if isinstance(k, str):
+            self._lower_map.pop(k.lower(), None)
+        return k, v
+
+    def setdefault(self, key: Any, default: Any = None) -> Any:
+        if key in self:
+            return self[key]
+        self[key] = default
+        return default
 
     def update(self, *args, **kwargs) -> None:
         for k, v in dict(*args, **kwargs).items():

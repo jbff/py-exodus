@@ -1,6 +1,7 @@
 """Tests for XML rules, entity definitions, and AssetManager XML ingestion."""
 from py_exodus.assets import AssetManager
 from py_exodus.constants import Profession
+from py_exodus.entities.defs import CaseInsensitiveDict
 
 
 def test_xml_entity_loading():
@@ -181,6 +182,8 @@ def test_helper_getters_and_query_methods():
 
     # Map getters by ID, name, and filename
     assert am.get_map_def(0) is not None
+    assert am.get_map_def("0") is not None
+    assert am.get_map_def("14") is not None
     assert am.get_map_def("SOSARIA") is not None
     assert am.get_map_def("sosaria.ult") is not None
     assert am.get_map_def("sosaria") is not None
@@ -194,11 +197,18 @@ def test_helper_getters_and_query_methods():
     assert winston_by_num is not None
     assert winston_by_num.owner == "Winston"
 
+    winston_by_str_num = am.get_vendor("11", 27, 17)
+    assert winston_by_str_num is not None
+    assert winston_by_str_num.owner == "Winston"
+
     dawn_vendors = am.get_vendors_for_map("DAWN")
     assert len(dawn_vendors) >= 5
 
     dawn_vendors_by_num = am.get_vendors_for_map(11)
     assert len(dawn_vendors_by_num) >= 5
+
+    dawn_vendors_by_str_num = am.get_vendors_for_map("11")
+    assert len(dawn_vendors_by_str_num) >= 5
 
 
 def test_map_def_helper_methods():
@@ -221,4 +231,58 @@ def test_map_def_helper_methods():
     lbls = sosaria.get_labels("EXOTIC_ARMOR")
     assert len(lbls) == 1
     assert lbls[0].x == 79
+
+
+def test_case_insensitive_dict():
+    d = CaseInsensitiveDict()
+
+    # Setting with different casing replaces the existing key cleanly
+    d["Orc"] = 1
+    assert len(d) == 1
+    assert d["orc"] == 1
+    assert d["Orc"] == 1
+    assert "orc" in d
+
+    d["ORC"] = 2
+    assert len(d) == 1
+    assert d["orc"] == 2
+    assert d["ORC"] == 2
+    assert list(d.keys()) == ["ORC"]
+
+    # Pop behavior
+    val = d.pop("orc")
+    assert val == 2
+    assert len(d) == 0
+    assert "orc" not in d
+    assert d.get("orc") is None
+
+    # Pop with default
+    assert d.pop("nonexistent", 42) == 42
+
+    # Setdefault behavior
+    d.setdefault("Dagger", 10)
+    assert d["dagger"] == 10
+    d.setdefault("DAGGER", 20)
+    assert d["dagger"] == 10
+
+    # Popitem behavior
+    k, v = d.popitem()
+    assert k == "Dagger"
+    assert v == 10
+    assert "dagger" not in d
+
+    # Clear behavior
+    d["Skeleton"] = 5
+    d["Dragon"] = 99
+    assert "skeleton" in d
+    assert "dragon" in d
+    assert len(d) == 2
+
+    d.clear()
+    assert len(d) == 0
+    assert "skeleton" not in d
+    assert "dragon" not in d
+    assert d.get("skeleton") is None
+    assert d._lower_map == {}
+
 

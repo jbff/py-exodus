@@ -726,6 +726,25 @@ class AssetManager:
             )
             self.map_defs[map_id] = m_def
 
+    @staticmethod
+    def _parse_vendor_item(elem: ET.Element, fallback_type: str = "") -> VendorItemDef:
+        """Parse a VendorItemDef from an item XML element."""
+        return VendorItemDef(
+            choice=elem.get("choice", ""),
+            item_type=elem.get("type", fallback_type),
+            name=elem.get("name", ""),
+            price=_parse_int(elem.get("price")),
+            quantity=_parse_int(elem.get("quant")),
+            weapon_type=elem.get("weaponType"),
+            armor_type=elem.get("armorType"),
+            heal_type=elem.get("healType"),
+            guild_item_type=elem.get("guildItemType"),
+            description=elem.get("description"),
+            room_x=_parse_int(elem.get("x")),
+            room_y=_parse_int(elem.get("y")),
+            hidden=_parse_bool(elem.get("hidden")),
+        )
+
     def _load_vendor_xml(self, xml_path: Path | None = None) -> None:
         """Parse vendor.xml and populate self.vendors and self.vendor_classes."""
         path = xml_path or self.resolve_path("xml", "vendor.xml")
@@ -742,47 +761,17 @@ class AssetManager:
             class_type = class_elem.get("type", "")
             music = class_elem.get("music", "SHOPPING")
 
-            item_catalog: list[VendorItemDef] = []
-            for i_elem in class_elem.findall("item"):
-                item_catalog.append(
-                    VendorItemDef(
-                        choice=i_elem.get("choice", ""),
-                        item_type=i_elem.get("type", class_type),
-                        name=i_elem.get("name", ""),
-                        price=_parse_int(i_elem.get("price")),
-                        quantity=_parse_int(i_elem.get("quant")),
-                        weapon_type=i_elem.get("weaponType"),
-                        armor_type=i_elem.get("armorType"),
-                        heal_type=i_elem.get("healType"),
-                        guild_item_type=i_elem.get("guildItemType"),
-                        description=i_elem.get("description"),
-                        room_x=_parse_int(i_elem.get("x")),
-                        room_y=_parse_int(i_elem.get("y")),
-                        hidden=_parse_bool(i_elem.get("hidden")),
-                    )
-                )
+            item_catalog: list[VendorItemDef] = [
+                self._parse_vendor_item(i_elem, class_type)
+                for i_elem in class_elem.findall("item")
+            ]
 
             vendor_list: list[VendorDef] = []
             for v_elem in class_elem.findall("vendor"):
-                v_items: list[VendorItemDef] = []
-                for i_elem in v_elem.findall("item"):
-                    v_items.append(
-                        VendorItemDef(
-                            choice=i_elem.get("choice", ""),
-                            item_type=i_elem.get("type", class_type),
-                            name=i_elem.get("name", ""),
-                            price=_parse_int(i_elem.get("price")),
-                            quantity=_parse_int(i_elem.get("quant")),
-                            weapon_type=i_elem.get("weaponType"),
-                            armor_type=i_elem.get("armorType"),
-                            heal_type=i_elem.get("healType"),
-                            guild_item_type=i_elem.get("guildItemType"),
-                            description=i_elem.get("description"),
-                            room_x=_parse_int(i_elem.get("x")),
-                            room_y=_parse_int(i_elem.get("y")),
-                            hidden=_parse_bool(i_elem.get("hidden")),
-                        )
-                    )
+                v_items: list[VendorItemDef] = [
+                    self._parse_vendor_item(i_elem, class_type)
+                    for i_elem in v_elem.findall("item")
+                ]
 
                 if not v_items and item_catalog:
                     v_items = list(item_catalog)
@@ -843,6 +832,8 @@ class AssetManager:
             self.load_xml_definitions()
         if isinstance(id_or_name, int):
             return self.map_defs.get(id_or_name)
+        if isinstance(id_or_name, str) and id_or_name.isdigit():
+            return self.map_defs.get(int(id_or_name))
         query = str(id_or_name).strip().lower()
         if query.upper() in MAP_NAME_TO_ID:
             return self.map_defs.get(MAP_NAME_TO_ID[query.upper()])
@@ -855,10 +846,11 @@ class AssetManager:
         """Find vendor by map id/name and starting coordinates."""
         if not self.vendors:
             self.load_xml_definitions()
+        mid = int(map_id) if isinstance(map_id, str) and map_id.isdigit() else map_id
         map_str = (
-            MAP_ID_TO_NAME.get(map_id, str(map_id))
-            if isinstance(map_id, int)
-            else str(map_id)
+            MAP_ID_TO_NAME.get(mid, str(mid))
+            if isinstance(mid, int)
+            else str(mid)
         ).upper()
         key = f"{map_str.lower()}_{x}_{y}"
         if key in self.vendors:
@@ -873,10 +865,11 @@ class AssetManager:
         """Find all vendors located in a map."""
         if not self.vendors:
             self.load_xml_definitions()
+        mid = int(map_id) if isinstance(map_id, str) and map_id.isdigit() else map_id
         map_str = (
-            MAP_ID_TO_NAME.get(map_id, str(map_id))
-            if isinstance(map_id, int)
-            else str(map_id)
+            MAP_ID_TO_NAME.get(mid, str(mid))
+            if isinstance(mid, int)
+            else str(mid)
         ).upper()
         results: list[VendorDef] = []
         for vc in self.vendor_classes.values():
