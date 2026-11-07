@@ -72,6 +72,26 @@ def test_load_city_map(asset_mgr):
     assert british.get_tile(-1, 0) is None
     assert british.get_tile(64, 0) is None
 
+    # Verify underlying floor tile replacement from offset 0x11A0
+    # Lord British is NPC 31 at (32, 14); the tile beneath him in grid must be floor (index 8)
+    lb = british.npcs[31]
+    assert lb.x == 32 and lb.y == 14
+    tile_under_lb = british.get_tile(lb.x, lb.y)
+    assert tile_under_lb is not None
+    assert tile_under_lb.name == "floor"
+    assert tile_under_lb.index == 8
+
+
+def test_all_conflict_maps_by_id(asset_mgr):
+    loader = MapLoader(asset_mgr)
+    for map_id in range(33, 42):
+        cmap = loader.load_conflict_map(map_id)
+        assert isinstance(cmap, ConflictMap)
+        assert cmap.width == 11 and cmap.height == 11
+        assert len(cmap.monster_starts) == 8
+        assert len(cmap.player_starts) == 4
+        assert cmap.id == map_id
+
 
 def test_load_ambrosia_doors(asset_mgr):
     loader = MapLoader(asset_mgr)

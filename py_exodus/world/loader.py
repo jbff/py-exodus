@@ -36,7 +36,7 @@ class MapLoader:
 
     def load_map(
         self, map_id_or_name: int | str
-    ) -> GameMap | ConflictMap | DungeonMap:
+    ) -> GameMap | DungeonMap:
         """Load any map by integer ID, enum name, or filename."""
         m_def: MapDef | None = None
         if isinstance(map_id_or_name, int):
@@ -122,10 +122,11 @@ class MapLoader:
             if grass is not None:
                 tiles[29 * width + 15] = grass
 
-        # City NPCs (32 characters placed at 0x1180, 0x11C0, 0x11E0)
+        # City NPCs (32 characters placed at 0x1180, 0x11A0, 0x11C0, 0x11E0)
         npcs: list[MapNpc] = []
         if m_def.map_type.lower() == "city" and len(data) >= 0x1200:
             npc_tiles = struct.unpack("32B", data[0x1180:0x11A0])
+            underlying_tiles = struct.unpack("32B", data[0x11A0:0x11C0])
             npc_xs = struct.unpack("32B", data[0x11C0:0x11E0])
             npc_ys = struct.unpack("32B", data[0x11E0:0x1200])
 
@@ -133,17 +134,25 @@ class MapLoader:
                 t_idx = npc_tiles[i] // 4
                 t_def = self.asset_mgr.tile_defs.get(t_idx) or self.asset_mgr.tile_defs.get(36)
                 t_name = t_def.name if t_def else ""
+                nx = npc_xs[i]
+                ny = npc_ys[i]
                 npcs.append(
                     MapNpc(
                         tile_index=t_idx,
                         tile_name=t_name,
-                        x=npc_xs[i],
-                        y=npc_ys[i],
-                        start_x=npc_xs[i],
-                        start_y=npc_ys[i],
+                        x=nx,
+                        y=ny,
+                        start_x=nx,
+                        start_y=ny,
                         tile_def=t_def,
                     )
                 )
+
+                # Replace tile on the map grid with the underlying floor tile
+                under_idx = underlying_tiles[i] // 4
+                under_tile = self.asset_mgr.tile_defs.get(under_idx) or self.asset_mgr.tile_defs.get(36)
+                if under_tile is not None and 0 <= nx < width and 0 <= ny < height:
+                    tiles[ny * width + nx] = under_tile
 
         map_type = (
             MapType(m_def.map_type.lower())
@@ -177,8 +186,8 @@ class MapLoader:
             map_id = fname_or_id
             m_def = m_def or self.asset_mgr.map_defs.get(map_id)
             fname = (
-                COMBAT_MAPS.get(map_id)
-                or (m_def.fname if m_def else f"CNFLCT_{map_id}.ULT")
+                (m_def.fname if m_def else COMBAT_MAPS.get(map_id))
+                or f"CNFLCT_{map_id}.ULT"
             )
         else:
             fname = fname_or_id
@@ -391,7 +400,7 @@ class MapLoader:
         )
 
 
-def load_map(map_id: int, asset_mgr: AssetManager) -> GameMap:
+def load_map(map_id: int, asset_mgr: AssetManager) -> GameMap | DungeonMap:
     """Convenience module function to load a map by ID."""
     loader = MapLoader(asset_mgr)
     return loader.load_map(map_id)

@@ -76,10 +76,10 @@ def test_combat_map_associations():
     am = AssetManager(assets_dir="src/main/resources/assets")
     am.load_tiles()
 
-    # Water -> conflict map 41 (CNFLCT_W.ULT / CONFLICT_BOTH_SHIPS)
+    # Water -> conflict map 41 (CNFLCT_S.ULT / CONFLICT_BOTH_SHIPS)
     water = am.get_tile_by_index(0)
     assert water.combat_map == 41
-    assert "CNFLCT_W" in water.combat_map_fname
+    assert "CNFLCT_S" in water.combat_map_fname
 
     # Grass -> conflict map 37 (CNFLCT_G.ULT / CONFLICT_GRASS)
     grass = am.get_tile_by_index(1)

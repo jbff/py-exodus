@@ -32,8 +32,8 @@ COMBAT_MAPS: dict[int, str] = {
     37: "CNFLCT_G.ULT",  # CONFLICT_GRASS
     38: "CNFLCT_M.ULT",  # CONFLICT_SHORE
     39: "CNFLCT_Q.ULT",  # CONFLICT_SHIP
-    40: "CNFLCT_S.ULT",  # CONFLICT_SHIP_BOTTOM
-    41: "CNFLCT_W.ULT",  # CONFLICT_BOTH_SHIPS
+    40: "CNFLCT_R.ULT",  # CONFLICT_SHIP_BOTTOM
+    41: "CNFLCT_S.ULT",  # CONFLICT_BOTH_SHIPS
 }
 
 # Maps enum name to integer map ID (matching classic Ultima III and maps.xml)

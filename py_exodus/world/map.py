@@ -15,6 +15,10 @@ if TYPE_CHECKING:
 class DungeonTile(Enum):
     """Tiles and features appearing inside 3D dungeons."""
 
+    display_name: str
+    tile_name: str
+    creature_walkable: bool
+
     NOTHING = (0x00, "Nothing", "floor", True)
     FLOOR = (0x01_00, "Floor", "floor", True)
     WATER = (0x02_00, "Water", "water", True)
