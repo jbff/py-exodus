@@ -343,7 +343,9 @@ class Status(str, Enum):
 
     GOOD = "G"
     POISONED = "P"
+    POISON = "P"
     ASH = "A"
+    ASHES = "A"
     DEAD = "D"
 
 
