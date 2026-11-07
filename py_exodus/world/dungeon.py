@@ -840,6 +840,8 @@ class DungeonState:
         """Decrement torch counters and consume party food per turn."""
         if self.torch_rounds > 0:
             self.torch_rounds -= 1
+            if self.torch_rounds <= 0:
+                self.light_spell = False
             if self.party:
                 self.party.torch_duration = self.torch_rounds
 
