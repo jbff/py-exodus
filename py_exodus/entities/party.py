@@ -253,6 +253,16 @@ class Party:
 
         return self.active_member_index
 
+    @property
+    def living_members(self) -> list[PartyMember]:
+        """Return all party members that are alive."""
+        return [m for m in self.members if not m.is_dead()]
+
+    @property
+    def able_combat_members(self) -> list[PartyMember]:
+        """Return living party members able to take combat turns (not disabled and not fled)."""
+        return [m for m in self.members if not m.is_disabled() and not m.fled and not m.is_dead()]
+
     # --- Resources & Turn Actions ---
     def pool_gold(self, target_index: int | None = None) -> int:
         """Pool all individual members' gold into party gold or a specific member."""
