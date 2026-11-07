@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "py-exodus"
+version = "0.1.0"
+description = "Ultima III: Exodus reimplementation in Python"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "pygame-ce>=2.5.0",
+]
+
+[project.scripts]
+py-exodus = "py_exodus.__main__:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
