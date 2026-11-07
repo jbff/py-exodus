@@ -139,6 +139,23 @@ class DungeonScreen(BaseScreen):
             self._use_torch()
         elif event.key == pygame.K_c:
             self._cast_spell()
+        elif event.key == pygame.K_z:
+            self._toggle_zstats()
+        elif event.key == pygame.K_SPACE:
+            self.text_log.add_message("Pass.")
+
+    def _toggle_zstats(self) -> None:
+        """Cycle Ztats inspect mode through party members."""
+        current = self.stats_panel.inspect_index
+        member_count = len(self.party.members)
+        if member_count == 0:
+            return
+        if current is None:
+            self.stats_panel.inspect_index = 0
+        elif current + 1 < member_count:
+            self.stats_panel.inspect_index = current + 1
+        else:
+            self.stats_panel.inspect_index = None
 
     def _process_event(self, evt: DungeonEvent) -> None:
         if evt.message:
@@ -222,41 +239,80 @@ class DungeonScreen(BaseScreen):
 
     def render(self, surface: pygame.Surface) -> None:
         surface.fill(EGA_BLACK)
+        w, h = surface.get_width(), surface.get_height()
+        scale = 3 if w >= 640 else 1
+        v_size = 176 * scale
 
-        # 1. 3D Wireframe Corridor (176x176 at top-left 0, 0)
-        self.camera.render_wireframe(
-            surface,
-            dmap=self.state.dmap,
-            x=self.state.x,
-            y=self.state.y,
-            z=self.state.z,
-            dir=self.state.dir,
-            torch_rounds=self.state.torch_rounds,
-            light_spell=self.state.light_spell,
-        )
+        if scale > 1:
+            temp_v = pygame.Surface((176, 176))
+            self.camera.render_wireframe(
+                temp_v,
+                dmap=self.state.dmap,
+                x=self.state.x,
+                y=self.state.y,
+                z=self.state.z,
+                dir=self.state.dir,
+                torch_rounds=self.state.torch_rounds,
+                light_spell=self.state.light_spell,
+            )
 
-        # Overlay compass and level indicator
-        font = get_hud_font(size=10)
-        status_line = f"LVL: {self.state.z + 1}  DIR: {self.state.dir.name}"
-        stat_surf = font.render(status_line, True, EGA_YELLOW)
-        surface.blit(stat_surf, (4, 4))
+            font = get_hud_font(size=10)
+            status_line = f"LVL: {self.state.z + 1}  DIR: {self.state.dir.name}"
+            stat_surf = font.render(status_line, True, EGA_YELLOW)
+            temp_v.blit(stat_surf, (4, 4))
 
-        if self.state.torch_rounds > 0 or self.state.light_spell:
-            torch_line = f"TORCH: {self.state.torch_rounds}"
-            torch_surf = font.render(torch_line, True, EGA_BRIGHT_GREEN)
-            surface.blit(torch_surf, (4, 16))
+            if self.state.torch_rounds > 0 or self.state.light_spell:
+                torch_line = f"TORCH: {self.state.torch_rounds}"
+                torch_surf = font.render(torch_line, True, EGA_BRIGHT_GREEN)
+                temp_v.blit(torch_surf, (4, 16))
 
-        # 2. Right Sidebar (Party Stats)
-        self.stats_panel.render(
-            surface,
-            self.party,
-            rect=pygame.Rect(176, 0, surface.get_width() - 176, surface.get_height()),
-        )
+            scaled_v = pygame.transform.scale(temp_v, (v_size, v_size))
+            surface.blit(scaled_v, (0, 0))
 
-        # 3. Bottom HUD Text Log
-        log_h = max(24, surface.get_height() - 176)
-        self.text_log.render(
-            surface,
-            rect=pygame.Rect(0, 176, 176, log_h),
-            draw_border=True,
-        )
+            # Right Sidebar (Party Stats) at native high resolution
+            self.stats_panel.render(
+                surface,
+                self.party,
+                rect=pygame.Rect(v_size, 0, w - v_size, h),
+            )
+
+            # Bottom HUD Text Log at native resolution
+            self.text_log.render(
+                surface,
+                rect=pygame.Rect(0, v_size, v_size, h - v_size),
+                draw_border=True,
+            )
+        else:
+            self.camera.render_wireframe(
+                surface,
+                dmap=self.state.dmap,
+                x=self.state.x,
+                y=self.state.y,
+                z=self.state.z,
+                dir=self.state.dir,
+                torch_rounds=self.state.torch_rounds,
+                light_spell=self.state.light_spell,
+            )
+
+            font = get_hud_font(size=10)
+            status_line = f"LVL: {self.state.z + 1}  DIR: {self.state.dir.name}"
+            stat_surf = font.render(status_line, True, EGA_YELLOW)
+            surface.blit(stat_surf, (4, 4))
+
+            if self.state.torch_rounds > 0 or self.state.light_spell:
+                torch_line = f"TORCH: {self.state.torch_rounds}"
+                torch_surf = font.render(torch_line, True, EGA_BRIGHT_GREEN)
+                surface.blit(torch_surf, (4, 16))
+
+            self.stats_panel.render(
+                surface,
+                self.party,
+                rect=pygame.Rect(176, 0, w - 176, h),
+            )
+
+            log_h = max(24, h - 176)
+            self.text_log.render(
+                surface,
+                rect=pygame.Rect(0, 176, 176, log_h),
+                draw_border=True,
+            )

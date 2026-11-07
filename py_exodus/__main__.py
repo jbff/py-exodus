@@ -97,16 +97,11 @@ class GameApp:
             # 2. Logic Update
             self.state_machine.update(dt)
 
-            # 3. Render 320x200 internal surface
-            self.state_machine.render(self.internal_surface)
+            # 3. Render directly onto display surface (or internal_surface if headless)
+            render_surface = self.display_surface if not self.headless else self.internal_surface
+            self.state_machine.render(render_surface)
 
-            # 4. Integer scale 3x blit to 960x600 display
             if not self.headless:
-                scaled = pygame.transform.scale(
-                    self.internal_surface,
-                    (self.width, self.height),
-                )
-                self.display_surface.blit(scaled, (0, 0))
                 pygame.display.flip()
 
             frame += 1

@@ -212,6 +212,13 @@ class TileDef:
         return bool(self.attribs & TileAttrib.SAILABLE)
 
 
+ENTITY_TILES: set[str] = {
+    "fighter", "cleric", "wizard", "thief", "ranger", "guard", "jester", "merchant", "lord_british",
+    "orc", "skeleton", "giant", "daemon", "pincher", "dragon", "balron", "pirate", "serpent", "squid",
+    "horse", "frigate", "chest", "whirlpool", "moongate", "corpse", "magic", "fire",
+}
+
+
 def load_image_surface(path: Path | str) -> pygame.Surface:
     """Load an image into a Pygame Surface with PNG and BMP fallback support."""
     path = Path(path)
@@ -418,6 +425,8 @@ class AssetManager:
 
                 rect = pygame.Rect(x, y, w, h)
                 sub = current_surface.subsurface(rect).copy()
+                if region_name.lower() in ENTITY_TILES:
+                    sub.set_colorkey((0, 0, 0))
 
                 if region_name not in temp_frames:
                     temp_frames[region_name] = []
@@ -477,7 +486,15 @@ class AssetManager:
             self.load_tiles()
 
         if name not in self.tiles:
-            raise KeyError(f"Tile name '{name}' not found in loaded texture atlas.")
+            aliases = {
+                "troll": "giant",
+                "avatar": "fighter",
+                "player": "fighter",
+            }
+            if name.lower() in aliases and aliases[name.lower()] in self.tiles:
+                name = aliases[name.lower()]
+            else:
+                raise KeyError(f"Tile name '{name}' not found in loaded texture atlas.")
 
         frames = self.tiles[name]
         if not frames:

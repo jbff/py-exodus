@@ -37,7 +37,7 @@ _CANDIDATE_FONT_PATHS = [
 ]
 
 
-def get_hud_font(size: int = 14, font_name: str | None = None) -> pygame.font.Font:
+def get_hud_font(size: int = 16, font_name: str | None = None) -> pygame.font.Font:
     """Retrieve or load cached TrueType/bitmap font with graceful fallback."""
     key = (font_name, size)
     if key in _FONT_CACHE:
@@ -54,23 +54,17 @@ def get_hud_font(size: int = 14, font_name: str | None = None) -> pygame.font.Fo
 
     font_obj: pygame.font.Font | None = None
 
-    # If no font name specified, use Pygame's clean built-in pixel font
-    if font_name is None or font_name in ("default", "hud"):
-        try:
-            font_obj = pygame.font.Font(None, size)
-        except (pygame.error, OSError, RuntimeError):
-            pass
+    # Preferred font search: default to gnuolane.ttf (the official LibGDX Exodus UI font)
+    search_name = font_name if font_name not in (None, "default", "hud") else "gnuolane.ttf"
 
-    # Search candidate paths for requested font asset
-    if font_obj is None and font_name:
-        for base in _CANDIDATE_FONT_PATHS:
-            candidate = base.parent / font_name
-            if candidate.exists():
-                try:
-                    font_obj = pygame.font.Font(str(candidate), size)
-                    break
-                except (pygame.error, OSError, RuntimeError):
-                    continue
+    for base in _CANDIDATE_FONT_PATHS:
+        candidate = base.parent / search_name
+        if candidate.exists():
+            try:
+                font_obj = pygame.font.Font(str(candidate), size)
+                break
+            except (pygame.error, OSError, RuntimeError):
+                continue
 
     # Fallback to default font or system font
     if font_obj is None:
@@ -277,7 +271,7 @@ class TextLog:
 
         f = font or self._font
         if f is None:
-            font_size = 14 if target_rect.height > 60 else 10
+            font_size = 18 if target_rect.height >= 60 else (14 if target_rect.height >= 36 else 13)
             f = get_hud_font(size=font_size)
 
         line_height = max(8, f.get_linesize())

@@ -272,40 +272,71 @@ class CombatScreen(BaseScreen):
 
     def render(self, surface: pygame.Surface) -> None:
         surface.fill(EGA_BLACK)
+        w, h = surface.get_width(), surface.get_height()
+        scale = 3 if w >= 640 else 1
+        v_size = 176 * scale
 
-        # 1. Render 11x11 combat grid (176x176 at top-left 0, 0)
-        if self.world_renderer is not None:
-            self.world_renderer.render_viewport(
+        if scale > 1:
+            temp_v = pygame.Surface((176, 176))
+            if self.world_renderer is not None:
+                self.world_renderer.render_viewport(
+                    temp_v,
+                    self.arena.combat_map,
+                    center_x=5,
+                    center_y=5,
+                    dest_pos=(0, 0),
+                )
+            else:
+                self._render_grid_fallback(temp_v)
+
+            self._render_monsters(temp_v)
+            self._render_players(temp_v)
+
+            scaled_v = pygame.transform.scale(temp_v, (v_size, v_size))
+            surface.blit(scaled_v, (0, 0))
+
+            # Right Sidebar (Party Stats) at native high resolution
+            self.stats_panel.render(
                 surface,
-                self.arena.combat_map,
-                center_x=5,
-                center_y=5,
-                dest_pos=(0, 0),
+                self.party,
+                inspect_index=self.arena.active_party_member_idx,
+                rect=pygame.Rect(v_size, 0, w - v_size, h),
+            )
+
+            # Bottom HUD Text Log at native resolution
+            self.text_log.render(
+                surface,
+                rect=pygame.Rect(0, v_size, v_size, h - v_size),
+                draw_border=True,
             )
         else:
-            self._render_grid_fallback(surface)
+            if self.world_renderer is not None:
+                self.world_renderer.render_viewport(
+                    surface,
+                    self.arena.combat_map,
+                    center_x=5,
+                    center_y=5,
+                    dest_pos=(0, 0),
+                )
+            else:
+                self._render_grid_fallback(surface)
 
-        # 2. Render Monsters
-        self._render_monsters(surface)
+            self._render_monsters(surface)
+            self._render_players(surface)
 
-        # 3. Render Players
-        self._render_players(surface)
+            self.stats_panel.render(
+                surface,
+                self.party,
+                inspect_index=self.arena.active_party_member_idx,
+                rect=pygame.Rect(176, 0, w - 176, h),
+            )
 
-        # 4. Render Right Sidebar (Party Stats)
-        self.stats_panel.render(
-            surface,
-            self.party,
-            inspect_index=self.arena.active_party_member_idx,
-            rect=pygame.Rect(176, 0, surface.get_width() - 176, surface.get_height()),
-        )
-
-        # 5. Render Bottom HUD Text Log
-        log_h = max(24, surface.get_height() - 176)
-        self.text_log.render(
-            surface,
-            rect=pygame.Rect(0, 176, 176, log_h),
-            draw_border=True,
-        )
+            log_h = max(24, h - 176)
+            self.text_log.render(
+                surface,
+                rect=pygame.Rect(0, 176, 176, log_h),
+                draw_border=True,
+            )
 
     def _render_monsters(self, surface: pygame.Surface) -> None:
         font = get_hud_font(size=12)

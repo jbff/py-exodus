@@ -315,11 +315,7 @@ class WorldRenderer:
                     elif party.transport == Transport.HORSE:
                         avatar_name = "horse"
                     else:
-                        active = party.active_member
-                        if active and hasattr(active, "profession"):
-                            avatar_name = active.profession.tile
-                        else:
-                            avatar_name = "fighter"
+                        avatar_name = "ranger"
 
                 avatar_surf = self.asset_manager.get_tile_surface(avatar_name, anim_frame)
                 surface.blit(avatar_surf, (ox + col * self.tile_size, oy + row * self.tile_size))

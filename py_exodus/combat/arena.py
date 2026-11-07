@@ -884,14 +884,8 @@ class CombatArena:
 
         if not is_nochest and not is_ship_combat:
             self.chest_spawned = True
-            # Spawn chest in party dynamic objects if present
+            # Spawn chest in party dynamic objects on world/dungeon map upon victory
             if hasattr(self.party, "dynamic_objects"):
                 self.party.dynamic_objects.append({"tile": "chest", "x": self.party.x, "y": self.party.y})
-
-            # Replace tile on combat map if chest tile definition exists
-            if self.asset_mgr is not None and "chest" in self.asset_mgr.tile_defs_by_name:
-                chest_tile = self.asset_mgr.tile_defs_by_name["chest"]
-                cx, cy = self.last_monster_death_pos or (5, 5)
-                self.combat_map.set_tile(cx, cy, chest_tile)
         else:
             self.chest_spawned = False

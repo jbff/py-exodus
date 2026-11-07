@@ -102,15 +102,19 @@ class TownScreen(BaseScreen):
             self.text_log.handle_event(event)
             return
 
-        # Movement
-        if event.key in (pygame.K_UP, pygame.K_w):
+        # Movement (Arrows, Keypad, WASD)
+        if event.key in (pygame.K_UP, pygame.K_KP8, pygame.K_w):
             self._try_move(Direction.NORTH)
-        elif event.key in (pygame.K_DOWN, pygame.K_s):
+        elif event.key in (pygame.K_DOWN, pygame.K_KP2, pygame.K_s):
             self._try_move(Direction.SOUTH)
-        elif event.key in (pygame.K_LEFT, pygame.K_a):
+        elif event.key in (pygame.K_LEFT, pygame.K_KP4, pygame.K_a):
             self._try_move(Direction.WEST)
-        elif event.key in (pygame.K_RIGHT, pygame.K_d):
+        elif event.key in (pygame.K_RIGHT, pygame.K_KP6, pygame.K_d):
             self._try_move(Direction.EAST)
+        elif event.key == pygame.K_SPACE:
+            self.text_log.add_message("Pass.")
+        elif event.key == pygame.K_z:
+            self._toggle_zstats()
         elif event.key == pygame.K_t:
             self._prompt_talk()
         elif event.key in (pygame.K_o, pygame.K_l):
@@ -119,6 +123,19 @@ class TownScreen(BaseScreen):
             self._prompt_door(open_door=False)
         elif event.key == pygame.K_x:
             self._exit_town()
+
+    def _toggle_zstats(self) -> None:
+        """Cycle Ztats inspect mode through party members."""
+        current = self.stats_panel.inspect_index
+        member_count = len(self.party.members)
+        if member_count == 0:
+            return
+        if current is None:
+            self.stats_panel.inspect_index = 0
+        elif current + 1 < member_count:
+            self.stats_panel.inspect_index = current + 1
+        else:
+            self.stats_panel.inspect_index = None
 
     def _try_move(self, direction: Direction) -> None:
         if self.game_map is None:
@@ -319,30 +336,59 @@ class TownScreen(BaseScreen):
 
     def render(self, surface: pygame.Surface) -> None:
         surface.fill(EGA_BLACK)
+        w, h = surface.get_width(), surface.get_height()
+        scale = 3 if w >= 640 else 1
+        v_size = 176 * scale
 
-        # 1. 11x11 Town Viewport (176x176 at 0, 0)
-        if self.world_renderer is not None and self.game_map is not None:
-            self.world_renderer.render_viewport(
+        if scale > 1:
+            temp_v = pygame.Surface((176, 176))
+            if self.world_renderer is not None and self.game_map is not None:
+                self.world_renderer.render_viewport(
+                    temp_v,
+                    self.game_map,
+                    center_x=self.avatar_x,
+                    center_y=self.avatar_y,
+                    anim_frame=self.anim_frame,
+                    party=self.party,
+                    dest_pos=(0, 0),
+                )
+            scaled_v = pygame.transform.scale(temp_v, (v_size, v_size))
+            surface.blit(scaled_v, (0, 0))
+
+            # Right Sidebar (Party Stats) at native high resolution
+            self.stats_panel.render(
                 surface,
-                self.game_map,
-                center_x=self.avatar_x,
-                center_y=self.avatar_y,
-                anim_frame=self.anim_frame,
-                party=self.party,
-                dest_pos=(0, 0),
+                self.party,
+                rect=pygame.Rect(v_size, 0, w - v_size, h),
             )
 
-        # 2. Right Sidebar (Party Stats)
-        self.stats_panel.render(
-            surface,
-            self.party,
-            rect=pygame.Rect(176, 0, surface.get_width() - 176, surface.get_height()),
-        )
+            # Bottom HUD Text Log at native resolution
+            self.text_log.render(
+                surface,
+                rect=pygame.Rect(0, v_size, v_size, h - v_size),
+                draw_border=True,
+            )
+        else:
+            if self.world_renderer is not None and self.game_map is not None:
+                self.world_renderer.render_viewport(
+                    surface,
+                    self.game_map,
+                    center_x=self.avatar_x,
+                    center_y=self.avatar_y,
+                    anim_frame=self.anim_frame,
+                    party=self.party,
+                    dest_pos=(0, 0),
+                )
 
-        # 3. Bottom HUD Text Log
-        log_h = max(24, surface.get_height() - 176)
-        self.text_log.render(
-            surface,
-            rect=pygame.Rect(0, 176, 176, log_h),
-            draw_border=True,
-        )
+            self.stats_panel.render(
+                surface,
+                self.party,
+                rect=pygame.Rect(176, 0, w - 176, h),
+            )
+
+            log_h = max(24, h - 176)
+            self.text_log.render(
+                surface,
+                rect=pygame.Rect(0, 176, 176, log_h),
+                draw_border=True,
+            )

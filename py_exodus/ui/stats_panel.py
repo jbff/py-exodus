@@ -66,8 +66,8 @@ class StatsPanel:
 
         # Dynamic font sizing based on target width
         is_large = target_rect.width >= 240
-        f_title = self.font or get_hud_font(size=16 if is_large else 12)
-        f_text = self.small_font or get_hud_font(size=14 if is_large else 10)
+        f_title = self.font or get_hud_font(size=22 if is_large else 14)
+        f_text = self.small_font or get_hud_font(size=18 if is_large else 12)
 
         line_h = max(10, f_text.get_linesize())
         x_left = target_rect.x + (10 if is_large else 4)

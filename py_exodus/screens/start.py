@@ -198,36 +198,38 @@ class StartScreen(BaseScreen):
             scaled_bg = pygame.transform.scale(self.bg_image, (w, h))
             surface.blit(scaled_bg, (0, 0))
 
+        scale = 3 if w >= 640 else 1
+
         # Title banner
-        title_font = get_hud_font(size=24, font_name="ultima.ttf")
-        sub_font = get_hud_font(size=14)
-        info_font = get_hud_font(size=11)
+        title_font = get_hud_font(size=24 * scale, font_name="ultima.ttf")
+        sub_font = get_hud_font(size=14 * scale)
+        info_font = get_hud_font(size=11 * scale)
 
         title_surf = title_font.render("ULTIMA III: EXODUS", True, EGA_YELLOW)
         surface.blit(
             title_surf,
-            ((w - title_font.size("ULTIMA III: EXODUS")[0]) // 2, 20),
+            ((w - title_surf.get_width()) // 2, 20 * scale),
         )
 
         sub_surf = sub_font.render("From the depths of hell... he comes!", True, EGA_BRIGHT_RED)
         surface.blit(
             sub_surf,
-            ((w - sub_font.size("From the depths of hell... he comes!")[0]) // 2, 50),
+            ((w - sub_surf.get_width()) // 2, 50 * scale),
         )
 
         # Menu options
-        menu_y = 90
+        menu_y = 90 * scale
         for i, (label, _) in enumerate(self.options):
             is_sel = (i == self.selected_idx)
             color = EGA_BRIGHT_GREEN if is_sel else EGA_LIGHT_GRAY
             prefix = " > " if is_sel else "   "
             opt_surf = sub_font.render(f"{prefix}{label}", True, color)
-            surface.blit(opt_surf, (80, menu_y + i * 24))
+            surface.blit(opt_surf, (80 * scale, menu_y + i * 26 * scale))
 
         # Footer
         footer = "Use Arrows/Enter or 1-3 to select"
         foot_surf = info_font.render(footer, True, EGA_DARK_GRAY)
-        surface.blit(foot_surf, ((w - info_font.size(footer)[0]) // 2, h - 25))
+        surface.blit(foot_surf, ((w - foot_surf.get_width()) // 2, h - 25 * scale))
 
     def _start_journey(self) -> None:
         """Begin or resume the adventure in the overworld."""

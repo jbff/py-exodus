@@ -120,3 +120,34 @@ def test_error_handling():
 
     with pytest.raises(KeyError):
         am.get_tile_surface("non_existent_tile_name")
+
+
+def test_entity_colorkey_and_aliases():
+    pygame.init()
+    pygame.display.set_mode((1, 1), pygame.NOFRAME)
+    am = AssetManager(assets_dir="src/main/resources/assets")
+    am.load_tiles()
+
+    # Alias check: troll maps to giant, player/avatar maps to fighter
+    troll_surf = am.get_tile_surface("troll")
+    giant_surf = am.get_tile_surface("giant")
+    assert troll_surf is not None
+    assert troll_surf.get_size() == (16, 16)
+    assert giant_surf is not None
+
+    avatar_surf = am.get_tile_surface("avatar")
+    fighter_surf = am.get_tile_surface("fighter")
+    assert avatar_surf is not None
+    assert fighter_surf is not None
+
+    # Colorkey transparency check on entity sprites
+    ranger_surf = am.get_tile_surface("ranger")
+    orc_surf = am.get_tile_surface("orc")
+    assert ranger_surf.get_colorkey() is not None
+    assert ranger_surf.get_colorkey()[:3] == (0, 0, 0)
+    assert orc_surf.get_colorkey() is not None
+    assert orc_surf.get_colorkey()[:3] == (0, 0, 0)
+
+    # Terrain tiles (e.g. grass) should have no colorkey transparency
+    grass_surf = am.get_tile_surface("grass")
+    assert grass_surf.get_colorkey() is None

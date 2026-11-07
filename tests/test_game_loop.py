@@ -738,3 +738,116 @@ def test_town_screen_exit_resets_map_id_from_castle_british(pygame_setup, asset_
     assert sample_party.map_id == 0
     assert sample_party.x == 45
     assert sample_party.y == 18
+
+
+def test_overworld_commands_cast_ztats_get_chest_pass(pygame_setup, asset_mgr, sample_party):
+    overworld = OverworldScreen(
+        party=sample_party,
+        map_id=0,
+        asset_mgr=asset_mgr,
+    )
+
+    # 1. Pass command (SPACE)
+    initial_food = sample_party.food
+    evt_space = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_SPACE)
+    overworld.handle_event(evt_space)
+    assert any("Pass." in msg for msg in overworld.text_log.history)
+
+    # 2. Ztats command (Z)
+    assert overworld.stats_panel.inspect_index is None
+    evt_z = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_z)
+    overworld.handle_event(evt_z)
+    assert overworld.stats_panel.inspect_index == 0
+    overworld.handle_event(evt_z)
+    assert overworld.stats_panel.inspect_index == 1
+    overworld.handle_event(evt_z)  # 2
+    overworld.handle_event(evt_z)  # 3
+    overworld.handle_event(evt_z)  # None
+    assert overworld.stats_panel.inspect_index is None
+
+    # 3. Get Chest command (G)
+    sample_party.x = 10
+    sample_party.y = 10
+    sample_party.gold = 100
+    sample_party.dynamic_objects = [{"tile": "chest", "x": 10, "y": 10}]
+    evt_g = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_g)
+    overworld.handle_event(evt_g)
+    assert len(sample_party.dynamic_objects) == 0
+    assert sample_party.gold > 100
+    assert any("Opened chest!" in msg for msg in overworld.text_log.history)
+
+    # 4. Ignite torch (I)
+    sample_party.torches = 2
+    sample_party.torch_duration = 0
+    evt_i = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_i)
+    overworld.handle_event(evt_i)
+    assert sample_party.torches == 1
+    assert sample_party.torch_duration == 100
+    assert any("Torch ignited!" in msg for msg in overworld.text_log.history)
+
+    # 5. Join gold (J)
+    sample_party.gold = 50
+    evt_j = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_j)
+    overworld.handle_event(evt_j)
+    assert any("All gold gathered" in msg for msg in overworld.text_log.history)
+
+
+def test_overworld_wandering_creatures(pygame_setup, asset_mgr, sample_party):
+    overworld = OverworldScreen(
+        party=sample_party,
+        map_id=0,
+        asset_mgr=asset_mgr,
+    )
+
+    # Verify wandering creatures list exists and can spawn
+    assert hasattr(overworld, "creatures")
+    assert len(overworld.creatures) > 0
+
+    # Creature pursuit test: position creature 1 step north of party
+    sample_party.x = 20
+    sample_party.y = 20
+    c = overworld.creatures[0]
+    c["x"] = 20
+    c["y"] = 19
+    c["tile_name"] = "orc"
+
+    # Step party towards creature to trigger encounter
+    evt_up = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_UP)
+    overworld.handle_event(evt_up)
+
+    # Encounter should have engaged combat screen
+    assert overworld.is_finished or overworld.next_screen is not None
+
+
+def test_town_pass_and_ztats(pygame_setup, asset_mgr, sample_party):
+    town = TownScreen(
+        party=sample_party,
+        map_id=1,
+        asset_mgr=asset_mgr,
+    )
+
+    evt_space = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_SPACE)
+    town.handle_event(evt_space)
+    assert any("Pass." in msg for msg in town.text_log.history)
+
+    assert town.stats_panel.inspect_index is None
+    evt_z = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_z)
+    town.handle_event(evt_z)
+    assert town.stats_panel.inspect_index == 0
+
+
+def test_responsive_hires_rendering(pygame_setup, asset_mgr, sample_party):
+    # Test rendering screens on a native 960x600 high-res surface
+    hires_surf = pygame.Surface((960, 600))
+
+    overworld = OverworldScreen(party=sample_party, map_id=0, asset_mgr=asset_mgr)
+    overworld.render(hires_surf)
+
+    from py_exodus.world.loader import MapLoader
+    loader = MapLoader(asset_mgr)
+    c_map = loader.load_conflict_map(37)
+    combat = CombatScreen(party=sample_party, combat_map=c_map, creature_tile="orc", asset_mgr=asset_mgr)
+    combat.render(hires_surf)
+
+    town = TownScreen(party=sample_party, map_id=1, asset_mgr=asset_mgr)
+    town.render(hires_surf)

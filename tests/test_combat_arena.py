@@ -355,3 +355,34 @@ def test_poisonous_monster_fatal_blow_preserves_dead_status(asset_mgr):
             assert char.status != Status.POISONED
             assert not res.poisoned
 
+
+def test_victory_spawns_chest_for_overworld_only_not_on_combat_map(asset_mgr, conflict_map):
+    party = Party()
+    hero = Character("Hero", "M", Race.HUMAN, Profession.FIGHTER, dexterity=50, strength=50)
+    party.add_member(hero)
+    party.x = 20
+    party.y = 20
+    party.dynamic_objects.clear()
+
+    arena = CombatArena(party, conflict_map, creature_tile="orc", asset_mgr=asset_mgr, monster_count=1)
+    arena.player_positions[0] = (5, 5)
+    monster = arena.monsters[0]
+    monster.x = 5
+    monster.y = 4
+    monster.hp = 1
+
+    res = arena.execute_player_action(0, Action.attack(Direction.NORTH))
+    assert res.success
+    assert arena.is_victory
+    assert arena.is_finished
+
+    # Verify no tile on the 11x11 combat arena map was changed to a chest
+    for y in range(conflict_map.height):
+        for x in range(conflict_map.width):
+            t = conflict_map.get_tile(x, y)
+            assert getattr(t, "name", "").lower() != "chest"
+
+    # Verify chest was registered in party.dynamic_objects for world map pickup
+    assert len(party.dynamic_objects) >= 1
+    assert any(obj.get("tile") == "chest" for obj in party.dynamic_objects)
+
