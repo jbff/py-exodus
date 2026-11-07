@@ -35,11 +35,13 @@ class Direction(Enum):
     EAST = (3, 1, 0, 0x4)
     SOUTH = (4, 0, 1, 0x8)
 
-    def __init__(self, val: int, dx: int, dy: int, mask: int):
-        self._value_ = val
-        self.dx = dx
-        self.dy = dy
-        self.mask = mask
+    def __new__(cls, val: int, dx: int, dy: int, mask: int):
+        obj = object.__new__(cls)
+        obj._value_ = val
+        obj.dx = dx
+        obj.dy = dy
+        obj.mask = mask
+        return obj
 
     def reverse(self) -> Direction:
         """Return the opposite direction."""
@@ -242,14 +244,14 @@ class Spell(Enum):
     """The 32 spells of Ultima III (16 Sorcery / Wizard, 16 Prayer / Cleric)."""
 
     # --- Sorcery (Wizard) Spells A-P ---
-    REPOND = ("A", 0, "Destroy orcs, gremlins, trolls", "wizard", 0x02E, 0x02)
-    MITTAR = ("B", 5, "Magic missile", "wizard", 0x02E, 0x02)
-    LORUM = ("C", 10, "Minor light spell", "wizard", 0x02E, 0x08)
-    DOR_ACRON = ("D", 15, "Down one dungeon level", "wizard", 0x02E, 0x08)
-    SUR_ACRON = ("E", 20, "Up one dungeon level", "wizard", 0x02E, 0x08)
-    FULGAR = ("F", 25, "Fireball", "wizard", 0x02E, 0x02)
-    DAG_ACRON = ("G", 30, "Random teleport on surface", "wizard", 0x02E, 0x01)
-    MENTAR = ("H", 35, "Magic missile", "wizard", 0x02E, 0x02)
+    REPOND = ("A", 0, "Destroy orcs, gremlins, trolls", "wizard", 0x0AE, 0x02)
+    MITTAR = ("B", 5, "Magic missile", "wizard", 0x0AE, 0x02)
+    LORUM = ("C", 10, "Minor light spell", "wizard", 0x0AE, 0x08)
+    DOR_ACRON = ("D", 15, "Down one dungeon level", "wizard", 0x0AE, 0x08)
+    SUR_ACRON = ("E", 20, "Up one dungeon level", "wizard", 0x0AE, 0x08)
+    FULGAR = ("F", 25, "Fireball", "wizard", 0x0AE, 0x02)
+    DAG_ACRON = ("G", 30, "Random teleport on surface", "wizard", 0x0AE, 0x01)
+    MENTAR = ("H", 35, "Magic missile", "wizard", 0x0AE, 0x02)
     PABULUM = ("I", 40, "Feeds the many", "wizard", 0x0A6, 0xFF)
     FAL_DIVI = ("J", 45, "Cast a cleric spell", "wizard", 0x0A6, 0xFF)
     NOXUM = ("K", 50, "Multi-fireball", "wizard", 0x020, 0x02)

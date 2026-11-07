@@ -44,6 +44,11 @@ def test_direction_helpers():
     assert Direction.SOUTH.reverse() == Direction.NORTH
     assert Direction.WEST.reverse() == Direction.EAST
     assert Direction.EAST.reverse() == Direction.WEST
+    # Integer lookup by value
+    assert Direction(1) == Direction.WEST
+    assert Direction(2) == Direction.NORTH
+    assert Direction(3) == Direction.EAST
+    assert Direction(4) == Direction.SOUTH
 
 
 def test_map_types():
@@ -100,6 +105,9 @@ def test_spells():
     fulgar = Spell.FULGAR
     assert fulgar.cost == 25
     assert fulgar.spell_type == "wizard"
+    # Verify Lark can cast wizard spells A-H
+    assert Spell.REPOND.can_cast(Profession.LARK)
+    assert Spell.MENTAR.can_cast(Profession.LARK)
 
 
 def test_weapon_and_armor_types():

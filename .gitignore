@@ -8,3 +8,6 @@
 /sprites-atlas.txt
 /journal.save
 /nbactions.xml
+__pycache__/
+*.pyc
+.pytest_cache/

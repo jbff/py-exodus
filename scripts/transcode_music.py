@@ -26,11 +26,13 @@ TRACKS = [
 def find_sound_dir(root: Path | None = None) -> Path:
     """Find the default sound directory containing MIDI files."""
     if root is None:
-        root = Path.cwd()
+        root = Path(__file__).resolve().parent.parent
 
     candidates = [
         root / "assets" / "sound",
         root / "src" / "main" / "resources" / "assets" / "sound",
+        Path.cwd() / "assets" / "sound",
+        Path.cwd() / "src" / "main" / "resources" / "assets" / "sound",
     ]
     for candidate in candidates:
         if candidate.is_dir() and any(candidate.glob("*.mid")):
