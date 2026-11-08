@@ -51,6 +51,13 @@ def single_member_party(hp: int = 100) -> Party:
     return party
 
 
+class _AlwaysHitRng:
+    """Stub RNG mirroring Java ``rand.nextInt(n) == 0`` succeeding always."""
+
+    def randrange(self, n: int) -> int:
+        return 0
+
+
 # --- PartyMember.apply_damage: the Java-parity damage chokepoint ---
 
 
@@ -398,7 +405,12 @@ def test_overworld_chest_gas_trap_wipe_transitions_to_start_screen(sm, asset_mgr
 
 
 def test_dungeon_pit_trap_wipe_transitions_to_start_screen(sm, asset_mgr):
-    """A dungeon pit trap killing the whole party routes to game over."""
+    """A dungeon pit trap killing the whole party routes to game over.
+
+    Java truth: the pit applies TileEffect.LAVA (1-in-2 per member, 16+
+    rand(32) damage); the stubbed RNG makes every roll hit so the wipe is
+    deterministic.
+    """
     dmap = DungeonMap(id=99, name="TestDungeon", width=16, height=16, levels=8)
     tiles = []
     for z in range(8):
@@ -427,6 +439,9 @@ def test_dungeon_pit_trap_wipe_transitions_to_start_screen(sm, asset_mgr):
         manager=sm,
     )
     sm.set_screen(dungeon)
+    # Java rand.nextInt(2) == 0 on every roll: the LAVA effect always fires
+    # and 16 + rand(32)==0 == 16 damage kills the 10 hp member.
+    dungeon.state.rng = _AlwaysHitRng()
 
     dungeon.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_UP))
 

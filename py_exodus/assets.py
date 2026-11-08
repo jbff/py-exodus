@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pygame
 
-from py_exodus.constants import TileAttrib
+from py_exodus.constants import TileAttrib, TileEffect, TileSpeed
 from py_exodus.entities.defs import (
     ArmorDef,
     CaseInsensitiveDict,
@@ -149,6 +149,28 @@ RULE_ATTRIBS: dict[str, TileAttrib] = {
     "monster": TileAttrib.LIVINGTHING | TileAttrib.UNWALKABLE,
 }
 
+# Rule movement speeds (Java Constants.java:190-210 TileRule table):
+# swamp SLOW 1-in-8; brush VSLOW 1-in-4; hills plus the field rules
+# (poison/energy/fire/lava) VVSLOW 1-in-2. Everything else is FAST.
+RULE_SPEEDS: dict[str, TileSpeed] = {
+    "swamp": TileSpeed.SLOW,
+    "brush": TileSpeed.VSLOW,
+    "hills": TileSpeed.VVSLOW,
+    "poison": TileSpeed.VVSLOW,
+    "energy": TileSpeed.VVSLOW,
+    "fire": TileSpeed.VVSLOW,
+    "lava": TileSpeed.VVSLOW,
+}
+
+# Rule effects (Java Constants.java:190-210 TileRule table).
+RULE_EFFECTS: dict[str, TileEffect] = {
+    "swamp": TileEffect.POISON,
+    "poison": TileEffect.POISON,
+    "energy": TileEffect.ELECTRICITY,
+    "fire": TileEffect.FIRE,
+    "lava": TileEffect.LAVA,
+}
+
 # Tile name to combat map ID mapping (matching Java TileSet rules)
 TILE_COMBAT_MAP_IDS: dict[str, int] = {
     "water": 41,       # CONFLICT_BOTH_SHIPS
@@ -210,6 +232,21 @@ class TileDef:
     def sailable(self) -> bool:
         """Check if tile can be sailed on with a ship."""
         return bool(self.attribs & TileAttrib.SAILABLE)
+
+    @property
+    def dispelable(self) -> bool:
+        """Check if tile is a field a Mark of Force can open passage through."""
+        return bool(self.attribs & TileAttrib.DISPELABLE)
+
+    @property
+    def speed(self) -> TileSpeed:
+        """Rule movement speed (Java Constants.java:217 TileRule.speed)."""
+        return RULE_SPEEDS.get(self.rule, TileSpeed.FAST)
+
+    @property
+    def effect(self) -> TileEffect:
+        """Rule effect (Java Constants.java:218 TileRule.effect)."""
+        return RULE_EFFECTS.get(self.rule, TileEffect.NONE)
 
 
 ENTITY_TILES: set[str] = {

@@ -248,17 +248,39 @@ def test_dungeon_ladder_climbing(empty_dmap, test_party):
 
 # --- Traps Tests (Pit, Wind, Gremlins) ---
 
-def test_pit_trap(empty_dmap, test_party):
-    empty_dmap.set_tile(5, 4, 0, DungeonTile.PIT_TRAP)
-    state = DungeonState(empty_dmap, start_x=5, start_y=5, start_z=0, start_dir=Direction.NORTH, party=test_party)
+class RemainingRng:
+    """Stub RNG whose randrange(n) always returns a fixed remainder."""
 
-    hp_before = test_party.members[0].hp
+    def __init__(self, remainder: int = 0) -> None:
+        self.remainder = remainder
+
+    def randrange(self, n: int) -> int:
+        return min(self.remainder, n - 1)
+
+
+def test_pit_trap(empty_dmap, test_party):
+    """Pit! deals the LAVA tile effect per member; no level change; tile cleared.
+
+    Java truth: DungeonScreen.checkTileAffects (DungeonScreen.java:1090-1095)
+    applies TileEffect.LAVA, clears the tile to NOTHING and never changes
+    level. The old z+1 and flat-25 behaviors were invented.
+    """
+    empty_dmap.set_tile(5, 4, 0, DungeonTile.PIT_TRAP)
+    state = DungeonState(
+        empty_dmap, start_x=5, start_y=5, start_z=0, start_dir=Direction.NORTH,
+        party=test_party, rng=RemainingRng(0),
+    )
+
     ev = state.move_forward()
 
     assert ev.type == DungeonEventType.PIT_TRAP
-    assert state.z == 1  # Fell to level 1
-    assert test_party.members[0].hp < hp_before
-    # Trap tile on level 0 consumed/replaced with NOTHING
+    assert ev.message == "Pit!"
+    assert state.z == 0  # no level change
+    assert test_party.dungeon_level == 0
+    # LAVA effect: 16 + rand(32)==0 → 16 damage to each living member.
+    assert test_party.members[0].hp == test_party.members[0].max_hp - 16
+    assert test_party.members[1].hp == test_party.members[1].max_hp - 16
+    # Trap tile consumed/replaced with NOTHING
     assert empty_dmap.get_tile(5, 4, 0) == DungeonTile.NOTHING
 
 

@@ -11,9 +11,10 @@ from typing import TYPE_CHECKING, ClassVar
 
 import pygame
 
-from py_exodus.constants import Direction, Status
+from py_exodus.constants import Direction, Status, TileEffect
 from py_exodus.entities.defs import CreatureDef
 from py_exodus.entities.party import PartyDeathException
+from py_exodus.world import tile_effects
 from py_exodus.world.map import DungeonMap, DungeonTile
 
 if TYPE_CHECKING:
@@ -704,15 +705,17 @@ class DungeonState:
         return self.move_forward()
 
     def _execute_move(self, target_x: int, target_y: int) -> DungeonEvent:
-        """Validate tile traversability, update position, and apply tile effects."""
+        """Validate tile traversability, update position, and apply tile effects.
+
+        Java DungeonScreen.move (DungeonScreen.java:1052-1077): the dungeon
+        block set is WALL plus FIELD_ENERGY alone — doors (plain, locked and
+        secret) and the poison/fire fields pass, and the Mark of Force does
+        not open dungeon energy fields (no Force branch exists in Java's
+        dungeon movement).
+        """
         target_tile = self.dmap.get_tile(target_x, target_y, self.z)
 
-        # Check impassable walls and barriers
-        if target_tile in (
-            DungeonTile.WALL,
-            DungeonTile.LOCKED_DOOR,
-            DungeonTile.SECRET_DOOR,
-        ):
+        if target_tile in (DungeonTile.WALL, DungeonTile.FIELD_ENERGY):
             return DungeonEvent(
                 type=DungeonEventType.BLOCKED,
                 message="Blocked! You bump into a wall.",
@@ -727,25 +730,26 @@ class DungeonState:
         self.x = target_x
         self.y = target_y
 
-        # Pit trap: drops player down 1 level and deals damage
+        # Pit trap: Java DungeonScreen.checkTileAffects (1090-1095) — log
+        # "Pit!", apply the LAVA effect (1-in-2 per member, 16+rand(32)
+        # unless the Mark of Fire), clear the tile to NOTHING. No level
+        # change and no flat damage: those were invented here.
         if target_tile == DungeonTile.PIT_TRAP:
-            old_z = self.z
-            if self.z < 7:
-                self.z += 1
-                if self.party:
-                    self.party.dungeon_level = self.z
-
-            damage = self._apply_party_damage(25)
-            self.dmap.set_tile(self.x, self.y, old_z, DungeonTile.NOTHING)
+            self.dmap.set_tile(self.x, self.y, self.z, DungeonTile.NOTHING)
+            try:
+                tile_effects.apply_effect(self.party, TileEffect.LAVA, rng=self.rng)
+            except PartyDeathException:
+                # Java catches PartyDeathException around the move; the
+                # owning DungeonScreen's post-check routes the wipe.
+                pass
             self._tick_turn()
 
             return DungeonEvent(
                 type=DungeonEventType.PIT_TRAP,
-                message=f"Pit! You fell to level {self.z + 1} and took {damage} damage!",
+                message="Pit!",
                 x=self.x,
                 y=self.y,
                 z=self.z,
-                damage=damage,
                 tile=target_tile,
                 moved=True,
             )
@@ -784,6 +788,22 @@ class DungeonState:
                 tile=target_tile,
                 moved=True,
             )
+
+        # Poison and fire fields: Java checkTileAffects (DungeonScreen.java
+        # 1096-1104) applies POISONFIELD on FIELD_POISON and LAVA on
+        # FIELD_FIRE on entering; the tile is neither consumed nor blocking.
+        if target_tile == DungeonTile.FIELD_POISON:
+            try:
+                tile_effects.apply_effect(
+                    self.party, TileEffect.POISONFIELD, rng=self.rng
+                )
+            except PartyDeathException:
+                pass
+        elif target_tile == DungeonTile.FIELD_FIRE:
+            try:
+                tile_effects.apply_effect(self.party, TileEffect.LAVA, rng=self.rng)
+            except PartyDeathException:
+                pass
 
         # Misty writings: read inscription
         if target_tile == DungeonTile.MISTY_WRITINGS:
@@ -1228,19 +1248,6 @@ class DungeonState:
         )
 
     # --- Helper methods ---
-
-    def _apply_party_damage(self, amount: int) -> int:
-        """Apply damage across living party members, updating DEAD status."""
-        if not self.party:
-            return amount
-
-        total = 0
-        for m in self.party.living_members:
-            m.hp = max(0, m.hp - amount)
-            if m.hp == 0:
-                m.status = Status.DEAD
-            total += amount
-        return total
 
     def _check_random_encounter(self) -> CreatureDef | None:
         """Check for random monster ambush based on dungeon level."""

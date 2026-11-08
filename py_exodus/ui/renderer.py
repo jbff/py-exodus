@@ -12,6 +12,7 @@ from py_exodus.constants import (
     Transport,
 )
 from py_exodus.world.field_of_view import compute_fov
+from py_exodus.world import tile_effects
 
 if TYPE_CHECKING:
     from py_exodus.assets import AssetManager
@@ -61,6 +62,13 @@ def can_move_to(
         if not tile.walkable or bool(tile.attribs & TileAttrib.CREATUREUNWALKABLE):
             return False
     else:  # Transport.FOOT
+        # Java BaseMap.canAvatarMoveOn: a dispelable (field) tile passes on
+        # foot only when some party member carries the Mark of Force
+        # (marks[3]). This gate precedes the walkability check, so an
+        # unwalkable energy field opens with the mark and a walkable fire
+        # field still demands it.
+        if tile.dispelable:
+            return tile_effects.party_has_mark_of_force(party)
         if not tile.walkable:
             return False
 

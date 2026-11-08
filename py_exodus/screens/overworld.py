@@ -39,6 +39,7 @@ from py_exodus.ui.text_log import (
     TextLog,
     get_hud_font,
 )
+from py_exodus.world import tile_effects
 
 if TYPE_CHECKING:
     from py_exodus.assets import AssetManager
@@ -813,20 +814,26 @@ class OverworldScreen(BaseScreen):
         nx = (self.party.x + direction.dx) % self.game_map.width
         ny = (self.party.y + direction.dy) % self.game_map.height
 
+        start_tile = self.game_map.get_tile(self.party.x, self.party.y)
+
         if can_move_to(self.game_map, nx, ny, transport=self.party.transport, party=self.party):
+            dest_tile = self.game_map.get_tile(nx, ny)
+            if tile_effects.slowed_by_tile(dest_tile):
+                # Java Context.slowedByTile: the speed roll was lost, so this
+                # move consumes the turn without displacing. Java GameScreen
+                # still runs finishTurn after a blocked move (preMove →
+                # finishTurn at the party's current tile).
+                if self.audio is not None:
+                    self.audio.play_sfx("blocked")
+                self._finish_turn(start_tile)
+                return
+
             self.party.x = nx
             self.party.y = ny
-            # Java GameScreen.finishTurn → Party.endTurn (Party.java:592-639):
-            # the move counter and the submorsels/food/regen tick land in the
-            # same per-move call.
             if self.audio is not None:
                 self.audio.play_sfx("walk_normal")
 
-            try:
-                self.party.end_turn(surface=True)
-            except PartyDeathException:
-                pass
-            self.check_party_death()
+            self._finish_turn(start_tile)
 
             # Check moongate teleports
             self._check_moongates()
@@ -837,6 +844,24 @@ class OverworldScreen(BaseScreen):
         else:
             if self.audio is not None:
                 self.audio.play_sfx("blocked")
+
+    def _finish_turn(self, effect_tile=None) -> None:
+        """End the movement turn: submorsel tick, then the standing tile effect.
+
+        Java truth: ``exodus/GameScreen.java:706-754`` ``finishTurn`` — every
+        turn (a move, a blocked move, a pass) runs ``endTurn`` and then
+        applies the tile-rule effect of the tile the party occupies at the
+        start of the turn (``getCurrentMapCoords`` is captured pre-move, so
+        the effect lands on the tile being left, not the one entered). A
+        wipe raises ``PartyDeathException``; the post-check routes the
+        game-over flow (Task 2).
+        """
+        try:
+            self.party.end_turn(surface=True)
+            tile_effects.apply_rule_effect(self.party, effect_tile)
+        except PartyDeathException:
+            pass
+        self.check_party_death()
 
     def _prompt_fire_cannons(self) -> None:
         """Fire frigate broadside cannons in a given direction."""

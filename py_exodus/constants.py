@@ -111,6 +111,31 @@ class TileAttrib(IntFlag):
     SECRETDOOR = 0x040000
 
 
+class TileSpeed(str, Enum):
+    """Tile movement speed classes (Java Constants.java:137-143 TileSpeed).
+
+    A slow roll (Context.java:215-240 ``slowedByTile``) consumes the move's
+    turn without moving: SLOW 1-in-8, VSLOW 1-in-4, VVSLOW 1-in-2.
+    """
+
+    FAST = "fast"
+    SLOW = "slow"
+    VSLOW = "vslow"
+    VVSLOW = "vvslow"
+
+
+class TileEffect(str, Enum):
+    """Tile-rule effects (Java Constants.java:145-152 TileEffect)."""
+
+    NONE = "none"
+    FIRE = "fire"
+    POISON = "poison"
+    POISONFIELD = "poisonfield"
+    LAVA = "lava"
+    GREMLINS = "gremlins"
+    ELECTRICITY = "electricity"
+
+
 class Profession(str, Enum):
     """The 11 professions of Ultima III: Exodus."""
 

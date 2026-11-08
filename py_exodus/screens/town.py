@@ -26,6 +26,7 @@ from py_exodus.ui.text_log import (
     EGA_BLACK,
     TextLog,
 )
+from py_exodus.world import tile_effects
 
 if TYPE_CHECKING:
     from py_exodus.assets import AssetManager
@@ -228,21 +229,37 @@ class TownScreen(BaseScreen):
             self._exit_town()
             return
 
+        start_tile = self.game_map.get_tile(self.avatar_x, self.avatar_y)
+
         if can_move_to(self.game_map, nx, ny, transport=Transport.FOOT, party=self.party):
+            dest_tile = self.game_map.get_tile(nx, ny)
+            if tile_effects.slowed_by_tile(dest_tile):
+                # Java Context.slowedByTile: the move is lost but the turn
+                # runs (GameScreen.preMove finishes the turn on a block).
+                if self.audio is not None:
+                    self.audio.play_sfx("blocked")
+                self._finish_turn(start_tile)
+                return
+
             self.avatar_x = nx
             self.avatar_y = ny
-            # Java GameScreen.finishTurn → Party.endTurn (Party.java:592-639);
-            # towns drain submorsels at 10 per move (non-surface map).
-            try:
-                self.party.end_turn(surface=False)
-            except PartyDeathException:
-                pass
-            self.check_party_death()
             if self.audio is not None:
                 self.audio.play_sfx("walk_normal")
+            self._finish_turn(start_tile)
         else:
             if self.audio is not None:
                 self.audio.play_sfx("blocked")
+
+    def _finish_turn(self, effect_tile=None) -> None:
+        """End the town movement turn: submorsel tick, then the standing tile
+        effect (Java GameScreen.finishTurn, GameScreen.java:706-754). Towns
+        drain submorsels at 10 per move (non-surface map)."""
+        try:
+            self.party.end_turn(surface=False)
+            tile_effects.apply_rule_effect(self.party, effect_tile)
+        except PartyDeathException:
+            pass
+        self.check_party_death()
 
     def _exit_town(self) -> None:
         self.text_log.add_message("Leaving city...")
