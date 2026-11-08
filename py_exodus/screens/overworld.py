@@ -72,6 +72,9 @@ class OverworldScreen(BaseScreen):
         self.random_encounters_enabled = random_encounters
 
         self.game_map: GameMap | None = None
+        # Wandering overland creatures visible on Sosaria (declared before the
+        # first map load so _load_world_map can purge stale fixtures)
+        self.creatures: list[dict[str, Any]] = []
         self._load_world_map()
 
         self.anim_frame = 0
@@ -84,9 +87,6 @@ class OverworldScreen(BaseScreen):
         )
         self.stats_panel = StatsPanel()
         self.text_log = TextLog(max_lines=5, wrap_width=28)
-
-        # Wandering overland creatures visible on Sosaria
-        self.creatures: list[dict[str, Any]] = []
 
         # Java GameScreen.java:111-121 — the two Sosaria whirlpools are added
         # manually at startup (they never spawn automatically). They never
@@ -127,6 +127,10 @@ class OverworldScreen(BaseScreen):
         return (self.trammel_phase, self.felucca_phase)
 
     def _load_world_map(self) -> None:
+        # A map switch drops every standing creature (wanderer or whirlpool
+        # fixture): whirlpools only exist where they were placed (GameScreen
+        # .java:111-121) and are re-seeded by __init__ for Sosaria.
+        self.creatures.clear()
         if self.asset_mgr is None:
             return
         try:
@@ -280,34 +284,48 @@ class OverworldScreen(BaseScreen):
         prompt_cast_party(self.text_log, self.party, world_map=self.game_map, audio=self.audio)
 
     def _get_chest(self) -> None:
-        """GET: a member 1-4, then an arrow acts as the direction — only that
-        ADJACENT tile is checked (fix round 1).
+        """GET: pick the opening member, then check ONLY the party's own tile
+        (fix round 2 — final ruling).
 
         Java truth: ``exodus/SecondaryInputProcessor.java:126-160, 308-318`` —
-        the member keydown selects the opener, then the pressed arrow sets
-        ``x = currentX ± 1 / y = currentY ± 1`` and
-        ``gameScreen.getChest(member, x, y, false)`` fires on that adjacent
-        tile; a non-arrow key after the member select is invalid. No
-        Chebyshev scan and no same-tile check on the overworld/town (the
-        dungeon G route keeps its party-tile check).
+        x/y is a per-event local copy; the G branch fires only when a member
+        digit follows G, and on that event x/y are the unshifted
+        ``currentX/currentY`` (arrows never reach ``getChest``). So the chest
+        under the party's feet IS the openable chest — no direction step, no
+        adjacency scan — and ``GameScreen.getChest`` (GameScreen.java:
+        1036-1074) falls back to the chest *tile* at the same coordinates.
+        Non-digit input logs NOTHING (Java falls through silently); the
+        keydown still consumes a turn (SIP ``finishTurn`` at line 459, which
+        passes the party's tile — so the tile-rule effect uses it too).
         """
         from py_exodus.assets import TileDef
         from py_exodus.world.chests import ChestNotFound, open_chest, take_chest_object
 
-        def _run(member, tx: int, ty: int) -> None:
+        def _on_who(who_str: str) -> None:
+            member = self._parse_member(who_str)
+            if member is None:
+                # Non-digits fall through silently (Java), but the keydown
+                # still consumes the turn at the party's tile (SIP:459).
+                self._finish_turn(
+                    self.game_map.get_tile(self.party.x, self.party.y)
+                    if self.game_map else None
+                )
+                return
+
+            px, py = self.party.x, self.party.y
             try:
-                take_chest_object(self.party, tx, ty)
+                take_chest_object(self.party, px, py)
             except ChestNotFound:
-                # Java getChest: a chest *tile* at the target is replaced
-                # with floor (GameScreen.java:1069-1071). No adjacency scan.
-                tile = self.game_map.get_tile(tx, ty) if self.game_map else None
+                # Java getChest: a chest *tile* under the party is replaced
+                # with floor (GameScreen.java:1069-1071).
+                tile = self.game_map.get_tile(px, py) if self.game_map else None
                 if tile is None or getattr(tile, "rule", "") != "chest":
                     self.text_log.add_message("Not Here!")
                     self._finish_turn(
-                        self.game_map.get_tile(tx, ty) if self.game_map else None
+                        self.game_map.get_tile(px, py) if self.game_map else None
                     )
                     return
-                self.game_map.set_tile(tx, ty, TileDef(index=3, name="floor"))
+                self.game_map.set_tile(px, py, TileDef(index=3, name="floor"))
 
             # Task 2 death flow: a chest trap (gas) can leave the whole party
             # dead; route game over (Java GameScreen.java:444-446 partyDeath
@@ -323,27 +341,7 @@ class OverworldScreen(BaseScreen):
                 return
             if self.audio is not None:
                 self.audio.play_sfx("trigger")
-            self._finish_turn(self.game_map.get_tile(tx, ty) if self.game_map else None)
-
-        def _on_who(who_str: str) -> None:
-            member = self._parse_member(who_str)
-            if member is None:
-                self.text_log.add_message("Invalid member #!")
-                return
-
-            def _on_dir(d_str: str) -> None:
-                if not d_str.strip():
-                    # A blank submit (stray Enter) must not swallow the
-                    # direction step: re-ask.
-                    self.text_log.prompt("Direction? (N,S,E,W):", callback=_on_dir, single_char=True)
-                    return
-                d = Direction.from_name_or_key(d_str)
-                if d is None:
-                    self.text_log.add_message("Invalid direction!")
-                    return
-                _run(member, self.party.x + d.dx, self.party.y + d.dy)
-
-            self.text_log.prompt("Direction? (N,S,E,W):", callback=_on_dir, single_char=True)
+            self._finish_turn(self.game_map.get_tile(px, py) if self.game_map else None)
 
         self.text_log.prompt("GET> Which party member? (1-4):", callback=_on_who, single_char=True)
 
@@ -372,8 +370,7 @@ class OverworldScreen(BaseScreen):
     def _pool_to_member(self, who_str: str) -> None:
         member = self._parse_member(who_str)
         if member is None:
-            self.text_log.add_message("Invalid member #!")
-            return
+            return  # non-digits fall through silently (Java)
         self.party.pool_gold(self.party.members.index(member))
 
     def _peer_gem(self) -> None:
@@ -1033,8 +1030,9 @@ class OverworldScreen(BaseScreen):
         sosaria = str(getattr(self.game_map, "id", self.map_id)) == "0"
         try:
             self._check_hull_integrity()
-            self.party.aura.pass_turn()
+            # Java order (GameScreen.java:710-714): endTurn, then aura.passTurn.
             self.party.end_turn(surface=True, sosaria=sosaria)
+            self.party.aura.pass_turn()
             tile_effects.apply_rule_effect(self.party, effect_tile)
         except PartyDeathException:
             pass

@@ -222,6 +222,15 @@ class TestJoinGold:
         assert sample_party.members[0].gold == 0
         assert sample_party.members[2].gold == 100
 
+    def test_overworld_j_non_digit_is_silent(self, ow, sample_party):
+        """Java's J falls through silently for a non-digit (SIP:271-277)."""
+        gold_before = sample_party.members[0].gold
+        key(ow, pygame.K_j)
+        answer(ow, "x")
+        assert not any("Invalid member #!" in m for m in ow.text_log.history)
+        assert not any("Nobody selected!" in m for m in ow.text_log.history)
+        assert sample_party.members[0].gold == gold_before
+
 
 class TestNegateTime:
     """(d) N consumes the first member's powder → QUICKNESS aura for 6 turns."""
@@ -366,51 +375,67 @@ class TestUnlock:
 
 
 class TestGetChest:
-    """(g) G: member prompt then an arrow acting as the direction — only that
-    ADJACENT tile is checked, "Not Here!" otherwise (fix round 1:
-    SecondaryInputProcessor.java:126-160, 308-318); the member+direction
-    selection consumes a turn (SIP finishTurn)."""
+    """(g) G: member digit only — the chest at the party's OWN tile opens
+    (fix round 2, final ruling: SIP x/y is a per-event local copy; arrows
+    never reach getChest), "Not Here!" otherwise; the keydown consumes a
+    turn (SIP finishTurn passes the party's tile)."""
 
-    def test_overworld_g_targets_pressed_adjacent_tile(self, ow, sample_party):
-        sample_party.dynamic_objects.append({"tile": "chest", "x": 11, "y": 10})
+    def test_overworld_g_chest_on_party_tile(self, ow, sample_party):
+        sample_party.dynamic_objects.append({"tile": "chest", "x": 10, "y": 10})
         moves_before = sample_party.moves
         key(ow, pygame.K_g)
         assert "GET" in ow.text_log.current_prompt
         answer(ow, "1")
-        assert "Direction?" in ow.text_log.current_prompt
-        answer(ow, "E")
         assert any("The Chest Holds: " in m for m in ow.text_log.history)
         assert not [o for o in sample_party.dynamic_objects if o.get("tile") == "chest"]
         assert sample_party.moves == moves_before + 1
 
-    def test_overworld_g_chestless_direction_not_here(self, ow, sample_party):
-        """The chest under the party's feet is NOT checked; only the tile the
-        arrow points at — no Chebyshev scan and no same-tile check."""
-        sample_party.dynamic_objects.append({"tile": "chest", "x": 10, "y": 10})
+    def test_overworld_g_chestless_is_not_here(self, ow, sample_party):
         key(ow, pygame.K_g)
         answer(ow, "1")
-        answer(ow, "E")
         assert any(m == "Not Here!" for m in ow.text_log.history)
-        assert {"tile": "chest", "x": 10, "y": 10} in sample_party.dynamic_objects
 
-    def test_town_g_targets_pressed_adjacent_tile(self, town):
+    def test_overworld_g_no_adjacency_scan(self, ow, sample_party):
+        """A chest one tile away is NOT scanned for (dungeon-route contract)."""
+        sample_party.dynamic_objects.append({"tile": "chest", "x": 11, "y": 10})
+        key(ow, pygame.K_g)
+        answer(ow, "1")
+        assert any(m == "Not Here!" for m in ow.text_log.history)
+        assert {"tile": "chest", "x": 11, "y": 10} in sample_party.dynamic_objects
+
+    def test_overworld_g_non_digit_is_silent(self, ow, sample_party):
+        """Java logs NOTHING but the typed prompt echo for a non-digit after
+        G; the turn is still spent (SIP:459 fall-through)."""
+        moves_before = sample_party.moves
+        key(ow, pygame.K_g)
+        answer(ow, "x")
+        assert not any("Invalid member #!" in m for m in ow.text_log.history)
+        assert not any("Nobody selected!" in m for m in ow.text_log.history)
+        assert sample_party.moves == moves_before + 1
+
+    def test_town_g_chest_tile_under_party(self, town):
         chest_tile = TileDef(index=3, name="chest", rule="chest", attribs=TileAttrib.NONE)
-        town.game_map.set_tile(11, 10, chest_tile)  # one tile EAST of the party
+        town.game_map.set_tile(10, 10, chest_tile)
         key(town, pygame.K_g)
         answer(town, "1")
-        answer(town, "E")
         assert any("The Chest Holds: " in m for m in town.text_log.history)
-        assert town.game_map.get_tile(11, 10).name != "chest"
+        assert town.game_map.get_tile(10, 10).name != "chest"
 
-    def test_town_g_chestless_direction_not_here(self, town):
-        """A chest off the pressed direction is not looted."""
+    def test_town_g_chestless_is_not_here_no_adjacency(self, town):
+        """A chest tile one tile WEST is not scanned for."""
         chest_tile = TileDef(index=3, name="chest", rule="chest", attribs=TileAttrib.NONE)
-        town.game_map.set_tile(9, 10, chest_tile)  # WEST, while pressing EAST
+        town.game_map.set_tile(9, 10, chest_tile)
         key(town, pygame.K_g)
         answer(town, "1")
-        answer(town, "E")
         assert any(m == "Not Here!" for m in town.text_log.history)
         assert town.game_map.get_tile(9, 10).name == "chest"
+
+    def test_town_g_non_digit_is_silent(self, town):
+        key(town, pygame.K_g)
+        answer(town, "q")
+        assert not any("Invalid member #!" in m for m in town.text_log.history)
+        assert not any("Nobody selected!" in m for m in town.text_log.history)
+        assert not town.is_finished
 
 
 class TestSearchTown:

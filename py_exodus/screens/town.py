@@ -295,12 +295,13 @@ class TownScreen(BaseScreen):
                 self.audio.play_sfx("blocked")
 
     def _finish_turn(self, effect_tile=None) -> None:
-        """End the town movement turn: aura tick, submorsel tick, then the
-        standing tile effect (Java GameScreen.finishTurn, GameScreen.java:
-        706-754). Towns drain submorsels at 10 per move (non-surface map)."""
+        """End the town movement turn: submorsel tick, aura tick, then the
+        standing tile effect (Java GameScreen.finishTurn GameScreen.java:
+        706-754 — endTurn, then aura.passTurn). Towns drain submorsels at 10
+        per move (non-surface map)."""
         try:
-            self.party.aura.pass_turn()
             self.party.end_turn(surface=False)
+            self.party.aura.pass_turn()
             tile_effects.apply_rule_effect(self.party, effect_tile)
         except PartyDeathException:
             pass
@@ -599,14 +600,16 @@ class TownScreen(BaseScreen):
             return None
 
     def _get_chest(self) -> None:
-        """GET: a member 1-4, then an arrow acts as the direction — only that
-        ADJACENT tile is checked (fix round 1).
+        """GET: pick the opening member, then check ONLY the party's own tile
+        (fix round 2 — final ruling).
 
         Java truth: ``exodus/SecondaryInputProcessor.java:126-160, 308-318`` —
-        ``gameScreen.getChest(member, x, y, false)`` targets the tile one step
-        in the pressed arrow's direction; a non-arrow key after the member
-        select is invalid. No Chebyshev scan and no same-tile check in town
-        (the dungeon G route keeps its party-tile check).
+        x/y is a per-event local copy and the G branch fires only on a member
+        digit, with unshifted currentX/currentY: the chest under the party's
+        feet IS the openable chest (GameScreen.java:1036-1074, chest *tile*
+        fallback at the same coordinates, replaced with floor). Non-digit
+        input logs NOTHING; the keydown still consumes a turn (SIP:459 passes
+        the party's tile, so the tile-rule effect uses it).
         """
         from py_exodus.assets import TileDef
         from py_exodus.world.chests import (
@@ -615,20 +618,31 @@ class TownScreen(BaseScreen):
             take_chest_object,
         )
 
-        def _run(member, tx: int, ty: int) -> None:
+        def _on_who(who_str: str) -> None:
+            member = self._parse_member(who_str)
+            if member is None:
+                # Non-digits fall through silently (Java), but the keydown
+                # still consumes the turn at the party's tile (SIP:459).
+                self._finish_turn(
+                    self.game_map.get_tile(self.party.x, self.party.y)
+                    if self.game_map else None
+                )
+                return
+
+            px, py = self.avatar_x, self.avatar_y
             try:
-                take_chest_object(self.party, tx, ty)
+                take_chest_object(self.party, px, py)
             except ChestNotFound:
-                # Java getChest: a chest *tile* at the target is replaced
-                # with floor (GameScreen.java:1069-1071). No adjacency scan.
-                tile = self.game_map.get_tile(tx, ty) if self.game_map else None
+                # Java getChest: a chest *tile* under the party is replaced
+                # with floor (GameScreen.java:1069-1071).
+                tile = self.game_map.get_tile(px, py) if self.game_map else None
                 if tile is None or getattr(tile, "rule", "") != "chest":
                     self.text_log.add_message("Not Here!")
                     self._finish_turn(
-                        self.game_map.get_tile(tx, ty) if self.game_map else None
+                        self.game_map.get_tile(px, py) if self.game_map else None
                     )
                     return
-                self.game_map.set_tile(tx, ty, TileDef(index=3, name="floor"))
+                self.game_map.set_tile(px, py, TileDef(index=3, name="floor"))
 
             # Task 2 death flow: a chest trap (gas) can leave the whole party
             # dead; route game over (Java GameScreen.java:444-446 partyDeath
@@ -641,27 +655,7 @@ class TownScreen(BaseScreen):
             except PartyDeathException:
                 pass
             self.check_party_death()
-            self._finish_turn(self.game_map.get_tile(tx, ty) if self.game_map else None)
-
-        def _on_who(who_str: str) -> None:
-            member = self._parse_member(who_str)
-            if member is None:
-                self.text_log.add_message("Invalid member #!")
-                return
-
-            def _on_dir(d_str: str) -> None:
-                if not d_str.strip():
-                    # A blank submit (stray Enter) must not swallow the
-                    # direction step: re-ask.
-                    self.text_log.prompt("Direction? (N,S,E,W):", callback=_on_dir, single_char=True)
-                    return
-                d = Direction.from_name_or_key(d_str)
-                if d is None:
-                    self.text_log.add_message("Invalid direction!")
-                    return
-                _run(member, self.avatar_x + d.dx, self.avatar_y + d.dy)
-
-            self.text_log.prompt("Direction? (N,S,E,W):", callback=_on_dir, single_char=True)
+            self._finish_turn(self.game_map.get_tile(px, py) if self.game_map else None)
 
         self.text_log.prompt("GET> Which party member? (1-4):", callback=_on_who, single_char=True)
 
@@ -751,8 +745,7 @@ class TownScreen(BaseScreen):
     def _pool_to_member(self, who_str: str) -> None:
         member = self._parse_member(who_str)
         if member is None:
-            self.text_log.add_message("Invalid member #!")
-            return
+            return  # non-digits fall through silently (Java)
         self.party.pool_gold(self.party.members.index(member))
 
     def _negate_time(self) -> None:

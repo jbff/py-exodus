@@ -94,14 +94,14 @@ def test_search_card_of_death(asset_mgr, party_four):
     assert any("Death" in msg for msg in ow.text_log.history)
 
 
-def test_town_get_chest_direction_targeted(asset_mgr, party_four):
-    """Fix round 1: G targets ONLY the tile one step in the pressed arrow's
-    direction (SIP:126-160, 308-318) — a chest off that direction is "Not
-    Here!" (no Chebyshev scan); a chest tile on the target loots and
-    converts to floor."""
+def test_town_get_chest_party_tile_only(asset_mgr, party_four):
+    """Fix round 2 (final): G opens the chest at the PARTY'S OWN TILE only
+    (SIP x/y is the unshifted per-event copy; arrows never reach getChest) —
+    an adjacent chest is "Not Here!" (no adjacency scan), a chest tile under
+    the party loots and converts to floor."""
     town = TownScreen(party=party_four, map_id=1, asset_mgr=asset_mgr, start_x=10, start_y=10)
 
-    # A chest tile one tile WEST (pressing EAST): not looted ("Not Here!")
+    # A chest tile one tile WEST: not looted ("Not Here!")
     chest_tile = asset_mgr.get_tile_by_name("chest") or asset_mgr.get_tile_by_index(64)
     assert chest_tile is not None
     town.game_map.set_tile(9, 10, chest_tile)
@@ -110,13 +110,12 @@ def test_town_get_chest_direction_targeted(asset_mgr, party_four):
     assert town.text_log.is_waiting_for_input
     town.text_log.handle_char("1")
     town.text_log.handle_enter()
-    town.text_log.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RIGHT))
 
     assert any(m == "Not Here!" for m in town.text_log.history)
     assert town.game_map.get_tile(9, 10).name == "chest"
 
-    # A chest tile one tile EAST (pressing EAST) loots
-    town.game_map.set_tile(11, 10, chest_tile)
+    # A chest tile directly under the party loots
+    town.game_map.set_tile(10, 10, chest_tile)
     opening_member = party_four.members[0]
     member_gold_before = opening_member.gold
     party_gold_before = party_four.gold
@@ -125,12 +124,11 @@ def test_town_get_chest_direction_targeted(asset_mgr, party_four):
     assert town.text_log.is_waiting_for_input
     town.text_log.handle_char("1")
     town.text_log.handle_enter()
-    town.text_log.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RIGHT))
 
     # Chest gold is credited to the opening member, not the party pool
     opening_gold_delta = opening_member.gold - member_gold_before
     assert 10 <= opening_gold_delta <= 66
     assert party_four.gold == party_gold_before + opening_gold_delta  # gold is per member (Task 4)
-    assert town.game_map.get_tile(11, 10).name != "chest"
+    assert town.game_map.get_tile(10, 10).name != "chest"
     assert opening_member.gold <= 9999
     assert any("The Chest Holds: " in msg for msg in town.text_log.history)

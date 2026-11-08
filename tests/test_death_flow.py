@@ -387,9 +387,9 @@ def test_overworld_chest_gas_trap_wipe_transitions_to_start_screen(sm, asset_mgr
     monkeypatch.setattr(chests_mod, "random", _FakeRandom())
 
     party = single_member_party(hp=10)
-    # Fix round 1: G checks only the tile one step in the pressed arrow's
-    # direction (SIP:126-160, 308-318).
-    party.dynamic_objects.append({"tile": "chest", "x": party.x + 1, "y": party.y})
+    # Fix round 2 (final): G opens the chest at the PARTY'S OWN TILE
+    # (SIP x/y is the unshifted per-event copy; arrows never reach getChest).
+    party.dynamic_objects.append({"tile": "chest", "x": party.x, "y": party.y})
     ow = OverworldScreen(party=party, map_id=0, asset_mgr=asset_mgr, manager=sm)
     sm.set_screen(ow)
 
@@ -399,7 +399,6 @@ def test_overworld_chest_gas_trap_wipe_transitions_to_start_screen(sm, asset_mgr
     assert ow.text_log.is_waiting_for_input
     ow.text_log.handle_char("1")
     ow.text_log.handle_enter()
-    ow.text_log.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RIGHT))
 
     assert any("Gas Trap!" in line for line in ow.text_log.history)
     assert party.is_party_dead()
@@ -510,8 +509,8 @@ def test_town_chest_gas_trap_wipe_transitions_to_start_screen(sm, asset_mgr, mon
     monkeypatch.setattr(chests_mod, "random", _FakeRandom())
 
     party = single_member_party(hp=10)
-    # Fix round 1: G targets the tile one step in the pressed arrow's direction.
-    party.dynamic_objects.append({"tile": "chest", "x": 11, "y": 10})
+    # Fix round 2 (final): G opens the chest at the party's own tile.
+    party.dynamic_objects.append({"tile": "chest", "x": 10, "y": 10})
     from py_exodus.screens.town import TownScreen
 
     town = TownScreen(
@@ -525,7 +524,6 @@ def test_town_chest_gas_trap_wipe_transitions_to_start_screen(sm, asset_mgr, mon
     assert town.text_log.is_waiting_for_input
     town.text_log.handle_char("1")
     town.text_log.handle_enter()
-    town.text_log.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RIGHT))
 
     assert party.is_party_dead()
     assert isinstance(sm.current_screen, StartScreen)
