@@ -372,6 +372,125 @@ class TownScreen(BaseScreen):
         if self.audio is not None:
             self.audio.play_music("shopping")
 
+        v_type = (vendor.vendor_type or "").upper()
+
+        # Specialty Tavern Dialogue & Clues
+        if v_type == "TAVERNINFO":
+            spec_food = None
+            ale_item = None
+            for i in vendor.items:
+                if str(getattr(i, "item_type", "")).upper() == "FOOD":
+                    if i.name == vendor.generic_field1:
+                        spec_food = i
+                    else:
+                        ale_item = i
+
+            food_name = vendor.generic_field1 or "Food"
+            food_price = spec_food.price if spec_food else 1
+            ale_price = ale_item.price if ale_item else 2
+
+            self.text_log.add_message(f"{vendor.owner} says: Welcome to {vendor.name}")
+
+            def _on_food_or_ale(choice_str: str) -> None:
+                c = choice_str.strip().lower()
+                if c.startswith("f"):
+                    def _on_plates(qty_str: str) -> None:
+                        try:
+                            qty = int(qty_str.strip())
+                        except ValueError:
+                            qty = 1
+                        cost = food_price * qty
+                        if self.party.gold < cost:
+                            self.text_log.add_message("Thou cannot afford that!")
+                        else:
+                            self.party.gold -= cost
+                            active = buyer or self.party.active_member
+                            if active is not None:
+                                active.food += qty
+                            else:
+                                self.party.food += qty
+                            self.text_log.add_message("Here ye arr.")
+                        self._play_town_music()
+
+                    self.text_log.prompt(f"Our specialty is {food_name} ({food_price}gp). How many plates?", callback=_on_plates)
+                elif c.startswith("a"):
+                    def _on_pay(pay_str: str) -> None:
+                        try:
+                            you_pay = int(pay_str.strip())
+                        except ValueError:
+                            you_pay = ale_price
+
+                        if self.party.gold < you_pay:
+                            self.text_log.add_message("Thou dost not have enough gold!")
+                            self._play_town_music()
+                            return
+
+                        if you_pay < ale_price:
+                            self.text_log.add_message("Won't pay, eh. Ya scum, be gone fore ey call the guards!")
+                            self._play_town_music()
+                            return
+
+                        self.party.gold -= you_pay
+                        self.text_log.add_message("Here ye arr.")
+                        tip = you_pay - ale_price
+                        if tip > 0:
+                            clue_item = None
+                            for i in vendor.items:
+                                if str(getattr(i, "item_type", "")).upper() == "TAVERNINFO":
+                                    if tip // 10 == i.price // 10:
+                                        clue_item = i
+                                        break
+                            if clue_item and clue_item.description:
+                                desc = clue_item.description
+                                if "%s" in desc:
+                                    desc = desc % vendor.owner
+                                self.text_log.add_message(desc)
+                            else:
+                                self.text_log.add_message("Thank you kindly.")
+                        self._play_town_music()
+
+                    self.text_log.prompt(f"Here's a mug of our best. That'll be {ale_price}gp. You pay?", callback=_on_pay)
+                else:
+                    self.text_log.add_message("See ya mate!")
+                    self._play_town_music()
+
+            self.text_log.prompt("What'll it be, Food er Ale?", callback=_on_food_or_ale, single_char=True)
+            return
+
+        # Specialty Oracle Dialogue & Prophecies
+        if v_type == "ORACLEINFO":
+            self.text_log.add_message(f"{vendor.owner}: Prophet of Life!")
+
+            def _on_offering(off_str: str) -> None:
+                try:
+                    num = int(off_str.strip())
+                except ValueError:
+                    num = 1
+                offering = num * 100
+                if self.party.gold < offering:
+                    self.text_log.add_message("Thou dost not have enough gold!")
+                    self._play_town_music()
+                    return
+
+                self.party.gold -= offering
+                prophecy_item = None
+                for i in vendor.items:
+                    if str(getattr(i, "item_type", "")).upper() == "ORACLEINFO":
+                        if i.price == offering:
+                            prophecy_item = i
+                            break
+
+                if prophecy_item and prophecy_item.description:
+                    desc = prophecy_item.description
+                    if "%s" in desc:
+                        desc = desc % vendor.owner
+                    self.text_log.add_message(desc)
+                self.text_log.add_message("Fare thee well and good luck!")
+                self._play_town_music()
+
+            self.text_log.prompt("How many 100 gp is your offering?", callback=_on_offering, single_char=True)
+            return
+
         self.text_log.add_message(f"Welcome to {vendor.name}!")
         self.text_log.add_message(f"Owner: {vendor.owner}")
 
