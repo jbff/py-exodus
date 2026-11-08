@@ -305,7 +305,10 @@ class WorldRenderer:
 
         # 6. Render active party avatar
         if party is not None:
-            grid_pos = map_to_viewport(party.x, party.y)
+            # Avatar position: default to kwargs avatar_x/avatar_y if specified, otherwise center_x/center_y
+            av_x = kwargs.get("avatar_x", center_x)
+            av_y = kwargs.get("avatar_y", center_y)
+            grid_pos = map_to_viewport(av_x, av_y)
             if grid_pos is not None:
                 col, row = grid_pos
                 avatar_name = kwargs.get("avatar_override")
@@ -315,7 +318,7 @@ class WorldRenderer:
                     elif party.transport == Transport.HORSE:
                         avatar_name = "horse"
                     else:
-                        avatar_name = "ranger"
+                        avatar_name = "fighter"
 
                 avatar_surf = self.asset_manager.get_tile_surface(avatar_name, anim_frame)
                 surface.blit(avatar_surf, (ox + col * self.tile_size, oy + row * self.tile_size))

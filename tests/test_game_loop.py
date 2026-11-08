@@ -370,6 +370,40 @@ def test_town_screen_talk_lord_british(pygame_setup, asset_mgr, sample_party):
     assert any("Lord British" in msg for msg in town.text_log.history)
 
 
+def test_town_screen_talk_arrow_keys_to_lord_british(pygame_setup, asset_mgr, sample_party):
+    """Pressing 'T' prompts Direction and pressing Arrow Up talks North to Lord British."""
+    # Place party at (32, 15), right in front of Lord British at (32, 14)
+    town = TownScreen(party=sample_party, map_id=1, asset_mgr=asset_mgr, start_x=32, start_y=15)
+
+    # Press 'T' for Talk
+    town.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_t, unicode="t"))
+    assert town.text_log.is_waiting_for_input
+    assert "Direction?" in town.text_log.current_prompt
+
+    # Press Arrow UP
+    town.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_UP))
+    assert not town.text_log.is_waiting_for_input
+    assert any("Lord British" in msg for msg in town.text_log.history)
+
+
+def test_town_screen_party_avatar_rendered_in_castle(pygame_setup, asset_mgr, sample_party):
+    """Verify party avatar is rendered at viewport center in Castle British."""
+    town = TownScreen(party=sample_party, map_id=1, asset_mgr=asset_mgr, start_x=32, start_y=61)
+    surf = pygame.Surface((176, 176))
+    town.render(surf)
+
+    # Center tile is (5 * 16, 5 * 16) = (80, 80)
+    # The center tile should have non-zero pixels (the avatar is drawn there)
+    center_sub = surf.subsurface(pygame.Rect(80, 80, 16, 16))
+    has_non_black = False
+    for px in range(16):
+        for py in range(16):
+            if center_sub.get_at((px, py))[:3] != (0, 0, 0):
+                has_non_black = True
+                break
+    assert has_non_black, "Party avatar was not rendered in Castle British viewport!"
+
+
 def test_town_screen_vendor_shopping(pygame_setup, asset_mgr, sample_party):
     from py_exodus.entities.defs import VendorDef, VendorItemDef
 

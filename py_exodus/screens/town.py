@@ -220,7 +220,7 @@ class TownScreen(BaseScreen):
                 return
             self._talk_to_direction(d)
 
-        self.text_log.prompt("Talk direction? (N,S,E,W):", callback=_on_dir)
+        self.text_log.prompt("Direction? (N,S,E,W):", callback=_on_dir, single_char=True)
 
     def _talk_to_direction(self, direction: Direction) -> None:
         if self.game_map is None:
@@ -234,11 +234,16 @@ class TownScreen(BaseScreen):
             self.text_log.add_message("Funny, no response!")
             return
 
-        tile_name = getattr(npc, "tile", "").lower()
-        npc_name = getattr(npc, "name", "").lower()
+        tile_name = str(getattr(npc, "tile_name", getattr(npc, "tile", ""))).lower()
+        npc_name = str(getattr(npc, "name", "")).lower()
 
         # Check Lord British
-        if "british" in tile_name or "british" in npc_name or npc_name == "lord british":
+        if (
+            "british" in tile_name
+            or "british" in npc_name
+            or npc_name == "lord british"
+            or getattr(npc, "tile_index", -1) == 19
+        ):
             self._interact_lord_british()
             return
 
@@ -351,7 +356,7 @@ class TownScreen(BaseScreen):
             self._handle_door(d, open_door)
 
         action_name = "Open" if open_door else "Unlock"
-        self.text_log.prompt(f"{action_name} door direction? (N,S,E,W):", callback=_on_dir)
+        self.text_log.prompt(f"{action_name} door: Direction? (N,S,E,W):", callback=_on_dir, single_char=True)
 
     def _handle_door(self, direction: Direction, open_door: bool) -> None:
         if self.game_map is None:
@@ -594,6 +599,9 @@ class TownScreen(BaseScreen):
                     anim_frame=self.anim_frame,
                     party=self.party,
                     dest_pos=(0, 0),
+                    avatar_x=self.avatar_x,
+                    avatar_y=self.avatar_y,
+                    avatar_override="fighter",
                 )
             scaled_v = pygame.transform.scale(temp_v, (v_size, v_size))
             surface.blit(scaled_v, (0, 0))
@@ -621,6 +629,9 @@ class TownScreen(BaseScreen):
                     anim_frame=self.anim_frame,
                     party=self.party,
                     dest_pos=(0, 0),
+                    avatar_x=self.avatar_x,
+                    avatar_y=self.avatar_y,
+                    avatar_override="fighter",
                 )
 
             self.stats_panel.render(
