@@ -116,31 +116,37 @@ class DungeonScreen(BaseScreen):
             self.text_log.handle_event(event)
             return
 
-        # Movement and navigation keys
-        if event.key in (pygame.K_UP, pygame.K_w, pygame.K_f):
+        # Movement and navigation keys: Arrow keys and Keypad ONLY (no WASD)
+        if event.key in (pygame.K_UP, pygame.K_KP8):
             evt = self.state.move_forward()
             self._process_event(evt)
-        elif event.key in (pygame.K_DOWN, pygame.K_s, pygame.K_b):
+        elif event.key in (pygame.K_DOWN, pygame.K_KP2):
             evt = self.state.turn_around()
             self._process_event(evt)
-        elif event.key in (pygame.K_LEFT, pygame.K_a, pygame.K_l):
+        elif event.key in (pygame.K_LEFT, pygame.K_KP4):
             evt = self.state.turn_left()
             self._process_event(evt)
-        elif event.key in (pygame.K_RIGHT, pygame.K_d, pygame.K_r):
+        elif event.key in (pygame.K_RIGHT, pygame.K_KP6):
             evt = self.state.turn_right()
             self._process_event(evt)
-        elif event.key == pygame.K_u:
+        elif event.key in (pygame.K_k, pygame.K_u):
             evt = self.state.klimb_up()
             self._process_event(evt)
-        elif event.key == pygame.K_j:  # Down ladder
+        elif event.key in (pygame.K_d, pygame.K_j):  # Down ladder
             evt = self.state.klimb_down()
             self._process_event(evt)
-        elif event.key == pygame.K_t:
+        elif event.key in (pygame.K_t, pygame.K_i):
             self._use_torch()
         elif event.key == pygame.K_c:
             self._cast_spell()
         elif event.key == pygame.K_z:
             self._toggle_zstats()
+        elif event.key == pygame.K_s:
+            self.text_log.add_message("Search: Thou searchest the damp corridor... Nothing here.")
+        elif event.key == pygame.K_o:
+            def _on_other(cmd: str) -> None:
+                self.text_log.add_message(f"'{cmd.strip().upper()}': Nothing happened.")
+            self.text_log.prompt("Other Command? ", callback=_on_other)
         elif event.key == pygame.K_SPACE:
             self.text_log.add_message("Pass.")
 

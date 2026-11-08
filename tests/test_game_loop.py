@@ -851,3 +851,97 @@ def test_responsive_hires_rendering(pygame_setup, asset_mgr, sample_party):
 
     town = TownScreen(party=sample_party, map_id=1, asset_mgr=asset_mgr)
     town.render(hires_surf)
+
+
+def test_navigation_arrow_keys_only_no_wasd(pygame_setup, asset_mgr, sample_party):
+    ow = OverworldScreen(party=sample_party, map_id=0, asset_mgr=asset_mgr)
+    start_x, start_y = sample_party.x, sample_party.y
+
+    # WASD keys must NOT move the avatar (they are reserved for Wear, Attack, Search, Descend)
+    ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_w, unicode="w"))
+    assert (sample_party.x, sample_party.y) == (start_x, start_y)
+    ow.text_log.cancel_prompt()
+
+    ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_s, unicode="s"))
+    assert (sample_party.x, sample_party.y) == (start_x, start_y)
+    ow.text_log.cancel_prompt()
+
+    # Arrow keys DO move the avatar
+    ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_DOWN))
+    assert sample_party.y != start_y or sample_party.x != start_x
+
+
+def test_all_overland_commands_a_to_z(pygame_setup, asset_mgr, sample_party):
+    ow = OverworldScreen(party=sample_party, map_id=0, asset_mgr=asset_mgr)
+
+    # B - Board & X - Exit transport
+    sample_party.transport = Transport.FOOT
+    sample_party.dynamic_objects = [{"tile": "horse", "x": sample_party.x, "y": sample_party.y}]
+    ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_b))
+    assert sample_party.transport == Transport.HORSE
+    assert any("Mount Horse!" in msg for msg in ow.text_log.history)
+
+    ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_x))
+    assert sample_party.transport == Transport.FOOT
+    assert any("Dismounted horse." in msg for msg in ow.text_log.history)
+
+    # O - Other command
+    ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_o))
+    assert ow.text_log.is_waiting_for_input
+    ow.text_log.submit_input("PRAY")
+    assert any("calmness and silence" in msg for msg in ow.text_log.history)
+
+    # Y - Yell
+    ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_y))
+    assert ow.text_log.is_waiting_for_input
+    ow.text_log.submit_input("EVOCARE")
+    assert any("EVOCARE" in msg for msg in ow.text_log.history)
+
+    # M - Modify order
+    m0_name = sample_party.members[0].name
+    m1_name = sample_party.members[1].name
+    ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_m))
+    assert ow.text_log.is_waiting_for_input
+    ow.text_log.submit_input("1")
+    ow.text_log.submit_input("2")
+    assert sample_party.members[0].name == m1_name
+    assert sample_party.members[1].name == m0_name
+
+    # H - Hand equipment
+    sample_party.members[0].gold = 50
+    sample_party.members[1].gold = 10
+    ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_h))
+    assert ow.text_log.is_waiting_for_input
+    ow.text_log.submit_input("1")
+    ow.text_log.submit_input("2")
+    assert any("handed" in msg for msg in ow.text_log.history)
+
+    # L - Look
+    ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_l))
+    assert any("Look:" in msg for msg in ow.text_log.history)
+
+    # S - Search
+    ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_s))
+    assert any("Search:" in msg for msg in ow.text_log.history)
+
+    # N - Negate Time
+    sample_party.members[0].powder = 2
+    ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_n))
+    assert ow.time_stopped_turns == 15
+    assert any("Negate Time!" in msg for msg in ow.text_log.history)
+
+    # V - Volume
+    ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_v))
+    assert any("Volume:" in msg for msg in ow.text_log.history)
+
+    # D & K - Descend and Klimb in overworld
+    ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_d))
+    assert any("Descend:" in msg for msg in ow.text_log.history)
+    ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_k))
+    assert any("Klimb:" in msg for msg in ow.text_log.history)
+
+    # T & U - Transact and Unlock in overworld
+    ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_t))
+    assert any("Transact:" in msg for msg in ow.text_log.history)
+    ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_u))
+    assert any("Unlock:" in msg for msg in ow.text_log.history)

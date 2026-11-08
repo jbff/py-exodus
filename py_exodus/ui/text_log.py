@@ -209,6 +209,11 @@ class TextLog:
         """Alias for handle_escape."""
         self.handle_escape()
 
+    def submit_input(self, text: str) -> None:
+        """Programmatically submit input text for the active prompt."""
+        self.input_buffer = text
+        self.handle_enter()
+
     def handle_event(self, event: pygame.event.Event) -> bool:
         """Process a Pygame KEYDOWN event if waiting for prompt input."""
         if not self.is_waiting_for_input:
@@ -224,8 +229,9 @@ class TextLog:
             if event.key == pygame.K_ESCAPE:
                 self.handle_escape()
                 return True
-            if event.unicode and event.unicode.isprintable():
-                self.handle_char(event.unicode)
+            u = getattr(event, "unicode", "")
+            if u and u.isprintable():
+                self.handle_char(u)
                 return True
 
         return False

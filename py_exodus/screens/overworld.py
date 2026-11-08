@@ -10,11 +10,13 @@ from py_exodus.constants import (
     BASE_HEIGHT,
     BASE_WIDTH,
     TILE_SIZE,
+    ArmorType,
     Direction,
     MapType,
     Status,
     TileAttrib,
     Transport,
+    WeaponType,
 )
 from py_exodus.screens.base import BaseScreen
 from py_exodus.ui.renderer import WorldRenderer, can_move_to
@@ -72,6 +74,7 @@ class OverworldScreen(BaseScreen):
         )
         self.stats_panel = StatsPanel()
         self.text_log = TextLog(max_lines=5, wrap_width=28)
+        self.time_stopped_turns = 0
 
         # Wandering overland creatures visible on Sosaria
         self.creatures: list[dict[str, Any]] = []
@@ -116,41 +119,73 @@ class OverworldScreen(BaseScreen):
             self.text_log.handle_event(event)
             return
 
-        # Directional Movement (Arrow keys, Keypad, or WASD)
-        if event.key in (pygame.K_UP, pygame.K_KP8, pygame.K_w):
+        # Directional Movement: Arrow keys and Keypad ONLY (no WASD)
+        if event.key in (pygame.K_UP, pygame.K_KP8):
             self._move_avatar(Direction.NORTH)
         elif event.key in (pygame.K_DOWN, pygame.K_KP2):
             self._move_avatar(Direction.SOUTH)
         elif event.key in (pygame.K_LEFT, pygame.K_KP4):
             self._move_avatar(Direction.WEST)
-        elif event.key in (pygame.K_RIGHT, pygame.K_KP6, pygame.K_d):
+        elif event.key in (pygame.K_RIGHT, pygame.K_KP6):
             self._move_avatar(Direction.EAST)
         elif event.key == pygame.K_SPACE:
             self._pass_turn()
-        elif event.key == pygame.K_e:
-            self._enter_portal()
-        elif event.key == pygame.K_f and self.party.transport == Transport.SHIP:
-            self._prompt_fire_cannons()
+        # Complete Ultima III Alphabetical Commands A-Z:
+        elif event.key == pygame.K_a:
+            self._prompt_attack_overworld()
         elif event.key == pygame.K_b:
-            self._toggle_board_transport()
-        elif event.key == pygame.K_x:
-            self._exit_transport()
-        elif event.key in (pygame.K_q, pygame.K_s):
-            self._save_game()
-        elif event.key == pygame.K_z:
-            self._toggle_zstats()
+            self._board_transport()
         elif event.key == pygame.K_c:
             self._prompt_cast()
+        elif event.key == pygame.K_d:
+            self._descend()
+        elif event.key == pygame.K_e:
+            self._enter_portal()
+        elif event.key == pygame.K_f:
+            if self.party.transport == Transport.SHIP:
+                self._prompt_fire_cannons()
+            else:
+                self.text_log.add_message("Fire: What? Only frigates have cannons!")
         elif event.key == pygame.K_g:
             self._get_chest()
+        elif event.key == pygame.K_h:
+            self._prompt_hand_equipment()
         elif event.key == pygame.K_i:
             self._ignite_torch()
         elif event.key == pygame.K_j:
             self._join_gold()
+        elif event.key == pygame.K_k:
+            self._klimb()
+        elif event.key == pygame.K_l:
+            self._look()
+        elif event.key == pygame.K_m:
+            self._prompt_modify_order()
+        elif event.key == pygame.K_n:
+            self._negate_time()
+        elif event.key == pygame.K_o:
+            self._prompt_other()
         elif event.key == pygame.K_p:
             self._peer_gem()
-        elif event.key == pygame.K_a:
-            self._prompt_attack_overworld()
+        elif event.key == pygame.K_q:
+            self._save_game()
+        elif event.key == pygame.K_r:
+            self._prompt_ready_weapon()
+        elif event.key == pygame.K_s:
+            self._search()
+        elif event.key == pygame.K_t:
+            self._transact()
+        elif event.key == pygame.K_u:
+            self._unlock()
+        elif event.key == pygame.K_v:
+            self._toggle_volume()
+        elif event.key == pygame.K_w:
+            self._prompt_wear_armor()
+        elif event.key == pygame.K_x:
+            self._exit_transport()
+        elif event.key == pygame.K_y:
+            self._prompt_yell()
+        elif event.key == pygame.K_z:
+            self._toggle_zstats()
 
     def _pass_turn(self) -> None:
         """Pass turn in place without moving avatar."""
@@ -279,7 +314,7 @@ class OverworldScreen(BaseScreen):
             self.text_log.add_message("None owned!")
 
     def _exit_transport(self) -> None:
-        """Dismount horse or ship onto foot."""
+        """Dismount horse or ship onto foot, persisting transport on map."""
         if self.party.transport == Transport.FOOT:
             self.text_log.add_message("Already on foot.")
             return
@@ -287,9 +322,340 @@ class OverworldScreen(BaseScreen):
         old_t = self.party.transport
         self.party.transport = Transport.FOOT
         if old_t == Transport.HORSE:
+            self.party.dynamic_objects.append({"tile": "horse", "x": self.party.x, "y": self.party.y})
             self.text_log.add_message("Dismounted horse.")
         else:
-            self.text_log.add_message("Disembarked ship.")
+            self.party.dynamic_objects.append({"tile": "frigate", "x": self.party.x, "y": self.party.y})
+            self.text_log.add_message("Disembarked frigate.")
+
+    def _board_transport(self) -> None:
+        """Board horse or frigate at or adjacent to party location, or dismount if mounted."""
+        if self.party.transport != Transport.FOOT:
+            self._exit_transport()
+            return
+
+        # Check for frigate or horse in dynamic objects
+        target_idx = -1
+        target_type = None
+        for idx, obj in enumerate(self.party.dynamic_objects):
+            ox = obj.get("x", -99)
+            oy = obj.get("y", -99)
+            tile = str(obj.get("tile", "")).lower()
+            if tile in ("frigate", "ship") and abs(ox - self.party.x) <= 1 and abs(oy - self.party.y) <= 1:
+                target_idx = idx
+                target_type = "ship"
+                break
+            elif tile == "horse" and abs(ox - self.party.x) <= 1 and abs(oy - self.party.y) <= 1:
+                target_idx = idx
+                target_type = "horse"
+                break
+
+        if target_type == "ship":
+            self.party.dynamic_objects.pop(target_idx)
+            self.party.transport = Transport.SHIP
+            if self.audio is not None:
+                self.audio.play_sfx("trigger")
+            self.text_log.add_message("Board Frigate!")
+            return
+        elif target_type == "horse":
+            self.party.dynamic_objects.pop(target_idx)
+            self.party.transport = Transport.HORSE
+            if self.audio is not None:
+                self.audio.play_sfx("trigger")
+            self.text_log.add_message("Mount Horse!")
+            return
+
+        # Check wandering creatures for a horse
+        for idx, c in enumerate(self.creatures):
+            cx, cy = c.get("x", -99), c.get("y", -99)
+            if c.get("tile_name") == "horse" and abs(cx - self.party.x) <= 1 and abs(cy - self.party.y) <= 1:
+                self.creatures.pop(idx)
+                self.party.transport = Transport.HORSE
+                if self.audio is not None:
+                    self.audio.play_sfx("trigger")
+                self.text_log.add_message("Mount Horse!")
+                return
+
+        # Mount horse
+        self.party.transport = Transport.HORSE
+        if self.audio is not None:
+            self.audio.play_sfx("trigger")
+        self.text_log.add_message("Mounted horse! Movement speed increased.")
+
+    def _descend(self) -> None:
+        """Descend ladder command (dungeon only)."""
+        self.text_log.add_message("Descend: No dungeon ladder here!")
+
+    def _klimb(self) -> None:
+        """Klimb ladder command (dungeon only)."""
+        self.text_log.add_message("Klimb: No ladder or rope here!")
+
+    def _look(self) -> None:
+        """Look at current terrain and immediate surroundings."""
+        tile = self.game_map.get_tile(self.party.x, self.party.y) if self.game_map else None
+        t_name = getattr(tile, "name", "land").capitalize()
+        nearby_objs = [
+            str(obj.get("tile", "object"))
+            for obj in self.party.dynamic_objects
+            if abs(obj.get("x", -99) - self.party.x) <= 1 and abs(obj.get("y", -99) - self.party.y) <= 1
+        ]
+        if nearby_objs:
+            self.text_log.add_message(f"Look: {t_name}. Nearby: {', '.join(nearby_objs)}.")
+        else:
+            self.text_log.add_message(f"Look: Thou gazest upon the {t_name}.")
+
+    def _prompt_hand_equipment(self) -> None:
+        """Hand equipment or gold between party members."""
+        if len(self.party.members) < 2:
+            self.text_log.add_message("Hand Equipment: Need at least 2 members!")
+            return
+
+        def _on_from(from_str: str) -> None:
+            try:
+                p1 = int(from_str.strip()) - 1
+            except ValueError:
+                self.text_log.add_message("Invalid member #!")
+                return
+            if not (0 <= p1 < len(self.party.members)):
+                self.text_log.add_message("Invalid member #!")
+                return
+
+            def _on_to(to_str: str) -> None:
+                try:
+                    p2 = int(to_str.strip()) - 1
+                except ValueError:
+                    self.text_log.add_message("Invalid member #!")
+                    return
+                if not (0 <= p2 < len(self.party.members)) or p1 == p2:
+                    self.text_log.add_message("Invalid recipient!")
+                    return
+
+                m1 = self.party.members[p1]
+                m2 = self.party.members[p2]
+                transferred = False
+                for w, cnt in list(m1.weapons.items()):
+                    if cnt > 0 and w != m1.weapon:
+                        m1.weapons[w] -= 1
+                        m2.weapons[w] = m2.weapons.get(w, 0) + 1
+                        self.text_log.add_message(f"{m1.name} handed {w.name} to {m2.name}.")
+                        transferred = True
+                        break
+
+                if not transferred:
+                    if m1.gold >= 10:
+                        m1.gold -= 10
+                        m2.gold += 10
+                        self.text_log.add_message(f"{m1.name} handed 10 gold to {m2.name}.")
+                    else:
+                        self.text_log.add_message(f"{m1.name} has no spare equipment for {m2.name}.")
+
+            self.text_log.prompt("To member #? (1-4): ", callback=_on_to)
+
+        self.text_log.prompt("Hand Equipment: From member #? (1-4): ", callback=_on_from)
+
+    def _prompt_modify_order(self) -> None:
+        """Modify marching order of party."""
+        if len(self.party.members) < 2:
+            self.text_log.add_message("Modify Order: Need at least 2 members!")
+            return
+
+        def _on_first(p1_str: str) -> None:
+            try:
+                p1 = int(p1_str.strip()) - 1
+            except ValueError:
+                self.text_log.add_message("Invalid member #!")
+                return
+            if not (0 <= p1 < len(self.party.members)):
+                self.text_log.add_message("Invalid member #!")
+                return
+
+            def _on_second(p2_str: str) -> None:
+                try:
+                    p2 = int(p2_str.strip()) - 1
+                except ValueError:
+                    self.text_log.add_message("Invalid member #!")
+                    return
+                if not (0 <= p2 < len(self.party.members)):
+                    self.text_log.add_message("Invalid member #!")
+                    return
+
+                m1 = self.party.members[p1]
+                m2 = self.party.members[p2]
+                self.party.swap_members(p1, p2)
+                self.text_log.add_message(f"Order modified: {m1.name} and {m2.name} swapped.")
+
+            self.text_log.prompt("With member #? (1-4): ", callback=_on_second)
+
+        self.text_log.prompt("Modify Order: Exchange member #? (1-4): ", callback=_on_first)
+
+    def _negate_time(self) -> None:
+        """Freeze time using Silver Powder / Sands of Time."""
+        has_powder = False
+        for m in self.party.members:
+            if getattr(m, "powder", 0) > 0:
+                m.powder -= 1
+                has_powder = True
+                break
+
+        if not has_powder and getattr(self.party, "powder", 0) > 0:
+            self.party.powder -= 1
+            has_powder = True
+
+        if has_powder:
+            self.time_stopped_turns = 15
+            if self.audio is not None:
+                self.audio.play_sfx("magic")
+            self.text_log.add_message("Negate Time! Time freezes for all foes!")
+        else:
+            self.text_log.add_message("Negate Time: None owned! (Requires silver powder)")
+
+    def _prompt_other(self) -> None:
+        """Prompt for custom other command (PRAY, BRIBE, STEAL, DIG, etc.)."""
+        def _on_other(cmd: str) -> None:
+            c = cmd.strip().upper()
+            if not c:
+                return
+            if c == "PRAY":
+                if str(self.map_id) in ("10", "yew") and 44 <= self.party.x <= 52 and 44 <= self.party.y <= 52:
+                    self.text_log.add_message("A vision appears: Yell 'EVOCARE'!")
+                else:
+                    self.text_log.add_message("A calmness and silence of the soul.")
+            elif c == "BRIBE":
+                self.text_log.add_message("Thou hast no one to bribe here.")
+            elif c == "STEAL":
+                self.text_log.add_message("Thou art an honest traveler; nothing to steal.")
+            elif c == "DIG":
+                self.text_log.add_message("Thou diggest into the earth, but findest nothing.")
+            elif c == "KISS":
+                self.text_log.add_message("Thou kissest the gentle breeze.")
+            elif c == "INSERT":
+                if str(self.map_id) in ("exodus", "21") or (self.party.x >= 30 and self.party.y == 12):
+                    self.text_log.add_message("Insert which card? (Love, Sol, Moon, Death)")
+                else:
+                    self.text_log.add_message("Insert: Nothing to insert into here!")
+            else:
+                self.text_log.add_message(f"'{c}': Nothing happened.")
+
+        self.text_log.prompt("Other Command? ", callback=_on_other)
+
+    def _prompt_ready_weapon(self) -> None:
+        """Equip weapon on selected party member."""
+        def _on_member(m_str: str) -> None:
+            try:
+                idx = int(m_str.strip()) - 1
+            except ValueError:
+                self.text_log.add_message("Invalid member #!")
+                return
+            m = self.party.get_member(idx)
+            if m is None:
+                self.text_log.add_message("Invalid member #!")
+                return
+
+            def _on_weap(w_code: str) -> None:
+                w_name = w_code.strip().upper()
+                found_wt = None
+                for wt in WeaponType:
+                    if wt.name == w_name or wt.value == w_name or wt.name.startswith(w_name):
+                        found_wt = wt
+                        break
+                if found_wt is not None:
+                    m.weapon = found_wt
+                    self.text_log.add_message(f"{m.name} readied {found_wt.name}!")
+                else:
+                    self.text_log.add_message("Unknown weapon!")
+
+            cur_w = getattr(m.weapon, "name", str(m.weapon))
+            self.text_log.prompt(f"Ready Weapon for {m.name} (Current: {cur_w})? ", callback=_on_weap)
+
+        self.text_log.prompt("Ready Weapon: Which member? (1-4): ", callback=_on_member)
+
+    def _search(self) -> None:
+        """Search current tile for hidden entrances, fountains, or items."""
+        tile = self.game_map.get_tile(self.party.x, self.party.y) if self.game_map else None
+        tile_name = getattr(tile, "name", "ground").lower()
+
+        portal = None
+        if self.game_map is not None:
+            for p in self.game_map.portals:
+                if p.x == self.party.x and p.y == self.party.y:
+                    portal = p
+                    break
+
+        if portal is not None:
+            self.text_log.add_message(f"Search: Thou discoverest an entrance to destination #{portal.dest_map_id}!")
+        elif "fountain" in tile_name:
+            self.text_log.add_message("Search: A clear bubbling fountain! Waters refresh the party.")
+            for m in self.party.members:
+                if not m.is_dead():
+                    m.hp = min(m.max_hp, m.hp + 25)
+        else:
+            self.text_log.add_message("Search: Thou searchest the area... Nothing here!")
+
+    def _transact(self) -> None:
+        """Transact / Talk command (town only)."""
+        self.text_log.add_message("Transact: No one to talk with or trade here!")
+
+    def _unlock(self) -> None:
+        """Unlock doors with key (town/dungeon only)."""
+        self.text_log.add_message("Unlock: No locked doors here in the wilderness!")
+
+    def _toggle_volume(self) -> None:
+        """Toggle game music and sound effects on/off."""
+        if self.audio is not None:
+            self.audio.enabled = not self.audio.enabled
+            if not self.audio.enabled:
+                self.audio.stop_music()
+                self.text_log.add_message("Volume: Sound and Music MUTED.")
+            else:
+                self._play_overworld_music()
+                self.text_log.add_message("Volume: Sound and Music ENABLED.")
+        else:
+            self.text_log.add_message("Volume: Audio subsystem unavailable.")
+
+    def _prompt_wear_armor(self) -> None:
+        """Equip armor on selected party member."""
+        def _on_member(m_str: str) -> None:
+            try:
+                idx = int(m_str.strip()) - 1
+            except ValueError:
+                self.text_log.add_message("Invalid member #!")
+                return
+            m = self.party.get_member(idx)
+            if m is None:
+                self.text_log.add_message("Invalid member #!")
+                return
+
+            def _on_arm(a_code: str) -> None:
+                a_name = a_code.strip().upper()
+                found_at = None
+                for at in ArmorType:
+                    if at.name == a_name or at.value == a_name or at.name.startswith(a_name):
+                        found_at = at
+                        break
+                if found_at is not None:
+                    m.armor = found_at
+                    self.text_log.add_message(f"{m.name} donned {found_at.name}!")
+                else:
+                    self.text_log.add_message("Unknown armor!")
+
+            cur_a = getattr(m.armor, "name", str(m.armor))
+            self.text_log.prompt(f"Wear Armor for {m.name} (Current: {cur_a})? ", callback=_on_arm)
+
+        self.text_log.prompt("Wear Armor: Which member? (1-4): ", callback=_on_member)
+
+    def _prompt_yell(self) -> None:
+        """Yell a word or phrase into the world."""
+        def _on_yell(phrase: str) -> None:
+            p = phrase.strip().upper()
+            if not p:
+                return
+            self.text_log.add_message(f"Thou yellest: '{p}'!")
+            if p == "EVOCARE":
+                if self.audio is not None:
+                    self.audio.play_sfx("magic")
+                self.text_log.add_message("A mystical choir resonates across the winds!")
+
+        self.text_log.prompt("Yell what? ", callback=_on_yell)
 
     def _prompt_attack_overworld(self) -> None:
         """Attack direction in overland map."""
@@ -465,18 +831,7 @@ class OverworldScreen(BaseScreen):
                 self.next_screen = town
                 self.is_finished = True
 
-    def _toggle_board_transport(self) -> None:
-        """Board or dismount horse/frigate."""
-        if self.party.transport == Transport.FOOT:
-            # Check adjacent tiles or party location for transport
-            self.party.transport = Transport.HORSE
-            self.text_log.add_message("Mounted horse! Movement speed increased.")
-        elif self.party.transport == Transport.HORSE:
-            self.party.transport = Transport.FOOT
-            self.text_log.add_message("Dismounted to foot.")
-        elif self.party.transport == Transport.SHIP:
-            self.party.transport = Transport.FOOT
-            self.text_log.add_message("Disembarked ship to foot.")
+    _toggle_board_transport = _board_transport
 
     def _check_moongates(self) -> None:
         """Check if party stepped onto an active moongate."""
@@ -536,6 +891,10 @@ class OverworldScreen(BaseScreen):
 
     def _update_creatures(self) -> None:
         """Move wandering creatures towards the party or wander."""
+        if self.time_stopped_turns > 0:
+            self.time_stopped_turns -= 1
+            return
+
         if not self.creatures and self.random_encounters_enabled:
             self._spawn_wandering_creature()
 
