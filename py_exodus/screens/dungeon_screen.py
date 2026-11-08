@@ -142,7 +142,9 @@ class DungeonScreen(BaseScreen):
         elif event.key == pygame.K_z:
             self._toggle_zstats()
         elif event.key == pygame.K_s:
-            self.text_log.add_message("Search: Thou searchest the damp corridor... Nothing here.")
+            self._search()
+        elif event.key == pygame.K_g:
+            self._get_chest()
         elif event.key == pygame.K_o:
             def _on_other(cmd: str) -> None:
                 self.text_log.add_message(f"'{cmd.strip().upper()}': Nothing happened.")
@@ -174,6 +176,98 @@ class DungeonScreen(BaseScreen):
                 self.audio.play_sfx("walk_normal")
             elif evt.type in (DungeonEventType.LADDER_UP, DungeonEventType.LADDER_DOWN):
                 self.audio.play_sfx("trigger")
+            elif evt.type == DungeonEventType.MARK:
+                self.audio.play_sfx("lightning") or self.audio.play_sfx("magic")
+            elif evt.type in (DungeonEventType.FOUNTAIN, DungeonEventType.HEAL):
+                self.audio.play_sfx("magic")
+            elif evt.type == DungeonEventType.CHEST:
+                self.audio.play_sfx("trigger")
+
+        if evt.type == DungeonEventType.EXIT_DUNGEON:
+            self.text_log.add_message("Leaving dungeon...")
+            self.exit_screen()
+        elif evt.type == DungeonEventType.COMBAT:
+            c_name = "skeleton"
+            if evt.creature is not None:
+                if hasattr(evt.creature, "tile"):
+                    c_name = evt.creature.tile
+                elif hasattr(evt.creature, "name"):
+                    c_name = evt.creature.name.lower()
+            self._trigger_combat(c_name)
+
+    def _search(self) -> None:
+        """Search dungeon tile for fountains, marks, orbs, or chests."""
+        from py_exodus.world.map import DungeonTile
+
+        tile = self.state.current_tile
+        fountains = (
+            DungeonTile.FOUNTAIN_PLAIN,
+            DungeonTile.FOUNTAIN_HEAL,
+            DungeonTile.FOUNTAIN_ACID,
+            DungeonTile.FOUNTAIN_CURE,
+            DungeonTile.FOUNTAIN_POISON,
+        )
+        marks = (
+            DungeonTile.MARK,
+            DungeonTile.MARK_KINGS,
+            DungeonTile.MARK_FIRE,
+            DungeonTile.MARK_SNAKE,
+            DungeonTile.MARK_FORCE,
+        )
+
+        if tile in fountains:
+            prompt_msg = "You find a Fountain. Who drinks? (1-4): "
+            action = self.state.drink_fountain
+        elif tile in marks:
+            prompt_msg = "You find a mystical Mark. Who touches? (1-4): "
+            action = self.state.touch_mark
+        elif tile == DungeonTile.ORB:
+            prompt_msg = "You find a Magical Orb...Who touches? (1-4): "
+            action = self.state.touch_orb
+        elif tile == DungeonTile.CHEST:
+            prompt_msg = "Who gets the chest? (1-4): "
+            action = lambda idx: self.state.open_chest(idx, disarm=False)
+        else:
+            prompt_msg = "Who searches? (1-4): "
+            action = None
+
+        def _on_who(who_str: str) -> None:
+            try:
+                idx = int(who_str.strip()) - 1
+            except ValueError:
+                idx = 0
+
+            if not (0 <= idx < len(self.party.members)):
+                self.text_log.add_message("Invalid member #!")
+                return
+
+            if action is not None:
+                evt = action(idx)
+                self._process_event(evt)
+            else:
+                self.text_log.add_message("Search: Thou searchest the damp corridor... Nothing here!")
+
+        self.text_log.prompt(prompt_msg, callback=_on_who, single_char=True)
+
+    def _get_chest(self) -> None:
+        """Open a treasure chest found on the dungeon floor."""
+        from py_exodus.world.map import DungeonTile
+
+        if self.state.current_tile == DungeonTile.CHEST:
+            def _on_who(who_str: str) -> None:
+                try:
+                    idx = int(who_str.strip()) - 1
+                except ValueError:
+                    idx = 0
+                if 0 <= idx < len(self.party.members):
+                    evt = self.state.open_chest(idx, disarm=False)
+                    self._process_event(evt)
+                else:
+                    self.text_log.add_message("Invalid member #!")
+
+            self.text_log.prompt("Who gets the chest? (1-4): ", callback=_on_who, single_char=True)
+        else:
+            self.text_log.add_message("Get: No chest here!")
 
         if evt.type == DungeonEventType.EXIT_DUNGEON:
             self.text_log.add_message("Leaving dungeon...")
