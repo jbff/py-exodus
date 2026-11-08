@@ -77,8 +77,8 @@ class Party:
     def __init__(
         self,
         members: list[Character | PartyMember] | None = None,
-        x: int = 45,
-        y: int = 18,
+        x: int = 44,
+        y: int = 19,
         map_id: int = 0,
         dungeon_level: int = 0,
         transport: Transport | str = Transport.FOOT,

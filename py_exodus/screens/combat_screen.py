@@ -429,8 +429,8 @@ class CombatScreen(BaseScreen):
                 map_id=0,
                 asset_mgr=self.asset_mgr,
                 audio=self.audio,
-                start_x=45,
-                start_y=18,
+                start_x=44,
+                start_y=19,
                 manager=self.manager,
             )
 

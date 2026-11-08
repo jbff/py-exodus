@@ -161,7 +161,7 @@ class RosterScreen(BaseScreen):
         self.audio = audio
 
         # Load or initialize active party
-        self.party = party or Party(members=[], x=45, y=18, food=400, gold=200)
+        self.party = party or Party(members=[], x=44, y=19, food=400, gold=200)
 
         # Load or initialize roster
         if roster is not None:

@@ -1069,3 +1069,19 @@ def test_zstats_displays_inventory(pygame_setup, asset_mgr, sample_party):
     assert ow.stats_panel.inspect_index == 0
     assert any("BOW:2" in msg for msg in ow.text_log.history)
     assert any("CHAIN:1" in msg for msg in ow.text_log.history)
+
+
+def test_new_game_starter_party_spawn_location(pygame_setup, asset_mgr):
+    """Verify new game party starts just SW of the castle/city on grass (44, 19), not on castle (45, 18)."""
+    party = create_default_starter_party()
+    assert party.x == 44
+    assert party.y == 19
+
+    # Verify tile at (44, 19) is grass and not castle
+    from py_exodus.world.loader import MapLoader
+    loader = MapLoader(asset_mgr)
+    world_map = loader.load_map(0)
+    spawn_tile = world_map.get_tile(party.x, party.y)
+    assert spawn_tile.name == "grass"
+    castle_tile = world_map.get_tile(45, 18)
+    assert castle_tile.name == "castle"
