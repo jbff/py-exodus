@@ -228,26 +228,63 @@ class TownScreen(BaseScreen):
         self.exit_screen()
 
     def _prompt_talk(self) -> None:
-        def _on_dir(d_str: str) -> None:
-            d = Direction.from_name_or_key(d_str)
-            if d is None:
-                self.text_log.add_message("Invalid direction!")
+        def _on_member(m_str: str) -> None:
+            s = m_str.strip()
+            if not s or not s.isdigit():
+                self.text_log.add_message("Nobody selected!")
                 return
-            self._talk_to_direction(d)
+            idx = int(s) - 1
+            if not (0 <= idx < len(self.party.members)):
+                self.text_log.add_message("Nobody selected!")
+                return
+            speaker = self.party.members[idx]
 
-        self.text_log.prompt("Direction? (N,S,E,W):", callback=_on_dir, single_char=True)
+            def _on_dir(d_str: str) -> None:
+                d = Direction.from_name_or_key(d_str)
+                if d is None:
+                    self.text_log.add_message("Invalid direction!")
+                    return
+                self._talk_to_direction(d, speaker=speaker)
 
-    def _talk_to_direction(self, direction: Direction) -> None:
+            self.text_log.prompt("Direction? (N,S,E,W):", callback=_on_dir, single_char=True)
+
+        self.text_log.prompt("TALK> Which party member? (1-4):", callback=_on_member, single_char=True)
+
+    def _talk_to_direction(self, direction: Direction, speaker: PartyMember | None = None) -> None:
         if self.game_map is None:
             return
+
+        if speaker is None and self.party.active_member is not None:
+            speaker = self.party.active_member
 
         tx = self.avatar_x + direction.dx
         ty = self.avatar_y + direction.dy
 
+        # Check if the adjacent tile is a sign / counter tile
+        adj_tile = self.game_map.get_tile(tx, ty)
+        if adj_tile is not None and (
+            getattr(adj_tile, "rule", "") == "signs"
+            or 36 <= getattr(adj_tile, "index", -1) <= 57
+        ):
+            # Step behind sign / counter to reach the vendor
+            tx += direction.dx
+            ty += direction.dy
+
         npc = self._find_npc_at(tx, ty)
         if npc is None:
-            # Check 1 tile further in case of speaking across a counter or sign
-            npc = self._find_npc_at(tx + direction.dx, ty + direction.dy)
+            # Fallback: check 1 tile further in case of speaking across a counter or sign
+            npc = self._find_npc_at(self.avatar_x + direction.dx * 2, self.avatar_y + direction.dy * 2)
+
+        # Check vendor directly at target location if no NPC was matched
+        if npc is None and self.asset_mgr is not None:
+            direct_vendor = self.asset_mgr.get_vendor(self.map_id, tx, ty)
+            if direct_vendor is None:
+                direct_vendor = self.asset_mgr.get_vendor(
+                    self.map_id, self.avatar_x + direction.dx * 2, self.avatar_y + direction.dy * 2
+                )
+            if direct_vendor is not None:
+                self._start_vendor_shopping(direct_vendor, buyer=speaker)
+                return
 
         if npc is None:
             self.text_log.add_message("Funny, no response!")
@@ -263,13 +300,13 @@ class TownScreen(BaseScreen):
             or npc_name == "lord british"
             or getattr(npc, "tile_index", -1) == 19
         ):
-            self._interact_lord_british()
+            self._interact_lord_british(speaker)
             return
 
         # Check Vendor
         vendor = self._find_vendor_at(npc)
         if vendor is not None:
-            self._start_vendor_shopping(vendor)
+            self._start_vendor_shopping(vendor, buyer=speaker)
             return
 
         # Standard dialogue
@@ -288,15 +325,19 @@ class TownScreen(BaseScreen):
         return None
 
     def _find_vendor_at(self, npc: MapNpc) -> VendorDef | None:
+        if getattr(npc, "vendor", None) is not None:
+            return npc.vendor
         if self.asset_mgr is None:
             return None
         v = self.asset_mgr.get_vendor(self.map_id, npc.x, npc.y)
+        if v is None and hasattr(npc, "start_x") and hasattr(npc, "start_y"):
+            v = self.asset_mgr.get_vendor(self.map_id, npc.start_x, npc.start_y)
         if v is None and hasattr(npc, "name"):
             # Check by name
             v = self.asset_mgr.vendors.get(npc.name.lower())
         return v
 
-    def _interact_lord_british(self) -> None:
+    def _interact_lord_british(self, speaker: PartyMember | None = None) -> None:
         """Handle Lord British character level advancements and resurrection."""
         revived_any = False
         for pm in self.party.members:
@@ -311,10 +352,13 @@ class TownScreen(BaseScreen):
                 self.audio.play_sfx("magic")
 
         advanced_any = False
-        for member in self.party.members:
-            char = member.character
-            if char.meet_lord_british():
+        if speaker is not None:
+            if speaker.character.meet_lord_british():
                 advanced_any = True
+        else:
+            for member in self.party.members:
+                if member.character.meet_lord_british():
+                    advanced_any = True
 
         if advanced_any:
             self.text_log.add_message("Lord British says:\n'Thou hast been advanced!'")
@@ -323,7 +367,7 @@ class TownScreen(BaseScreen):
         elif not revived_any:
             self.text_log.add_message("Lord British says:\n'Welcome my child..\nExperience more!'")
 
-    def _start_vendor_shopping(self, vendor: VendorDef) -> None:
+    def _start_vendor_shopping(self, vendor: VendorDef, buyer: PartyMember | None = None) -> None:
         """Interactive shopping dialog stream with vendor via TextLog."""
         if self.audio is not None:
             self.audio.play_music("shopping")
@@ -353,7 +397,7 @@ class TownScreen(BaseScreen):
                 self.text_log.add_message("Thou cannot afford that!")
             else:
                 self.party.gold -= item.price
-                active = self.party.active_member
+                active = buyer or self.party.active_member
                 qty = getattr(item, "quantity", 1) or 1
                 g_type = (getattr(item, "guild_item_type", "") or "").lower()
                 i_type = (getattr(item, "item_type", "") or "").lower()

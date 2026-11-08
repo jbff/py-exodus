@@ -122,13 +122,51 @@ class MapLoader:
             if grass is not None:
                 tiles[29 * width + 15] = grass
 
-        # City NPCs (32 characters placed at 0x1180, 0x11A0, 0x11C0, 0x11E0)
+        # City NPCs (32 characters placed at 0x1180, 0x11A0, 0x11C0, 0x11E0, 0x1200)
         npcs: list[MapNpc] = []
         if m_def.map_type.lower() == "city" and len(data) >= 0x1200:
             npc_tiles = struct.unpack("32B", data[0x1180:0x11A0])
             underlying_tiles = struct.unpack("32B", data[0x11A0:0x11C0])
             npc_xs = struct.unpack("32B", data[0x11C0:0x11E0])
             npc_ys = struct.unpack("32B", data[0x11E0:0x1200])
+            npc_ctrl = (
+                struct.unpack("32B", data[0x1200:0x1220])
+                if len(data) >= 0x1220
+                else (0,) * 32
+            )
+
+            # Extract 8 conversation texts from 0x1000
+            texts: list[str] = []
+            if len(data) >= 0x1010:
+                text_offsets: list[int] = []
+                for t_i in range(8):
+                    pos = 0x1000 + t_i * 2
+                    off = (data[pos] & 0xFF) + 0x1000
+                    text_offsets.append(off)
+
+                for os in text_offsets:
+                    if 0 <= os < len(data):
+                        end = data.find(b"\x00", os)
+                        if end == -1:
+                            end = min(os + 64, len(data))
+                        raw_str = data[os:end].decode("ascii", errors="replace")
+                        clean_str = (
+                            raw_str.replace("<", "")
+                            .replace(">", "")
+                            .replace("\r", " ")
+                            .replace("\n", " ")
+                            .strip()
+                        )
+                        texts.append(clean_str)
+                    else:
+                        texts.append("")
+
+            # Vendors defined for this map
+            vendors = (
+                self.asset_mgr.get_vendors_for_map(m_def.id)
+                if self.asset_mgr is not None
+                else []
+            )
 
             for i in range(32):
                 t_idx = npc_tiles[i] // 4
@@ -136,6 +174,35 @@ class MapLoader:
                 t_name = t_def.name if t_def else ""
                 nx = npc_xs[i]
                 ny = npc_ys[i]
+
+                ctrl = npc_ctrl[i]
+                dialog_id = ctrl & 0x0F
+                m = (ctrl >> 4) & 0x0F
+                movement = "FIXED"
+                if m == 4:
+                    movement = "WANDER"
+                elif m == 8:
+                    movement = "FOLLOW_AVATAR"
+                elif m == 12:
+                    movement = "ATTACK_AVATAR"
+
+                conv = None
+                if 1 <= dialog_id <= 8 and (dialog_id - 1) < len(texts):
+                    t_val = texts[dialog_id - 1]
+                    if t_val:
+                        conv = t_val
+
+                # Match vendor by starting position
+                matched_vendor = None
+                for v in vendors:
+                    if v.start_x == nx and v.start_y == ny:
+                        matched_vendor = v
+                        break
+
+                # Skip empty / null person objects (e.g. 0, 0 water)
+                if nx == 0 and ny == 0 and (t_name == "water" or t_idx == 0):
+                    continue
+
                 npcs.append(
                     MapNpc(
                         tile_index=t_idx,
@@ -145,6 +212,10 @@ class MapLoader:
                         start_x=nx,
                         start_y=ny,
                         tile_def=t_def,
+                        dialog_id=dialog_id,
+                        movement=movement,
+                        conversation=conv,
+                        vendor=matched_vendor,
                     )
                 )
 

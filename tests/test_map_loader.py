@@ -224,3 +224,32 @@ def test_invalid_map_errors(asset_mgr):
 
     with pytest.raises(FileNotFoundError):
         loader.load_dungeon_map("does_not_exist.ult")
+
+
+def test_city_npc_dialogues_and_movement(asset_mgr):
+    """Verify city NPC dialogues, movement behaviors, and vendor bindings are extracted from .ULT binary files."""
+    loader = MapLoader(asset_mgr)
+    british = loader.load_map(1)
+    assert len(british.npcs) > 0
+
+    # In Castle British, check specific NPCs with known dialogues from original .ULT
+    # NPC 16 (Chuckles): "Chuckles: Welcome all!"
+    # NPC 18: "West 8, South 35 and await Dawn!"
+    # NPC 20: "Phantom Fighter: The food stinks!"
+    dialogues = [npc.conversation for npc in british.npcs if npc.conversation is not None]
+    assert len(dialogues) > 0
+    assert any("Welcome all" in d for d in dialogues)
+    assert any("West 8, South 35" in d for d in dialogues)
+
+    # Check movement behaviors (FIXED, WANDER, FOLLOW_AVATAR, ATTACK_AVATAR)
+    movements = {npc.movement for npc in british.npcs}
+    assert "FIXED" in movements
+    assert "WANDER" in movements
+    assert "FOLLOW_AVATAR" in movements
+
+    # Check that city vendors in LCB (map 3) are bound to MapNpc.vendor
+    lcb = loader.load_map(3)
+    vendors = [npc.vendor for npc in lcb.npcs if npc.vendor is not None]
+    assert len(vendors) > 0
+    assert any("Osbert" in v.name or "Weaponry" in v.name for v in vendors)
+

@@ -373,12 +373,17 @@ def test_town_screen_talk_lord_british(pygame_setup, asset_mgr, sample_party):
 
 
 def test_town_screen_talk_arrow_keys_to_lord_british(pygame_setup, asset_mgr, sample_party):
-    """Pressing 'T' prompts Direction and pressing Arrow Up talks North to Lord British."""
+    """Pressing 'T' prompts which party member, then prompts Direction, and pressing Arrow Up talks North to Lord British."""
     # Place party at (32, 15), right in front of Lord British at (32, 14)
     town = TownScreen(party=sample_party, map_id=1, asset_mgr=asset_mgr, start_x=32, start_y=15)
 
     # Press 'T' for Talk
     town.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_t, unicode="t"))
+    assert town.text_log.is_waiting_for_input
+    assert "Which party member?" in town.text_log.current_prompt
+
+    # Select party member 1
+    town.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_1, unicode="1"))
     assert town.text_log.is_waiting_for_input
     assert "Direction?" in town.text_log.current_prompt
 
@@ -838,6 +843,63 @@ def test_town_screen_exit_resets_map_id_from_castle_british(pygame_setup, asset_
     assert sample_party.map_id == 0
     assert sample_party.x == 45
     assert sample_party.y == 18
+
+
+def test_transact_talk_flow_with_npc_conversation(pygame_setup, asset_mgr, sample_party):
+    """Pressing 'T' prompts for party member, then direction, and talking to NPC outputs their dialogue."""
+    # Chuckles is at (32, 44) in british.ult; place avatar south at (32, 45)
+    town = TownScreen(party=sample_party, map_id=1, asset_mgr=asset_mgr, start_x=32, start_y=45)
+
+    # Press 'T' for Talk
+    town.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_t, unicode="t"))
+    assert town.text_log.is_waiting_for_input
+    assert "Which party member?" in town.text_log.current_prompt
+
+    # Select member 1
+    town.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_1, unicode="1"))
+    assert town.text_log.is_waiting_for_input
+    assert "Direction?" in town.text_log.current_prompt
+
+    # Face North towards Chuckles
+    town.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_UP))
+    assert not town.text_log.is_waiting_for_input
+    # Chuckles dialogue must be displayed
+    assert any("Chuckles" in msg or "Welcome all" in msg for msg in town.text_log.history)
+
+
+def test_transact_across_counter_to_vendor(pygame_setup, asset_mgr, sample_party):
+    """Talking across a counter/sign tile engages the vendor behind the counter for the chosen member."""
+    # In LCB (map 3), Osbert's Weaponry is at (39, 17), sign tile at (39, 18), avatar at (39, 19)
+    town = TownScreen(party=sample_party, map_id=3, asset_mgr=asset_mgr, start_x=39, start_y=19)
+
+    # Press 'T' for Talk
+    town.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_t, unicode="t"))
+    assert "Which party member?" in town.text_log.current_prompt
+
+    # Select member 2
+    town.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_2, unicode="2"))
+    assert "Direction?" in town.text_log.current_prompt
+
+    # Face North across sign at (39, 18) to vendor at (39, 17)
+    town.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_UP))
+    # Shopping menu for Osbert's Weaponry should now be active
+    assert any("Osbert" in msg or "Weaponry" in msg for msg in town.text_log.history)
+    assert town.text_log.is_waiting_for_input
+    assert "buy" in town.text_log.current_prompt.lower()
+
+
+def test_transact_talk_empty_direction_no_response(pygame_setup, asset_mgr, sample_party):
+    """Talking in an empty direction yields 'Funny, no response!'."""
+    town = TownScreen(party=sample_party, map_id=1, asset_mgr=asset_mgr, start_x=32, start_y=61)
+
+    # Press 'T'
+    town.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_t, unicode="t"))
+    # Select member 1
+    town.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_1, unicode="1"))
+    # Face South (empty doorway/exit)
+    town.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_DOWN))
+    assert any("Funny, no response!" in msg for msg in town.text_log.history)
+
 
 
 def test_overworld_commands_cast_ztats_get_chest_pass(pygame_setup, asset_mgr, sample_party):

@@ -116,6 +116,10 @@ class MapNpc:
     start_x: int
     start_y: int
     tile_def: TileDef | None = None
+    dialog_id: int = 0
+    movement: str = "FIXED"
+    conversation: str | None = None
+    vendor: Any | None = None
 
 
 @dataclass
