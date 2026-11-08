@@ -317,15 +317,29 @@ def test_overworld_screen_frigate_cannons(pygame_setup, asset_mgr, sample_party)
 
 
 def test_overworld_screen_transport_toggle(pygame_setup, asset_mgr, sample_party):
+    """B is gated by boardable objects (Java GameScreen.java:945-979):
+    nothing on the tile → "Board What?" and no auto-mount; while mounted →
+    "Board: Can't!" and the transport is unchanged. Dismounting is X."""
     sample_party.transport = Transport.FOOT
     ow = OverworldScreen(party=sample_party, map_id=0, asset_mgr=asset_mgr)
 
-    # Board horse
+    # Board with nothing boardable: no auto-mount
+    ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_b))
+    assert sample_party.transport == Transport.FOOT
+    assert any(m == "Board What?" for m in ow.text_log.history)
+
+    # Mount a horse on the party's tile, then dismount with X
+    sample_party.dynamic_objects.append({"tile": "horse", "x": sample_party.x, "y": sample_party.y})
     ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_b))
     assert sample_party.transport == Transport.HORSE
 
-    # Dismount
+    # B while mounted: "Board: Can't!", transport unchanged
     ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_b))
+    assert sample_party.transport == Transport.HORSE
+    assert any(m == "Board: Can't!" for m in ow.text_log.history)
+
+    # Dismount
+    ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_x))
     assert sample_party.transport == Transport.FOOT
 
 

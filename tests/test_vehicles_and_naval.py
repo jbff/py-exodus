@@ -57,8 +57,9 @@ def test_board_and_exit_frigate(asset_mgr, sample_party):
     """Boarding a frigate sets transport to SHIP with full hull; exiting drops frigate and sets FOOT."""
     overworld = OverworldScreen(party=sample_party, map_id=0, asset_mgr=asset_mgr, start_x=10, start_y=10)
 
-    # Place frigate adjacent to party at (10, 11)
-    sample_party.dynamic_objects.append({"tile": "frigate", "x": 10, "y": 11})
+    # Place frigate exactly on the party tile at (10, 10) — boarding requires
+    # the exact tile (Java GameScreen.java:952, board(x, y) with cx == x && cy == y).
+    sample_party.dynamic_objects.append({"tile": "frigate", "x": 10, "y": 10})
 
     # Press 'B' to board
     overworld.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_b, unicode="b"))

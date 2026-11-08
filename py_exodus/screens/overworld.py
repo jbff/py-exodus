@@ -329,7 +329,12 @@ class OverworldScreen(BaseScreen):
             self.text_log.add_message("None owned!")
 
     def _exit_transport(self) -> None:
-        """Dismount horse or ship onto foot, persisting transport on map."""
+        """Dismount horse or ship onto foot, persisting transport on map.
+
+        Java truth: ``exodus/GameScreen.java:584-596`` — X while on a ship
+        drops the frigate object on the tile and records it as
+        ``Context.lastShip``, so re-boarding the same hull keeps its damage.
+        """
         if self.party.transport == Transport.FOOT:
             self.text_log.add_message("Already on foot.")
             return
@@ -340,62 +345,70 @@ class OverworldScreen(BaseScreen):
             self.party.dynamic_objects.append({"tile": "horse", "x": self.party.x, "y": self.party.y})
             self.text_log.add_message("Dismounted horse.")
         else:
-            self.party.dynamic_objects.append({"tile": "frigate", "x": self.party.x, "y": self.party.y})
+            ship = {"tile": "frigate", "x": self.party.x, "y": self.party.y}
+            self.party.dynamic_objects.append(ship)
+            self.party.last_ship = ship
             self.text_log.add_message("Disembarked frigate.")
 
     def _board_transport(self) -> None:
-        """Board horse or frigate at or adjacent to party location, or dismount if mounted."""
+        """Board the frigate or horse exactly on the party's tile (Java ``B``).
+
+        Java truth: ``exodus/GameScreen.java:945-979`` ``board(x, y)`` —
+        already mounted: "Board: Can't!"; a frigate object with
+        ``cx == x && cy == y`` boards (a *fresh* one resets the hull to 50 via
+        ``adjustShipHull(50)``), then a horse creature on the exact tile
+        mounts, otherwise "Board What?". There is no auto-mounting and no
+        Chebyshev-1 adjacency.
+        """
         if self.party.transport != Transport.FOOT:
-            self._exit_transport()
+            self.text_log.add_message("Board: Can't!")
             return
 
-        # Check for frigate or horse in dynamic objects
-        target_idx = -1
-        target_type = None
+        px, py = self.party.x, self.party.y
+
+        # Frigate object on the party's exact tile
         for idx, obj in enumerate(self.party.dynamic_objects):
-            ox = obj.get("x", -99)
-            oy = obj.get("y", -99)
             tile = str(obj.get("tile", "")).lower()
-            if tile in ("frigate", "ship") and abs(ox - self.party.x) <= 1 and abs(oy - self.party.y) <= 1:
-                target_idx = idx
-                target_type = "ship"
-                break
-            elif tile == "horse" and abs(ox - self.party.x) <= 1 and abs(oy - self.party.y) <= 1:
-                target_idx = idx
-                target_type = "horse"
-                break
+            if tile in ("frigate", "ship") and obj.get("x") == px and obj.get("y") == py:
+                self.party.dynamic_objects.pop(idx)
+                self.party.transport = Transport.SHIP
+                if self.party.last_ship is not obj:
+                    # Fresh frigate: hull + 50 capped at 50 == reset to 50
+                    # (Java adjustShipHull, Party.java:74-76).
+                    self.party.adjust_ship_hull(50)
+                self.party.last_ship = obj
+                if self.audio is not None:
+                    self.audio.play_sfx("trigger")
+                self.text_log.add_message("Board Frigate!")
+                return
 
-        if target_type == "ship":
-            self.party.dynamic_objects.pop(target_idx)
-            self.party.transport = Transport.SHIP
-            if self.audio is not None:
-                self.audio.play_sfx("trigger")
-            self.text_log.add_message("Board Frigate!")
-            return
-        elif target_type == "horse":
-            self.party.dynamic_objects.pop(target_idx)
-            self.party.transport = Transport.HORSE
-            if self.audio is not None:
-                self.audio.play_sfx("trigger")
-            self.text_log.add_message("Mount Horse!")
-            return
+        # Horse object on the party's exact tile
+        for obj in self.party.dynamic_objects:
+            if obj.get("x") == px and obj.get("y") == py:
+                if str(obj.get("tile", "")).lower() == "horse":
+                    self.party.dynamic_objects.remove(obj)
+                    self.party.transport = Transport.HORSE
+                    if self.audio is not None:
+                        self.audio.play_sfx("trigger")
+                    self.text_log.add_message("Mount Horse!")
+                    return
 
-        # Check wandering creatures for a horse
-        for idx, c in enumerate(self.creatures):
-            cx, cy = c.get("x", -99), c.get("y", -99)
-            if c.get("tile_name") == "horse" and abs(cx - self.party.x) <= 1 and abs(cy - self.party.y) <= 1:
-                self.creatures.pop(idx)
+        # Wandering horse creature on the party's exact tile
+        # (Java: getCreatureAt(x, y) with tile name "horse")
+        for c in self.creatures:
+            if (
+                c.get("tile_name") == "horse"
+                and c.get("x") == px
+                and c.get("y") == py
+            ):
+                self.creatures.remove(c)
                 self.party.transport = Transport.HORSE
                 if self.audio is not None:
                     self.audio.play_sfx("trigger")
                 self.text_log.add_message("Mount Horse!")
                 return
 
-        # Mount horse
-        self.party.transport = Transport.HORSE
-        if self.audio is not None:
-            self.audio.play_sfx("trigger")
-        self.text_log.add_message("Mounted horse! Movement speed increased.")
+        self.text_log.add_message("Board What?")
 
     def _descend(self) -> None:
         """Descend ladder command (dungeon only)."""
@@ -804,7 +817,15 @@ class OverworldScreen(BaseScreen):
         if self.game_map is None:
             return
 
-        self.heading = direction
+        # Ships must first face the direction before moving that way — the
+        # turning press consumes the whole turn (finishTurn on the current
+        # tile), the second press moves. Java truth:
+        # ``exodus/GameScreen.java:461-529`` (``avatarDirection + 1 !=
+        # Direction.<D>.getVal()`` branch; horses and foot move at once).
+        if self.party.transport == Transport.SHIP and self.heading != direction:
+            self.heading = direction
+            self._finish_turn(self.game_map.get_tile(self.party.x, self.party.y))
+            return
 
         # Frigate sailing rules
         if self.party.transport == Transport.SHIP:
@@ -821,6 +842,9 @@ class OverworldScreen(BaseScreen):
             # Java exploration movement is never slowed (slowedByTile's only
             # caller is CombatScreen.java:937, combat creatures only) — no
             # speed roll on the 2D move paths.
+            # Java updates the avatar's facing after a successful move only
+            # (GameScreen.java:478, 495, 512, 529); a blocked turn leaves it.
+            self.heading = direction
             self.party.x = nx
             self.party.y = ny
             if self.audio is not None:
@@ -838,19 +862,35 @@ class OverworldScreen(BaseScreen):
             if self.audio is not None:
                 self.audio.play_sfx("blocked")
 
-    def _finish_turn(self, effect_tile=None) -> None:
-        """End the movement turn: submorsel tick, then the standing tile effect.
+    def _check_hull_integrity(self) -> None:
+        """Sink a ship whose hull has reached 0, killing the whole party.
 
-        Java truth: ``exodus/GameScreen.java:706-754`` ``finishTurn`` — the
-        turn's end runs ``endTurn`` and then applies the tile-rule effect of
-        the tile the party occupies at the start of the turn
-        (``getCurrentMapCoords`` is captured pre-move, so the effect lands on
-        the tile being left, not the one entered); moves and the pass key
-        route through it. A wipe raises ``PartyDeathException``; the
-        post-check routes the game-over flow (Task 2).
+        Java truth: ``exodus/GameScreen.java:1181-1197`` ``checkHullIntegrity``
+        — while on a ship with ``shiphull <= 0``: "Thy ship sinks!", then
+        ``killAll()`` and ``partyDeath()``. The screen's post-check
+        (``check_party_death``) routes the game-over flow (Task 2).
         """
+        if self.party.transport == Transport.SHIP and self.party.ship_hull <= 0:
+            self.text_log.add_message("Thy ship sinks!")
+            self.party.kill_all()
+
+    def _finish_turn(self, effect_tile=None) -> None:
+        """End the movement turn: sink check, submorsel tick, tile effect.
+
+        Java truth: ``exodus/GameScreen.java:706-754`` ``finishTurn`` —
+        ``checkHullIntegrity`` runs first, then turn's end runs ``endTurn``
+        and applies the tile-rule effect of the tile the party occupies at
+        the start of the turn (``getCurrentMapCoords`` is captured pre-move,
+        so the effect lands on the tile being left, not the one entered);
+        moves and the pass key route through it. A wipe raises
+        ``PartyDeathException``; the post-check routes the game-over flow
+        (Task 2). The 1-in-4 hull repair sits in ``endTurn``'s Sosaria branch
+        (``Party.java:633-638``), so ``sosaria`` tracks the current map id.
+        """
+        sosaria = str(getattr(self.game_map, "id", self.map_id)) == "0"
         try:
-            self.party.end_turn(surface=True)
+            self._check_hull_integrity()
+            self.party.end_turn(surface=True, sosaria=sosaria)
             tile_effects.apply_rule_effect(self.party, effect_tile)
         except PartyDeathException:
             pass
@@ -889,6 +929,20 @@ class OverworldScreen(BaseScreen):
         for step in range(1, 4):
             tx = (cx + direction.dx * step) % self.game_map.width
             ty = (cy + direction.dy * step) % self.game_map.height
+
+            # Empty frigate in the path: hit, 10 hull damage, trace stops.
+            # Java truth: ``util/Utils.java:539-546`` ``fireAt`` — either
+            # broadside striking an unmanned frigate damages it (10) and
+            # ends the volley before any creature check.
+            for obj in self.party.dynamic_objects:
+                if (
+                    str(obj.get("tile", "")).lower() in ("frigate", "ship")
+                    and obj.get("x") == tx
+                    and obj.get("y") == ty
+                ):
+                    obj["hull"] = obj.get("hull", 50) - 10
+                    self.text_log.add_message("Direct hit on an unmanned frigate!")
+                    return
 
             # Check creature hit
             hit_creature = None

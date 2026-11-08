@@ -1,6 +1,7 @@
 """Party management, party members, and active game exploration state."""
 from __future__ import annotations
 
+import random
 from typing import Any
 
 from py_exodus.constants import (
@@ -202,6 +203,12 @@ class Party:
         self.dynamic_monsters: list[dict[str, int]] = (
             list(dynamic_monsters) if dynamic_monsters is not None else []
         )
+
+        # The frigate most recently disembarked (Java Context.lastShip,
+        # GameScreen.java:587): re-boarding it keeps the hull it left with,
+        # while any other frigate is fresh and resets the hull to 50
+        # (GameScreen.java:958-959). Runtime-only: Java does not persist it.
+        self.last_ship: dict[str, int] | None = None
 
     # --- Aliases & Properties ---
     @property
@@ -489,7 +496,7 @@ class Party:
         self.members[target_index].gold = total
         return total
 
-    def end_turn(self, surface: bool = True) -> None:
+    def end_turn(self, surface: bool = True, sosaria: bool = False) -> None:
         """Advance one movement turn: submorsels, food, heal/poison, mana.
 
         Java truth: ``exodus/Party.java:592-639`` ``Party.endTurn``. Increments
@@ -501,8 +508,8 @@ class Party:
         chokepoint, so a wipe raises ``PartyDeathException``); otherwise +1
         health capped at max. Mana regenerates +1 (+2 for a Druid) while the
         member is alive, not disabled, and below max mana. Members with food
-        at 0 after eating take 2 damage. Ship hull repair (Task 6) and the
-        combat map type guard are not implemented here.
+        at 0 after eating take 2 damage. Finally, on Sosaria the ship hull
+        repairs 1 point on a 1-in-4 roll while below 50 (Party.java:633-638).
         """
         self.moves += 1
 
@@ -529,6 +536,11 @@ class Party:
 
                 if m.food <= 0:
                     m.apply_damage(2, False)
+
+        if sosaria and self.ship_hull < 50 and random.randint(0, 3) == 0:
+            self.ship_hull += 1
+            if self.ship_hull > 50:
+                self.ship_hull = 50
 
     def adjust_ship_hull(self, val: int) -> int:
         """Adjust ship hull health between 0 and 50."""
