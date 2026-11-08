@@ -312,6 +312,72 @@ def test_save_system_full_delta():
             os.remove(tmp_name)
 
 
+def test_legacy_save_pool_migration():
+    """Pre-parity saves keep the wallet at party level; loading gathers it
+    into member 0 (Java pool_gold(0) idiom) instead of silently dropping it."""
+    legacy = {
+        "x": 44,
+        "y": 18,
+        "map_id": 0,
+        "dungeon_level": 0,
+        "transport": "FOOT",
+        "ship_hull": 50,
+        "wind_direction": "NORTH",
+        "gold": 500,
+        "food": 800,
+        "moves": 0,
+        "torch_duration": 0,
+        "active_member_index": 0,
+        "exodus_cards_status": 0,
+        "dynamic_objects": [],
+        "dynamic_monsters": [],
+        "members": [
+            {
+                "name": "Hero",
+                "gold": 0,
+                "food": 0,
+            },
+            {
+                "name": "Mage",
+                "gold": 0,
+                "food": 0,
+            },
+        ],
+    }
+
+    loaded = Party.from_dict(legacy)
+
+    # Legacy-migration: the party-level wallet lands on member 0.
+    assert loaded.members[0].gold == 500
+    assert loaded.members[0].food == 800
+    assert loaded.members[1].gold == 0
+    assert loaded.members[1].food == 0
+    assert loaded.gold == 500
+    assert loaded.food == 800
+
+
+def test_legacy_keys_in_modern_saves_do_not_double_credit():
+    """A modern save's party-level gold/food are derived sums equal to the
+    member purses; loading must not re-gather or double them."""
+    p = Party()
+    c1 = Character(name="Hero", gold=300, food=500)
+    c2 = Character(name="Mage", gold=100, food=200)
+    p.add_member(c1)
+    p.add_member(c2)
+
+    data = p.to_dict()
+    assert data["gold"] == 400 and data["food"] == 700
+
+    loaded = Party.from_dict(data)
+
+    assert loaded.members[0].gold == 300
+    assert loaded.members[0].food == 500
+    assert loaded.members[1].gold == 100
+    assert loaded.members[1].food == 200
+    assert loaded.gold == 400
+    assert loaded.food == 700
+
+
 def test_binary_roster_and_party_loader():
     """Verify reading initial characters from binary 64-byte records and party.ult."""
     # Create synthetic 64-byte binary record for a character:

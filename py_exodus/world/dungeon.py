@@ -13,6 +13,7 @@ import pygame
 
 from py_exodus.constants import Direction, Status
 from py_exodus.entities.defs import CreatureDef
+from py_exodus.entities.party import PartyDeathException
 from py_exodus.world.map import DungeonMap, DungeonTile
 
 if TYPE_CHECKING:

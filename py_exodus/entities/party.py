@@ -608,10 +608,9 @@ class Party:
             transport=p_data.get("transport", Transport.FOOT),
             ship_hull=p_data.get("ship_hull", 50),
             wind_direction=p_data.get("wind_direction", Direction.NORTH),
-            # Per-member model: gold and food live on the member records
-            # (Java CharacterRecord, SaveGame.java:190-192). Legacy party-level
-            # gold/food keys in old saves are derived sums only and are not
-            # re-seeded here to avoid double-crediting.
+            # Per-member model (Java CharacterRecord, SaveGame.java:190-192):
+            # gold and food live on the member records. Legacy-migration below
+            # handles old saves that kept a party-level wallet.
             moves=p_data.get("moves", 0),
             torch_duration=p_data.get("torch_duration", 0),
             active_member_index=p_data.get("active_member_index", 0),
@@ -619,4 +618,25 @@ class Party:
             dynamic_objects=data.get("dynamic_objects", p_data.get("dynamic_objects", [])),
             dynamic_monsters=data.get("dynamic_monsters", p_data.get("dynamic_monsters", [])),
         )
+
+        # --- Legacy-migration (pre-parity JSON saves) -------------------------
+        # Old saves stored the real wallet at party level ("gold"/"food")
+        # while the per-member fields stayed at their creation defaults. A
+        # modern save writes the derived sums here, so *mismatch* with the
+        # members' derived total is the marker of a pre-parity save. On a
+        # mismatch: gather every purse into member 0 (the Java pool_gold(0)
+        # idiom, Party.java:88-97) and credit the legacy value on top, so the
+        # stored gold is never silently dropped.
+        legacy_gold = p_data.get("gold")
+        legacy_food = p_data.get("food")
+        if p.members:
+            if legacy_gold is not None and legacy_gold != p.gold:
+                gold_total = p.gold
+                p.pool_gold(0)
+                p.members[0].gold = gold_total + legacy_gold
+            if legacy_food is not None and legacy_food != p.food:
+                food_total = p.food
+                for m in p.members:
+                    m.food = 0
+                p.members[0].food = food_total + legacy_food
         return p

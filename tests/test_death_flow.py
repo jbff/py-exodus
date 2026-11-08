@@ -289,6 +289,85 @@ def test_overworld_starvation_leaving_survivor_no_transition(sm, asset_mgr):
     assert party.get_member(1).hp == 5
 
 
+def test_dungeon_starvation_wipe_transitions_to_start_screen(sm, asset_mgr):
+    """A dungeon endTurn tick that wipes the party routes to StartScreen
+    game over, same as every other screen (Java DungeonScreen movement runs
+    Party.endTurn, exodus/Party.java:592-639 → GameScreen.java:433-446)."""
+
+    def member(name: str) -> Character:
+        char = Character(name, "M", Race.HUMAN, Profession.FIGHTER, hp=0, max_hp=100)
+        char.food = 0
+        return char
+
+    party = Party(members=[], x=2, y=2, gold=0, food=0, transport=Transport.FOOT)
+    party.add_member(member("Hero"))
+    party.add_member(member("Mage"))
+    for m in party.members:
+        m.submorsels = 5
+
+    dmap = DungeonMap(id=99, name="TestDungeon", width=8, height=8, levels=8)
+    dmap.tiles = [
+        [
+            [
+                DungeonTile.WALL
+                if x == 0 or x == 7 or y == 0 or y == 7
+                else DungeonTile.FLOOR
+                for x in range(8)
+            ]
+            for y in range(8)
+        ]
+        for z in range(8)
+    ]
+    dungeon = DungeonScreen(party=party, dungeon_map=dmap, start_x=2, start_y=2, start_z=0)
+    sm.set_screen(dungeon)
+
+    dungeon.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_UP))
+
+    assert party.is_party_dead()
+    from py_exodus.screens.start import StartScreen
+
+    assert isinstance(sm.current_screen, StartScreen)
+    assert sm.current_screen.game_over is True
+
+
+def test_dungeon_starvation_survivor_no_transition(sm, asset_mgr):
+    """A dungeon tick leaving a survivor must NOT end the game (the tick heals
+    +1 before the starvation −2, so a member at 6 hp ends at 5)."""
+
+    def member(name: str) -> Character:
+        char = Character(name, "M", Race.HUMAN, Profession.FIGHTER, hp=6, max_hp=100)
+        char.food = 0
+        return char
+
+    party = Party(members=[], x=2, y=2, gold=0, food=0, transport=Transport.FOOT)
+    party.add_member(member("Hero"))
+    party.add_member(member("Mage"))
+    for m in party.members:
+        m.submorsels = 5
+
+    dmap = DungeonMap(id=99, name="TestDungeon", width=8, height=8, levels=8)
+    dmap.tiles = [
+        [
+            [
+                DungeonTile.WALL
+                if x == 0 or x == 7 or y == 0 or y == 7
+                else DungeonTile.FLOOR
+                for x in range(8)
+            ]
+            for y in range(8)
+        ]
+        for z in range(8)
+    ]
+    dungeon = DungeonScreen(party=party, dungeon_map=dmap, start_x=2, start_y=2, start_z=0)
+    sm.set_screen(dungeon)
+
+    dungeon.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_UP))
+
+    assert not party.is_party_dead()
+    assert sm.current_screen is dungeon
+    assert party.get_member(1).hp == 5
+
+
 def test_overworld_chest_gas_trap_wipe_transitions_to_start_screen(sm, asset_mgr, monkeypatch):
     """A gas trap that kills the whole party (Task 1 pipeline) routes to game over."""
 
