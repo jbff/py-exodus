@@ -124,18 +124,80 @@ DIRECTIONAL_SPELLS = {
     Spell.EXCUUN,
 }
 
+TARGETED_MEMBER_SPELLS = {
+    Spell.SANCTU,
+    Spell.ALCORT,
+    Spell.SANCTU_MANI,
+    Spell.SURMANDUM,
+    Spell.ANJU_SERMANI,
+}
 
-def resolve_spell(spell: Spell | str) -> Spell | None:
+
+def get_castable_spell_types(profession: Profession | str) -> list[str]:
+    """Return list of spell disciplines ('wizard', 'cleric') this profession can cast."""
+    if isinstance(profession, str):
+        try:
+            profession = Profession(profession.lower())
+        except ValueError:
+            return []
+    types: list[str] = []
+    if profession in (
+        Profession.DRUID,
+        Profession.ALCHEMIST,
+        Profession.RANGER,
+        Profession.WIZARD,
+        Profession.LARK,
+    ):
+        types.append("wizard")
+    if profession in (
+        Profession.DRUID,
+        Profession.RANGER,
+        Profession.ILLUSIONIST,
+        Profession.CLERIC,
+        Profession.PALADIN,
+    ):
+        types.append("cleric")
+    return types
+
+
+def resolve_spell(
+    spell: Spell | str,
+    spell_type: str | None = None,
+    caster: Character | PartyMember | None = None,
+) -> Spell | None:
     """Resolve a Spell enum or string name/alias to a Spell."""
     if isinstance(spell, Spell):
         return spell
-    if isinstance(spell, str):
-        key = spell.strip().upper().replace("-", "_")
-        if key in SPELL_ALIASES:
-            return SPELL_ALIASES[key]
+    if not isinstance(spell, str):
+        return None
+
+    key = spell.strip().upper().replace("-", "_")
+
+    # If spell_type is not given, attempt to infer from caster's single discipline
+    if spell_type is None and caster is not None:
+        caster_char = getattr(caster, "character", caster)
+        prof = getattr(caster_char, "profession", None)
+        if prof is not None:
+            disciplines = get_castable_spell_types(prof)
+            if len(disciplines) == 1:
+                spell_type = disciplines[0]
+
+    # Full spell name or alias check first (exact name match)
+    if key in SPELL_ALIASES:
+        return SPELL_ALIASES[key]
+
+    # If discipline is specified, look for matching code or name within that discipline
+    if spell_type:
+        st = spell_type.strip().lower()
         for s in Spell:
-            if s.name == key or s.code == key:
+            if s.spell_type.lower() == st and (s.name == key or s.code == key):
                 return s
+
+    # Fallback search across all spells
+    for s in Spell:
+        if s.name == key or s.code == key:
+            return s
+
     return None
 
 
@@ -147,10 +209,11 @@ def cast_spell(
     world_map: Any | None = None,
     target_member: Character | PartyMember | None = None,
     party: Party | None = None,
+    spell_type: str | None = None,
 ) -> SpellResult:
     """Cast a spell by caster, validating MP, profession, target, and location."""
     # 1. Resolve spell enum
-    resolved_spell = resolve_spell(spell)
+    resolved_spell = resolve_spell(spell, spell_type=spell_type, caster=caster)
     if resolved_spell is None:
         return SpellResult(success=False, message=f"Unknown spell: {spell}")
 
@@ -687,3 +750,108 @@ def _set_caster_coords(arena: CombatArena, caster_entity: Any, x: int, y: int) -
     if hasattr(caster_entity, "combat_x"):
         caster_entity.combat_x = x
         caster_entity.combat_y = y
+
+
+def prompt_cast_party(
+    text_log: Any,
+    party: Any,
+    world_map: Any | None = None,
+    audio: Any | None = None,
+) -> None:
+    """Standard party spellcasting prompt flow (overworld, town, dungeon).
+
+    1. Cast: Which member? (1-4)
+    2. If profession has multiple disciplines (Druid, Ranger): Spell Type? [W]izard or [C]leric
+    3. [Wizard/Cleric] Spell? (A-P)
+    4. If targeted restorative spell: On who? (1-4)
+    5. Execute via cast_spell(...)
+    """
+    def _on_member(m_str: str) -> None:
+        try:
+            idx = int(m_str.strip()) - 1
+            caster_m = party.get_member(idx)
+        except ValueError:
+            caster_m = None
+
+        if caster_m is None:
+            text_log.add_message("Invalid member #!")
+            return
+
+        if caster_m.is_dead():
+            text_log.add_message(f"{caster_m.name} cannot cast while deceased!")
+            return
+
+        char = getattr(caster_m, "character", caster_m)
+        types = get_castable_spell_types(char.profession)
+        if not types:
+            prof_name = char.profession.value.capitalize() if hasattr(char.profession, "value") else str(char.profession)
+            text_log.add_message(f"{char.name} ({prof_name}) cannot cast spells!")
+            return
+
+        if char.mp <= 0:
+            text_log.add_message(f"{char.name} has no Magic Points!")
+            return
+
+        def _ask_spell_code(discipline: str) -> None:
+            type_label = "Wizard" if discipline == "wizard" else "Cleric"
+
+            def _on_spell(code: str) -> None:
+                code_upper = code.strip().upper()
+                found_spell = resolve_spell(code_upper, spell_type=discipline, caster=caster_m)
+                if found_spell is None:
+                    text_log.add_message("Unknown spell!")
+                    return
+
+                if not found_spell.can_cast(char.profession):
+                    text_log.add_message(f"{char.name} cannot cast {found_spell.name}!")
+                    return
+
+                if char.mp < found_spell.mp_cost:
+                    text_log.add_message(f"Not enough MP! Need {found_spell.mp_cost} MP.")
+                    return
+
+                def _dispatch(target: Any | None = None) -> None:
+                    res = cast_spell(
+                        spell=found_spell,
+                        caster=caster_m,
+                        party=party,
+                        world_map=world_map,
+                        target_member=target,
+                    )
+                    text_log.add_message(res.message)
+                    if res.success and audio is not None:
+                        audio.play_sfx("magic")
+
+                if found_spell in TARGETED_MEMBER_SPELLS:
+                    def _on_target(target_str: str) -> None:
+                        try:
+                            t_idx = int(target_str.strip()) - 1
+                            target_m = party.get_member(t_idx)
+                        except ValueError:
+                            target_m = None
+                        if target_m is None:
+                            text_log.add_message("Invalid member #!")
+                            return
+                        _dispatch(target_m)
+
+                    text_log.prompt("On who? (1-4):", callback=_on_target, single_char=True)
+                else:
+                    _dispatch(None)
+
+            text_log.prompt(f"{type_label} Spell? (A-P):", callback=_on_spell, single_char=True)
+
+        if len(types) > 1:
+            def _on_type(t_str: str) -> None:
+                t = t_str.strip().upper()
+                if t in ("W", "WIZARD"):
+                    _ask_spell_code("wizard")
+                elif t in ("C", "CLERIC"):
+                    _ask_spell_code("cleric")
+                else:
+                    text_log.add_message("Invalid choice! Enter W or C.")
+
+            text_log.prompt("Spell Type? [W]izard or [C]leric:", callback=_on_type, single_char=True)
+        else:
+            _ask_spell_code(types[0])
+
+    text_log.prompt("Cast: Which member? (1-4):", callback=_on_member, single_char=True)

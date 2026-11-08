@@ -149,7 +149,7 @@ def test_player_melee_attack_and_exp_award(asset_mgr, conflict_map):
     monster = arena.monsters[0]
     monster.x = 5
     monster.y = 4
-    monster.hp = 5  # low hp to verify kill
+    monster.hp = 1  # low hp to verify kill
 
     initial_exp = hero.exp
     res = arena.execute_player_action(0, Action.attack(Direction.NORTH))

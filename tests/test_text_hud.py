@@ -69,7 +69,7 @@ def test_text_log_editing_and_cancel():
 
 
 def test_text_log_chained_prompts():
-    """Verify cascading/chained prompts for NPC dialogues or vendor streams."""
+    """Verify cascading/chained prompts for NPC dialogues or vendor streams without needing enter."""
     log = TextLog(max_lines=5)
     stream_results: list[str] = []
 
@@ -85,18 +85,53 @@ def test_text_log_chained_prompts():
     assert log.is_waiting_for_input
     assert log.current_prompt == "Direction?"
 
+    # Instant single-character input immediately advances prompt
     log.handle_char("E")
-    log.handle_enter()
 
     # Callback executed and seamlessly installed second prompt
     assert stream_results == ["E"]
     assert log.is_waiting_for_input
     assert log.current_prompt == "Buy what? (A-D):"
 
+    # Second prompt also commits instantly on single character
     log.handle_char("B")
-    log.handle_enter()
     assert stream_results == ["E", "B"]
     assert not log.is_waiting_for_input
+
+
+def test_text_log_single_char_and_arrow_keys():
+    """Verify single-character auto-commit and arrow key direction auto-submission."""
+    log = TextLog(max_lines=5)
+
+    # Multi-char prompt waits for enter
+    multi_received: list[str] = []
+    log.prompt("Other Command? ", lambda val: multi_received.append(val))
+    assert log.single_char is False
+    log.handle_char("X")
+    assert log.is_waiting_for_input
+    assert multi_received == []
+    log.handle_enter()
+    assert multi_received == ["X"]
+
+    # Direction prompt auto-commits arrow keys
+    dir_received: list[str] = []
+    log.prompt("Direction? (N,S,E,W):", lambda val: dir_received.append(val))
+    assert log.single_char is True
+
+    # Arrow UP key event
+    up_event = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_UP, unicode="")
+    consumed = log.handle_event(up_event)
+    assert consumed is True
+    assert dir_received == ["NORTH"]
+    assert not log.is_waiting_for_input
+
+    # Arrow RIGHT key event
+    log.prompt("Attack Direction? (N,S,E,W):", lambda val: dir_received.append(val))
+    right_event = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RIGHT, unicode="")
+    assert log.handle_event(right_event) is True
+    assert dir_received == ["NORTH", "EAST"]
+    assert not log.is_waiting_for_input
+
 
 
 def test_text_log_render():

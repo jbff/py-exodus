@@ -454,3 +454,83 @@ def test_unknown_spell_handling():
     assert not res.success
     assert "unknown spell" in res.message.lower()
 
+
+def test_spell_letter_code_resolution_by_discipline(asset_mgr, conflict_map):
+    """Cleric casting 'A' resolves to PONTORI, Wizard to REPOND, Druid by chosen discipline."""
+    from py_exodus.combat.magic import get_castable_spell_types, resolve_spell
+
+    # Disciplines
+    assert get_castable_spell_types(Profession.CLERIC) == ["cleric"]
+    assert get_castable_spell_types(Profession.WIZARD) == ["wizard"]
+    assert get_castable_spell_types(Profession.DRUID) == ["wizard", "cleric"]
+    assert get_castable_spell_types(Profession.RANGER) == ["wizard", "cleric"]
+    assert get_castable_spell_types(Profession.FIGHTER) == []
+
+    # Resolution by discipline
+    assert resolve_spell("A", spell_type="cleric") == Spell.PONTORI
+    assert resolve_spell("A", spell_type="wizard") == Spell.REPOND
+
+    # Resolution inferred from caster
+    cleric_char = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC, wisdom=50, mp=50)
+    wiz_char = Character("Mage", "M", Race.FUZZY, Profession.WIZARD, intelligence=50, mp=50)
+    assert resolve_spell("A", caster=cleric_char) == Spell.PONTORI
+    assert resolve_spell("A", caster=wiz_char) == Spell.REPOND
+
+    # In combat: Cleric casting "A" casts PONTORI, turning undead, NOT REPOND
+    party = Party()
+    party.add_member(cleric_char)
+    arena = CombatArena(party, conflict_map, creature_tile="skeleton", asset_mgr=asset_mgr, monster_count=1)
+    res = cast_spell("A", caster=party.members[0], arena=arena)
+    assert res.success
+    assert res.spell == Spell.PONTORI
+    assert "undead" in res.message.lower()
+
+
+def test_prompt_cast_party_flow():
+    """Overland party casting prompts member, discipline (if both), spell, and target."""
+    from py_exodus.combat.magic import prompt_cast_party
+    from py_exodus.ui.text_log import TextLog
+
+    party = Party()
+    cleric = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC, wisdom=50, mp=50, hp=100, max_hp=100)
+    fighter = Character("Fighter", "M", Race.HUMAN, Profession.FIGHTER, strength=50, hp=30, max_hp=100)
+    druid = Character("Druid", "M", Race.BOBIT, Profession.DRUID, wisdom=50, intelligence=50, mp=50)
+    party.add_member(cleric)
+    party.add_member(fighter)
+    party.add_member(druid)
+
+    log = TextLog()
+
+    # Flow 1: Cleric casts Sanctu (C) on Fighter (2)
+    prompt_cast_party(log, party)
+    assert "Which member?" in log.current_prompt
+    assert log.single_char is True
+
+    # User inputs '1' for Cleric
+    log.handle_char("1")
+    # Prompt advances to Cleric spell code immediately (no Enter needed)
+    assert "Cleric Spell?" in log.current_prompt
+
+    # User inputs 'C' for Sanctu
+    log.handle_char("C")
+    # Prompt advances to target member immediately
+    assert "On who?" in log.current_prompt
+
+    # User inputs '2' for Fighter
+    log.handle_char("2")
+    # Healed! Prompt is complete
+    assert not log.is_waiting_for_input
+    assert fighter.hp > 30
+
+    # Flow 2: Druid is prompted for [W]izard or [C]leric first
+    prompt_cast_party(log, party)
+    # Member '3' (Druid)
+    log.handle_char("3")
+    assert "Spell Type?" in log.current_prompt
+    assert "[W]izard or [C]leric" in log.current_prompt
+
+    # Choose 'C' for Cleric
+    log.handle_char("C")
+    assert "Cleric Spell?" in log.current_prompt
+
+

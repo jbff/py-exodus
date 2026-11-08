@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any
 
 import pygame
 
+from py_exodus.combat.magic import prompt_cast_party
 from py_exodus.constants import (
     ArmorType,
     Direction,
@@ -374,32 +375,8 @@ class TownScreen(BaseScreen):
             self.text_log.add_message("No door there!")
 
     def _prompt_cast(self) -> None:
-        """Cast non-combat spells (Heal, Light) while in town."""
-        active = self.party.active_member
-        if not active:
-            return
-
-        def _on_spell(code: str) -> None:
-            c = code.strip().upper()
-            if c == "A":  # Sanctu (Heal)
-                active.character.mp = max(0, active.character.mp - 10)
-                healed = 35
-                for m in self.party.members:
-                    if not m.is_dead():
-                        m.hp = min(m.max_hp, m.hp + healed)
-                if self.audio is not None:
-                    self.audio.play_sfx("magic")
-                self.text_log.add_message(f"Sanctu! Party healed +{healed} HP.")
-            elif c == "B":  # Light
-                active.character.mp = max(0, active.character.mp - 5)
-                self.party.torch_duration += 100
-                if self.audio is not None:
-                    self.audio.play_sfx("magic")
-                self.text_log.add_message("Lorant! Mystical radiance illuminated.")
-            else:
-                self.text_log.add_message("Cannot cast combat spell here!")
-
-        self.text_log.prompt("Cast Spell? (A-P): ", callback=_on_spell)
+        """Cast non-combat spells while in town."""
+        prompt_cast_party(self.text_log, self.party, world_map=self.game_map, audio=self.audio)
 
     def _prompt_hand_equipment(self) -> None:
         """Hand equipment between party members."""

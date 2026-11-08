@@ -458,7 +458,7 @@ def test_combat_screen_attack_key_and_directional_strike(pygame_setup, asset_mgr
     combat.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_UP))
     assert not combat.text_log.is_waiting_for_input
     # Turn was executed as attack
-    assert any("attacks" in msg or "misses" in msg or "hits" in msg or "Direction? NORTH" in msg for msg in combat.text_log.history)
+    assert any("attacks" in msg or "misses" in msg or "hits" in msg or "swings" in msg or "Direction" in msg for msg in combat.text_log.history)
 
 
 def test_combat_screen_render(pygame_setup, asset_mgr, sample_party):

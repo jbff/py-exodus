@@ -6,6 +6,12 @@ from typing import TYPE_CHECKING, Any
 import pygame
 
 from py_exodus.combat.arena import Action, ActionType, CombatArena
+from py_exodus.combat.magic import (
+    DIRECTIONAL_SPELLS,
+    TARGETED_MEMBER_SPELLS,
+    get_castable_spell_types,
+    resolve_spell,
+)
 from py_exodus.constants import (
     COMBAT_HEIGHT,
     COMBAT_WIDTH,
@@ -102,26 +108,6 @@ class CombatScreen(BaseScreen):
 
         # If waiting for prompt input (e.g. Direction or Spell code)
         if self.text_log.is_waiting_for_input:
-            # Check for direct directional keys if prompt is asking for Direction
-            if "Direction" in self.text_log.current_prompt:
-                dir_mapped = None
-                if event.key in (pygame.K_UP, pygame.K_KP8, pygame.K_n):
-                    dir_mapped = Direction.NORTH
-                elif event.key in (pygame.K_DOWN, pygame.K_KP2, pygame.K_s):
-                    dir_mapped = Direction.SOUTH
-                elif event.key in (pygame.K_LEFT, pygame.K_KP4, pygame.K_w):
-                    dir_mapped = Direction.WEST
-                elif event.key in (pygame.K_RIGHT, pygame.K_KP6, pygame.K_e):
-                    dir_mapped = Direction.EAST
-
-                if dir_mapped is not None:
-                    cb = self.text_log._callback
-                    self.text_log.handle_escape()  # Clear prompt state
-                    self.text_log.add_message(f"Direction? {dir_mapped.name}")
-                    if cb is not None:
-                        cb(dir_mapped.name)
-                    return
-
             self.text_log.handle_event(event)
             return
 
@@ -170,28 +156,83 @@ class CombatScreen(BaseScreen):
                 return
             self._execute_action(Action.attack(d))
 
-        self.text_log.prompt("Direction? (N,S,E,W):", callback=_on_dir)
+        self.text_log.prompt("Direction? (N,S,E,W):", callback=_on_dir, single_char=True)
 
     def _prompt_cast(self) -> None:
-        """Prompt active member for spell letter code."""
+        """Prompt active member for spell casting."""
         active = self.active_party_member
         if not active:
             return
 
-        def _on_spell(code: str) -> None:
-            code_upper = code.strip().upper()
-            found_spell = None
-            for s in Spell:
-                if s.code == code_upper:
-                    found_spell = s
-                    break
+        char = active.character
+        types = get_castable_spell_types(char.profession)
+        if not types:
+            prof_name = char.profession.value.capitalize() if hasattr(char.profession, "value") else str(char.profession)
+            self.text_log.add_message(f"{char.name} ({prof_name}) cannot cast spells!")
+            return
 
-            if found_spell is None:
-                self.text_log.add_message("Unknown spell!")
-                return
-            self._execute_action(Action.cast(found_spell))
+        if char.mp <= 0:
+            self.text_log.add_message(f"{char.name} has no Magic Points!")
+            return
 
-        self.text_log.prompt("Spell? (A-P):", callback=_on_spell)
+        def _ask_spell_code(discipline: str) -> None:
+            type_label = "Wizard" if discipline == "wizard" else "Cleric"
+
+            def _on_spell(code: str) -> None:
+                code_upper = code.strip().upper()
+                found_spell = resolve_spell(code_upper, spell_type=discipline, caster=active)
+                if found_spell is None:
+                    self.text_log.add_message("Unknown spell!")
+                    return
+
+                if not found_spell.can_cast(char.profession):
+                    self.text_log.add_message(f"{char.name} cannot cast {found_spell.name}!")
+                    return
+
+                if char.mp < found_spell.mp_cost:
+                    self.text_log.add_message(f"Not enough MP! Need {found_spell.mp_cost} MP.")
+                    return
+
+                if found_spell in DIRECTIONAL_SPELLS:
+                    def _on_dir(d_str: str) -> None:
+                        d = Direction.from_name_or_key(d_str)
+                        if d is None:
+                            self.text_log.add_message("Invalid direction!")
+                            return
+                        self._execute_action(Action.cast(found_spell, direction=d))
+
+                    self.text_log.prompt("Direction? (N,S,E,W):", callback=_on_dir, single_char=True)
+                elif found_spell in TARGETED_MEMBER_SPELLS:
+                    def _on_target(target_str: str) -> None:
+                        try:
+                            t_idx = int(target_str.strip()) - 1
+                            target_m = self.party.get_member(t_idx)
+                        except ValueError:
+                            target_m = None
+                        if target_m is None:
+                            self.text_log.add_message("Invalid member #!")
+                            return
+                        self._execute_action(Action.cast(found_spell, target_member=target_m))
+
+                    self.text_log.prompt("On who? (1-4):", callback=_on_target, single_char=True)
+                else:
+                    self._execute_action(Action.cast(found_spell))
+
+            self.text_log.prompt(f"{type_label} Spell? (A-P):", callback=_on_spell, single_char=True)
+
+        if len(types) > 1:
+            def _on_type(t_str: str) -> None:
+                t = t_str.strip().upper()
+                if t in ("W", "WIZARD"):
+                    _ask_spell_code("wizard")
+                elif t in ("C", "CLERIC"):
+                    _ask_spell_code("cleric")
+                else:
+                    self.text_log.add_message("Invalid choice! Enter W or C.")
+
+            self.text_log.prompt("Spell Type? [W]izard or [C]leric:", callback=_on_type, single_char=True)
+        else:
+            _ask_spell_code(types[0])
 
     def _execute_action(self, action: Action) -> None:
         """Execute action in CombatArena, update audio, and sync logs."""

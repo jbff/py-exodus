@@ -65,23 +65,20 @@ def test_roster_screen_character_creation(pygame_setup, asset_mgr):
     for ch in "Lancelot\r":
         scr.text_log.handle_char(ch)
 
-    # Step 2: Sex
+    # Step 2: Sex (instant single-character input)
     assert scr.text_log.is_waiting_for_input
     assert "Sex" in scr.text_log.current_prompt
-    for ch in "M\r":
-        scr.text_log.handle_char(ch)
+    scr.text_log.handle_char("M")
 
-    # Step 3: Race
+    # Step 3: Race (instant single-character input)
     assert scr.text_log.is_waiting_for_input
     assert "Race" in scr.text_log.current_prompt
-    for ch in "H\r":
-        scr.text_log.handle_char(ch)
+    scr.text_log.handle_char("H")
 
-    # Step 4: Class
+    # Step 4: Class (instant single-character input)
     assert scr.text_log.is_waiting_for_input
     assert "Class" in scr.text_log.current_prompt
-    for ch in "P\r":
-        scr.text_log.handle_char(ch)
+    scr.text_log.handle_char("P")
 
     # Wizard finished
     assert not scr.text_log.is_waiting_for_input

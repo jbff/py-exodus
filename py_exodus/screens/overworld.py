@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 import pygame
 
+from py_exodus.combat.magic import prompt_cast_party
 from py_exodus.constants import (
     BASE_HEIGHT,
     BASE_WIDTH,
@@ -215,44 +216,7 @@ class OverworldScreen(BaseScreen):
 
     def _prompt_cast(self) -> None:
         """Prompt active member to cast an overland spell."""
-        def _on_spell(code: str) -> None:
-            c = code.strip().upper()[:1]
-            if not c:
-                return
-
-            active = self.party.active_member
-            if not active or active.mp < 5:
-                self.text_log.add_message("Not enough MP to cast!")
-                return
-
-            # Map spell codes to effects
-            if c in ("A", "H"):  # Heal spells
-                active.mp = max(0, active.mp - 5)
-                healed = 35
-                for m in self.party.members:
-                    if not m.is_dead():
-                        m.hp = min(m.max_hp, m.hp + healed)
-                if self.audio is not None:
-                    self.audio.play_sfx("magic")
-                self.text_log.add_message(f"Sanctu! Party wounds healed +{healed} HP.")
-            elif c == "B":  # Light spell
-                active.mp = max(0, active.mp - 5)
-                self.party.torch_duration += 100
-                if self.audio is not None:
-                    self.audio.play_sfx("magic")
-                self.text_log.add_message("Lorant! Mystical light radiates forth.")
-            elif c in ("D", "M"):  # Teleport spells
-                active.mp = max(0, active.mp - 15)
-                import random
-                self.party.x = (self.party.x + random.randint(-8, 8)) % (self.game_map.width if self.game_map else 64)
-                self.party.y = (self.party.y + random.randint(-8, 8)) % (self.game_map.height if self.game_map else 64)
-                if self.audio is not None:
-                    self.audio.play_sfx("moongate_flash")
-                self.text_log.add_message("Decul! Reality bends and shifts the party.")
-            else:
-                self.text_log.add_message("Cannot cast combat-only spell here!")
-
-        self.text_log.prompt("Cast Spell? (A-P):", callback=_on_spell)
+        prompt_cast_party(self.text_log, self.party, world_map=self.game_map, audio=self.audio)
 
     def _get_chest(self) -> None:
         """Open chest on party's tile or adjacent tile."""

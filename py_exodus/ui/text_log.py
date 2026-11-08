@@ -1,6 +1,7 @@
 """HUD Scrolling Text Log and Interactive Command/Dialogue Stream."""
 from __future__ import annotations
 
+import re
 import textwrap
 from collections.abc import Callable
 from pathlib import Path
@@ -103,6 +104,7 @@ class TextLog:
         self.is_waiting_for_input: bool = False
         self.current_prompt: str = ""
         self.input_buffer: str = ""
+        self.single_char: bool = False
         self._callback: Callable[[str], None] | None = None
         self.scroll_offset: int = 0
 
@@ -135,12 +137,43 @@ class TextLog:
         self,
         query: str,
         callback: Callable[[str], None] | None = None,
+        single_char: bool | None = None,
     ) -> None:
         """Initiate an interactive prompt stream query (e.g. 'Direction?', 'Buy what?')."""
         self.is_waiting_for_input = True
         self.current_prompt = query
         self.input_buffer = ""
         self._callback = callback
+
+        if single_char is not None:
+            self.single_char = single_char
+        else:
+            q_lower = query.lower()
+            if any(term in q_lower for term in ("name", "yell", "other command", "phrase")):
+                self.single_char = False
+            elif (
+                re.search(r"\([a-z0-9]-[a-z0-9]\)", q_lower)
+                or re.search(r"\[[a-z0-9]\]", q_lower)
+                or any(
+                    term in q_lower
+                    for term in (
+                        "direction",
+                        "dir",
+                        "n,s,e,w",
+                        "which member",
+                        "member #",
+                        "choice",
+                        "sex",
+                        "race",
+                        "class",
+                        "w/c",
+                        "y/n",
+                    )
+                )
+            ):
+                self.single_char = True
+            else:
+                self.single_char = False
 
     def handle_char(self, char: str) -> bool:
         """Process a single character input into the active prompt buffer."""
@@ -155,6 +188,8 @@ class TextLog:
 
         if char.isprintable():
             self.input_buffer += char
+            if self.single_char:
+                self.handle_enter()
             return True
 
         return False
@@ -182,6 +217,7 @@ class TextLog:
         self.is_waiting_for_input = False
         self.current_prompt = ""
         self.input_buffer = ""
+        self.single_char = False
         self._callback = None
 
         # Add the completed prompt + input line to message log
@@ -203,6 +239,7 @@ class TextLog:
         self.is_waiting_for_input = False
         self.current_prompt = ""
         self.input_buffer = ""
+        self.single_char = False
         self._callback = None
 
     def cancel_prompt(self) -> None:
@@ -220,15 +257,32 @@ class TextLog:
             return False
 
         if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_ESCAPE:
+                self.handle_escape()
+                return True
+
+            # Direction prompt shortcut: arrow keys and keypad auto-commit direction
+            if "dir" in self.current_prompt.lower():
+                if event.key in (pygame.K_UP, pygame.K_KP8):
+                    self.submit_input("NORTH")
+                    return True
+                if event.key in (pygame.K_DOWN, pygame.K_KP2):
+                    self.submit_input("SOUTH")
+                    return True
+                if event.key in (pygame.K_LEFT, pygame.K_KP4):
+                    self.submit_input("WEST")
+                    return True
+                if event.key in (pygame.K_RIGHT, pygame.K_KP6):
+                    self.submit_input("EAST")
+                    return True
+
             if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
                 self.handle_enter()
                 return True
             if event.key == pygame.K_BACKSPACE:
                 self.handle_backspace()
                 return True
-            if event.key == pygame.K_ESCAPE:
-                self.handle_escape()
-                return True
+
             u = getattr(event, "unicode", "")
             if u and u.isprintable():
                 self.handle_char(u)
