@@ -167,7 +167,8 @@ class DungeonScreen(BaseScreen):
         elif event.key == pygame.K_m:
             # Java DungeonScreen.java:1024-1031 — M routes to
             # NewOrderInputAdapter, which does not finishTurn from a dungeon.
-            prompt_modify_order(self.text_log, self.party)
+            # Java's log keeps the typo "exhange #:" (DungeonScreen.java:1028).
+            prompt_modify_order(self.text_log, self.party, exchange_label="exhange #:")
         elif event.key == pygame.K_r:
             # Java DungeonScreen.java:1011-1013 — G/R/W/C/S fall through to
             # finishTurn at the press, then route to the member selection flow.

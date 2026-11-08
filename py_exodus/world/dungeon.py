@@ -945,9 +945,11 @@ class DungeonState:
 
         Java truth: DungeonScreen.java:973-981 — the D branch increments
         currentLevel and only clamps when currentLevel exceeds DUNGEON_LVLS
-        (8), so a descent off the deepest playable grid is *accepted* and
-        clamped at 8 (one level past the last playable array index), never
-        refused. K/D return false before finishTurn: no turn is consumed.
+        (Java's fixed constant 8), so a descent off the deepest playable
+        grid is *accepted* and clamped one level past the last playable
+        array index, never refused. The clamp here is ``dmap.levels`` — 8
+        for every shipped dungeon, matching Java's DUNGEON_LVLS constant.
+        K/D return false before finishTurn: no turn is consumed.
         """
         tile = self.current_tile
         if tile not in (DungeonTile.LADDER_DOWN, DungeonTile.LADDER_UP_DOWN):

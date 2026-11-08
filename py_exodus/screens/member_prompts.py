@@ -72,18 +72,17 @@ def prompt_ready_weapon(
 
         def _on_weap(w_code: str) -> None:
             c = w_code.strip().upper()
-            if not c:
-                turn_callback()  # ReadyWearInputAdapter: finishTurn for every key
-                return
-            w_idx = ord(c[0]) - ord('A')
-            if 0 <= w_idx < len(weapon_types):
-                success = m.ready_weapon(w_idx, asset_mgr)
-                if success:
-                    text_log.add_message(f"Success! {m.name} readied {m.weapon.name}.")
+            if c:
+                w_idx = ord(c[0]) - ord('A')
+                # Java SecondaryInputProcessor.java:465-483 — for any key in
+                # A..P the adapter logs exactly "Success!" or "Failed!"; other
+                # keys log nothing. The enum covers all of A..P, but a letter
+                # past the list reproduces Java's readyWeapon(…)==false.
+                if 0 <= w_idx < len(weapon_types):
+                    success = m.ready_weapon(w_idx, asset_mgr)
+                    text_log.add_message("Success!" if success else "Failed!")
                 else:
-                    text_log.add_message("Cannot ready that weapon!")
-            else:
-                text_log.add_message("Invalid weapon selection!")
+                    text_log.add_message("Failed!")
             turn_callback()  # ReadyWearInputAdapter: finishTurn for every key
 
         text_log.prompt("Ready Weapon? (A-P): ", callback=_on_weap, single_char=True)
@@ -129,18 +128,16 @@ def prompt_wear_armor(
 
         def _on_arm(a_code: str) -> None:
             c = a_code.strip().upper()
-            if not c:
-                turn_callback()  # ReadyWearInputAdapter: finishTurn for every key
-                return
-            a_idx = ord(c[0]) - ord('A')
-            if 0 <= a_idx < len(armor_types):
-                success = m.wear_armor(a_idx, asset_mgr)
-                if success:
-                    text_log.add_message(f"Success! {m.name} wears {m.armor.name}.")
+            if c:
+                a_idx = ord(c[0]) - ord('A')
+                # Java SecondaryInputProcessor.java:465-483 — the key test is
+                # A..P for both flows, so an armor letter past A..H falls into
+                # wearArmor(…)==false and logs "Failed!" exactly like Java.
+                if 0 <= a_idx < len(armor_types):
+                    success = m.wear_armor(a_idx, asset_mgr)
+                    text_log.add_message("Success!" if success else "Failed!")
                 else:
-                    text_log.add_message("Cannot wear that armor!")
-            else:
-                text_log.add_message("Invalid armor selection!")
+                    text_log.add_message("Failed!")
             turn_callback()  # ReadyWearInputAdapter: finishTurn for every key
 
         text_log.prompt("Wear Armor? (A-H): ", callback=_on_arm, single_char=True)
@@ -152,17 +149,21 @@ def prompt_modify_order(
     text_log: TextLog,
     party: Party,
     turn_callback: Callable[[], None] | None = None,
+    exchange_label: str = "exchange #:",
 ) -> None:
     """Modify Order: exchange member 1-4 with member 1-4.
 
     Java truth: BaseScreen.java:165-204 NewOrderInputAdapter — M logs
-    "Modify Order:" / "exchange #:", a 1-4 digit takes the first exchange
-    slot, a second digit (or any other key) swaps and ends the flow. The
-    adapter calls finishTurn only from GameScreen, so callers on the
-    overworld pass a turn callback and dungeon callers do not.
+    "Modify Order:" and an exchange label, a 1-4 digit takes the first
+    exchange slot, a second digit (or any other key) swaps and ends the
+    flow. The adapter calls finishTurn only from GameScreen, so callers on
+    the overworld/town pass a turn callback and dungeon callers do not.
+    GameScreen.java:601 prints the corrected "exchange #:" while
+    DungeonScreen.java:1028 keeps Java's typo "exhange #:" — pass
+    ``exchange_label="exhange #:"`` from the dungeon.
     """
     text_log.add_message("Modify Order:")
-    text_log.add_message("exchange #:")
+    text_log.add_message(exchange_label)
 
     def _on_first(p1_str: str) -> None:
         p1 = _parse_index(p1_str)

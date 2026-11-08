@@ -190,16 +190,22 @@ class OverworldScreen(BaseScreen):
         elif event.key == pygame.K_a:
             self._prompt_attack_overworld()
         elif event.key == pygame.K_b:
+            # Java GameScreen.java:578-580 — B runs board() and falls through
+            # the keyUp tail, so every board attempt consumes a turn.
             self._board_transport()
+            self._consume_pass_turn()
         elif event.key == pygame.K_c:
             self._prompt_cast()
         elif event.key == pygame.K_e:
             self._enter_portal()
         elif event.key == pygame.K_f:
+            # Java GameScreen.java:531-536 — F is only the cannon prompt on a
+            # ship; any other state reaches the keyUp tail SILENTLY (no
+            # message) and still consumes a turn.
             if self.party.transport == Transport.SHIP:
                 self._prompt_fire_cannons()
             else:
-                self.text_log.add_message("Fire: What? Only frigates have cannons!")
+                self._consume_pass_turn()
         elif event.key == pygame.K_g:
             self._get_chest()
         elif event.key == pygame.K_h:
@@ -231,7 +237,10 @@ class OverworldScreen(BaseScreen):
         elif event.key == pygame.K_w:
             self._prompt_wear_armor()
         elif event.key == pygame.K_x:
+            # Java GameScreen.java:584-596 — X has no early return; every
+            # dismount press consumes a turn.
             self._exit_transport()
+            self._consume_pass_turn()
         elif event.key == pygame.K_y:
             self._prompt_yell()
         elif event.key == pygame.K_z:
@@ -256,7 +265,7 @@ class OverworldScreen(BaseScreen):
         handler with ``finishTurn(v.x, v.y)``, so passing consumes the turn
         and applies the rule effect of the party's tile exactly like a move.
         """
-        self.text_log.add_message("Pass.")
+        self.text_log.add_message("Pass")  # Java GameScreen.java:626-627
         self._finish_turn(self.game_map.get_tile(self.party.x, self.party.y) if self.game_map else None)
         self._update_creatures()
 
@@ -1083,6 +1092,9 @@ class OverworldScreen(BaseScreen):
             return
         if not portal_entry.enter_portal(self, self.party.x, self.party.y):
             self.text_log.add_message("Nothing to enter here!")
+            # Java GameScreen.java:538-556 — E returns early only when a
+            # portal was used; with no portal the keyUp tail consumes a turn.
+            self._consume_pass_turn()
 
     _toggle_board_transport = _board_transport
 

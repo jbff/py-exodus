@@ -92,6 +92,7 @@ def test_dungeon_r_ready_weapon(pygame_setup):
     assert any("Ready Weapon for" in m for m in scr.text_log.history)
     scr.text_log.submit_input("B")  # B = DAGGER (2nd WeaponType entry)
     assert party.members[0].weapon == WeaponType.DAGGER
+    assert any("Success!" in m for m in scr.text_log.history)  # SIP:479-483
     # Java SecondaryInputProcessor: R press falls through (1 tick), then
     # ReadyWearInputAdapter.keyUp runs finishTurn after the letter (tick 2).
     assert party.moves == moves_before + 2
@@ -108,6 +109,14 @@ def test_dungeon_w_wear_armor(pygame_setup):
     assert any("Wear Armor for" in m for m in scr.text_log.history)
     scr.text_log.submit_input("C")  # C = LEATHER (3rd ArmorType entry)
     assert party.members[1].armor == ArmorType.LEATHER
+    assert any("Success!" in m for m in scr.text_log.history)
+
+    # Java SIP:455-483 — a failed wear logs exactly "Failed!"
+    scr = make_screen(party)
+    press(scr, pygame.K_w)
+    scr.text_log.submit_input("2")
+    scr.text_log.submit_input("D")  # D = CHAIN, not owned
+    assert any(m == "Failed!" for m in scr.text_log.history)
 
 
 def test_dungeon_m_modify_order(pygame_setup):
@@ -116,6 +125,7 @@ def test_dungeon_m_modify_order(pygame_setup):
     moves_before = party.moves
 
     press(scr, pygame.K_m)
+    assert any("exhange #:" in m for m in scr.text_log.history)  # Java DungeonScreen.java:1028 typo
     assert scr.text_log.is_waiting_for_input
     scr.text_log.submit_input("1")
     scr.text_log.submit_input("2")
@@ -330,6 +340,43 @@ def test_ladder_up_at_surface_exits():
     assert state.z == 0
 
 
+def test_town_r_w_m_use_shared_member_flow(pygame_setup, asset_mgr):
+    """Java town = GameScreen keyUp: R/W route to the shared
+    SecondaryInputProcessor flow (one finishTurn at the ReadyWear letter,
+    SecondaryInputProcessor.java:455-484) and M to NewOrderInputAdapter (one
+    finishTurn after the second digit, BaseScreen.java:196-204). Town must
+    not keep its own zero-turn forks."""
+    from py_exodus.screens.town import TownScreen
+
+    party = make_party()
+    party.members[0].weapons[WeaponType.DAGGER] = 1
+    party.members[0].armors[ArmorType.LEATHER] = 1
+    town = TownScreen(party=party, map_id=1, asset_mgr=asset_mgr)
+    moves = party.moves
+
+    town.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_r))
+    town.text_log.submit_input("1")
+    town.text_log.submit_input("B")  # B = DAGGER
+    assert party.members[0].weapon == WeaponType.DAGGER
+    assert any(m == "Success!" for m in town.text_log.history)
+    # The R press itself returns false on GameScreen; the finishTurn fires
+    # once at the ReadyWear letter.
+    assert party.moves == moves + 1
+
+    town.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_w))
+    town.text_log.submit_input("1")
+    town.text_log.submit_input("C")  # C = LEATHER
+    assert party.members[0].armor == ArmorType.LEATHER
+    assert party.moves == moves + 2
+
+    town.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_m))
+    assert any("exchange #:" in m for m in town.text_log.history)  # GameScreen-corrected spelling
+    town.text_log.submit_input("1")
+    town.text_log.submit_input("2")
+    assert party.members[0].name == "Mage"
+    assert party.moves == moves + 3  # NewOrderInputAdapter finishTurn
+
+
 # --- overworld / town save restrictions and unhandled keys -------------
 
 
@@ -359,6 +406,50 @@ def test_town_save_always_refused(pygame_setup, asset_mgr):
     town = TownScreen(party=make_party(), map_id=1, asset_mgr=asset_mgr)
     town.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_q))
     assert any("Cannot save here!" in m for m in town.text_log.history)
+
+
+def test_overworld_b_x_e_f_fall_through_ticks(pygame_setup, asset_mgr):
+    """Java GameScreen keyUp tail — B and X have no early return (every press
+    consumes a turn), E consumes a turn only when no portal is on the tile,
+    and F off-ship falls through silently with no invented message."""
+    from py_exodus.screens.overworld import OverworldScreen
+    from py_exodus.constants import Transport
+
+    ow = OverworldScreen(party=make_party(), map_id=0, asset_mgr=asset_mgr)
+    party = ow.party
+    moves = party.moves
+
+    # F not on a ship: silent tail turn (GameScreen.java:531-536 + 628)
+    ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_f))
+    assert not any("Only frigates" in m for m in ow.text_log.history)
+    assert party.moves == moves + 1
+
+    # X on foot: "Already on foot." + tail turn (GameScreen.java:584-596)
+    ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_x))
+    assert party.moves == moves + 2
+
+    # B with nothing to board: "Board What?" + tail turn (GameScreen.java:578-580)
+    ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_b))
+    assert any(m == "Board What?" for m in ow.text_log.history)
+    assert party.moves == moves + 3
+
+    # B already mounted: "Board: Can't!" + tail turn
+    party.transport = Transport.HORSE
+    ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_b))
+    assert any("Board: Can't!" in m for m in ow.text_log.history)
+    assert party.moves == moves + 4
+    party.transport = Transport.FOOT
+
+    # E with a portal: early return, no turn consumed (GameScreen.java:538-556)
+    from py_exodus.entities.defs import PortalDef
+    ow.game_map.portals.append(PortalDef(x=party.x, y=party.y, dest_map_id=0, start_x=party.x, start_y=party.y))
+    ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_e))
+    assert party.moves == moves + 4
+
+    # E with no portal: silent tail turn
+    ow.game_map.portals.clear()
+    ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_e))
+    assert party.moves == moves + 5
 
 
 def test_overworld_d_i_k_are_unhandled_consumes_turn(pygame_setup, asset_mgr):

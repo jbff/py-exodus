@@ -8,14 +8,17 @@ import pygame
 from py_exodus.aura import AuraType
 from py_exodus.combat.magic import prompt_cast_party
 from py_exodus.constants import (
-    ArmorType,
     Direction,
     Status,
     Transport,
-    WeaponType,
 )
 from py_exodus.entities.party import PartyDeathException
 from py_exodus.screens.base import BaseScreen
+from py_exodus.screens.member_prompts import (
+    prompt_modify_order,
+    prompt_ready_weapon,
+    prompt_wear_armor,
+)
 from py_exodus.screens.final import (
     apply_exodus_card_tiles,
     prompt_insert_card,
@@ -180,13 +183,16 @@ class TownScreen(BaseScreen):
             # Java GameScreen.java:624-628 — the pass key finishes the turn
             # at the party's tile (ticks + standing effect). Towns drain the
             # submorsels pool at 10 per turn (non-surface map).
-            self.text_log.add_message("Pass.")
+            self.text_log.add_message("Pass")  # Java GameScreen.java:626-627
             self._finish_turn(self.game_map.get_tile(self.avatar_x, self.avatar_y) if self.game_map else None)
         # Town commands:
         elif event.key == pygame.K_a:
             self.text_log.add_message("Attack: The guards eye thee suspiciously! Peace reigns here.")
         elif event.key == pygame.K_b:
+            # Java GameScreen.java:578-580 — B falls through the keyUp tail;
+            # every board press consumes a turn.
             self.text_log.add_message("Board: No transport vessels within city walls.")
+            self._consume_pass_turn()
         elif event.key == pygame.K_c:
             self._prompt_cast()
         elif event.key == pygame.K_e:
@@ -240,8 +246,10 @@ class TownScreen(BaseScreen):
             self._prompt_wear_armor()
         elif event.key == pygame.K_x:
             # X only dismounts to FOOT; leaving a town is border-walking only
-            # (Java GameScreen.java:584-596).
+            # (Java GameScreen.java:584-596). The key has no early return in
+            # Java — every X press consumes a turn.
             self._exit_transport()
+            self._consume_pass_turn()
         elif event.key == pygame.K_y:
             self._prompt_yell()
         elif event.key == pygame.K_z:
@@ -797,6 +805,9 @@ class TownScreen(BaseScreen):
             return
         if not portal_entry.enter_portal(self, self.avatar_x, self.avatar_y):
             self.text_log.add_message("Nothing to enter here!")
+            # Java GameScreen.java:538-556 — no portal on the tile: the keyUp
+            # tail consumes a turn.
+            self._consume_pass_turn()
 
     def _exit_transport(self) -> None:
         """X only dismounts to FOOT, dropping the ridden transport on the
@@ -816,41 +827,6 @@ class TownScreen(BaseScreen):
             self.party.dynamic_objects.append(ship)
             self.party.last_ship = ship
             self.text_log.add_message("Disembarked frigate.")
-
-    def _prompt_modify_order(self) -> None:
-        """Modify marching order of party."""
-        if len(self.party.members) < 2:
-            self.text_log.add_message("Modify Order: Need at least 2 members!")
-            return
-
-        def _on_first(p1_str: str) -> None:
-            try:
-                p1 = int(p1_str.strip()) - 1
-            except ValueError:
-                self.text_log.add_message("Invalid member #!")
-                return
-            if not (0 <= p1 < len(self.party.members)):
-                self.text_log.add_message("Invalid member #!")
-                return
-
-            def _on_second(p2_str: str) -> None:
-                try:
-                    p2 = int(p2_str.strip()) - 1
-                except ValueError:
-                    self.text_log.add_message("Invalid member #!")
-                    return
-                if not (0 <= p2 < len(self.party.members)):
-                    self.text_log.add_message("Invalid member #!")
-                    return
-
-                m1 = self.party.members[p1]
-                m2 = self.party.members[p2]
-                self.party.swap_members(p1, p2)
-                self.text_log.add_message(f"Order modified: {m1.name} and {m2.name} swapped.")
-
-            self.text_log.prompt("With member #? (1-4): ", callback=_on_second, single_char=True)
-
-        self.text_log.prompt("Modify Order: Exchange member #? (1-4): ", callback=_on_first, single_char=True)
 
     def _prompt_other(self) -> None:
         """Prompt for custom other command (PRAY, BRIBE, STEAL, DIG, etc.)."""
@@ -878,93 +854,20 @@ class TownScreen(BaseScreen):
 
         self.text_log.prompt("Other Command? ", callback=_on_other)
 
+    def _prompt_modify_order(self) -> None:
+        """Modify marching order (Java BaseScreen.java:165-204
+        NewOrderInputAdapter; GameScreen keeps the corrected "exchange #")."""
+        prompt_modify_order(self.text_log, self.party, turn_callback=self._consume_pass_turn)
+
     def _prompt_ready_weapon(self) -> None:
-        """Equip weapon on selected party member with A-P selection and inventory tracking."""
-        def _on_member(m_str: str) -> None:
-            try:
-                idx = int(m_str.strip()) - 1
-            except ValueError:
-                self.text_log.add_message("Invalid member #!")
-                return
-            m = self.party.get_member(idx)
-            if m is None:
-                self.text_log.add_message("Invalid member #!")
-                return
-
-            weapon_types = list(WeaponType)
-            self.text_log.add_message(f"-- Ready Weapon for {m.name} --")
-            for w_idx, wt in enumerate(weapon_types):
-                letter = chr(ord('A') + w_idx)
-                if wt == WeaponType.NONE:
-                    self.text_log.add_message(f"{letter} - Hands")
-                    continue
-                cnt = m.weapons.get(wt, 0)
-                is_equipped = (m.weapon == wt)
-                if cnt > 0 or is_equipped:
-                    status_tag = " (readied)" if is_equipped else f" ({cnt})"
-                    self.text_log.add_message(f"{letter} - {wt.name.capitalize()}{status_tag}")
-
-            def _on_weap(w_code: str) -> None:
-                c = w_code.strip().upper()
-                if not c:
-                    return
-                w_idx = ord(c[0]) - ord('A')
-                if 0 <= w_idx < len(weapon_types):
-                    success = m.ready_weapon(w_idx, self.asset_mgr)
-                    if success:
-                        self.text_log.add_message(f"Success! {m.name} readied {m.weapon.name}.")
-                    else:
-                        self.text_log.add_message("Cannot ready that weapon!")
-                else:
-                    self.text_log.add_message("Invalid weapon selection!")
-
-            self.text_log.prompt("Ready Weapon? (A-P): ", callback=_on_weap, single_char=True)
-
-        self.text_log.prompt("Ready Weapon: Which member? (1-4): ", callback=_on_member, single_char=True)
+        """Ready Weapon via the shared member flow (Java GameScreen.java:
+        608-613 SIP -> ReadyWearInputAdapter; "Success!"/"Failed!")."""
+        prompt_ready_weapon(self.text_log, self.party, self.asset_mgr, turn_callback=self._consume_pass_turn)
 
     def _prompt_wear_armor(self) -> None:
-        """Equip armor on selected party member with A-H selection and inventory tracking."""
-        def _on_member(m_str: str) -> None:
-            try:
-                idx = int(m_str.strip()) - 1
-            except ValueError:
-                self.text_log.add_message("Invalid member #!")
-                return
-            m = self.party.get_member(idx)
-            if m is None:
-                self.text_log.add_message("Invalid member #!")
-                return
-
-            armor_types = list(ArmorType)
-            self.text_log.add_message(f"-- Wear Armor for {m.name} --")
-            for a_idx, at in enumerate(armor_types):
-                letter = chr(ord('A') + a_idx)
-                if at == ArmorType.NONE:
-                    self.text_log.add_message(f"{letter} - Skin")
-                    continue
-                cnt = m.armors.get(at, 0)
-                is_equipped = (m.armor == at)
-                if cnt > 0 or is_equipped:
-                    status_tag = " (worn)" if is_equipped else f" ({cnt})"
-                    self.text_log.add_message(f"{letter} - {at.name.capitalize()}{status_tag}")
-
-            def _on_arm(a_code: str) -> None:
-                c = a_code.strip().upper()
-                if not c:
-                    return
-                a_idx = ord(c[0]) - ord('A')
-                if 0 <= a_idx < len(armor_types):
-                    success = m.wear_armor(a_idx, self.asset_mgr)
-                    if success:
-                        self.text_log.add_message(f"Success! {m.name} wears {m.armor.name}.")
-                    else:
-                        self.text_log.add_message("Cannot wear that armor!")
-                else:
-                    self.text_log.add_message("Invalid armor selection!")
-
-            self.text_log.prompt("Wear Armor? (A-H): ", callback=_on_arm, single_char=True)
-
-        self.text_log.prompt("Wear Armor: Which member? (1-4): ", callback=_on_member, single_char=True)
+        """Wear Armor via the shared member flow (Java GameScreen.java:
+        608-613 SIP -> ReadyWearInputAdapter; "Success!"/"Failed!")."""
+        prompt_wear_armor(self.text_log, self.party, self.asset_mgr, turn_callback=self._consume_pass_turn)
 
     def _prompt_yell(self) -> None:
         """YELL: a member 1-4, then a word (Java SIP:252-260 + YellInputAdapter

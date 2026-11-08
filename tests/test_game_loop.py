@@ -656,7 +656,7 @@ def test_dungeon_screen_render(pygame_setup, asset_mgr, sample_party):
     assert surf.get_at((0, 0)) is not None
 
 
-def test_dungeon_screen_turn_around_and_ladders(pygame_setup, asset_mgr, sample_party):
+def test_dungeon_screen_backstep_and_ladders(pygame_setup, asset_mgr, sample_party):
     from py_exodus.world.map import DungeonTile
 
     sm = StateMachine(asset_mgr)
@@ -967,7 +967,7 @@ def test_overworld_commands_cast_ztats_get_chest_pass(pygame_setup, asset_mgr, s
     initial_food = sample_party.food
     evt_space = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_SPACE)
     overworld.handle_event(evt_space)
-    assert any("Pass." in msg for msg in overworld.text_log.history)
+    assert any(m == "Pass" for m in overworld.text_log.history)  # Java GameScreen.java:626-627
 
     # 2. Ztats command (Z)
     assert overworld.stats_panel.inspect_index is None
@@ -1060,7 +1060,7 @@ def test_town_pass_and_ztats(pygame_setup, asset_mgr, sample_party):
 
     evt_space = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_SPACE)
     town.handle_event(evt_space)
-    assert any("Pass." in msg for msg in town.text_log.history)
+    assert any(m == "Pass" for m in town.text_log.history)  # Java GameScreen.java:626-627
 
     assert town.stats_panel.inspect_index is None
     evt_z = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_z)
@@ -1224,7 +1224,7 @@ def test_ready_weapon_and_wear_armor_a_p_flow_and_inventory(pygame_setup, asset_
     ow.text_log.handle_char("B")
     assert m.weapon == WeaponType.DAGGER
     assert m.weapons[WeaponType.DAGGER] == 0
-    assert any("readied" in msg for msg in ow.text_log.history)
+    assert any("Success!" in msg for msg in ow.text_log.history)
 
     # Ready 'A' for Hands (un-equips Dagger back into inventory)
     ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_r))
@@ -1246,7 +1246,7 @@ def test_ready_weapon_and_wear_armor_a_p_flow_and_inventory(pygame_setup, asset_
     ow.text_log.handle_char("C")
     assert m.armor == ArmorType.LEATHER
     assert m.armors[ArmorType.LEATHER] == 0
-    assert any("wears" in msg for msg in ow.text_log.history)
+    assert any("Success!" in msg for msg in ow.text_log.history)
 
 
 def test_combat_screen_flash_and_visual_fx(pygame_setup, asset_mgr, sample_party):

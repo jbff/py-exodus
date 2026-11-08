@@ -127,8 +127,12 @@ class TestHullLifecycle:
         key(overworld, pygame.K_b)
         assert sample_party.ship_hull == 50
 
-    def test_reboarding_last_ship_keeps_hull(self, overworld, sample_party):
+    def test_reboarding_last_ship_keeps_hull(self, overworld, sample_party, monkeypatch):
         # Board, damage, disembark: the left-behind frigate is last_ship.
+        # B/X now consume a turn (Java keyUp tail), so pin Java's 1-in-4
+        # Sosaria hull repair off (randint → 1, no repair) to stay
+        # deterministic about the hull value.
+        monkeypatch.setattr("py_exodus.entities.party.random.randint", lambda a, b: 1)
         sample_party.dynamic_objects.append({"tile": "frigate", "x": 10, "y": 10})
         key(overworld, pygame.K_b)
         sample_party.adjust_ship_hull(-10)
