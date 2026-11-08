@@ -443,9 +443,9 @@ class CombatScreen(BaseScreen):
         Java truth: ``exodus/GameScreen.java:433-446`` — ``endCombat`` finds
         ``!isAnyoneAlive()`` and calls ``partyDeath()`` → start screen, and
         ``exodus/CombatScreen.java:562-589`` ends combat without any revival.
-        No Castle British respawn and no ``revive_all``.
+        No Castle British respawn and no ``revive_all``; no extra log message
+        is written here (Java's partyDeath writes none).
         """
-        self.text_log.add_message("Thy party has perished!")
         self.check_party_death()
 
     def update(self, dt: float) -> None:

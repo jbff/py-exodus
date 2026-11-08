@@ -237,7 +237,7 @@ def test_monster_ai_advancement_and_melee_attack(asset_mgr, conflict_map):
 
 def test_poison_tick_and_succumb(asset_mgr, conflict_map):
     party = Party()
-    hero = Character("PoisonedHero", "M", Race.HUMAN, Profession.FIGHTER, hp=2, status=Status.POISONED)
+    hero = Character("PoisonedHero", "M", Race.HUMAN, Profession.FIGHTER, hp=1, status=Status.POISONED)
     party.add_member(hero)
 
     arena = CombatArena(party, conflict_map, creature_tile="orc", asset_mgr=asset_mgr, monster_count=1)
@@ -248,7 +248,8 @@ def test_poison_tick_and_succumb(asset_mgr, conflict_map):
 
     # Monster turns execute, then poison tick applies
     arena.execute_monster_turns()
-    # Hero had 2 HP, took 2 poison damage -> died
+    # Hero had 1 HP, 2 poison damage drives hp below 0 -> dies (Java
+    # Party.java:565: only newHp < 0 is death; exactly 0 survives)
     assert hero.hp == 0
     assert hero.status == Status.DEAD
     assert arena.is_defeat

@@ -853,13 +853,16 @@ class CombatArena:
     # --- End of Round Checks & Completion ---
 
     def _apply_poison_tick(self) -> None:
+        # Task 2 death flow: tick damage lands through PartyMember.apply_damage
+        # (py_exodus/entities/party.py, Party.java:556-577) with
+        # combat_related_damage=True — a wipe never raises here; combat loss
+        # routes via _evaluate_party_status → CombatScreen defeat exit.
         for member in self.party.members:
             if not member.is_dead() and member.hp > 0:
                 if member.status in (Status.POISON, Status.POISONED):
-                    member.hp = max(0, member.hp - 2)
                     self.log_messages.append(f"{member.name} takes 2 poison damage.")
-                    if member.hp == 0:
-                        member.status = Status.DEAD
+                    member.apply_damage(2, combat_related_damage=True)
+                    if member.is_dead():
                         self.log_messages.append(f"{member.name} succumbed to poison!")
 
     def _evaluate_party_status(self) -> None:

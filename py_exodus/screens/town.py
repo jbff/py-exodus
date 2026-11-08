@@ -642,8 +642,10 @@ class TownScreen(BaseScreen):
                 self.game_map.set_tile(chest_pos[0], chest_pos[1], floor_tile)
 
             # Task 2 death flow: a chest trap (gas) can leave the whole party
-            # dead; the pipeline itself never raises, so route on the post-check
-            # (Java GameScreen.java:444-446 partyDeath → start screen).
+            # dead; route game over (Java GameScreen.java:444-446 partyDeath
+            # → start screen). The chests pipeline does not currently raise —
+            # the try/except is future-proofing for later tasks routing it
+            # through PartyMember.apply_damage; the post-check covers both.
             try:
                 for line in open_chest(self.party, member):
                     self.text_log.add_message(line)

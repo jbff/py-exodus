@@ -220,7 +220,9 @@ class StartScreen(BaseScreen):
             ((w - sub_surf.get_width()) // 2, 50 * scale),
         )
 
-        # Game-over messaging when the whole party perished (Task 2 death flow)
+        # Game-over messaging when the whole party perished (Task 2 death flow).
+        # Documented deviation: Java's start screen shows no game-over text;
+        # the label is kept for UI clarity (controller ruling, Task 2 fix round 1).
         if self.game_over:
             over_surf = sub_font.render("Thy party has perished!", True, EGA_BRIGHT_RED)
             surface.blit(over_surf, ((w - over_surf.get_width()) // 2, 70 * scale))
