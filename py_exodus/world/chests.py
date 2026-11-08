@@ -27,13 +27,14 @@ class ChestNotFound(Exception):
 
 
 def take_chest_object(party: Party, x: int, y: int) -> dict:
-    """Pop the chest dynamic object within one tile of (x, y) and return it.
+    """Pop the chest dynamic object exactly at (x, y) and return it.
 
-    Java scans current-map Drawables for a chest (GameScreen.getChest:1041-1050).
-    Raises ChestNotFound when no chest object is in range.
+    Java scans current-map Drawables for cx == x && cy == y (GameScreen.getChest:1041-1050)
+    — there is no adjacency scan, and G "Not Here!" when nothing matches.
+    Raises ChestNotFound when no chest object is there.
     """
     for obj in party.dynamic_objects:
-        if obj.get("tile") == "chest" and abs(obj.get("x", -1) - x) <= 1 and abs(obj.get("y", -1) - y) <= 1:
+        if obj.get("tile") == "chest" and obj.get("x", -1) == x and obj.get("y", -1) == y:
             party.dynamic_objects.remove(obj)
             return obj
     raise ChestNotFound("Not Here!")

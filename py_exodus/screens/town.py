@@ -5,12 +5,12 @@ from typing import TYPE_CHECKING, Any
 
 import pygame
 
+from py_exodus.aura import AuraType
 from py_exodus.combat.magic import prompt_cast_party
 from py_exodus.constants import (
     ArmorType,
     Direction,
     Status,
-    TileAttrib,
     Transport,
     WeaponType,
 )
@@ -27,6 +27,9 @@ from py_exodus.ui.text_log import (
     EGA_BLACK,
     TextLog,
 )
+from py_exodus.world import doors as door_module
+from py_exodus.world import portal_entry
+from py_exodus.world import search as search_module
 from py_exodus.world import tile_effects
 
 if TYPE_CHECKING:
@@ -186,6 +189,9 @@ class TownScreen(BaseScreen):
             self.text_log.add_message("Board: No transport vessels within city walls.")
         elif event.key == pygame.K_c:
             self._prompt_cast()
+        elif event.key == pygame.K_e:
+            # E works on every map incl. towns (Java GameScreen.java:538-556).
+            self._enter_portal()
         elif event.key == pygame.K_g:
             self._get_chest()
         elif event.key == pygame.K_h:
@@ -193,16 +199,13 @@ class TownScreen(BaseScreen):
         elif event.key == pygame.K_i:
             self._ignite_torch()
         elif event.key == pygame.K_j:
-            total = self.party.pool_gold(0) or 0
-            target = self.party.get_member(0)
-            name = getattr(target, "name", "party member") if target else "party member"
-            self.text_log.add_message(f"All gold gathered into {name}'s purse: {total} GP.")
+            self._join_gold()
         elif event.key == pygame.K_l:
-            self._prompt_door(open_door=True)
+            self._open()
         elif event.key == pygame.K_m:
             self._prompt_modify_order()
         elif event.key == pygame.K_n:
-            self.text_log.add_message("Negate time: None owned!")
+            self._negate_time()
         elif event.key == pygame.K_o:
             self._prompt_other()
         elif event.key == pygame.K_p:
@@ -216,11 +219,11 @@ class TownScreen(BaseScreen):
         elif event.key == pygame.K_r:
             self._prompt_ready_weapon()
         elif event.key == pygame.K_s:
-            self.text_log.add_message("Search: Thou searchest the cobblestones... Nothing here.")
+            self._search()
         elif event.key == pygame.K_t:
             self._prompt_talk()
         elif event.key == pygame.K_u:
-            self._prompt_door(open_door=False)
+            self._unlock()
         elif event.key == pygame.K_v:
             if self.audio is not None:
                 self.audio.enabled = not self.audio.enabled
@@ -229,7 +232,9 @@ class TownScreen(BaseScreen):
         elif event.key == pygame.K_w:
             self._prompt_wear_armor()
         elif event.key == pygame.K_x:
-            self._exit_town()
+            # X only dismounts to FOOT; leaving a town is border-walking only
+            # (Java GameScreen.java:584-596).
+            self._exit_transport()
         elif event.key == pygame.K_y:
             self._prompt_yell()
         elif event.key == pygame.K_z:
@@ -290,10 +295,11 @@ class TownScreen(BaseScreen):
                 self.audio.play_sfx("blocked")
 
     def _finish_turn(self, effect_tile=None) -> None:
-        """End the town movement turn: submorsel tick, then the standing tile
-        effect (Java GameScreen.finishTurn, GameScreen.java:706-754). Towns
-        drain submorsels at 10 per move (non-surface map)."""
+        """End the town movement turn: aura tick, submorsel tick, then the
+        standing tile effect (Java GameScreen.finishTurn, GameScreen.java:
+        706-754). Towns drain submorsels at 10 per move (non-surface map)."""
         try:
+            self.party.aura.pass_turn()
             self.party.end_turn(surface=False)
             tile_effects.apply_rule_effect(self.party, effect_tile)
         except PartyDeathException:
@@ -341,31 +347,15 @@ class TownScreen(BaseScreen):
         tx = self.avatar_x + direction.dx
         ty = self.avatar_y + direction.dy
 
-        # Check if the adjacent tile is a sign / counter tile
+        # Java SecondaryInputProcessor.java:163-179 — only a `signs` rule tile
+        # steps the gaze one further: the vendor sits behind its sign. There
+        # is no counter widening and no unconditional second-step fallback.
         adj_tile = self.game_map.get_tile(tx, ty)
-        if adj_tile is not None and (
-            getattr(adj_tile, "rule", "") == "signs"
-            or 36 <= getattr(adj_tile, "index", -1) <= 57
-        ):
-            # Step behind sign / counter to reach the vendor
+        if adj_tile is not None and getattr(adj_tile, "rule", "") == "signs":
             tx += direction.dx
             ty += direction.dy
 
         npc = self._find_npc_at(tx, ty)
-        if npc is None:
-            # Fallback: check 1 tile further in case of speaking across a counter or sign
-            npc = self._find_npc_at(self.avatar_x + direction.dx * 2, self.avatar_y + direction.dy * 2)
-
-        # Check vendor directly at target location if no NPC was matched
-        if npc is None and self.asset_mgr is not None:
-            direct_vendor = self.asset_mgr.get_vendor(self.map_id, tx, ty)
-            if direct_vendor is None:
-                direct_vendor = self.asset_mgr.get_vendor(
-                    self.map_id, self.avatar_x + direction.dx * 2, self.avatar_y + direction.dy * 2
-                )
-            if direct_vendor is not None:
-                self._start_vendor_shopping(direct_vendor, buyer=speaker)
-                return
 
         if npc is None:
             self.text_log.add_message("Funny, no response!")
@@ -546,80 +536,103 @@ class TownScreen(BaseScreen):
 
         self.text_log.prompt("What wouldst thou buy? (Choice):", callback=_on_choice, single_char=True)
 
-    def _prompt_door(self, open_door: bool) -> None:
-        def _on_dir(d_str: str) -> None:
-            d = Direction.from_name_or_key(d_str)
-            if d is None:
-                self.text_log.add_message("Invalid direction!")
-                return
-            self._handle_door(d, open_door)
+    def _open(self) -> None:
+        """L = OPEN with a direction (Java SIP:212-219 + BaseMap.openDoor)."""
+        self.text_log.prompt(
+            "OPEN> Direction? (N,S,E,W):",
+            callback=self._parse_and_open,
+            single_char=True,
+        )
 
-        action_name = "Open" if open_door else "Unlock"
-        self.text_log.prompt(f"{action_name} door: Direction? (N,S,E,W):", callback=_on_dir, single_char=True)
-
-    def _handle_door(self, direction: Direction, open_door: bool) -> None:
+    def _parse_and_open(self, d_str: str) -> None:
+        d = Direction.from_name_or_key(d_str)
+        if d is None:
+            self.text_log.add_message("Invalid direction!")
+            return
         if self.game_map is None:
+            self.text_log.add_message("Can't!")
             return
-        tx = self.avatar_x + direction.dx
-        ty = self.avatar_y + direction.dy
-        tile = self.game_map.get_tile(tx, ty)
-        if tile is None:
-            self.text_log.add_message("Nothing there!")
-            return
-
-        attribs = getattr(tile, "attribs", TileAttrib.NONE)
-        if bool(attribs & (TileAttrib.DOOR | TileAttrib.LOCKEDDOOR)):
-            # Replace door tile with floor/unblocked
-            replacement = getattr(self.game_map, "default_floor", tile)
-            self.game_map.set_tile(tx, ty, replacement)
-            self.text_log.add_message("Door opened!")
-            if self.audio is not None:
-                self.audio.play_sfx("trigger")
+        if door_module.open_door(self.game_map, self.avatar_x + d.dx, self.avatar_y + d.dy):
+            self.text_log.add_message("Opened!")
         else:
-            self.text_log.add_message("No door there!")
+            self.text_log.add_message("Can't!")
+
+    def _unlock(self) -> None:
+        """UNLOCK: a member 1-4 unlocks a chosen direction with one of their
+        keys (Java SIP:221-238 — ``member.getPlayer().keys > 0 &&
+        bm.unlockDoor(x, y)``, then ``keys--``)."""
+        def _on_member(m_str: str) -> None:
+            member = self._parse_member(m_str)
+            if member is None:
+                self.text_log.add_message("Nobody selected!")
+                return
+            self.text_log.prompt(
+                "Direction? (N,S,E,W):",
+                callback=lambda d_str: self._unlock_direction(d_str, member),
+                single_char=True,
+            )
+
+        self.text_log.prompt("UNLOCK> Which party member? (1-4):", callback=_on_member, single_char=True)
+
+    def _unlock_direction(self, d_str: str, member) -> None:
+        d = Direction.from_name_or_key(d_str)
+        if d is None:
+            self.text_log.add_message("Invalid direction!")
+            return
+        if self.game_map is None:
+            self.text_log.add_message("Can't!")
+            return
+        if getattr(member, "keys", 0) > 0 and door_module.unlock_door(
+            self.game_map, self.avatar_x + d.dx, self.avatar_y + d.dy
+        ):
+            self.text_log.add_message("Unlocked!")
+            member.keys -= 1
+        else:
+            self.text_log.add_message("Can't!")
+
+    def _parse_member(self, who_str: str):
+        """Resolve a 1-4 member prompt answer to a PartyMember (or None)."""
+        try:
+            idx = int(who_str.strip()) - 1
+            return self.party.get_member(idx)
+        except ValueError:
+            return None
 
     def _get_chest(self) -> None:
-        """Get chest from party's tile or adjacent tile in town."""
-        px = self.avatar_x
-        py = self.avatar_y
+        """GET: pick the opening member, then check ONLY the party's tile.
+
+        Java truth: ``exodus/SecondaryInputProcessor.java:308-311`` — the G key
+        stays a one-step member prompt; ``GameScreen.getChest`` (GameScreen
+        .java:1036-1074) scans the map objects for a chest at exactly (x, y)
+        and otherwise looks for a chest *tile* under the party's feet.
+        """
+        from py_exodus.assets import TileDef
+        from py_exodus.world.chests import (
+            ChestNotFound,
+            open_chest,
+            take_chest_object,
+        )
 
         def _on_who(who_str: str) -> None:
-            try:
-                idx = int(who_str.strip()) - 1
-                member = self.party.get_member(idx)
-            except ValueError:
-                member = None
-
+            member = self._parse_member(who_str)
             if member is None:
                 self.text_log.add_message("Invalid member #!")
                 return
 
-            from py_exodus.world.chests import (
-                ChestNotFound,
-                open_chest,
-                take_chest_object,
-            )
-
+            px, py = self.avatar_x, self.avatar_y
             try:
                 take_chest_object(self.party, px, py)
             except ChestNotFound:
-                # Check town map chest tile
-                chest_pos = None
-                if self.game_map:
-                    offsets = [(0, 0), (0, -1), (0, 1), (1, 0), (-1, 0), (1, -1), (-1, -1), (1, 1), (-1, 1)]
-                    for dx, dy in offsets:
-                        tx = px + dx
-                        ty = py + dy
-                        tile = self.game_map.get_tile(tx, ty)
-                        if tile and (tile.name == "chest" or str(getattr(tile, "rule", "")).lower() == "chest"):
-                            chest_pos = (tx, ty)
-                            break
-                if chest_pos is None:
+                # Java getChest: a chest *tile* under the party is replaced
+                # with floor (GameScreen.java:1069-1071). No adjacency scan.
+                tile = self.game_map.get_tile(px, py) if self.game_map else None
+                if tile is None or getattr(tile, "rule", "") != "chest":
                     self.text_log.add_message("Not Here!")
+                    self._finish_turn(
+                        self.game_map.get_tile(px, py) if self.game_map else None
+                    )
                     return
-                from py_exodus.assets import TileDef
-                floor_tile = TileDef(index=3, name="floor")
-                self.game_map.set_tile(chest_pos[0], chest_pos[1], floor_tile)
+                self.game_map.set_tile(px, py, TileDef(index=3, name="floor"))
 
             # Task 2 death flow: a chest trap (gas) can leave the whole party
             # dead; route game over (Java GameScreen.java:444-446 partyDeath
@@ -632,15 +645,16 @@ class TownScreen(BaseScreen):
             except PartyDeathException:
                 pass
             self.check_party_death()
+            self._finish_turn(self.game_map.get_tile(px, py) if self.game_map else None)
 
-        self.text_log.prompt("Who gets the chest? (1-4): ", callback=_on_who, single_char=True)
+        self.text_log.prompt("GET> Which party member? (1-4):", callback=_on_who, single_char=True)
 
     def _prompt_cast(self) -> None:
         """Cast non-combat spells while in town."""
         prompt_cast_party(self.text_log, self.party, world_map=self.game_map, audio=self.audio)
 
     def _prompt_hand_equipment(self) -> None:
-        """Hand equipment between party members."""
+        """Hand an unequipped weapon or armor item between party members."""
         if len(self.party.members) < 2:
             self.text_log.add_message("Hand Equipment: Need at least 2 members!")
             return
@@ -667,6 +681,11 @@ class TownScreen(BaseScreen):
 
                 m1 = self.party.members[p1]
                 m2 = self.party.members[p2]
+
+                # Java HandDialog.java:114-146 — the ">" button transfers the
+                # selected unequipped weapon or armor (count decrement /
+                # increment); there is no gold transfer and an empty selection
+                # only plays the BLOCKED sound.
                 transferred = False
                 for w, cnt in list(m1.weapons.items()):
                     if cnt > 0 and w != m1.weapon:
@@ -677,12 +696,15 @@ class TownScreen(BaseScreen):
                         break
 
                 if not transferred:
-                    if m1.gold >= 10:
-                        m1.gold -= 10
-                        m2.gold += 10
-                        self.text_log.add_message(f"{m1.name} handed 10 gold to {m2.name}.")
-                    else:
-                        self.text_log.add_message(f"{m1.name} has no spare equipment for {m2.name}.")
+                    for a, cnt in list(m1.armors.items()):
+                        if cnt > 0 and a != m1.armor:
+                            m1.armors[a] -= 1
+                            m2.armors[a] = m2.armors.get(a, 0) + 1
+                            self.text_log.add_message(f"{m1.name} handed {a.name} to {m2.name}.")
+                            transferred = True
+                            break
+                    # No gold fallback: Java HandDialog transfers equipment
+                    # only (HandDialog.java:114-146).
 
             self.text_log.prompt("To member #? (1-4): ", callback=_on_to, single_char=True)
 
@@ -696,6 +718,82 @@ class TownScreen(BaseScreen):
             self.text_log.add_message("Torch ignited! Area is illuminated.")
         else:
             self.text_log.add_message("None owned!")
+
+    def _join_gold(self) -> None:
+        """JOIN GOLD: prompt a member 1-4 and pool every purse into theirs.
+
+        Java truth: ``exodus/SecondaryInputProcessor.java:271-277`` — the J key
+        logs ``JOIN GOLD> To party member? (1-4)`` and calls
+        ``Party.poolGold(index)``; nothing is logged.
+        """
+        self.text_log.prompt(
+            "JOIN GOLD> To party member? (1-4):",
+            callback=self._pool_to_member,
+            single_char=True,
+        )
+
+    def _pool_to_member(self, who_str: str) -> None:
+        member = self._parse_member(who_str)
+        if member is None:
+            self.text_log.add_message("Invalid member #!")
+            return
+        self.party.pool_gold(self.party.members.index(member))
+
+    def _negate_time(self) -> None:
+        """NEGATE TIME: consume the FIRST member's powder for a 6-turn
+        QUICKNESS aura (Java GameScreen.java:1089-1100 negateTime)."""
+        for m in self.party.members:
+            if getattr(m, "powder", 0) > 0:
+                m.powder -= 1
+                self.text_log.add_message("Stop time with a powder!")
+                self.party.aura.set(AuraType.QUICKNESS, 6)
+                return
+        self.text_log.add_message("None!")
+
+    def _search(self) -> None:
+        """SEARCH: a member 1-4 searches the party's tile (Java SIP:240-250
+        with ``BaseMap.searchLocation`` — labels, else "Nothing here!")."""
+        def _on_who(who_str: str) -> None:
+            member = self._parse_member(who_str)
+            if member is None:
+                self.text_log.add_message("Invalid member #!")
+                return
+            desc = search_module.search_location(
+                self.game_map, self.party, member, self.avatar_x, self.avatar_y
+            )
+            if desc is not None:
+                self.text_log.add_message(f"You found {desc}.")
+            else:
+                self.text_log.add_message("Nothing here!")
+
+        self.text_log.prompt("SEARCH> Which party member? (1-4):", callback=_on_who, single_char=True)
+
+    def _enter_portal(self) -> None:
+        """Enter a portal on the party's tile (Java GameScreen.java:538-556 —
+        E is available on every map including towns)."""
+        if self.game_map is None:
+            return
+        if not portal_entry.enter_portal(self, self.avatar_x, self.avatar_y):
+            self.text_log.add_message("Nothing to enter here!")
+
+    def _exit_transport(self) -> None:
+        """X only dismounts to FOOT, dropping the ridden transport on the
+        tile (Java GameScreen.java:584-596); leaving a town is border-walking
+        only."""
+        if self.party.transport == Transport.FOOT:
+            self.text_log.add_message("Already on foot.")
+            return
+
+        old_t = self.party.transport
+        self.party.transport = Transport.FOOT
+        if old_t == Transport.HORSE:
+            self.party.dynamic_objects.append({"tile": "horse", "x": self.avatar_x, "y": self.avatar_y})
+            self.text_log.add_message("Dismounted horse.")
+        else:
+            ship = {"tile": "frigate", "x": self.avatar_x, "y": self.avatar_y}
+            self.party.dynamic_objects.append(ship)
+            self.party.last_ship = ship
+            self.text_log.add_message("Disembarked frigate.")
 
     def _prompt_modify_order(self) -> None:
         """Modify marching order of party."""
@@ -847,18 +945,62 @@ class TownScreen(BaseScreen):
         self.text_log.prompt("Wear Armor: Which member? (1-4): ", callback=_on_member, single_char=True)
 
     def _prompt_yell(self) -> None:
-        """Yell a word or phrase into town."""
-        def _on_yell(phrase: str) -> None:
-            p = phrase.strip().upper()
-            if not p:
+        """YELL: a member 1-4, then a word (Java SIP:252-260 + YellInputAdapter
+        522-577 — EVOCARE next to snake tiles, gated on marks[2])."""
+        def _on_member(m_str: str) -> None:
+            member = self._parse_member(m_str)
+            if member is None:
+                self.text_log.add_message("Nobody selected!")
                 return
-            self.text_log.add_message(f"Thou yellest: '{p}'!")
-            if p == "EVOCARE":
-                if self.audio is not None:
-                    self.audio.play_sfx("magic")
-                self.text_log.add_message("The walls shimmer with ancient energy!")
+            self.text_log.prompt(
+                "Yell what? ",
+                callback=lambda phrase: self._yell(member, phrase),
+            )
 
-        self.text_log.prompt("Yell what? ", callback=_on_yell)
+        self.text_log.prompt("YELL> Which party member? (1-4):", callback=_on_member, single_char=True)
+
+    def _yell(self, member, phrase: str) -> None:
+        word = phrase.strip().upper()
+        if not word:
+            return
+        if word != "EVOCARE":
+            self.text_log.add_message("What?")
+            return
+
+        gm = self.game_map
+
+        def _is_snake(x: int, y: int) -> bool:
+            tile = gm.get_tile(x, y) if gm else None
+            return tile is not None and str(getattr(tile, "name", "")).startswith("snake")
+
+        if not (_is_snake(self.avatar_x, self.avatar_y - 1) or _is_snake(self.avatar_x, self.avatar_y + 1)):
+            self.text_log.add_message("No effect.")
+            return
+
+        if getattr(member, "marks", [0, 0, 0, 0])[2] > 0:  # Mark of Snake (SIP:546)
+            if self.audio is not None:
+                self.audio.play_sfx("rocks")
+            # Java YellInputAdapter replaces the fixed serpent tiles with
+            # water (SIP:548-549).
+            self._replace_tile("water", 10, 57)
+            self._replace_tile("water", 10, 58)
+        else:
+            if self.audio is not None:
+                self.audio.play_sfx("negative_effect")
+            self.text_log.add_message("No effect.")
+
+    def _replace_tile(self, name: str, x: int, y: int) -> None:
+        """Java ``GameScreen.replaceTile`` — swap the map tile for `name`."""
+        if self.game_map is None:
+            return
+        tile = None
+        if self.asset_mgr is not None:
+            tile = self.asset_mgr.get_tile_by_name(name)
+        if tile is None:
+            from py_exodus.assets import TileDef
+
+            tile = TileDef(index=2, name=name)
+        self.game_map.set_tile(x, y, tile)
 
     def update(self, dt: float) -> None:
         self.anim_timer += dt

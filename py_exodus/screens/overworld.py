@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 import pygame
 
+from py_exodus.aura import AuraType
 from py_exodus.combat.magic import prompt_cast_party
 from py_exodus.constants import (
     BASE_HEIGHT,
@@ -15,7 +16,6 @@ from py_exodus.constants import (
     Direction,
     MapType,
     Status,
-    TileAttrib,
     Transport,
     WeaponType,
 )
@@ -39,6 +39,9 @@ from py_exodus.ui.text_log import (
     TextLog,
     get_hud_font,
 )
+from py_exodus.world import doors as door_module
+from py_exodus.world import portal_entry
+from py_exodus.world import search as search_module
 from py_exodus.world import tile_effects
 
 if TYPE_CHECKING:
@@ -81,13 +84,28 @@ class OverworldScreen(BaseScreen):
         )
         self.stats_panel = StatsPanel()
         self.text_log = TextLog(max_lines=5, wrap_width=28)
-        self.time_stopped_turns = 0
+
+        # Wandering overland creatures visible on Sosaria
+        self.creatures: list[dict[str, Any]] = []
+
+        # Java GameScreen.java:111-121 — the two Sosaria whirlpools are added
+        # manually at startup (they never spawn automatically). They never
+        # wander and never start combat; sailing within one tile engulfs the
+        # ship (BaseMap.java:540-553).
+        if str(self.map_id) == "0":
+            for wx, wy in ((50, 13), (17, 48)):
+                self.creatures.append({
+                    "name": "Whirlpool",
+                    "tile_name": "whirlpool",
+                    "tile": "whirlpool",
+                    "x": wx,
+                    "y": wy,
+                    "wontattack": True,
+                })
 
         # Heading / facing direction (for broadside cannon checks)
         self.heading: Direction = Direction.NORTH
 
-        # Wandering overland creatures visible on Sosaria
-        self.creatures: list[dict[str, Any]] = []
         if self.random_encounters_enabled:
             for _ in range(3):
                 self._spawn_wandering_creature()
@@ -188,7 +206,7 @@ class OverworldScreen(BaseScreen):
         elif event.key == pygame.K_k:
             self._klimb()
         elif event.key == pygame.K_l:
-            self._look()
+            self._open()
         elif event.key == pygame.K_m:
             self._prompt_modify_order()
         elif event.key == pygame.K_n:
@@ -204,7 +222,7 @@ class OverworldScreen(BaseScreen):
         elif event.key == pygame.K_s:
             self._search()
         elif event.key == pygame.K_t:
-            self._transact()
+            self._talk()
         elif event.key == pygame.K_u:
             self._unlock()
         elif event.key == pygame.K_v:
@@ -262,25 +280,38 @@ class OverworldScreen(BaseScreen):
         prompt_cast_party(self.text_log, self.party, world_map=self.game_map, audio=self.audio)
 
     def _get_chest(self) -> None:
-        """Get chest: pick the opening member, then open a nearby chest."""
+        """GET: pick the opening member, then check ONLY the party's tile.
+
+        Java truth: ``exodus/SecondaryInputProcessor.java:308-311`` — the G key
+        stays a one-step member prompt; the member's keydown ends the turn at
+        the party's tile (SIP ``finishTurn`` at line 459), and
+        ``GameScreen.getChest`` (GameScreen.java:1036-1074) scans the map
+        objects for a chest at exactly (x, y), falling back to the chest
+        tile under the party's feet.
+        """
+        from py_exodus.assets import TileDef
         from py_exodus.world.chests import ChestNotFound, open_chest, take_chest_object
 
         def _on_who(who_str: str) -> None:
-            try:
-                idx = int(who_str.strip()) - 1
-                member = self.party.get_member(idx)
-            except ValueError:
-                member = None
-
+            member = self._parse_member(who_str)
             if member is None:
                 self.text_log.add_message("Invalid member #!")
                 return
 
+            px, py = self.party.x, self.party.y
             try:
-                take_chest_object(self.party, self.party.x, self.party.y)
+                take_chest_object(self.party, px, py)
             except ChestNotFound:
-                self.text_log.add_message("Not Here!")
-                return
+                # Java getChest: a chest *tile* under the party is replaced
+                # with floor (GameScreen.java:1069-1071). No adjacency scan.
+                tile = self.game_map.get_tile(px, py) if self.game_map else None
+                if tile is None or getattr(tile, "rule", "") != "chest":
+                    self.text_log.add_message("Not Here!")
+                    self._finish_turn(
+                        self.game_map.get_tile(px, py) if self.game_map else None
+                    )
+                    return
+                self.game_map.set_tile(px, py, TileDef(index=3, name="floor"))
 
             # Task 2 death flow: a chest trap (gas) can leave the whole party
             # dead; route game over (Java GameScreen.java:444-446 partyDeath
@@ -296,8 +327,9 @@ class OverworldScreen(BaseScreen):
                 return
             if self.audio is not None:
                 self.audio.play_sfx("trigger")
+            self._finish_turn(self.game_map.get_tile(px, py) if self.game_map else None)
 
-        self.text_log.prompt("Who gets the chest? (1-4): ", callback=_on_who, single_char=True)
+        self.text_log.prompt("GET> Which party member? (1-4):", callback=_on_who, single_char=True)
 
     def _ignite_torch(self) -> None:
         """Light a torch from inventory."""
@@ -309,15 +341,24 @@ class OverworldScreen(BaseScreen):
             self.text_log.add_message("None owned!")
 
     def _join_gold(self) -> None:
-        """Gather all members' gold into the first member's purse.
+        """JOIN GOLD: prompt a member 1-4 and pool every purse into theirs.
 
-        Java truth: ``exodus/Party.java:88-97`` ``poolGold(index)`` — gold is
-        per member; the join command credits the whole sum to one member.
+        Java truth: ``exodus/SecondaryInputProcessor.java:271-277`` — the J key
+        logs ``JOIN GOLD> To party member? (1-4)`` and calls
+        ``Party.poolGold(index)`` (Party.java:88-97); nothing is logged.
         """
-        total = self.party.pool_gold(0) or 0
-        target = self.party.get_member(0)
-        name = getattr(target, "name", "party member") if target else "party member"
-        self.text_log.add_message(f"All gold gathered into {name}'s purse: {total} GP.")
+        self.text_log.prompt(
+            "JOIN GOLD> To party member? (1-4):",
+            callback=self._pool_to_member,
+            single_char=True,
+        )
+
+    def _pool_to_member(self, who_str: str) -> None:
+        member = self._parse_member(who_str)
+        if member is None:
+            self.text_log.add_message("Invalid member #!")
+            return
+        self.party.pool_gold(self.party.members.index(member))
 
     def _peer_gem(self) -> None:
         """Peer into mystical gem to survey surroundings."""
@@ -418,22 +459,37 @@ class OverworldScreen(BaseScreen):
         """Klimb ladder command (dungeon only)."""
         self.text_log.add_message("Klimb: No ladder or rope here!")
 
-    def _look(self) -> None:
-        """Look at current terrain and immediate surroundings."""
-        tile = self.game_map.get_tile(self.party.x, self.party.y) if self.game_map else None
-        t_name = getattr(tile, "name", "land").capitalize()
-        nearby_objs = [
-            str(obj.get("tile", "object"))
-            for obj in self.party.dynamic_objects
-            if abs(obj.get("x", -99) - self.party.x) <= 1 and abs(obj.get("y", -99) - self.party.y) <= 1
-        ]
-        if nearby_objs:
-            self.text_log.add_message(f"Look: {t_name}. Nearby: {', '.join(nearby_objs)}.")
+    def _parse_member(self, who_str: str):
+        """Resolve a 1-4 member prompt answer to a PartyMember (or None)."""
+        try:
+            idx = int(who_str.strip()) - 1
+            return self.party.get_member(idx)
+        except ValueError:
+            return None
+
+    def _open(self) -> None:
+        """L = OPEN with a direction (Java SIP:212-219 + BaseMap.openDoor)."""
+        self.text_log.prompt(
+            "OPEN> Direction? (N,S,E,W):",
+            callback=self._parse_and_open,
+            single_char=True,
+        )
+
+    def _parse_and_open(self, d_str: str) -> None:
+        d = Direction.from_name_or_key(d_str)
+        if d is None:
+            self.text_log.add_message("Invalid direction!")
+            return
+        if self.game_map is None:
+            self.text_log.add_message("Can't!")
+            return
+        if door_module.open_door(self.game_map, self.party.x + d.dx, self.party.y + d.dy):
+            self.text_log.add_message("Opened!")
         else:
-            self.text_log.add_message(f"Look: Thou gazest upon the {t_name}.")
+            self.text_log.add_message("Can't!")
 
     def _prompt_hand_equipment(self) -> None:
-        """Hand equipment or gold between party members."""
+        """Hand an unequipped weapon or armor item between party members."""
         if len(self.party.members) < 2:
             self.text_log.add_message("Hand Equipment: Need at least 2 members!")
             return
@@ -460,6 +516,11 @@ class OverworldScreen(BaseScreen):
 
                 m1 = self.party.members[p1]
                 m2 = self.party.members[p2]
+
+                # Java HandDialog.java:114-146 — the ">" button transfers the
+                # selected unequipped weapon or armor (count decrement /
+                # increment); there is no gold transfer and an empty selection
+                # only plays the BLOCKED sound.
                 transferred = False
                 for w, cnt in list(m1.weapons.items()):
                     if cnt > 0 and w != m1.weapon:
@@ -470,12 +531,15 @@ class OverworldScreen(BaseScreen):
                         break
 
                 if not transferred:
-                    if m1.gold >= 10:
-                        m1.gold -= 10
-                        m2.gold += 10
-                        self.text_log.add_message(f"{m1.name} handed 10 gold to {m2.name}.")
-                    else:
-                        self.text_log.add_message(f"{m1.name} has no spare equipment for {m2.name}.")
+                    for a, cnt in list(m1.armors.items()):
+                        if cnt > 0 and a != m1.armor:
+                            m1.armors[a] -= 1
+                            m2.armors[a] = m2.armors.get(a, 0) + 1
+                            self.text_log.add_message(f"{m1.name} handed {a.name} to {m2.name}.")
+                            transferred = True
+                            break
+                    # No gold fallback: Java HandDialog transfers equipment
+                    # only (HandDialog.java:114-146).
 
             self.text_log.prompt("To member #? (1-4): ", callback=_on_to, single_char=True)
 
@@ -517,25 +581,15 @@ class OverworldScreen(BaseScreen):
         self.text_log.prompt("Modify Order: Exchange member #? (1-4): ", callback=_on_first, single_char=True)
 
     def _negate_time(self) -> None:
-        """Freeze time using Silver Powder / Sands of Time."""
-        has_powder = False
+        """NEGATE TIME: consume the FIRST member's powder for a 6-turn
+        QUICKNESS aura (Java GameScreen.java:1089-1100 negateTime)."""
         for m in self.party.members:
             if getattr(m, "powder", 0) > 0:
                 m.powder -= 1
-                has_powder = True
-                break
-
-        if not has_powder and getattr(self.party, "powder", 0) > 0:
-            self.party.powder -= 1
-            has_powder = True
-
-        if has_powder:
-            self.time_stopped_turns = 15
-            if self.audio is not None:
-                self.audio.play_sfx("magic")
-            self.text_log.add_message("Negate Time! Time freezes for all foes!")
-        else:
-            self.text_log.add_message("Negate Time: None owned! (Requires silver powder)")
+                self.text_log.add_message("Stop time with a powder!")
+                self.party.aura.set(AuraType.QUICKNESS, 6)
+                return
+        self.text_log.add_message("None!")
 
     def _prompt_other(self) -> None:
         """Prompt for custom other command (PRAY, BRIBE, STEAL, DIG, etc.)."""
@@ -608,78 +662,25 @@ class OverworldScreen(BaseScreen):
         self.text_log.prompt("Ready Weapon: Which member? (1-4): ", callback=_on_member, single_char=True)
 
     def _search(self) -> None:
-        """Search current tile for hidden entrances, exotic items, cards, fountains."""
-        def _on_who(who_str: str) -> None:
-            try:
-                idx = int(who_str.strip()) - 1
-                pm = self.party.get_member(idx)
-            except ValueError:
-                pm = None
+        """SEARCH: a member 1-4 searches the party's tile (Java SIP:240-250).
 
+        Java truth: ``exodus/BaseMap.searchLocation`` (BaseMap.java:855-937)
+        grants the label item once and awards 100 XP; anything else is
+        "Nothing here!". The portal and fountain checks below retain this
+        port's pre-existing overworld extras.
+        """
+        def _on_who(who_str: str) -> None:
+            pm = self._parse_member(who_str)
             if pm is None:
                 self.text_log.add_message("Invalid member #!")
                 return
 
-            char = getattr(pm, "character", pm)
-
-            # Check map labels first (Exotic items, Cards)
-            matched_label = None
-            if self.game_map and hasattr(self.game_map, "labels"):
-                for lbl in self.game_map.labels:
-                    if lbl.x == self.party.x and lbl.y == self.party.y:
-                        matched_label = lbl
-                        break
-
-            if matched_label is not None:
-                name = matched_label.name.upper()
-                if name == "EXOTIC_ARMOR":
-                    if char.armors.get(ArmorType.EXOTIC, 0) > 0:
-                        self.text_log.add_message("Thou already hast Exotic Armour!")
-                    else:
-                        char.armors[ArmorType.EXOTIC] = char.armors.get(ArmorType.EXOTIC, 0) + 1
-                        char.award_xp(100)
-                        self.text_log.add_message("You found Exotic Armour.")
-                    return
-                elif name == "EXOTIC_WEAPON":
-                    if char.weapons.get(WeaponType.EXOTIC, 0) > 0:
-                        self.text_log.add_message("Thou already hast Exotic Weapon!")
-                    else:
-                        char.weapons[WeaponType.EXOTIC] = char.weapons.get(WeaponType.EXOTIC, 0) + 1
-                        char.award_xp(100)
-                        self.text_log.add_message("You found Exotic Weapon.")
-                    return
-                elif name == "CARD_OF_DEATH":
-                    if char.cards[0] > 0:
-                        self.text_log.add_message("Thou already hast the Card of Death!")
-                    else:
-                        char.cards[0] += 1
-                        char.award_xp(100)
-                        self.text_log.add_message("You found Card of Death.")
-                    return
-                elif name == "CARD_OF_SOL":
-                    if char.cards[1] > 0:
-                        self.text_log.add_message("Thou already hast the Card of Sol!")
-                    else:
-                        char.cards[1] += 1
-                        char.award_xp(100)
-                        self.text_log.add_message("You found Card of Sol.")
-                    return
-                elif name == "CARD_OF_MOONS":
-                    if char.cards[2] > 0:
-                        self.text_log.add_message("Thou already hast the Card of Moons!")
-                    else:
-                        char.cards[2] += 1
-                        char.award_xp(100)
-                        self.text_log.add_message("You found Card of Moons.")
-                    return
-                elif name == "CARD_OF_LOVE":
-                    if char.cards[3] > 0:
-                        self.text_log.add_message("Thou already hast the Card of Love!")
-                    else:
-                        char.cards[3] += 1
-                        char.award_xp(100)
-                        self.text_log.add_message("You found Card of Love.")
-                    return
+            desc = search_module.search_location(
+                self.game_map, self.party, pm, self.party.x, self.party.y
+            )
+            if desc is not None:
+                self.text_log.add_message(f"You found {desc}.")
+                return
 
             # Check portals
             portal = None
@@ -705,15 +706,88 @@ class OverworldScreen(BaseScreen):
 
             self.text_log.add_message("Nothing here!")
 
-        self.text_log.prompt("Who searches? (1-4): ", callback=_on_who, single_char=True)
+        self.text_log.prompt("SEARCH> Which party member? (1-4):", callback=_on_who, single_char=True)
 
-    def _transact(self) -> None:
-        """Transact / Talk command (town only)."""
-        self.text_log.add_message("Transact: No one to talk with or trade here!")
+    def _talk(self) -> None:
+        """TALK: a member 1-4 speaks at a chosen direction (Java SIP:152-210).
+
+        Java truth: ``SecondaryInputProcessor.java:163-179`` — only a ``signs``
+        rule tile steps the gaze one tile further (the vendor sits behind its
+        sign); any other blocking tile is just a miss.
+        """
+        def _on_member(m_str: str) -> None:
+            member = self._parse_member(m_str)
+            if member is None:
+                self.text_log.add_message("Nobody selected!")
+                return
+            self.text_log.prompt(
+                "Direction? (N,S,E,W):",
+                callback=lambda d_str: self._talk_direction(d_str, member),
+                single_char=True,
+            )
+
+        self.text_log.prompt("TALK> Which party member? (1-4):", callback=_on_member, single_char=True)
+
+    def _talk_direction(self, d_str: str, speaker) -> None:
+        d = Direction.from_name_or_key(d_str)
+        if d is None:
+            self.text_log.add_message("Invalid direction!")
+            return
+
+        x = self.party.x + d.dx
+        y = self.party.y + d.dy
+
+        tile = self.game_map.get_tile(x, y) if self.game_map else None
+        if tile is not None and getattr(tile, "rule", "") == "signs":
+            # talking to vendor so get the vendor on other side of sign
+            x += d.dx
+            y += d.dy
+
+        npc = None
+        if self.game_map is not None:
+            for n in self.game_map.npcs:
+                if n.x == x and n.y == y:
+                    npc = n
+                    break
+
+        if npc is None or getattr(npc, "conversation", None) is None:
+            self.text_log.add_message("Funny, no response! ")
+            return
+
+        self.text_log.add_message(getattr(npc, "conversation"))
 
     def _unlock(self) -> None:
-        """Unlock doors with key (town/dungeon only)."""
-        self.text_log.add_message("Unlock: No locked doors here in the wilderness!")
+        """UNLOCK: a member 1-4 unlocks a chosen direction with one of their
+        keys (Java SIP:221-238 — ``member.getPlayer().keys > 0 &&
+        bm.unlockDoor(x, y)``, then ``keys--``)."""
+        def _on_member(m_str: str) -> None:
+            member = self._parse_member(m_str)
+            if member is None:
+                self.text_log.add_message("Nobody selected!")
+                return
+            self.text_log.prompt(
+                "Direction? (N,S,E,W):",
+                callback=lambda d_str: self._unlock_direction(d_str, member),
+                single_char=True,
+            )
+
+        self.text_log.prompt("UNLOCK> Which party member? (1-4):", callback=_on_member, single_char=True)
+
+    def _unlock_direction(self, d_str: str, member) -> None:
+        d = Direction.from_name_or_key(d_str)
+        if d is None:
+            self.text_log.add_message("Invalid direction!")
+            return
+        if self.game_map is None:
+            self.text_log.add_message("Can't!")
+            return
+        if getattr(member, "keys", 0) > 0 and door_module.unlock_door(
+            self.game_map, self.party.x + d.dx, self.party.y + d.dy
+        ):
+            self.text_log.add_message("Unlocked!")
+            member.keys -= 1
+        else:
+            self.text_log.add_message("Can't!")
 
     def _toggle_volume(self) -> None:
         """Toggle game music and sound effects on/off."""
@@ -773,18 +847,62 @@ class OverworldScreen(BaseScreen):
         self.text_log.prompt("Wear Armor: Which member? (1-4): ", callback=_on_member, single_char=True)
 
     def _prompt_yell(self) -> None:
-        """Yell a word or phrase into the world."""
-        def _on_yell(phrase: str) -> None:
-            p = phrase.strip().upper()
-            if not p:
+        """YELL: a member 1-4, then a word (Java SIP:252-260 + YellInputAdapter
+        522-577 — EVOCARE next to snake tiles, gated on marks[2])."""
+        def _on_member(m_str: str) -> None:
+            member = self._parse_member(m_str)
+            if member is None:
+                self.text_log.add_message("Nobody selected!")
                 return
-            self.text_log.add_message(f"Thou yellest: '{p}'!")
-            if p == "EVOCARE":
-                if self.audio is not None:
-                    self.audio.play_sfx("magic")
-                self.text_log.add_message("A mystical choir resonates across the winds!")
+            self.text_log.prompt(
+                "Yell what? ",
+                callback=lambda phrase: self._yell(member, phrase),
+            )
 
-        self.text_log.prompt("Yell what? ", callback=_on_yell)
+        self.text_log.prompt("YELL> Which party member? (1-4):", callback=_on_member, single_char=True)
+
+    def _yell(self, member, phrase: str) -> None:
+        word = phrase.strip().upper()
+        if not word:
+            return
+        if word != "EVOCARE":
+            self.text_log.add_message("What?")
+            return
+
+        gm = self.game_map
+
+        def _is_snake(x: int, y: int) -> bool:
+            tile = gm.get_tile(x, y) if gm else None
+            return tile is not None and str(getattr(tile, "name", "")).startswith("snake")
+
+        if not (_is_snake(self.party.x, self.party.y - 1) or _is_snake(self.party.x, self.party.y + 1)):
+            self.text_log.add_message("No effect.")
+            return
+
+        if getattr(member, "marks", [0, 0, 0, 0])[2] > 0:  # Mark of Snake (SIP:546)
+            if self.audio is not None:
+                self.audio.play_sfx("rocks")
+            # Java YellInputAdapter replaces the fixed serpent tiles with
+            # water (SIP:548-549).
+            self._replace_tile("water", 10, 57)
+            self._replace_tile("water", 10, 58)
+        else:
+            if self.audio is not None:
+                self.audio.play_sfx("negative_effect")
+            self.text_log.add_message("No effect.")
+
+    def _replace_tile(self, name: str, x: int, y: int) -> None:
+        """Java ``GameScreen.replaceTile`` — swap the map tile for `name`."""
+        if self.game_map is None:
+            return
+        tile = None
+        if self.asset_mgr is not None:
+            tile = self.asset_mgr.get_tile_by_name(name)
+        if tile is None:
+            from py_exodus.assets import TileDef
+
+            tile = TileDef(index=2, name=name)
+        self.game_map.set_tile(x, y, tile)
 
     def _prompt_attack_overworld(self) -> None:
         """Attack direction in overland map."""
@@ -852,6 +970,12 @@ class OverworldScreen(BaseScreen):
 
             self._finish_turn(start_tile)
 
+            # Java preMove intercepts the step onto Ambrosia's WHIRLPOOL
+            # portal and ferries the party to a random Sosaria coast tile
+            # (GameScreen.java:661-670).
+            if portal_entry.step_in_whirlpool_portal(self, nx, ny):
+                return
+
             # Check moongate teleports
             self._check_moongates()
 
@@ -875,14 +999,17 @@ class OverworldScreen(BaseScreen):
             self.party.kill_all()
 
     def _finish_turn(self, effect_tile=None) -> None:
-        """End the movement turn: sink check, submorsel tick, tile effect.
+        """End the movement turn: sink check, aura tick, submorsel tick, tile
+        effect, then the whirlpool engulf scan.
 
         Java truth: ``exodus/GameScreen.java:706-754`` ``finishTurn`` —
-        ``checkHullIntegrity`` runs first, then turn's end runs ``endTurn``
-        and applies the tile-rule effect of the tile the party occupies at
-        the start of the turn (``getCurrentMapCoords`` is captured pre-move,
-        so the effect lands on the tile being left, not the one entered);
-        moves and the pass key route through it. A wipe raises
+        ``checkHullIntegrity`` runs first, then turn end runs ``endTurn``,
+        ``aura.passTurn`` and applies the tile-rule effect of the tile the
+        party occupies at the start of the turn (``getCurrentMapCoords`` is
+        captured pre-move, so the effect lands on the tile being left, not
+        the one entered); moves and the pass key route through it. The
+        whirlpool engulf sits inside ``moveObjects`` (``BaseMap.java:540-553``
+        at Chebyshev distance ≤ 1), which runs last. A wipe raises
         ``PartyDeathException``; the post-check routes the game-over flow
         (Task 2). The 1-in-4 hull repair sits in ``endTurn``'s Sosaria branch
         (``Party.java:633-638``), so ``sosaria`` tracks the current map id.
@@ -890,11 +1017,62 @@ class OverworldScreen(BaseScreen):
         sosaria = str(getattr(self.game_map, "id", self.map_id)) == "0"
         try:
             self._check_hull_integrity()
+            self.party.aura.pass_turn()
             self.party.end_turn(surface=True, sosaria=sosaria)
             tile_effects.apply_rule_effect(self.party, effect_tile)
         except PartyDeathException:
             pass
-        self.check_party_death()
+        if self.check_party_death():
+            return
+        self._check_whirlpool_engulf()
+
+    ENGULF_LINES = (
+        "A huge swirling Whirlpool engulfs you and your ship dragging both to a watery grave!",
+        "As the water enters your lungs you pass into Darkness!",
+        "You awaken on the shores of a forgotten Land.",
+        "Your ship and crew lost to the sea!",
+    )
+
+    def _check_whirlpool_engulf(self) -> None:
+        """Sailing within one tile of a whirlpool engulfs the party's ship.
+
+        Java truth: the whirlpool creature branch of ``moveObjects`` at
+        ``dist <= 1`` (``objects/BaseMap.java:540-553``) — four log lines,
+        transport set to FOOT (ship and crew lost), and the party ferried to
+        Ambrosia (32, 54). The two Sosaria whirlpools live at (50, 13) and
+        (17, 48) (``GameScreen.java:111-121``). Under a QUICKNESS aura
+        ``moveObjects`` is skipped entirely (``GameScreen.java:728-731``), so
+        no engulf happens while time is quick.
+        """
+        if self.game_map is None:
+            return
+        if self.party.aura.get_type() == AuraType.QUICKNESS:
+            return
+
+        for c in self.creatures:
+            if c.get("tile_name") != "whirlpool":
+                continue
+            wx, wy = c.get("x", -99), c.get("y", -99)
+            if not (0 <= wx < self.game_map.width and 0 <= wy < self.game_map.height):
+                # Whirlpools only exist where they were placed on Sosaria
+                # (GameScreen.java:111-121); never engulf from an off-map
+                # fixture position.
+                continue
+            dx = abs(wx - self.party.x)
+            dy = abs(wy - self.party.y)
+            dx = min(dx, self.game_map.width - dx)
+            dy = min(dy, self.game_map.height - dy)
+            if max(dx, dy) <= 1:
+                if self.audio is not None:
+                    self.audio.play_sfx("wave")
+                for line in self.ENGULF_LINES:
+                    self.text_log.add_message(line)
+                self.party.transport = Transport.FOOT
+                self.party.x, self.party.y = 32, 54
+                self.map_id = 13
+                self._load_world_map()
+                self._play_overworld_music()
+                return
 
     def _prompt_fire_cannons(self) -> None:
         """Fire frigate broadside cannons in a given direction."""
@@ -922,11 +1100,12 @@ class OverworldScreen(BaseScreen):
 
         self.text_log.add_message(f"BOOM! Broadside fired {direction.name}!")
 
-        # Trace cannonball up to 3 tiles
+        # Trace cannonball up to 4 tiles (Java Utils.java:539-546, 403-421 —
+        # getDirectionalActionPath(min 1, max 4))
         if self.game_map is None:
             return
         cx, cy = self.party.x, self.party.y
-        for step in range(1, 4):
+        for step in range(1, 5):
             tx = (cx + direction.dx * step) % self.game_map.width
             ty = (cy + direction.dy * step) % self.game_map.height
 
@@ -970,102 +1149,18 @@ class OverworldScreen(BaseScreen):
                 break
 
     def _enter_portal(self) -> None:
-        """Enter city, dungeon, shrine, or whirlpool portal at party location."""
+        """Enter the portal at the party's tile (Java GameScreen.java:538-556).
+
+        E is available on every map. The Ambrosia→Sosaria WHIRLPOOL portal
+        goes to the portal's fixed startx/starty (maps.xml ``startx="1"``
+        starty="1"``); stepping onto it instead uses Java ``preMove``'s
+        random coast (``GameScreen.java:661-670``) — see
+        ``world.portal_entry.step_in_whirlpool_portal``.
+        """
         if self.game_map is None:
             return
-
-        portal = None
-        for p in self.game_map.portals:
-            if p.x == self.party.x and p.y == self.party.y:
-                portal = p
-                break
-
-        if portal is None:
+        if not portal_entry.enter_portal(self, self.party.x, self.party.y):
             self.text_log.add_message("Nothing to enter here!")
-            return
-
-        dest_id = portal.dest_map_id
-        start_x = portal.start_x
-        start_y = portal.start_y
-
-        # Restrict Dawn (dest_id == 11) to dual new moon conjunction (0, 0)
-        if dest_id == 11:
-            if self.trammel_phase != 0 or self.felucca_phase != 0:
-                self.text_log.add_message("The mythical city of Dawn only appears during a double new moon!")
-                return
-
-        # Ambrosia whirlpool portal warp to Sosaria coast
-        if (self.map_id == 13 and dest_id == 0) or str(getattr(portal, "name", "") or "").upper() == "WHIRLPOOL":
-            dx = random.randint(48, 53)
-            dy = random.randint(0, 8)
-            self.party.x = dx
-            self.party.y = dy
-            if self.audio is not None:
-                self.audio.play_sfx("wave") or self.audio.play_sfx("whirlpool")
-            self.text_log.add_message("Engulfed by the whirlpool! Washed ashore on the coast of Sosaria.")
-            if self.map_id != 0:
-                self.map_id = 0
-                self._load_world_map()
-            return
-
-        # Determine if destination is town, dungeon, or shrine
-        if dest_id in (55, 56, 57, 58):  # Shrine
-            from py_exodus.screens.shrine import ShrineScreen
-
-            stat_names = {
-                55: "wisdom",
-                56: "dexterity",
-                57: "intelligence",
-                58: "strength",
-            }
-            shrine = ShrineScreen(
-                party=self.party,
-                stat_name=stat_names.get(dest_id, "strength"),
-                asset_mgr=self.asset_mgr,
-                return_screen=self,
-                manager=self.manager,
-            )
-            if self.manager is not None:
-                self.manager.push_screen(shrine)
-            else:
-                self.next_screen = shrine
-                self.is_finished = True
-
-        elif dest_id in (14, 15, 16, 17, 18, 19, 20):  # Dungeons
-            from py_exodus.screens.dungeon_screen import DungeonScreen
-
-            dungeon = DungeonScreen(
-                party=self.party,
-                map_id=dest_id,
-                asset_mgr=self.asset_mgr,
-                audio=self.audio,
-                return_screen=self,
-                manager=self.manager,
-            )
-            if self.manager is not None:
-                self.manager.push_screen(dungeon)
-            else:
-                self.next_screen = dungeon
-                self.is_finished = True
-
-        else:  # Cities / Towns / Castles
-            from py_exodus.screens.town import TownScreen
-
-            town = TownScreen(
-                party=self.party,
-                map_id=dest_id,
-                start_x=start_x,
-                start_y=start_y,
-                asset_mgr=self.asset_mgr,
-                audio=self.audio,
-                return_screen=self,
-                manager=self.manager,
-            )
-            if self.manager is not None:
-                self.manager.push_screen(town)
-            else:
-                self.next_screen = town
-                self.is_finished = True
 
     _toggle_board_transport = _board_transport
 
@@ -1140,17 +1235,23 @@ class OverworldScreen(BaseScreen):
         })
 
     def _update_creatures(self) -> None:
-        """Move wandering creatures towards the party or wander."""
-        if self.time_stopped_turns > 0:
-            self.time_stopped_turns -= 1
-            return
+        """Move wandering creatures towards the party or wander.
 
+        Java truth: the QUICKNESS aura skips ``moveObjects`` for the turn
+        (``GameScreen.java:728-731``) — no creature advance while time is
+        quick. Whirlpool creatures never move and never engage.
+        """
         if not self.creatures and self.random_encounters_enabled:
             self._spawn_wandering_creature()
 
         import random
         if self.random_encounters_enabled and random.random() < 0.25 and len(self.creatures) < 6:
             self._spawn_wandering_creature()
+
+        # Java GameScreen.java:728-731 — moveObjects is skipped entirely
+        # while a QUICKNESS aura is active.
+        if self.party.aura.get_type() == AuraType.QUICKNESS:
+            return
 
         width = self.game_map.width if self.game_map else 64
         height = self.game_map.height if self.game_map else 64
@@ -1160,6 +1261,13 @@ class OverworldScreen(BaseScreen):
 
         for c in self.creatures:
             cx, cy = c["x"], c["y"]
+
+            if c.get("tile_name") == "whirlpool":
+                # Java moveObjects still walks whirlpools a random direction
+                # on open water (wontattack), but they never travel to the
+                # party: keep them parked where they were placed.
+                survivors.append(c)
+                continue
 
             # If already on the party, engage and remove
             if cx == self.party.x and cy == self.party.y:

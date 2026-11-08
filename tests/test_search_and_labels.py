@@ -94,20 +94,31 @@ def test_search_card_of_death(asset_mgr, party_four):
     assert any("Death" in msg for msg in ow.text_log.history)
 
 
-def test_town_get_chest_adjacent(asset_mgr, party_four):
-    """Pressing 'G' in town adjacent to a chest loots it and converts tile to floor."""
+def test_town_get_chest_party_tile_only(asset_mgr, party_four):
+    """Task 9 parity: G checks ONLY the party's tile (Java GameScreen.getChest
+    GameScreen.java:1041-1071) — an adjacent chest is "Not Here!", a chest
+    tile under the party loots and converts to floor."""
     town = TownScreen(party=party_four, map_id=1, asset_mgr=asset_mgr, start_x=10, start_y=10)
 
-    # Place a chest tile east at (11, 10)
+    # A chest tile one tile east: not looted ("Not Here!")
     chest_tile = asset_mgr.get_tile_by_name("chest") or asset_mgr.get_tile_by_index(64)
     assert chest_tile is not None
     town.game_map.set_tile(11, 10, chest_tile)
 
+    town.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_g, unicode="g"))
+    assert town.text_log.is_waiting_for_input
+    town.text_log.handle_char("1")
+    town.text_log.handle_enter()
+
+    assert any(m == "Not Here!" for m in town.text_log.history)
+    assert town.game_map.get_tile(11, 10).name == "chest"
+
+    # A chest tile directly under the party loots
+    town.game_map.set_tile(10, 10, chest_tile)
     opening_member = party_four.members[0]
     member_gold_before = opening_member.gold
     party_gold_before = party_four.gold
 
-    # Press 'G' to get chest
     town.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_g, unicode="g"))
     assert town.text_log.is_waiting_for_input
     town.text_log.handle_char("1")
@@ -117,6 +128,6 @@ def test_town_get_chest_adjacent(asset_mgr, party_four):
     opening_gold_delta = opening_member.gold - member_gold_before
     assert 10 <= opening_gold_delta <= 66
     assert party_four.gold == party_gold_before + opening_gold_delta  # gold is per member (Task 4)
-    assert town.game_map.get_tile(11, 10).name != "chest"
+    assert town.game_map.get_tile(10, 10).name != "chest"
     assert opening_member.gold <= 9999
     assert any("The Chest Holds: " in msg for msg in town.text_log.history)

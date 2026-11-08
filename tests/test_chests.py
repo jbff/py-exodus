@@ -205,16 +205,27 @@ def test_disarmed_chest_yields_gold_and_no_trap_roll(monkeypatch):
 
 # --- Step 1: ChestNotFound ("Not Here!") ---
 
+
 def test_take_chest_object_raises_when_no_chest():
+    """Task 9: the G scan has no adjacency — only the exact tile matches
+    (Java getChest, GameScreen.java:1041-1050: cx == x && cy == y)."""
     party = make_party([make_member("Fighter")], gold=0)
     with pytest.raises(ChestNotFound):
         chests.take_chest_object(party, 10, 10)
 
     party.dynamic_objects.append({"tile": "horse", "x": 10, "y": 10})
-    party.dynamic_objects.append({"tile": "chest", "x": 10, "y": 11})
+    party.dynamic_objects.append({"tile": "chest", "x": 10, "y": 10})
     obj = chests.take_chest_object(party, 10, 10)
     assert obj["tile"] == "chest"
     assert party.dynamic_objects == [{"tile": "horse", "x": 10, "y": 10}]
+
+
+def test_take_chest_object_checks_only_party_tile():
+    party = make_party([make_member("Fighter")], gold=0)
+    party.dynamic_objects.append({"tile": "chest", "x": 10, "y": 11})
+    with pytest.raises(ChestNotFound):
+        chests.take_chest_object(party, 10, 10)
+    assert party.dynamic_objects == [{"tile": "chest", "x": 10, "y": 11}]
 
 
 # --- Step 1: dungeon Get (G) checks the party's own tile + crash fix ---

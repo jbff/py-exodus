@@ -63,16 +63,40 @@ def test_moongate_destination_routing_by_felucca(asset_mgr, party):
     assert any("moongate" in msg.lower() for msg in ow.text_log.history)
 
 
-def test_ambrosia_whirlpool_routes_to_sosaria_coast(asset_mgr, party):
-    """Entering the whirlpool in Ambrosia transports party to Sosaria coast (x=48..53, y=0..8)."""
+def test_ambrosia_whirlpool_routes_to_sosaria_coast(asset_mgr, party, monkeypatch):
+    """Stepping ONTO the Ambrosia whirlpool portal (preMove) transports the
+    party to a random Sosaria coast tile (x=48..53, y=0..8) — Java
+    GameScreen.java:661-670. Pressing E there goes to the portal's fixed
+    start (1,1) instead (GameScreen.java:538-556).
+    """
     # Ambrosia map 13, whirlpool portal is at (32, 58)
+    party.x = 32
+    party.y = 57
+    import py_exodus.screens.overworld as overworld_module
+
+    from py_exodus.constants import Direction
+
+    ow = OverworldScreen(party=party, map_id=13, asset_mgr=asset_mgr, start_x=32, start_y=57)
+    monkeypatch.setattr(overworld_module, "can_move_to", lambda *a, **k: True)
+    ow.heading = Direction.SOUTH
+
+    # Sail onto (32, 58) — the finish-turn whirlpool scan fires via the
+    # preMove intercept (Java GameScreen.java:661-670).
+    ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_DOWN, unicode=""))
+    # Party should be in Sosaria (map_id 0) at coast (Java preMove)
+    assert 48 <= party.x <= 53
+    assert 0 <= party.y <= 8
+    assert ow.map_id == 0
+
+
+def test_ambrosia_whirlpool_portal_e_fixed_start(asset_mgr, party):
+    """Pressing E at Ambrosia's WHIRLPOOL portal uses the portal's fixed
+    startx/starty (maps.xml startx="1" starty="1") — GameScreen.java:538-556."""
     party.x = 32
     party.y = 58
     ow = OverworldScreen(party=party, map_id=13, asset_mgr=asset_mgr, start_x=32, start_y=58)
 
-    # Press 'E' to enter portal
     ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_e, unicode="e"))
 
-    # Party should be in Sosaria (map_id 0) at coast
-    assert 48 <= party.x <= 53
-    assert 0 <= party.y <= 8
+    assert (party.x, party.y) == (1, 1)
+    assert ow.map_id == 0

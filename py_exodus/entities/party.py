@@ -11,6 +11,7 @@ from py_exodus.constants import (
     Status,
     Transport,
 )
+from py_exodus.aura import Aura, AuraType
 from py_exodus.entities.character import Character
 
 
@@ -265,6 +266,12 @@ class Party:
         # while any other frigate is fresh and resets the hull to 50
         # (GameScreen.java:958-959). Runtime-only: Java does not persist it.
         self.last_ship: dict[str, int] | None = None
+
+        # The single typed aura the party carries (Java Context.getAura,
+        # objects/Aura.java): N (negate time) sets QUICKNESS for 6 turns and
+        # finishTurn ticks it via pass_turn (GameScreen.java:714, 728-731).
+        # Runtime-only: Java keeps it on Context, not the SaveGame.
+        self.aura: Aura = Aura()
 
     # --- Aliases & Properties ---
     @property

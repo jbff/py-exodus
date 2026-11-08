@@ -11,6 +11,7 @@ import pygame
 from py_exodus.__main__ import GameApp
 from py_exodus.assets import AssetManager
 from py_exodus.audio import AudioManager
+from py_exodus.aura import AuraType
 from py_exodus.combat.arena import Action, ActionType, CombatArena
 from py_exodus.constants import (
     BASE_HEIGHT,
@@ -374,10 +375,12 @@ def test_town_screen_navigation_and_exit(pygame_setup, asset_mgr, sample_party):
     town = TownScreen(party=sample_party, map_id=1, asset_mgr=asset_mgr, manager=sm)
     sm.push_screen(town)
 
-    # Press 'X' to exit
+    # Press 'X' — Task 9 parity: X only dismounts to FOOT; leaving a town is
+    # border-walking only (Java GameScreen.java:584-596).
+    sample_party.transport = Transport.HORSE
     town.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_x))
-    # Should pop back
-    assert sm.current_screen is not town or town.is_finished
+    assert sample_party.transport == Transport.FOOT
+    assert sm.current_screen is town and not town.is_finished
 
 
 def test_town_screen_talk_lord_british(pygame_setup, asset_mgr, sample_party):
@@ -993,11 +996,14 @@ def test_overworld_commands_cast_ztats_get_chest_pass(pygame_setup, asset_mgr, s
     assert sample_party.torch_duration == 100
     assert any("Torch ignited!" in msg for msg in overworld.text_log.history)
 
-    # 5. Join gold (J)
+    # 5. Join gold (J) — Task 9 parity: member prompt + pool_gold(index)
     sample_party.gold = 50
-    evt_j = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_j)
+    evt_j = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_j, unicode="j")
     overworld.handle_event(evt_j)
-    assert any("All gold gathered" in msg for msg in overworld.text_log.history)
+    assert overworld.text_log.is_waiting_for_input
+    overworld.text_log.submit_input("1")
+    assert opening_member.gold >= opening_gold_delta
+    assert all(g == 0 for g in [m.gold for m in sample_party.members[1:]])
 
 
 def test_overworld_wandering_creatures(pygame_setup, asset_mgr, sample_party):
@@ -1099,11 +1105,12 @@ def test_all_overland_commands_a_to_z(pygame_setup, asset_mgr, sample_party):
     ow.text_log.submit_input("PRAY")
     assert any("calmness and silence" in msg for msg in ow.text_log.history)
 
-    # Y - Yell
+    # Y - Yell — Task 9 parity: member prompt, then word prompt
     ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_y))
     assert ow.text_log.is_waiting_for_input
+    ow.text_log.submit_input("1")
     ow.text_log.submit_input("EVOCARE")
-    assert any("EVOCARE" in msg for msg in ow.text_log.history)
+    assert any("No effect." in msg for msg in ow.text_log.history)
 
     # M - Modify order
     m0_name = sample_party.members[0].name
@@ -1115,18 +1122,24 @@ def test_all_overland_commands_a_to_z(pygame_setup, asset_mgr, sample_party):
     assert sample_party.members[0].name == m1_name
     assert sample_party.members[1].name == m0_name
 
-    # H - Hand equipment
+    # H - Hand equipment — Task 9 parity: any unequipped weapon OR armor
+    # transfers; there is no gold handoff (HandDialog.java:114-146).
     sample_party.members[0].gold = 50
     sample_party.members[1].gold = 10
+    sample_party.members[0].weapons[WeaponType.AXE] = 1
     ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_h))
     assert ow.text_log.is_waiting_for_input
     ow.text_log.submit_input("1")
     ow.text_log.submit_input("2")
     assert any("handed" in msg for msg in ow.text_log.history)
+    assert sample_party.members[1].weapons[WeaponType.AXE] == 1
 
-    # L - Look
+    # L - OPEN with a direction (Java SIP:212-219; there is no Look command)
     ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_l))
-    assert any("Look:" in msg for msg in ow.text_log.history)
+    assert ow.text_log.is_waiting_for_input
+    assert "OPEN" in ow.text_log.current_prompt
+    ow.text_log.submit_input("N")
+    assert any(m in ("Opened!", "Can't!") for m in ow.text_log.history)
 
     # S - Search
     ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_s))
@@ -1134,11 +1147,13 @@ def test_all_overland_commands_a_to_z(pygame_setup, asset_mgr, sample_party):
         ow.text_log.submit_input("1")
     assert any("Search:" in msg or "searches" in msg or "Nothing here" in msg for msg in ow.text_log.history)
 
-    # N - Negate Time
+    # N - Negate Time — Task 9 parity: powder → 6-turn QUICKNESS aura
     sample_party.members[0].powder = 2
     ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_n))
-    assert ow.time_stopped_turns == 15
-    assert any("Negate Time!" in msg for msg in ow.text_log.history)
+    assert sample_party.members[0].powder == 1
+    assert sample_party.aura.get_type() == AuraType.QUICKNESS
+    assert sample_party.aura.get_duration() == 6
+    assert any("Stop time with a powder!" in msg for msg in ow.text_log.history)
 
     # V - Volume
     ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_v))
@@ -1150,11 +1165,21 @@ def test_all_overland_commands_a_to_z(pygame_setup, asset_mgr, sample_party):
     ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_k))
     assert any("Klimb:" in msg for msg in ow.text_log.history)
 
-    # T & U - Transact and Unlock in overworld
+    # T & U - Talk and Unlock in overworld (Task 9 parity: real member flows,
+    # Java SIP:152-238; "Transact:" stub is gone)
     ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_t))
-    assert any("Transact:" in msg for msg in ow.text_log.history)
+    assert ow.text_log.is_waiting_for_input
+    assert "TALK" in ow.text_log.current_prompt
+    ow.text_log.submit_input("1")
+    ow.text_log.submit_input("N")
+    assert any("Funny, no response!" in msg for msg in ow.text_log.history)
+
     ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_u))
-    assert any("Unlock:" in msg for msg in ow.text_log.history)
+    assert ow.text_log.is_waiting_for_input
+    assert "UNLOCK" in ow.text_log.current_prompt
+    ow.text_log.submit_input("1")
+    ow.text_log.submit_input("N")
+    assert any(m in ("Unlocked!", "Can't!") for m in ow.text_log.history)
 
 
 def test_ready_weapon_and_wear_armor_a_p_flow_and_inventory(pygame_setup, asset_mgr, sample_party):
