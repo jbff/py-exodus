@@ -273,6 +273,9 @@ class VendorDef:
     start_y: int = 0
     generic_field1: str | None = None
     items: list[VendorItemDef] = field(default_factory=list)
+    # Java ``vendor.getVendorClass()`` (VendorClassSet.init wires the
+    # back-reference); None keeps synthetic/standalone vendors sell-less.
+    vendor_class: "VendorClassDef | None" = None
 
     @property
     def startX(self) -> int:

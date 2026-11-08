@@ -862,6 +862,13 @@ class AssetManager:
                 vendors=vendor_list,
             )
 
+            # Java VendorClassSet.java:48-56 — every vendor of a class holds a
+            # reference back to its class (the sell flow reads the FULL class
+            # item catalog through it).
+            cls_def = self.vendor_classes[class_type]
+            for v in vendor_list:
+                v.vendor_class = cls_def
+
     def get_creature(self, name_or_tile: str) -> CreatureDef | None:
         """Look up CreatureDef by name or tile (case-insensitive)."""
         if not self.creatures:

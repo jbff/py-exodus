@@ -470,9 +470,10 @@ class TownScreen(BaseScreen):
         self.text_log.add_message(f"Welcome to {vendor.name}!")
         self.text_log.add_message(f"Owner: {vendor.owner}")
 
-        # Show catalog
+        # Show catalog — full list (Task 8: the items[:6] truncation is gone;
+        # e.g. Dawn's Windsor Weaponry sells 14 weapons, vendor.xml b..o).
         if vendor.items:
-            for item in vendor.items[:6]:
+            for item in vendor.items:
                 self.text_log.add_message(f"{item.choice}) {item.name} - {item.price}gp")
 
         def _on_choice(choice: str) -> None:

@@ -442,17 +442,35 @@ def test_town_screen_vendor_shopping(pygame_setup, asset_mgr, sample_party):
         ],
     )
     town = TownScreen(party=sample_party, map_id=4, asset_mgr=asset_mgr)
-    sample_party.gold = 50
+    # Java truth: the vendor charges the shopping member's own purse (gold
+    # lives on each CharacterRecord; Party.gold is a derived sum).
+    from py_exodus.constants import WeaponType
+
+    buyer = sample_party.active_member or sample_party.members[0]
+    for m in sample_party.members:
+        m.gold = 0
+    buyer.gold = 50
 
     town._start_vendor_shopping(vendor)
     assert town.text_log.is_waiting_for_input
 
-    # Buy Dagger (choice 'a')
+    # Task 8: WEAPON vendors run the WeaponVendor state machine (Java
+    # WeaponVendor.java), not the generic menu. Wrapped log lines rejoin.
+    log = " ".join(" ".join(town.text_log.history).split())
+    assert "Art thou here to Buy or Sell?" in log
+
+    # Buy Dagger (choice 'a') from the catalog ("b" = Buy); single-char
+    # prompts auto-commit on handle_char.
+    town.text_log.handle_char("b")
     town.text_log.handle_char("a")
+    # gold 50 > 2 * 5 -> the multi-char how-many prompt
+    town.text_log.handle_char("1")
     town.text_log.handle_enter()
 
     assert sample_party.gold == 45
-    assert any("Bought Dagger" in msg for msg in town.text_log.history)
+    assert buyer.weapons.get(WeaponType.DAGGER, 0) == 1
+    log = " ".join(" ".join(town.text_log.history).split())
+    assert "A fine choice! anything else?" in log
 
 
 def test_town_screen_all_vendor_types_shopping(pygame_setup, asset_mgr, sample_party):

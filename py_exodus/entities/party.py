@@ -108,6 +108,62 @@ class PartyMember:
         """Promote an existing Character into a PartyMember."""
         return cls(char, party=party)
 
+    def heal(self, heal_type: object) -> bool:
+        """Apply a healer service to this member (Java ``Party.java:381-433``
+        ``PartyMember.heal(HealType)``).
+
+        Need-checks return False and leave the member untouched — the caller
+        (Java ``HealerService.java:58-64``) charges NOTHING when heal returns
+        False.  CURE only when POISONED (status -> GOOD); FULLHEAL rejected
+        when DEAD or already at full HP; RESURRECT only when DEAD and sets
+        hp to 1 — NOT full — plus GOOD; HEAL rejected when DEAD or full and
+        adds 75 + (rand % 25); RECALL only when ASH and sets hp to 1, GOOD.
+        NOTE ``Party.java:416-422`` RECALL performs NO wisdom adjustment in
+        this codebase (the ``wis -= 5`` variant is not present), so none is
+        ported here.
+        """
+        kind = str(getattr(heal_type, "name", heal_type)).upper()
+
+        if kind == "NONE":
+            return True
+
+        if kind == "CURE":
+            if self.status != Status.POISONED:
+                return False
+            self.status = Status.GOOD
+
+        elif kind == "FULLHEAL":
+            if self.status == Status.DEAD or self.hp == self.max_hp:
+                return False
+            self.hp = self.max_hp
+
+        elif kind == "RESURRECT":
+            if self.status != Status.DEAD:
+                return False
+            self.hp = 1
+            self.status = Status.GOOD
+
+        elif kind == "HEAL":
+            if self.status == Status.DEAD or self.hp == self.max_hp:
+                return False
+            # Java: health += 75 + (rand.nextInt(256) % 25)
+            self.hp += 75 + (random.randint(0, 255) % 25)
+
+        elif kind == "RECALL":
+            if self.status != Status.ASH:
+                return False
+            self.hp = 1
+            self.status = Status.GOOD
+
+        else:
+            return False
+
+        if self.hp > self.max_hp:
+            self.hp = self.max_hp
+
+        return True
+
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize party member state."""
         d = self.character.to_dict()
