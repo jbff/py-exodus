@@ -430,7 +430,7 @@ class CombatScreen(BaseScreen):
                 asset_mgr=self.asset_mgr,
                 audio=self.audio,
                 start_x=44,
-                start_y=19,
+                start_y=20,
                 manager=self.manager,
             )
 

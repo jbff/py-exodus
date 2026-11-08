@@ -78,7 +78,7 @@ class Party:
         self,
         members: list[Character | PartyMember] | None = None,
         x: int = 44,
-        y: int = 19,
+        y: int = 20,
         map_id: int = 0,
         dungeon_level: int = 0,
         transport: Transport | str = Transport.FOOT,

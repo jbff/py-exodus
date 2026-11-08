@@ -1072,12 +1072,12 @@ def test_zstats_displays_inventory(pygame_setup, asset_mgr, sample_party):
 
 
 def test_new_game_starter_party_spawn_location(pygame_setup, asset_mgr):
-    """Verify new game party starts just SW of the castle/city on grass (44, 19), not on castle (45, 18)."""
+    """Verify new game party starts 2 tiles south and 1 tile west of castle on grass (44, 20)."""
     party = create_default_starter_party()
     assert party.x == 44
-    assert party.y == 19
+    assert party.y == 20
 
-    # Verify tile at (44, 19) is grass and not castle
+    # Verify tile at (44, 20) is grass and not castle
     from py_exodus.world.loader import MapLoader
     loader = MapLoader(asset_mgr)
     world_map = loader.load_map(0)

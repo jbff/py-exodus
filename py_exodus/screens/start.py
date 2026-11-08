@@ -104,7 +104,7 @@ def create_default_starter_party() -> Party:
     return Party(
         members=[c1, c2, c3, c4],
         x=44,
-        y=19,  # Just SW of Castle British and Britain on Sosaria
+        y=20,  # 2 tiles south, 1 tile west of Castle British on Sosaria
         gold=200,
         food=400,
         torch_duration=100,
