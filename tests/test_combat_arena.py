@@ -279,6 +279,8 @@ def test_chest_spawning_rules(asset_mgr, conflict_map):
     arena2.execute_player_action(0, Action.attack(Direction.NORTH))
     assert arena2.is_victory
     assert not arena2.chest_spawned
+    # Defeated pirate leaves behind boardable frigate
+    assert any(obj.get("tile") == "frigate" for obj in party2.dynamic_objects)
 
     # 3. Creature with nochest -> No chest spawned
     party3 = Party(transport=Transport.FOOT)

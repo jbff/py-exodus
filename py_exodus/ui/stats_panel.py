@@ -159,6 +159,14 @@ class StatsPanel:
                 draw_line(f"WPN:{wpn}", EGA_WHITE)
                 draw_line(f"ARM:{arm}", EGA_WHITE)
 
+                # Show owned weapons and armors inventory
+                wpn_inv = [f"{wt.name[:3]}({cnt})" for wt, cnt in target_pm.weapons.items() if cnt > 0]
+                arm_inv = [f"{at.name[:3]}({cnt})" for at, cnt in target_pm.armors.items() if cnt > 0]
+                if wpn_inv:
+                    draw_line(f"W:{' '.join(wpn_inv[:3])}", EGA_LIGHT_GRAY)
+                if arm_inv:
+                    draw_line(f"A:{' '.join(arm_inv[:3])}", EGA_LIGHT_GRAY)
+
                 draw_line(
                     f"KEYS:{target_pm.keys:<3} GEMS:{target_pm.gems:<3}",
                     EGA_BRIGHT_GREEN,

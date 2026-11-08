@@ -488,8 +488,8 @@ class AssetManager:
         if name not in self.tiles:
             aliases = {
                 "troll": "giant",
-                "avatar": "fighter",
-                "player": "fighter",
+                "avatar": "ranger",
+                "player": "ranger",
             }
             if name.lower() in aliases and aliases[name.lower()] in self.tiles:
                 name = aliases[name.lower()]

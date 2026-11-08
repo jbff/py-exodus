@@ -424,6 +424,92 @@ class Character(metaclass=CharacterMeta):
         )
 
     # --- Serialization ---
+    def ready_weapon(self, index_or_type: _builtin_int | WeaponType, asset_mgr: Any = None) -> bool:
+        """Ready weapon by index (0-15 / A-P) or WeaponType.
+
+        Handles inventory adjustments and profession constraints.
+        Index 0 (NONE / Hands) un-equips weapon back into inventory.
+        """
+        weapon_types = list(WeaponType)
+        if isinstance(index_or_type, int):
+            if index_or_type < 0 or index_or_type >= len(weapon_types):
+                return False
+            target_wt = weapon_types[index_or_type]
+        else:
+            target_wt = index_or_type
+
+        # Bare hands
+        if target_wt == WeaponType.NONE:
+            if self.weapon != WeaponType.NONE:
+                self.weapons[self.weapon] = self.weapons.get(self.weapon, 0) + 1
+            self.weapon = WeaponType.NONE
+            return True
+
+        # Already equipped
+        if self.weapon == target_wt:
+            return True
+
+        # Check inventory
+        if self.weapons.get(target_wt, 0) <= 0:
+            return False
+
+        # Check profession constraints
+        if asset_mgr is not None:
+            w_def = asset_mgr.get_weapon(target_wt.name.lower())
+            if w_def is not None and not w_def.can_use(self.profession):
+                return False
+
+        # Unequip old weapon into inventory
+        if self.weapon != WeaponType.NONE:
+            self.weapons[self.weapon] = self.weapons.get(self.weapon, 0) + 1
+
+        self.weapon = target_wt
+        self.weapons[target_wt] = max(0, self.weapons.get(target_wt, 0) - 1)
+        return True
+
+    def wear_armor(self, index_or_type: _builtin_int | ArmorType, asset_mgr: Any = None) -> bool:
+        """Wear armor by index (0-7 / A-H) or ArmorType.
+
+        Handles inventory adjustments and profession constraints.
+        Index 0 (NONE / Skin) un-equips armor back into inventory.
+        """
+        armor_types = list(ArmorType)
+        if isinstance(index_or_type, int):
+            if index_or_type < 0 or index_or_type >= len(armor_types):
+                return False
+            target_at = armor_types[index_or_type]
+        else:
+            target_at = index_or_type
+
+        # Bare skin
+        if target_at == ArmorType.NONE:
+            if self.armor != ArmorType.NONE:
+                self.armors[self.armor] = self.armors.get(self.armor, 0) + 1
+            self.armor = ArmorType.NONE
+            return True
+
+        # Already worn
+        if self.armor == target_at:
+            return True
+
+        # Check inventory
+        if self.armors.get(target_at, 0) <= 0:
+            return False
+
+        # Check profession constraints
+        if asset_mgr is not None:
+            a_def = asset_mgr.get_armor(target_at.name.lower())
+            if a_def is not None and not a_def.can_use(self.profession):
+                return False
+
+        # Unequip old armor into inventory
+        if self.armor != ArmorType.NONE:
+            self.armors[self.armor] = self.armors.get(self.armor, 0) + 1
+
+        self.armor = target_at
+        self.armors[target_at] = max(0, self.armors.get(target_at, 0) - 1)
+        return True
+
     def to_dict(self) -> dict[_builtin_str, Any]:
         """Serialize character state to dictionary."""
         return {

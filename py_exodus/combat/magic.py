@@ -552,11 +552,38 @@ def _apply_spell_effect(
 
     # Chest Disarm (APPAR_UNEM)
     if spell == Spell.APPAR_UNEM:
-        return SpellResult(
-            success=True,
-            message="Appar Unem safely disarms and opens the chest.",
-            spell=spell,
-        )
+        # Safely disarms, opens, and collects chest contents (gold) without triggering traps
+        found = False
+        gold_found = 0
+        if party is not None and hasattr(party, "dynamic_objects"):
+            px = getattr(party, "x", 0)
+            py = getattr(party, "y", 0)
+            target_idx = -1
+            for idx, obj in enumerate(party.dynamic_objects):
+                ox = obj.get("x", -99)
+                oy = obj.get("y", -99)
+                tile = str(obj.get("tile", "")).lower()
+                if tile == "chest" and abs(ox - px) <= 1 and abs(oy - py) <= 1:
+                    target_idx = idx
+                    break
+            if target_idx >= 0:
+                party.dynamic_objects.pop(target_idx)
+                found = True
+                gold_found = random.randint(50, 200)
+                party.gold += gold_found
+
+        if found:
+            return SpellResult(
+                success=True,
+                message=f"Appar Unem safely disarms and opens the chest! Found {gold_found} gold.",
+                spell=spell,
+            )
+        else:
+            return SpellResult(
+                success=False,
+                message="Appar Unem: No chest nearby to disarm!",
+                spell=spell,
+            )
 
     # Overhead View / Peer (VIEDA)
     if spell == Spell.VIEDA:

@@ -534,3 +534,26 @@ def test_prompt_cast_party_flow():
     assert "Cleric Spell?" in log.current_prompt
 
 
+def test_appar_unem_disarms_and_gets_chest():
+    """Verify APPAR_UNEM safely opens, gets gold, and removes chest without requiring 'G'."""
+    party = Party(x=10, y=10, gold=100)
+    cleric = Character("Bishop", "M", Race.BOBIT, Profession.CLERIC, wisdom=50, mp=50)
+    party.add_member(cleric)
+
+    # Place a chest at adjacent tile (10, 11)
+    party.dynamic_objects.append({"tile": "chest", "x": 10, "y": 11})
+    assert len(party.dynamic_objects) == 1
+
+    # Cast APPAR_UNEM
+    res = cast_spell(Spell.APPAR_UNEM, caster=cleric, party=party)
+    assert res.success is True
+    assert "safely disarms and opens the chest" in res.message
+    assert party.gold > 100
+    assert len(party.dynamic_objects) == 0
+
+    # Cast again when no chest is nearby
+    res2 = cast_spell(Spell.APPAR_UNEM, caster=cleric, party=party)
+    assert res2.success is False
+    assert "No chest nearby" in res2.message
+
+

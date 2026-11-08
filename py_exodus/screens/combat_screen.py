@@ -16,8 +16,10 @@ from py_exodus.constants import (
     COMBAT_HEIGHT,
     COMBAT_WIDTH,
     TILE_SIZE,
+    ArmorType,
     Direction,
     Spell,
+    WeaponType,
 )
 from py_exodus.entities.party import PartyMember
 from py_exodus.screens.base import BaseScreen
@@ -86,6 +88,8 @@ class CombatScreen(BaseScreen):
 
         self._pending_action_type: ActionType | None = None
         self.awaiting_exit_ack = False
+        self.flash_timer: float = 0.0
+        self.combat_fx: list[dict[str, Any]] = []
 
     @property
     def active_party_member(self) -> PartyMember | None:
@@ -142,6 +146,10 @@ class CombatScreen(BaseScreen):
             self._prompt_attack()
         elif event.key == pygame.K_c:  # Cast command
             self._prompt_cast()
+        elif event.key == pygame.K_r:  # Ready weapon
+            self._prompt_ready_weapon()
+        elif event.key == pygame.K_w:  # Wear armor
+            self._prompt_wear_armor()
 
     def _prompt_attack(self) -> None:
         """Prompt active member for attack direction."""
@@ -234,9 +242,144 @@ class CombatScreen(BaseScreen):
         else:
             _ask_spell_code(types[0])
 
+    def _prompt_ready_weapon(self) -> None:
+        """Prompt active member to ready a weapon (A-P)."""
+        active = self.active_party_member
+        if not active:
+            return
+
+        weapon_types = list(WeaponType)
+        self.text_log.add_message(f"-- Ready Weapon for {active.name} --")
+        for w_idx, wt in enumerate(weapon_types):
+            letter = chr(ord('A') + w_idx)
+            if wt == WeaponType.NONE:
+                self.text_log.add_message(f"{letter} - Hands")
+                continue
+            cnt = active.weapons.get(wt, 0)
+            is_equipped = (active.weapon == wt)
+            if cnt > 0 or is_equipped:
+                status_tag = " (readied)" if is_equipped else f" ({cnt})"
+                self.text_log.add_message(f"{letter} - {wt.name.capitalize()}{status_tag}")
+
+        def _on_weap(w_code: str) -> None:
+            c = w_code.strip().upper()
+            if not c:
+                return
+            w_idx = ord(c[0]) - ord('A')
+            if 0 <= w_idx < len(weapon_types):
+                success = active.ready_weapon(w_idx, self.asset_mgr)
+                if success:
+                    self.text_log.add_message(f"Success! {active.name} readied {active.weapon.name}.")
+                    self._execute_action(Action.pass_turn())
+                else:
+                    self.text_log.add_message("Cannot ready that weapon!")
+            else:
+                self.text_log.add_message("Invalid weapon selection!")
+
+        self.text_log.prompt("Ready Weapon? (A-P): ", callback=_on_weap, single_char=True)
+
+    def _prompt_wear_armor(self) -> None:
+        """Prompt active member to wear armor (A-H)."""
+        active = self.active_party_member
+        if not active:
+            return
+
+        armor_types = list(ArmorType)
+        self.text_log.add_message(f"-- Wear Armor for {active.name} --")
+        for a_idx, at in enumerate(armor_types):
+            letter = chr(ord('A') + a_idx)
+            if at == ArmorType.NONE:
+                self.text_log.add_message(f"{letter} - Skin")
+                continue
+            cnt = active.armors.get(at, 0)
+            is_equipped = (active.armor == at)
+            if cnt > 0 or is_equipped:
+                status_tag = " (worn)" if is_equipped else f" ({cnt})"
+                self.text_log.add_message(f"{letter} - {at.name.capitalize()}{status_tag}")
+
+        def _on_arm(a_code: str) -> None:
+            c = a_code.strip().upper()
+            if not c:
+                return
+            a_idx = ord(c[0]) - ord('A')
+            if 0 <= a_idx < len(armor_types):
+                success = active.wear_armor(a_idx, self.asset_mgr)
+                if success:
+                    self.text_log.add_message(f"Success! {active.name} wears {active.armor.name}.")
+                    self._execute_action(Action.pass_turn())
+                else:
+                    self.text_log.add_message("Cannot wear that armor!")
+            else:
+                self.text_log.add_message("Invalid armor selection!")
+
+        self.text_log.prompt("Wear Armor? (A-H): ", callback=_on_arm, single_char=True)
+
     def _execute_action(self, action: Action) -> None:
-        """Execute action in CombatArena, update audio, and sync logs."""
-        self.arena.execute_turn(action)
+        """Execute action in CombatArena, trigger visual FX, update audio, and sync logs."""
+        active_before = self.active_party_member
+        p_idx = self.arena.active_party_member_idx
+        start_pos = self.arena.player_positions.get(p_idx, (5, 5))
+
+        res = self.arena.execute_turn(action)
+
+        # Reverse viewport screen flash on cast
+        if action.type == ActionType.CAST:
+            self.flash_timer = 0.25
+
+        # Visual FX for weapon attack
+        if action.type == ActionType.ATTACK and res.attack_res:
+            ares = res.attack_res
+            w_def = None
+            if self.asset_mgr and active_before and hasattr(active_before, "weapon"):
+                w_name = active_before.weapon.value if hasattr(active_before.weapon, "value") else str(active_before.weapon)
+                w_def = self.asset_mgr.get_weapon(w_name)
+
+            is_magic = w_def is not None and (w_def.magic or getattr(w_def, "hit_tile", "") == "magic")
+            color = (85, 255, 255) if is_magic else (255, 85, 85)
+            hit_tile = "magic" if is_magic else "fire"
+
+            target_pos = ares.target_pos
+            if not target_pos and ares.projectile_path:
+                target_pos = ares.projectile_path[-1]
+
+            path = ares.projectile_path if ares.projectile_path else ([target_pos] if target_pos else [])
+            self.combat_fx.append({
+                "type": "weapon",
+                "color": color,
+                "path": path,
+                "target_pos": target_pos,
+                "hit_tile": hit_tile if ares.hit else None,
+                "timer": 0.25,
+            })
+        elif action.type == ActionType.CAST:
+            color = (85, 255, 255)
+            spell_obj = action.spell
+            s_name = getattr(spell_obj, "name", str(spell_obj)).upper()
+            if "FULGAR" in s_name:
+                color = (255, 85, 85)
+            elif "DECORP" in s_name:
+                color = (170, 0, 170)
+            elif "MITTAR" in s_name or "MENTAR" in s_name:
+                color = (85, 255, 255)
+
+            target_pos = None
+            path = []
+            if action.direction:
+                d = action.direction
+                for step in range(1, 6):
+                    step_x = start_pos[0] + d.dx * step
+                    step_y = start_pos[1] + d.dy * step
+                    if 0 <= step_x < COMBAT_WIDTH and 0 <= step_y < COMBAT_HEIGHT:
+                        path.append((step_x, step_y))
+                        target_pos = (step_x, step_y)
+            self.combat_fx.append({
+                "type": "spell",
+                "color": color,
+                "path": path,
+                "target_pos": target_pos,
+                "hit_tile": "magic",
+                "timer": 0.25,
+            })
 
         # Sync arena log messages to HUD
         for msg in self.arena.log_messages:
@@ -309,7 +452,11 @@ class CombatScreen(BaseScreen):
             self.manager.set_screen(castle_screen)
 
     def update(self, dt: float) -> None:
-        pass
+        self.flash_timer = max(0.0, self.flash_timer - dt)
+        for fx in list(self.combat_fx):
+            fx["timer"] -= dt
+            if fx["timer"] <= 0:
+                self.combat_fx.remove(fx)
 
     def render(self, surface: pygame.Surface) -> None:
         surface.fill(EGA_BLACK)
@@ -317,22 +464,25 @@ class CombatScreen(BaseScreen):
         scale = 3 if w >= 640 else 1
         v_size = 176 * scale
 
+        # Render 11x11 viewport into standard 176x176 buffer
+        temp_v = pygame.Surface((176, 176))
+        if self.world_renderer is not None:
+            self.world_renderer.render_viewport(
+                temp_v,
+                self.arena.combat_map,
+                center_x=5,
+                center_y=5,
+                dest_pos=(0, 0),
+            )
+        else:
+            self._render_grid_fallback(temp_v)
+
+        self._render_monsters(temp_v)
+        self._render_players(temp_v)
+        self._render_combat_fx(temp_v)
+        self._apply_flash_invert(temp_v)
+
         if scale > 1:
-            temp_v = pygame.Surface((176, 176))
-            if self.world_renderer is not None:
-                self.world_renderer.render_viewport(
-                    temp_v,
-                    self.arena.combat_map,
-                    center_x=5,
-                    center_y=5,
-                    dest_pos=(0, 0),
-                )
-            else:
-                self._render_grid_fallback(temp_v)
-
-            self._render_monsters(temp_v)
-            self._render_players(temp_v)
-
             scaled_v = pygame.transform.scale(temp_v, (v_size, v_size))
             surface.blit(scaled_v, (0, 0))
 
@@ -351,19 +501,7 @@ class CombatScreen(BaseScreen):
                 draw_border=True,
             )
         else:
-            if self.world_renderer is not None:
-                self.world_renderer.render_viewport(
-                    surface,
-                    self.arena.combat_map,
-                    center_x=5,
-                    center_y=5,
-                    dest_pos=(0, 0),
-                )
-            else:
-                self._render_grid_fallback(surface)
-
-            self._render_monsters(surface)
-            self._render_players(surface)
+            surface.blit(temp_v, (0, 0))
 
             self.stats_panel.render(
                 surface,
@@ -378,6 +516,34 @@ class CombatScreen(BaseScreen):
                 rect=pygame.Rect(0, 176, 176, log_h),
                 draw_border=True,
             )
+
+    def _render_combat_fx(self, surface: pygame.Surface) -> None:
+        """Render active weapon/spell projectile dots and hit/fire bursts."""
+        for fx in self.combat_fx:
+            color = fx.get("color", (255, 85, 85))
+            path = fx.get("path", [])
+            for pt in path:
+                px = pt[0] * TILE_SIZE + TILE_SIZE // 2
+                py = pt[1] * TILE_SIZE + TILE_SIZE // 2
+                pygame.draw.circle(surface, color, (px, py), 2)
+
+            tpos = fx.get("target_pos")
+            hit_tile = fx.get("hit_tile")
+            if tpos and hit_tile and self.asset_mgr is not None:
+                try:
+                    hit_surf = self.asset_mgr.get_tile_surface(hit_tile)
+                    if hit_surf is not None:
+                        surface.blit(hit_surf, (tpos[0] * TILE_SIZE, tpos[1] * TILE_SIZE))
+                except Exception:
+                    pass
+
+    def _apply_flash_invert(self, surface: pygame.Surface) -> None:
+        """Invert viewport colors for classic spellcasting screen flash."""
+        if self.flash_timer > 0:
+            inv = pygame.Surface(surface.get_size())
+            inv.fill((255, 255, 255))
+            inv.blit(surface, (0, 0), special_flags=pygame.BLEND_SUB)
+            surface.blit(inv, (0, 0))
 
     def _render_monsters(self, surface: pygame.Surface) -> None:
         font = get_hud_font(size=12)

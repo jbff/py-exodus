@@ -878,11 +878,19 @@ class CombatArena:
         self.is_defeat = False
 
         # Chest spawning rule:
-        # Spawn unless creature has nochest or combat is ship combat (transport is SHIP)
+        # Defeating pirate ship leaves behind a boardable frigate instead of a chest.
+        # Otherwise spawn chest unless creature has nochest or combat is ship combat (transport is SHIP).
         is_ship_combat = self.party.transport == Transport.SHIP
         is_nochest = getattr(self.creature_def, "no_chest", False) or getattr(self.creature_def, "nochest", False)
+        is_pirate = str(self.creature_tile).lower() == "pirate" or (
+            self.creature_def is not None and getattr(self.creature_def, "name", "").lower() == "pirate"
+        )
 
-        if not is_nochest and not is_ship_combat:
+        if is_pirate:
+            self.chest_spawned = False
+            if hasattr(self.party, "dynamic_objects"):
+                self.party.dynamic_objects.append({"tile": "frigate", "x": self.party.x, "y": self.party.y})
+        elif not is_nochest and not is_ship_combat:
             self.chest_spawned = True
             # Spawn chest in party dynamic objects on world/dungeon map upon victory
             if hasattr(self.party, "dynamic_objects"):

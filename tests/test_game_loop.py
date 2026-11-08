@@ -15,10 +15,12 @@ from py_exodus.combat.arena import Action, ActionType, CombatArena
 from py_exodus.constants import (
     BASE_HEIGHT,
     BASE_WIDTH,
+    ArmorType,
     Direction,
     Profession,
     Race,
     Sex,
+    Spell,
     Status,
     Transport,
     WeaponType,
@@ -979,3 +981,91 @@ def test_all_overland_commands_a_to_z(pygame_setup, asset_mgr, sample_party):
     assert any("Transact:" in msg for msg in ow.text_log.history)
     ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_u))
     assert any("Unlock:" in msg for msg in ow.text_log.history)
+
+
+def test_ready_weapon_and_wear_armor_a_p_flow_and_inventory(pygame_setup, asset_mgr, sample_party):
+    """Verify Ready (A-P) and Wear (A-H) letter prompts and inventory tracking."""
+    ow = OverworldScreen(party=sample_party, map_id=0, asset_mgr=asset_mgr)
+    m = sample_party.members[0]
+    m.weapons[WeaponType.DAGGER] = 1
+    m.armors[ArmorType.LEATHER] = 1
+    m.weapon = WeaponType.NONE
+    m.armor = ArmorType.NONE
+
+    # Ready Weapon (R)
+    ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_r))
+    assert "Which member?" in ow.text_log.current_prompt
+    ow.text_log.handle_char("1")
+
+    # Options listed and prompt for A-P
+    assert "Ready Weapon?" in ow.text_log.current_prompt
+    assert "A-P" in ow.text_log.current_prompt
+
+    # Select 'B' for Dagger
+    ow.text_log.handle_char("B")
+    assert m.weapon == WeaponType.DAGGER
+    assert m.weapons[WeaponType.DAGGER] == 0
+    assert any("readied" in msg for msg in ow.text_log.history)
+
+    # Ready 'A' for Hands (un-equips Dagger back into inventory)
+    ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_r))
+    ow.text_log.handle_char("1")
+    ow.text_log.handle_char("A")
+    assert m.weapon == WeaponType.NONE
+    assert m.weapons[WeaponType.DAGGER] == 1
+
+    # Wear Armor (W)
+    ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_w))
+    assert "Which member?" in ow.text_log.current_prompt
+    ow.text_log.handle_char("1")
+
+    # Options listed and prompt for A-H
+    assert "Wear Armor?" in ow.text_log.current_prompt
+    assert "A-H" in ow.text_log.current_prompt
+
+    # Select 'C' for Leather
+    ow.text_log.handle_char("C")
+    assert m.armor == ArmorType.LEATHER
+    assert m.armors[ArmorType.LEATHER] == 0
+    assert any("wears" in msg for msg in ow.text_log.history)
+
+
+def test_combat_screen_flash_and_visual_fx(pygame_setup, asset_mgr, sample_party):
+    """Verify combat screen flash on cast, projectile & hit bursts, and R/W prompts."""
+    from py_exodus.world.loader import MapLoader
+    loader = MapLoader(asset_mgr)
+    c_map = loader.load_conflict_map(37)
+    combat = CombatScreen(party=sample_party, combat_map=c_map, creature_tile="orc", asset_mgr=asset_mgr)
+
+    # Cast spell triggers flash_timer
+    active = combat.active_party_member
+    active.mp = 50
+    combat._execute_action(Action.cast(Spell.FULGAR, direction=Direction.NORTH))
+    assert combat.flash_timer > 0.0
+    assert any(fx["type"] == "spell" for fx in combat.combat_fx)
+
+    # Update decrements flash_timer
+    combat.update(0.3)
+    assert combat.flash_timer == 0.0
+
+    # Weapon attack creates weapon combat FX
+    combat._execute_action(Action.attack(Direction.NORTH))
+    assert any(fx["type"] == "weapon" for fx in combat.combat_fx)
+
+    # Ready weapon in combat (K_r)
+    combat.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_r))
+    assert "Ready Weapon?" in combat.text_log.current_prompt
+
+
+def test_zstats_displays_inventory(pygame_setup, asset_mgr, sample_party):
+    """Verify Zstats displays non-zero weapon and armor inventory."""
+    ow = OverworldScreen(party=sample_party, map_id=0, asset_mgr=asset_mgr)
+    m = sample_party.members[0]
+    m.weapons[WeaponType.BOW] = 2
+    m.armors[ArmorType.CHAIN] = 1
+
+    # Toggle Zstats to inspect member 1
+    ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_z))
+    assert ow.stats_panel.inspect_index == 0
+    assert any("BOW:2" in msg for msg in ow.text_log.history)
+    assert any("CHAIN:1" in msg for msg in ow.text_log.history)

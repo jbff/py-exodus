@@ -210,9 +210,18 @@ class OverworldScreen(BaseScreen):
 
         if self.stats_panel.inspect_index is not None:
             m = self.party.members[self.stats_panel.inspect_index]
-            self.text_log.add_message(f"Ztats: {m.name} ({m.profession.name})")
+            self.text_log.add_message(f"Zstats: {m.name} ({m.profession.name})")
+            cur_w = m.weapon.name if hasattr(m.weapon, "name") else str(m.weapon)
+            cur_a = m.armor.name if hasattr(m.armor, "name") else str(m.armor)
+            self.text_log.add_message(f"Readied: {cur_w}  Worn: {cur_a}")
+            wpn_list = [f"{wt.name}:{cnt}" for wt, cnt in m.weapons.items() if cnt > 0]
+            arm_list = [f"{at.name}:{cnt}" for at, cnt in m.armors.items() if cnt > 0]
+            if wpn_list:
+                self.text_log.add_message("Weapons: " + ", ".join(wpn_list))
+            if arm_list:
+                self.text_log.add_message("Armors: " + ", ".join(arm_list))
         else:
-            self.text_log.add_message("Ztats: Normal view")
+            self.text_log.add_message("Zstats: Normal view")
 
     def _prompt_cast(self) -> None:
         """Prompt active member to cast an overland spell."""
@@ -503,7 +512,7 @@ class OverworldScreen(BaseScreen):
         self.text_log.prompt("Other Command? ", callback=_on_other)
 
     def _prompt_ready_weapon(self) -> None:
-        """Equip weapon on selected party member."""
+        """Equip weapon on selected party member with A-P selection and inventory tracking."""
         def _on_member(m_str: str) -> None:
             try:
                 idx = int(m_str.strip()) - 1
@@ -515,23 +524,36 @@ class OverworldScreen(BaseScreen):
                 self.text_log.add_message("Invalid member #!")
                 return
 
+            weapon_types = list(WeaponType)
+            self.text_log.add_message(f"-- Ready Weapon for {m.name} --")
+            for w_idx, wt in enumerate(weapon_types):
+                letter = chr(ord('A') + w_idx)
+                if wt == WeaponType.NONE:
+                    self.text_log.add_message(f"{letter} - Hands")
+                    continue
+                cnt = m.weapons.get(wt, 0)
+                is_equipped = (m.weapon == wt)
+                if cnt > 0 or is_equipped:
+                    status_tag = " (readied)" if is_equipped else f" ({cnt})"
+                    self.text_log.add_message(f"{letter} - {wt.name.capitalize()}{status_tag}")
+
             def _on_weap(w_code: str) -> None:
-                w_name = w_code.strip().upper()
-                found_wt = None
-                for wt in WeaponType:
-                    if wt.name == w_name or wt.value == w_name or wt.name.startswith(w_name):
-                        found_wt = wt
-                        break
-                if found_wt is not None:
-                    m.weapon = found_wt
-                    self.text_log.add_message(f"{m.name} readied {found_wt.name}!")
+                c = w_code.strip().upper()
+                if not c:
+                    return
+                w_idx = ord(c[0]) - ord('A')
+                if 0 <= w_idx < len(weapon_types):
+                    success = m.ready_weapon(w_idx, self.asset_mgr)
+                    if success:
+                        self.text_log.add_message(f"Success! {m.name} readied {m.weapon.name}.")
+                    else:
+                        self.text_log.add_message("Cannot ready that weapon!")
                 else:
-                    self.text_log.add_message("Unknown weapon!")
+                    self.text_log.add_message("Invalid weapon selection!")
 
-            cur_w = getattr(m.weapon, "name", str(m.weapon))
-            self.text_log.prompt(f"Ready Weapon for {m.name} (Current: {cur_w})? ", callback=_on_weap)
+            self.text_log.prompt("Ready Weapon? (A-P): ", callback=_on_weap, single_char=True)
 
-        self.text_log.prompt("Ready Weapon: Which member? (1-4): ", callback=_on_member)
+        self.text_log.prompt("Ready Weapon: Which member? (1-4): ", callback=_on_member, single_char=True)
 
     def _search(self) -> None:
         """Search current tile for hidden entrances, fountains, or items."""
@@ -577,7 +599,7 @@ class OverworldScreen(BaseScreen):
             self.text_log.add_message("Volume: Audio subsystem unavailable.")
 
     def _prompt_wear_armor(self) -> None:
-        """Equip armor on selected party member."""
+        """Equip armor on selected party member with A-H selection and inventory tracking."""
         def _on_member(m_str: str) -> None:
             try:
                 idx = int(m_str.strip()) - 1
@@ -589,23 +611,36 @@ class OverworldScreen(BaseScreen):
                 self.text_log.add_message("Invalid member #!")
                 return
 
+            armor_types = list(ArmorType)
+            self.text_log.add_message(f"-- Wear Armor for {m.name} --")
+            for a_idx, at in enumerate(armor_types):
+                letter = chr(ord('A') + a_idx)
+                if at == ArmorType.NONE:
+                    self.text_log.add_message(f"{letter} - Skin")
+                    continue
+                cnt = m.armors.get(at, 0)
+                is_equipped = (m.armor == at)
+                if cnt > 0 or is_equipped:
+                    status_tag = " (worn)" if is_equipped else f" ({cnt})"
+                    self.text_log.add_message(f"{letter} - {at.name.capitalize()}{status_tag}")
+
             def _on_arm(a_code: str) -> None:
-                a_name = a_code.strip().upper()
-                found_at = None
-                for at in ArmorType:
-                    if at.name == a_name or at.value == a_name or at.name.startswith(a_name):
-                        found_at = at
-                        break
-                if found_at is not None:
-                    m.armor = found_at
-                    self.text_log.add_message(f"{m.name} donned {found_at.name}!")
+                c = a_code.strip().upper()
+                if not c:
+                    return
+                a_idx = ord(c[0]) - ord('A')
+                if 0 <= a_idx < len(armor_types):
+                    success = m.wear_armor(a_idx, self.asset_mgr)
+                    if success:
+                        self.text_log.add_message(f"Success! {m.name} wears {m.armor.name}.")
+                    else:
+                        self.text_log.add_message("Cannot wear that armor!")
                 else:
-                    self.text_log.add_message("Unknown armor!")
+                    self.text_log.add_message("Invalid armor selection!")
 
-            cur_a = getattr(m.armor, "name", str(m.armor))
-            self.text_log.prompt(f"Wear Armor for {m.name} (Current: {cur_a})? ", callback=_on_arm)
+            self.text_log.prompt("Wear Armor? (A-H): ", callback=_on_arm, single_char=True)
 
-        self.text_log.prompt("Wear Armor: Which member? (1-4): ", callback=_on_member)
+        self.text_log.prompt("Wear Armor: Which member? (1-4): ", callback=_on_member, single_char=True)
 
     def _prompt_yell(self) -> None:
         """Yell a word or phrase into the world."""
