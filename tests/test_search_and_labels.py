@@ -103,7 +103,9 @@ def test_town_get_chest_adjacent(asset_mgr, party_four):
     assert chest_tile is not None
     town.game_map.set_tile(11, 10, chest_tile)
 
-    initial_gold = party_four.gold
+    opening_member = party_four.members[0]
+    member_gold_before = opening_member.gold
+    party_gold_before = party_four.gold
 
     # Press 'G' to get chest
     town.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_g, unicode="g"))
@@ -111,6 +113,10 @@ def test_town_get_chest_adjacent(asset_mgr, party_four):
     town.text_log.handle_char("1")
     town.text_log.handle_enter()
 
-    assert party_four.gold > initial_gold
+    # Chest gold is credited to the opening member, not the party pool
+    opening_gold_delta = opening_member.gold - member_gold_before
+    assert 10 <= opening_gold_delta <= 66
+    assert party_four.gold == party_gold_before
     assert town.game_map.get_tile(11, 10).name != "chest"
-    assert any("Holds" in msg or "Gold" in msg for msg in town.text_log.history)
+    assert opening_member.gold <= 9999
+    assert any("The Chest Holds: " in msg for msg in town.text_log.history)

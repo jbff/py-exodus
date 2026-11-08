@@ -250,36 +250,44 @@ class DungeonScreen(BaseScreen):
         self.text_log.prompt(prompt_msg, callback=_on_who, single_char=True)
 
     def _get_chest(self) -> None:
-        """Open a treasure chest found on the dungeon floor."""
+        """Open a treasure chest by direction-targeting the adjacent tile."""
         from py_exodus.world.map import DungeonTile
 
-        if self.state.current_tile == DungeonTile.CHEST:
+        def _on_dir(dir_str: str) -> None:
+            direction = Direction.from_name_or_key(dir_str)
+            if direction is None:
+                self.text_log.add_message("Invalid direction!")
+                return
+
+            tx = self.state.x + direction.dx
+            ty = self.state.y + direction.dy
+
+            from py_exodus.world.chests import open_chest
+
+            if self.dungeon_map.get_tile(tx, ty, self.state.z) != DungeonTile.CHEST:
+                self.state._tick_turn()  # Java routes G through finishTurn
+                self.text_log.add_message("Not Here!")
+                return
+
+            self.state._tick_turn()  # Java routes G through finishTurn
+
             def _on_who(who_str: str) -> None:
                 try:
                     idx = int(who_str.strip()) - 1
                 except ValueError:
-                    idx = 0
-                if 0 <= idx < len(self.party.members):
-                    evt = self.state.open_chest(idx, disarm=False)
-                    self._process_event(evt)
-                else:
+                    idx = -1
+                member = self.party.get_member(idx)
+                if member is None:
                     self.text_log.add_message("Invalid member #!")
+                    return
+
+                self.dungeon_map.set_tile(tx, ty, self.state.z, DungeonTile.NOTHING)
+                for line in open_chest(self.party, member, dungeon=True):
+                    self.text_log.add_message(line)
 
             self.text_log.prompt("Who gets the chest? (1-4): ", callback=_on_who, single_char=True)
-        else:
-            self.text_log.add_message("Get: No chest here!")
 
-        if evt.type == DungeonEventType.EXIT_DUNGEON:
-            self.text_log.add_message("Leaving dungeon...")
-            self.exit_screen()
-        elif evt.type == DungeonEventType.COMBAT:
-            c_name = "skeleton"
-            if evt.creature is not None:
-                if hasattr(evt.creature, "tile"):
-                    c_name = evt.creature.tile
-                elif hasattr(evt.creature, "name"):
-                    c_name = evt.creature.name.lower()
-            self._trigger_combat(c_name)
+        self.text_log.prompt("Get: Direction? (N,S,E,W):", callback=_on_dir, single_char=True)
 
     def _trigger_combat(self, creature_name: str) -> None:
         """Launch combat screen from dungeon encounter."""

@@ -928,16 +928,24 @@ def test_overworld_commands_cast_ztats_get_chest_pass(pygame_setup, asset_mgr, s
     overworld.handle_event(evt_z)  # None
     assert overworld.stats_panel.inspect_index is None
 
-    # 3. Get Chest command (G)
+    # 3. Get Chest command (G): picks a member, credits that member's purse (10-66 gold)
     sample_party.x = 10
     sample_party.y = 10
     sample_party.gold = 100
+    opening_member = sample_party.members[0]
+    member_gold_before = opening_member.gold
     sample_party.dynamic_objects = [{"tile": "chest", "x": 10, "y": 10}]
-    evt_g = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_g)
+    evt_g = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_g, unicode="g")
     overworld.handle_event(evt_g)
+    assert overworld.text_log.is_waiting_for_input
+    overworld.text_log.handle_char("1")
+    overworld.text_log.handle_enter()
     assert len(sample_party.dynamic_objects) == 0
-    assert sample_party.gold > 100
-    assert any("Opened chest!" in msg for msg in overworld.text_log.history)
+    assert sample_party.gold == 100
+    opening_gold_delta = opening_member.gold - member_gold_before
+    assert 10 <= opening_gold_delta <= 66
+    assert opening_member.gold <= 9999
+    assert any("The Chest Holds: " in msg for msg in overworld.text_log.history)
 
     # 4. Ignite torch (I)
     sample_party.torches = 2

@@ -248,40 +248,32 @@ class OverworldScreen(BaseScreen):
         prompt_cast_party(self.text_log, self.party, world_map=self.game_map, audio=self.audio)
 
     def _get_chest(self) -> None:
-        """Open chest on party's tile or adjacent tile."""
-        target_obj = None
-        target_idx = -1
-        for idx, obj in enumerate(self.party.dynamic_objects):
-            ox = obj.get("x", -1)
-            oy = obj.get("y", -1)
-            tile = obj.get("tile", "")
-            if tile == "chest" and abs(ox - self.party.x) <= 1 and abs(oy - self.party.y) <= 1:
-                target_obj = obj
-                target_idx = idx
-                break
+        """Get chest: pick the opening member, then open a nearby chest."""
+        from py_exodus.world.chests import ChestNotFound, open_chest, take_chest_object
 
-        if target_obj is None or target_idx < 0:
-            self.text_log.add_message("No chest here!")
-            return
+        def _on_who(who_str: str) -> None:
+            try:
+                idx = int(who_str.strip()) - 1
+                member = self.party.get_member(idx)
+            except ValueError:
+                member = None
 
-        self.party.dynamic_objects.pop(target_idx)
-        import random
-        # 20% trap chance
-        trap_roll = random.random()
-        if trap_roll < 0.10:
-            self.text_log.add_message("TRAP! Acid burns party!")
-            for m in self.party.members:
-                m.hp = max(1, m.hp - 10)
-        elif trap_roll < 0.20:
-            self.text_log.add_message("TRAP! Poison gas released!")
-            for m in self.party.members:
-                m.status = Status.POISON
+            if member is None:
+                self.text_log.add_message("Invalid member #!")
+                return
 
-        gold_found = random.randint(50, 200)
-        self.party.gold += gold_found
-        if self.audio is not None:
-            self.audio.play_sfx("trigger")
-        self.text_log.add_message(f"Opened chest! Found {gold_found} gold pieces.")
+            try:
+                take_chest_object(self.party, self.party.x, self.party.y)
+            except ChestNotFound:
+                self.text_log.add_message("Not Here!")
+                return
+
+            for line in open_chest(self.party, member):
+                self.text_log.add_message(line)
+            if self.audio is not None:
+                self.audio.play_sfx("trigger")
+
+        self.text_log.prompt("Who gets the chest? (1-4): ", callback=_on_who, single_char=True)
 
     def _ignite_torch(self) -> None:
         """Light a torch from inventory."""
