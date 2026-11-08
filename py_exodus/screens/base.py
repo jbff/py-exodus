@@ -37,6 +37,41 @@ class BaseScreen(ABC):
         self.is_active = False
         self.next_screen = self.return_screen
 
+    def check_party_death(self) -> bool:
+        """Route a fully-dead party to the StartScreen game over.
+
+        Java truth: ``exodus/GameScreen.java:433-446`` — when combat ends (or
+        a ``PartyDeathException`` from ``Party.java:556-577`` surfaces),
+        ``partyDeath()`` sets the start screen without reviving anyone.
+
+        This is the single screening entry point for the Task 2 death flow:
+        call it immediately after any damage application (tile effects,
+        starvation, chest traps, monster attacks, spells — including damage
+        applied through the ``chests`` pipeline, which never raises itself)
+        and return early when it returns True. Returns True when the party
+        is dead and the game-over transition was scheduled.
+        """
+        party = getattr(self, "party", None)
+        if party is None or not party.is_party_dead():
+            return False
+
+        from py_exodus.screens.start import StartScreen
+
+        start_screen = StartScreen(
+            asset_mgr=getattr(self, "asset_mgr", None),
+            audio=getattr(self, "audio", None),
+            party=party,
+            manager=self.manager,
+            game_over=True,
+        )
+        if self.manager is not None:
+            self.manager.set_screen(start_screen)
+        else:
+            self.is_finished = True
+            self.is_active = False
+            self.next_screen = start_screen
+        return True
+
     def on_enter(self) -> None:
         """Hook called when screen becomes the active screen."""
         self.is_active = True

@@ -438,46 +438,15 @@ class CombatScreen(BaseScreen):
                 self.exit_screen()
 
     def _handle_defeat_exit(self) -> None:
-        """Handle wipeout defeat: warp party to Castle British, revive, and transition to TownScreen."""
-        self.party.map_id = 1
-        self.party.x = 32
-        self.party.y = 61
-        self.party.revive_all()
+        """Handle wipeout defeat: combat ends as a loss → game over.
 
-        from py_exodus.screens.overworld import OverworldScreen
-        from py_exodus.screens.town import TownScreen
-
-        ow_screen = self.return_screen
-        if isinstance(ow_screen, TownScreen) and isinstance(ow_screen.return_screen, OverworldScreen):
-            ow_screen = ow_screen.return_screen
-
-        if not isinstance(ow_screen, OverworldScreen):
-            ow_screen = OverworldScreen(
-                party=self.party,
-                map_id=0,
-                asset_mgr=self.asset_mgr,
-                audio=self.audio,
-                start_x=44,
-                start_y=20,
-                manager=self.manager,
-            )
-
-        castle_screen = TownScreen(
-            party=self.party,
-            map_id=1,
-            asset_mgr=self.asset_mgr,
-            audio=self.audio,
-            return_screen=ow_screen,
-            start_x=32,
-            start_y=61,
-            manager=self.manager,
-        )
-
-        self.is_finished = True
-        self.is_active = False
-        self.next_screen = castle_screen
-        if self.manager is not None:
-            self.manager.set_screen(castle_screen)
+        Java truth: ``exodus/GameScreen.java:433-446`` — ``endCombat`` finds
+        ``!isAnyoneAlive()`` and calls ``partyDeath()`` → start screen, and
+        ``exodus/CombatScreen.java:562-589`` ends combat without any revival.
+        No Castle British respawn and no ``revive_all``.
+        """
+        self.text_log.add_message("Thy party has perished!")
+        self.check_party_death()
 
     def update(self, dt: float) -> None:
         self.flash_timer = max(0.0, self.flash_timer - dt)

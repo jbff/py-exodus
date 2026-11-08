@@ -14,6 +14,7 @@ from py_exodus.constants import (
     Transport,
     WeaponType,
 )
+from py_exodus.entities.party import PartyDeathException
 from py_exodus.screens.base import BaseScreen
 from py_exodus.ui.renderer import WorldRenderer, can_move_to
 from py_exodus.ui.stats_panel import StatsPanel
@@ -640,8 +641,15 @@ class TownScreen(BaseScreen):
                 floor_tile = TileDef(index=3, name="floor")
                 self.game_map.set_tile(chest_pos[0], chest_pos[1], floor_tile)
 
-            for line in open_chest(self.party, member):
-                self.text_log.add_message(line)
+            # Task 2 death flow: a chest trap (gas) can leave the whole party
+            # dead; the pipeline itself never raises, so route on the post-check
+            # (Java GameScreen.java:444-446 partyDeath → start screen).
+            try:
+                for line in open_chest(self.party, member):
+                    self.text_log.add_message(line)
+            except PartyDeathException:
+                pass
+            self.check_party_death()
 
         self.text_log.prompt("Who gets the chest? (1-4): ", callback=_on_who, single_char=True)
 

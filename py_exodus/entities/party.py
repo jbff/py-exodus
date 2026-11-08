@@ -12,6 +12,18 @@ from py_exodus.constants import (
 from py_exodus.entities.character import Character
 
 
+class PartyDeathException(Exception):
+    """Raised when non-combat damage leaves every party member dead.
+
+    Java truth: ``exodus/Party.java:556-577`` — ``PartyMember.applyDamage``
+    throws ``PartyDeathException`` when ``!combatRelatedDamage`` damage kills
+    the last living member. Screens catch it and route to the start screen
+    (``GameScreen.java:444-446`` ``partyDeath()``); combat-related damage never
+    raises here because a combat loss is routed when combat ends
+    (``CombatScreen.java:562-589`` → ``GameScreen.java:433-446``).
+    """
+
+
 class PartyMember:
     """Character joined into an active adventuring Party with combat and turn state."""
 
@@ -54,6 +66,38 @@ class PartyMember:
             object.__setattr__(self, name, value)
         else:
             setattr(self.character, name, value)
+
+    def apply_damage(self, damage: int, combat_related_damage: bool = False) -> bool:
+        """Apply damage to this member, marking them DEAD at 0 hp.
+
+        Java truth: ``exodus/Party.java:556-577`` ``PartyMember.applyDamage``.
+        This is the single damage-application chokepoint for the party death
+        flow — Tasks 5 (tick engine), 6, 12, and 13 must route every direct
+        damage path (starvation, tile effects, traps, monster attacks,
+        spells) through it. A non-combat blow that leaves the whole party
+        dead raises ``PartyDeathException`` (only when the member belongs to
+        an owned ``Party``); the screen that applied the damage catches it
+        and calls ``BaseScreen.check_party_death()`` to route to the start
+        screen. Returns False (no effect) for a member already DEAD.
+        """
+        if self.is_dead():
+            return False
+
+        new_hp = self.hp - damage
+        if new_hp < 0:
+            self.status = Status.DEAD
+            new_hp = 0
+        self.hp = new_hp
+
+        if (
+            not combat_related_damage
+            and self.is_dead()
+            and self.party is not None
+            and not self.party.is_anyone_alive()
+        ):
+            raise PartyDeathException()
+
+        return True
 
     @classmethod
     def from_character(cls, char: Character, party: Party | None = None) -> PartyMember:

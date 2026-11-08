@@ -12,6 +12,7 @@ from py_exodus.constants import (
     MapType,
     Spell,
 )
+from py_exodus.entities.party import PartyDeathException
 from py_exodus.screens.base import BaseScreen
 from py_exodus.ui.stats_panel import StatsPanel
 from py_exodus.ui.text_log import (
@@ -166,6 +167,12 @@ class DungeonScreen(BaseScreen):
             self.stats_panel.inspect_index = None
 
     def _process_event(self, evt: DungeonEvent) -> None:
+        # Task 2 death flow: pit traps, fountains, marks, and orbs apply
+        # damage before the event surfaces — a wiped party routes here
+        # (Java GameScreen.java:433-446 partyDeath → start screen).
+        if self.check_party_death():
+            return
+
         if evt.message:
             self.text_log.add_message(evt.message)
 
@@ -242,8 +249,14 @@ class DungeonScreen(BaseScreen):
                 return
 
             if action is not None:
-                evt = action(idx)
-                self._process_event(evt)
+                try:
+                    evt = action(idx)
+                except PartyDeathException:
+                    # Java: catch → partyDeath(); the event's post-check routes it
+                    evt = None
+                if evt is not None:
+                    self._process_event(evt)
+                self.check_party_death()
             else:
                 self.text_log.add_message("Search: Thou searchest the damp corridor... Nothing here!")
 
@@ -273,8 +286,15 @@ class DungeonScreen(BaseScreen):
                 return
 
             self.dungeon_map.set_tile(x, y, z, DungeonTile.NOTHING)
-            for line in open_chest(self.party, member, dungeon=True):
-                self.text_log.add_message(line)
+            # Task 2 death flow: a chest trap (gas) can leave the whole party
+            # dead; the pipeline itself never raises, so route on the post-check
+            # (Java GameScreen.java:444-446 partyDeath → start screen).
+            try:
+                for line in open_chest(self.party, member, dungeon=True):
+                    self.text_log.add_message(line)
+            except PartyDeathException:
+                pass
+            self.check_party_death()
 
         self.text_log.prompt("Who gets the chest? (1-4): ", callback=_on_who, single_char=True)
 

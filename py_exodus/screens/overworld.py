@@ -19,6 +19,7 @@ from py_exodus.constants import (
     Transport,
     WeaponType,
 )
+from py_exodus.entities.party import PartyDeathException
 from py_exodus.screens.base import BaseScreen
 from py_exodus.ui.renderer import WorldRenderer, can_move_to
 from py_exodus.ui.stats_panel import StatsPanel
@@ -268,8 +269,16 @@ class OverworldScreen(BaseScreen):
                 self.text_log.add_message("Not Here!")
                 return
 
-            for line in open_chest(self.party, member):
-                self.text_log.add_message(line)
+            # Task 2 death flow: a chest trap (gas) can leave the whole party
+            # dead; the pipeline itself never raises, so route on the post-check
+            # (Java GameScreen.java:444-446 partyDeath → start screen).
+            try:
+                for line in open_chest(self.party, member):
+                    self.text_log.add_message(line)
+            except PartyDeathException:
+                pass
+            if self.check_party_death():
+                return
             if self.audio is not None:
                 self.audio.play_sfx("trigger")
 
@@ -796,14 +805,8 @@ class OverworldScreen(BaseScreen):
             if self.audio is not None:
                 self.audio.play_sfx("walk_normal")
 
-            # Check food consumption
-            if self.party.moves % 40 == 0:
-                if self.party.food > 0:
-                    self.party.food -= 1
-                else:
-                    self.text_log.add_message("Starving! Party loses health.")
-                    for m in self.party.members:
-                        m.character.hp = max(0, m.character.hp - 2)
+            # Check food consumption (and party death by starvation)
+            self._check_food_consumption()
 
             # Check moongate teleports
             self._check_moongates()
@@ -1014,13 +1017,24 @@ class OverworldScreen(BaseScreen):
                         self.audio.play_sfx("moongate_flash")
 
     def _check_food_consumption(self) -> None:
+        """Consume food on every 40th move; starve the party when depleted.
+
+        Java truth: starvation lands on the last living member through
+        ``PartyMember.applyDamage`` (exodus/Party.java:556-577); a party wipe
+        routes the game over (exodus/GameScreen.java:433-446).
+        """
         if self.party.moves % 40 == 0:
             if self.party.food > 0:
                 self.party.food -= 1
             else:
                 self.text_log.add_message("Starving! Party loses health.")
-                for m in self.party.members:
-                    m.character.hp = max(0, m.character.hp - 2)
+                try:
+                    for m in self.party.members:
+                        m.apply_damage(2)
+                except PartyDeathException:
+                    # Java: catch → partyDeath(); the post-check routes identically
+                    pass
+            self.check_party_death()
 
     def _spawn_wandering_creature(self) -> None:
         """Spawn a wandering creature near the edge of the viewport."""

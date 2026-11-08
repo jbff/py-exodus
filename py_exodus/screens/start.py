@@ -120,12 +120,15 @@ class StartScreen(BaseScreen):
         audio: AudioManager | None = None,
         party: Party | None = None,
         return_screen: BaseScreen | None = None,
+        game_over: bool = False,
         **kwargs: Any,
     ) -> None:
         super().__init__(return_screen=return_screen, **kwargs)
         self.asset_mgr = asset_mgr
         self.audio = audio
         self.party = party
+        # Task 2 death flow: True when routed here because the party perished
+        self.game_over: bool = game_over
 
         self.options = [
             ("Journey Onward", self._start_journey),
@@ -216,6 +219,11 @@ class StartScreen(BaseScreen):
             sub_surf,
             ((w - sub_surf.get_width()) // 2, 50 * scale),
         )
+
+        # Game-over messaging when the whole party perished (Task 2 death flow)
+        if self.game_over:
+            over_surf = sub_font.render("Thy party has perished!", True, EGA_BRIGHT_RED)
+            surface.blit(over_surf, ((w - over_surf.get_width()) // 2, 70 * scale))
 
         # Menu options
         menu_y = 90 * scale
