@@ -20,6 +20,7 @@ from py_exodus.screens.final import (
     apply_exodus_card_tiles,
     prompt_insert_card,
 )
+from py_exodus.screens.vendor_dialog import start_vendor_dialog
 from py_exodus.ui.renderer import WorldRenderer, can_move_to
 from py_exodus.ui.stats_panel import StatsPanel
 from py_exodus.ui.text_log import (
@@ -32,7 +33,7 @@ if TYPE_CHECKING:
     from py_exodus.assets import AssetManager
     from py_exodus.audio import AudioManager
     from py_exodus.entities.defs import VendorDef
-    from py_exodus.entities.party import Party
+    from py_exodus.entities.party import Party, PartyMember
     from py_exodus.world.map import GameMap, MapNpc
 
 
@@ -71,6 +72,10 @@ class TownScreen(BaseScreen):
         self.stats_panel = StatsPanel()
         self.text_log = TextLog(max_lines=5, wrap_width=28)
 
+        # Town-local creature objects (e.g. horses spawned by the horse
+        # vendor); Java keeps map creatures on the map object, not the save.
+        self.creatures: list[dict[str, Any]] = []
+
         town_name = getattr(self.game_map, "name", str(map_id)).title()
         self.text_log.add_message(f"Entering {town_name}...")
         self.text_log.add_message("Guards and citizens walk the streets.")
@@ -106,6 +111,50 @@ class TownScreen(BaseScreen):
             self.audio.play_music("exodus")
         else:
             self.audio.play_music("towns")
+
+    def get_current_map_coords(self) -> tuple[int, int]:
+        """Party-standing tile in this town (Java GameScreen.getCurrentMapCoords)."""
+        return (self.avatar_x, self.avatar_y)
+
+    def add_creature(self, creature: dict[str, Any]) -> None:
+        """Add a map creature object (Java Map.addCreature)."""
+        self.creatures.append(creature)
+
+    def board(self, x: int, y: int) -> None:
+        """Board a transport object on the tile (Java GameScreen.java:945-979)."""
+        if self.party.transport != Transport.FOOT:
+            self.text_log.add_message("Board: Can't!")
+            return
+
+        # Frigate object on the party's exact tile
+        for idx, obj in enumerate(self.party.dynamic_objects):
+            tile = str(obj.get("tile", "")).lower()
+            if tile in ("frigate", "ship") and obj.get("x") == x and obj.get("y") == y:
+                self.party.dynamic_objects.pop(idx)
+                self.party.transport = Transport.SHIP
+                if self.party.last_ship is not obj:
+                    self.party.adjust_ship_hull(50)
+                self.party.last_ship = obj
+                if self.audio is not None:
+                    self.audio.play_sfx("trigger")
+                self.text_log.add_message("Board Frigate!")
+                return
+
+        # Horse creature on the party's exact tile
+        for creature in self.creatures:
+            if (
+                str(creature.get("tile", "")).lower() == "horse"
+                and creature.get("x") == x
+                and creature.get("y") == y
+            ):
+                self.creatures.remove(creature)
+                self.party.transport = Transport.HORSE
+                if self.audio is not None:
+                    self.audio.play_sfx("trigger")
+                self.text_log.add_message("Mount Horse!")
+                return
+
+        self.text_log.add_message("Board What?")
 
     def handle_event(self, event: pygame.event.Event) -> None:
         if event.type != pygame.KEYDOWN:
@@ -404,123 +453,18 @@ class TownScreen(BaseScreen):
         if self.audio is not None:
             self.audio.play_music("shopping")
 
-        v_type = (vendor.vendor_type or "").upper()
-
-        # Specialty Tavern Dialogue & Clues
-        if v_type == "TAVERNINFO":
-            spec_food = None
-            ale_item = None
-            for i in vendor.items:
-                if str(getattr(i, "item_type", "")).upper() == "FOOD":
-                    if i.name == vendor.generic_field1:
-                        spec_food = i
-                    else:
-                        ale_item = i
-
-            food_name = vendor.generic_field1 or "Food"
-            food_price = spec_food.price if spec_food else 1
-            ale_price = ale_item.price if ale_item else 2
-
-            self.text_log.add_message(f"{vendor.owner} says: Welcome to {vendor.name}")
-
-            def _on_food_or_ale(choice_str: str) -> None:
-                c = choice_str.strip().lower()
-                if c.startswith("f"):
-                    def _on_plates(qty_str: str) -> None:
-                        try:
-                            qty = int(qty_str.strip())
-                        except ValueError:
-                            qty = 1
-                        cost = food_price * qty
-                        if self.party.gold < cost:
-                            self.text_log.add_message("Thou cannot afford that!")
-                        else:
-                            self.party.gold -= cost
-                            active = buyer or self.party.active_member
-                            if active is not None:
-                                active.food += qty
-                            else:
-                                self.party.food += qty
-                            self.text_log.add_message("Here ye arr.")
-                        self._play_town_music()
-
-                    self.text_log.prompt(f"Our specialty is {food_name} ({food_price}gp). How many plates?", callback=_on_plates)
-                elif c.startswith("a"):
-                    def _on_pay(pay_str: str) -> None:
-                        try:
-                            you_pay = int(pay_str.strip())
-                        except ValueError:
-                            you_pay = ale_price
-
-                        if self.party.gold < you_pay:
-                            self.text_log.add_message("Thou dost not have enough gold!")
-                            self._play_town_music()
-                            return
-
-                        if you_pay < ale_price:
-                            self.text_log.add_message("Won't pay, eh. Ya scum, be gone fore ey call the guards!")
-                            self._play_town_music()
-                            return
-
-                        self.party.gold -= you_pay
-                        self.text_log.add_message("Here ye arr.")
-                        tip = you_pay - ale_price
-                        if tip > 0:
-                            clue_item = None
-                            for i in vendor.items:
-                                if str(getattr(i, "item_type", "")).upper() == "TAVERNINFO":
-                                    if tip // 10 == i.price // 10:
-                                        clue_item = i
-                                        break
-                            if clue_item and clue_item.description:
-                                desc = clue_item.description
-                                if "%s" in desc:
-                                    desc = desc % vendor.owner
-                                self.text_log.add_message(desc)
-                            else:
-                                self.text_log.add_message("Thank you kindly.")
-                        self._play_town_music()
-
-                    self.text_log.prompt(f"Here's a mug of our best. That'll be {ale_price}gp. You pay?", callback=_on_pay)
-                else:
-                    self.text_log.add_message("See ya mate!")
-                    self._play_town_music()
-
-            self.text_log.prompt("What'll it be, Food er Ale?", callback=_on_food_or_ale, single_char=True)
-            return
-
-        # Specialty Oracle Dialogue & Prophecies
-        if v_type == "ORACLEINFO":
-            self.text_log.add_message(f"{vendor.owner}: Prophet of Life!")
-
-            def _on_offering(off_str: str) -> None:
-                try:
-                    num = int(off_str.strip())
-                except ValueError:
-                    num = 1
-                offering = num * 100
-                if self.party.gold < offering:
-                    self.text_log.add_message("Thou dost not have enough gold!")
-                    self._play_town_music()
-                    return
-
-                self.party.gold -= offering
-                prophecy_item = None
-                for i in vendor.items:
-                    if str(getattr(i, "item_type", "")).upper() == "ORACLEINFO":
-                        if i.price == offering:
-                            prophecy_item = i
-                            break
-
-                if prophecy_item and prophecy_item.description:
-                    desc = prophecy_item.description
-                    if "%s" in desc:
-                        desc = desc % vendor.owner
-                    self.text_log.add_message(desc)
-                self.text_log.add_message("Fare thee well and good luck!")
-                self._play_town_music()
-
-            self.text_log.prompt("How many 100 gp is your offering?", callback=_on_offering, single_char=True)
+        # Per-class vendor dialogs (Java VendorClassSet.getVendorImpl,
+        # vendor/VendorClassSet.java:58-94): FOOD, TAVERNINFO, ORACLEINFO and
+        # HORSE run dedicated state machines; not-yet-ported classes fall
+        # through to the generic menu below.
+        shopper = buyer or self.party.active_member
+        if shopper is not None and start_vendor_dialog(
+            vendor,
+            shopper,
+            self.text_log,
+            screen=self,
+            on_end=self._play_town_music,
+        ):
             return
 
         self.text_log.add_message(f"Welcome to {vendor.name}!")
@@ -649,7 +593,11 @@ class TownScreen(BaseScreen):
                 self.text_log.add_message("Invalid member #!")
                 return
 
-            from py_exodus.world.chests import ChestNotFound, open_chest, take_chest_object
+            from py_exodus.world.chests import (
+                ChestNotFound,
+                open_chest,
+                take_chest_object,
+            )
 
             try:
                 take_chest_object(self.party, px, py)
