@@ -275,7 +275,7 @@ class Spell(Enum):
     DOR_ACRON = ("D", 15, "Down one dungeon level", "wizard", 0x0AE, 0x08)
     SUR_ACRON = ("E", 20, "Up one dungeon level", "wizard", 0x0AE, 0x08)
     FULGAR = ("F", 25, "Fireball", "wizard", 0x0AE, 0x02)
-    DAG_ACRON = ("G", 30, "Random teleport on surface or combat", "wizard", 0x0AE, 0x03)
+    DAG_ACRON = ("G", 30, "Random teleport on surface", "wizard", 0x0AE, 0x01)
     MENTAR = ("H", 35, "Magic missile", "wizard", 0x0AE, 0x02)
     PABULUM = ("I", 40, "Feeds the many", "wizard", 0x0A6, 0xFF)
     FAL_DIVI = ("J", 45, "Cast a cleric spell", "wizard", 0x0A6, 0xFF)

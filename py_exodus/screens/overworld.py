@@ -301,7 +301,20 @@ class OverworldScreen(BaseScreen):
 
     def _prompt_cast(self) -> None:
         """Prompt active member to cast an overland spell."""
-        prompt_cast_party(self.text_log, self.party, world_map=self.game_map, audio=self.audio)
+        prompt_cast_party(
+            self.text_log,
+            self.party,
+            world_map=self.game_map,
+            audio=self.audio,
+            view_callback=self._show_vieda_view,
+        )
+
+    def _show_vieda_view(self) -> None:
+        """Java SpellUtil.spellView (SpellUtil.java:494-499) hands input to the
+        peer-gem adapter — the surrounding-area survey, without consuming a
+        gem (unlike the P command)."""
+        m_name = getattr(self.game_map, "name", "Sosaria")
+        self.text_log.add_message(f"Gem vision: {m_name} at X={self.party.x}, Y={self.party.y}.")
 
     def _get_chest(self) -> None:
         """GET: pick the opening member, then check ONLY the party's own tile

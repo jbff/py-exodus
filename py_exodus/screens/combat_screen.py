@@ -147,10 +147,27 @@ class CombatScreen(BaseScreen):
             self._prompt_attack()
         elif event.key == pygame.K_c:  # Cast command
             self._prompt_cast()
+        elif event.key == pygame.K_n:  # Negate time: burn a powder for QUICKNESS 6
+            self._negate_time()
         elif event.key == pygame.K_r:  # Ready weapon
             self._prompt_ready_weapon()
         elif event.key == pygame.K_w:  # Wear armor
             self._prompt_wear_armor()
+
+    def _negate_time(self) -> None:
+        """Java CombatScreen.negateTime (CombatScreen.java:331-332, 503-514):
+        the first member holding powder burns one for a 6-turn QUICKNESS
+        aura; with none held the log reads "None!". N consumes no combat turn.
+        """
+        from py_exodus.aura import AuraType
+
+        for pm in self.party.members:
+            if getattr(pm, "powder", 0) > 0:
+                pm.powder -= 1
+                self.text_log.add_message("Stop time with a powder!")
+                self.party.aura.set(AuraType.QUICKNESS, 6)
+                return
+        self.text_log.add_message("None!")
 
     def _prompt_attack(self) -> None:
         """Prompt active member for attack direction."""

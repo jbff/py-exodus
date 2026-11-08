@@ -1,5 +1,4 @@
 """Magic & Spellcasting System for py-exodus (Ultima III).
-
 Supports all 32 classic Ultima III spells (16 Clerical Prayers, 16 Wizard Sorceries),
 validating profession permissions, MP costs, free-spell limits, and target conditions.
 Connects with tactical combat (CombatArena) and overworld/dungeon exploration.
@@ -10,9 +9,9 @@ from dataclasses import dataclass, field
 import random
 from typing import TYPE_CHECKING, Any
 
+from py_exodus.aura import AuraType
 from py_exodus.combat.resolver import trace_projectile_path
 from py_exodus.constants import (
-    DUNGEON_LEVELS,
     Direction,
     MapType,
     Profession,
@@ -40,6 +39,9 @@ class SpellResult:
     target_pos: tuple[int, int] | None = None
     projectile_path: list[tuple[int, int]] = field(default_factory=list)
     hit: bool = False
+    # SEQUITU / SUR_ACRON-at-level-0 leave the dungeon; the owning screen
+    # performs the transition (Java setScreen(dngScreen.gameScreen)).
+    exit_dungeon: bool = False
 
 
 # Spell name and synonym lookup table
@@ -112,6 +114,8 @@ UNDEAD_TILES = {
     "undead",
 }
 
+# Java SpellUtil.spellRepond matches the single tile "orc" exactly; this
+# broader historical set is kept for callers outside the spell table.
 ORC_TILES = {
     "orc",
     "goblin",
@@ -125,6 +129,34 @@ DIRECTIONAL_SPELLS = {
     Spell.MENTAR,
     Spell.DECORP,
     Spell.EXCUUN,
+    # Java requires a direction prompt for APPAR_UNEM although the value is
+    # then ignored (SpellUtil.java:40-50, SpellInputProcessor.java:52-59).
+    Spell.APPAR_UNEM,
+}
+
+# The spells whose Java effect branch is a directional bolt
+# (SpellUtil.spellMagicAttack).
+_PROJECTILE_SPELLS = DIRECTIONAL_SPELLS - {Spell.APPAR_UNEM}
+
+# Java spells whose effect branches never call finishPlayerTurn — the caster
+# acts again — plus the effect-less REPLACE ME / default cases (SpellUtil.java
+# 87-237). Only PABULUM and ALTAIR are actually castable in combat; the rest
+# are dungeon/surface/dungeon-screen spells carried here for parity.
+NO_TURN_SPELLS = {
+    Spell.LORUM,
+    Spell.PABULUM,
+    Spell.ALTAIR,
+    Spell.DAG_ACRON,
+    Spell.REC_SU,
+    Spell.REC_DU,
+    Spell.SUR_ACRON,
+    Spell.DOR_ACRON,
+    Spell.LIB_REC,
+    Spell.SEQUITU,
+    Spell.VIEDA,
+    Spell.LUMINAE,
+    Spell.SOMINAE,
+    Spell.FAL_DIVI,
 }
 
 TARGETED_MEMBER_SPELLS = {
@@ -243,17 +275,20 @@ def cast_spell(
             spell=resolved_spell,
         )
 
-    # 5. Check free combat spell limit (REPOND & PONTORI are once per combat encounter)
-    is_free_combat_spell = resolved_spell in (Spell.REPOND, Spell.PONTORI)
-    if arena is not None and is_free_combat_spell:
-        if getattr(caster, "used_free_spell_in_combat", False):
-            return SpellResult(
-                success=False,
-                message="Can't!",
-                spell=resolved_spell,
-            )
+    # Direction for the cast: Java validates the direction requirement before
+    # the mana check (SpellUtil.java:40-57).
+    dir_val: Direction | None = None
+    if target_dir is not None:
+        dir_val = target_dir if isinstance(target_dir, Direction) else Direction.from_name_or_key(target_dir)
 
-    # 6. Check magic points (MP)
+    if resolved_spell in DIRECTIONAL_SPELLS and dir_val is None:
+        return SpellResult(
+            success=False,
+            message="Thou must indicate a direction to cast the spell!",
+            spell=resolved_spell,
+        )
+
+    # 5. Check magic points (Java SpellUtil.java:57) — before free-spell use.
     mp_cost = resolved_spell.cost
     if caster_char.mp < mp_cost:
         return SpellResult(
@@ -262,9 +297,34 @@ def cast_spell(
             spell=resolved_spell,
         )
 
-    # 7. Check location permissions if environment is specified
+    # 6. Free combat spell flag: Java sets usedFreeSpellInCombat BEFORE the
+    #    NEGATE check, so a negated PONTORI/REPOND still burns the free spell
+    #    (SpellUtil.java:62-76).
+    is_free_combat_spell = resolved_spell in (Spell.REPOND, Spell.PONTORI)
+    if arena is not None and is_free_combat_spell:
+        if getattr(caster, "used_free_spell_in_combat", False):
+            return SpellResult(
+                success=False,
+                message="Can't!",
+                spell=resolved_spell,
+            )
+        setattr(caster, "used_free_spell_in_combat", True)
+        if hasattr(caster_char, "used_free_spell_in_combat"):
+            setattr(caster_char, "used_free_spell_in_combat", True)
+
+    # 7. NEGATE aura blocks all casting with mana unspent
+    #    (Java SpellUtil.java:73-76 — the deductive adjustMagic comes after).
+    aura = getattr(active_party, "aura", None)
+    if aura is not None and aura.get_type() == AuraType.NEGATE:
+        return SpellResult(
+            success=False,
+            message="Spell is negated!",
+            spell=resolved_spell,
+        )
+
+    # 8. Check location permissions if environment is specified
     if arena is not None:
-        if not (resolved_spell == Spell.DAG_ACRON or resolved_spell.can_cast_location(MapType.COMBAT)):
+        if not resolved_spell.can_cast_location(MapType.COMBAT):
             return SpellResult(
                 success=False,
                 message=f"{resolved_spell.name} cannot be cast in combat!",
@@ -272,6 +332,8 @@ def cast_spell(
             )
     elif world_map is not None:
         m_type = getattr(world_map, "map_type", None)
+        if m_type is None and hasattr(world_map, "dmap"):
+            m_type = getattr(world_map.dmap, "map_type", None)
         if isinstance(m_type, str):
             try:
                 m_type = MapType(m_type)
@@ -283,18 +345,6 @@ def cast_spell(
                 message=f"{resolved_spell.name} cannot be cast here!",
                 spell=resolved_spell,
             )
-
-    # 8. Check direction requirement
-    dir_val: Direction | None = None
-    if target_dir is not None:
-        dir_val = target_dir if isinstance(target_dir, Direction) else Direction.from_name_or_key(target_dir)
-
-    if arena is not None and resolved_spell in DIRECTIONAL_SPELLS and dir_val is None:
-        return SpellResult(
-            success=False,
-            message="Thou must indicate a direction to cast the spell!",
-            spell=resolved_spell,
-        )
 
     # 9. Pre-validate targeted restorative spells before consuming MP
     if resolved_spell == Spell.SANCTU:
@@ -351,10 +401,6 @@ def cast_spell(
 
     # 10. Deduct MP and flag free spell usage
     caster_char.mp = max(0, caster_char.mp - mp_cost)
-    if arena is not None and is_free_combat_spell:
-        setattr(caster, "used_free_spell_in_combat", True)
-        if hasattr(caster_char, "used_free_spell_in_combat"):
-            setattr(caster_char, "used_free_spell_in_combat", True)
 
     # 11. Execute spell effect
     return _apply_spell_effect(
@@ -382,7 +428,9 @@ def _apply_spell_effect(
     """Dispatch and execute specific spell mechanics."""
     # --- Clerical Prayer Spells ---
     if spell == Spell.SANCTU:
-        amount = min(target_char.max_hp - target_char.hp, random.randint(10, 25))
+        # Java Party.java:417-419 — 75 + (rand.nextInt(256) % 25), capped at
+        # max health (Party.java:432-435).
+        amount = min(target_char.max_hp - target_char.hp, 75 + (random.randrange(256) % 25))
         target_char.hp += amount
         return SpellResult(
             success=True,
@@ -433,16 +481,29 @@ def _apply_spell_effect(
     if spell == Spell.PONTORI:
         killed_count = 0
         if arena is not None:
-            for m in arena.monsters:
+            level = caster_char.level
+            for m in list(arena.monsters):
+                # Java spellUndead (SpellUtil.java:387-438): the 50/65/80/100%
+                # roll runs for every creature; only the undead may turn.
+                turn = random.randrange(100) >= 50
+                if level > 5:
+                    turn = random.randrange(100) >= 35
+                if level > 10:
+                    turn = random.randrange(100) >= 20
+                if level > 15:
+                    turn = True
+
                 is_undead = (
-                    getattr(m.definition, "undead", False)
-                    or m.tile.lower() in UNDEAD_TILES
-                    or any(t in m.name.lower() for t in UNDEAD_TILES)
+                    getattr(getattr(m, "definition", None), "undead", False)
+                    or getattr(m, "undead", False)
                 )
-                if not m.is_dead and is_undead:
-                    m.take_damage(m.hp)
-                    arena.last_monster_death_pos = (m.x, m.y)
-                    killed_count += 1
+                if turn and is_undead and not m.is_dead:
+                    m.take_damage(m.basehp)
+                    if m.is_dead:
+                        arena.last_monster_death_pos = (m.x, m.y)
+                        # XP flows with the damage outcome (dealDamage path)
+                        caster_char.exp = min(9999, caster_char.exp + getattr(m, "exp", 0))
+                        killed_count += 1
             return SpellResult(
                 success=True,
                 message=f"Holy power turns {killed_count} undead creatures!",
@@ -454,12 +515,24 @@ def _apply_spell_effect(
     if spell == Spell.REPOND:
         killed_count = 0
         if arena is not None:
-            for m in arena.monsters:
-                is_orc = m.tile.lower() in ORC_TILES or any(t in m.name.lower() for t in ORC_TILES)
-                if not m.is_dead and is_orc:
-                    m.take_damage(m.hp)
-                    arena.last_monster_death_pos = (m.x, m.y)
-                    killed_count += 1
+            level = caster_char.level
+            for m in list(arena.monsters):
+                # Java spellRepond (SpellUtil.java:440-492): same roll ladder,
+                # but only the single tile "orc" is eligible.
+                turn = random.randrange(100) >= 50
+                if level > 5:
+                    turn = random.randrange(100) >= 35
+                if level > 10:
+                    turn = random.randrange(100) >= 20
+                if level > 15:
+                    turn = True
+
+                if turn and m.tile == "orc" and not m.is_dead:
+                    m.take_damage(m.basehp)
+                    if m.is_dead:
+                        arena.last_monster_death_pos = (m.x, m.y)
+                        caster_char.exp = min(9999, caster_char.exp + getattr(m, "exp", 0))
+                        killed_count += 1
             return SpellResult(
                 success=True,
                 message=f"Repond destroys {killed_count} goblinoid creatures!",
@@ -468,8 +541,9 @@ def _apply_spell_effect(
             )
         return SpellResult(success=True, message="Repond resonates across the area.", spell=spell)
 
-    # Directional projectile attacks (MITTAR, FULGAR, MENTAR, DECORP, EXCUUN)
-    if spell in DIRECTIONAL_SPELLS:
+    # Directional projectile attacks (MITTAR, FULGAR, MENTAR, DECORP, EXCUUN).
+    # APPAR_UNEM shares the direction *prompt* but is a chest spell, not a bolt.
+    if spell in _PROJECTILE_SPELLS:
         return _apply_projectile_attack(spell, caster_char, caster_entity, target_dir, arena)
 
     # Mass group damage spells (NOXUM, DAG_MENTAR, NECORP, ZXKUQYB, UNSPEAKABLE)
@@ -478,83 +552,86 @@ def _apply_spell_effect(
 
     # Time Stop / Freeze (ALTAIR / ZOMM)
     if spell == Spell.ALTAIR:
-        if arena is not None:
-            arena.freeze_rounds = 3
-            return SpellResult(
-                success=True,
-                message="Altair stops time! Enemies are frozen in place.",
-                spell=spell,
-            )
-        if party is not None:
-            setattr(party, "time_stop", 5)
-        return SpellResult(success=True, message="Time stops momentarily.", spell=spell)
+        # Java SpellUtil.java:125-127 — the QUICKNESS aura for 5 turns.
+        aura = getattr(party, "aura", None)
+        if aura is not None:
+            aura.set(AuraType.QUICKNESS, 5)
+        return SpellResult(
+            success=True,
+            message="Altair stops time!",
+            spell=spell,
+        )
 
-    # Teleport (DAG_ACRON / DAG ACRON)
+    # Blink (DAG_ACRON): world map only — Java spellBlink (SpellUtil.java:105-107)
     if spell == Spell.DAG_ACRON:
-        if arena is not None:
-            return _teleport_in_arena(arena, caster_entity, spell)
-        if party is not None:
-            # World map blink
-            party.x = random.randint(5, 58)
-            party.y = random.randint(5, 58)
-            return SpellResult(success=True, message="Blink! Teleported across Sosaria.", spell=spell)
-        return SpellResult(success=True, message="Teleportation energy ripples outward.", spell=spell)
+        return _apply_spell_blink(world_map, caster_entity, party)
 
-    # Dungeon Teleport (LIB_REC)
-    if spell == Spell.LIB_REC:
-        return SpellResult(success=True, message="Party teleports to a new dungeon location.", spell=spell)
-
-    # Dungeon Ascent / Descent / Exit
+    # Dungeon elevation / teleport / exit: these run on the DungeonState the
+    # screen passes as world_map (Java SpellUtil.spellYup/spellZdown/
+    # spellLibRec/spellXit, SpellUtil.java:511-608). They are uncastable off
+    # a dungeon by location mask, so a None dungeon is a silent success.
     if spell in (Spell.REC_SU, Spell.SUR_ACRON):
-        if hasattr(world_map, "klimb_up"):
-            world_map.klimb_up()
-        if party is not None and getattr(party, "dungeon_level", 0) > 0:
-            party.dungeon_level = max(0, party.dungeon_level - 1)
+        if world_map is not None and hasattr(world_map, "spell_up"):
+            evt = world_map.spell_up()
             return SpellResult(
                 success=True,
-                message=f"Ascended to dungeon level {party.dungeon_level}.",
+                message=evt.message,
                 spell=spell,
+                exit_dungeon=evt.type.name == "EXIT_DUNGEON",
             )
-        return SpellResult(success=True, message="Mystical levitation lifts upward.", spell=spell)
+        return SpellResult(success=True, spell=spell)
 
     if spell in (Spell.REC_DU, Spell.DOR_ACRON):
-        if hasattr(world_map, "klimb_down"):
-            world_map.klimb_down()
-        if party is not None:
-            party.dungeon_level = min(DUNGEON_LEVELS, getattr(party, "dungeon_level", 0) + 1)
-            return SpellResult(
-                success=True,
-                message=f"Descended to dungeon level {party.dungeon_level}.",
-                spell=spell,
-            )
-        return SpellResult(success=True, message="Mystical descent shifts downward.", spell=spell)
+        if world_map is not None and hasattr(world_map, "spell_down"):
+            evt = world_map.spell_down()
+            return SpellResult(success=True, message=evt.message, spell=spell)
+        return SpellResult(success=True, spell=spell)
+
+    if spell == Spell.LIB_REC:
+        if world_map is not None and hasattr(world_map, "spell_teleport"):
+            evt = world_map.spell_teleport()
+            return SpellResult(success=True, message=evt.message, spell=spell)
+        return SpellResult(success=True, spell=spell)
 
     if spell == Spell.SEQUITU:
-        if party is not None:
-            party.dungeon_level = 0
-            return SpellResult(success=True, message="Exited dungeon to surface.", spell=spell)
-        return SpellResult(success=True, message="A path to the surface opens.", spell=spell)
+        if world_map is not None and hasattr(world_map, "spell_exit"):
+            evt = world_map.spell_exit()
+            return SpellResult(
+                success=True,
+                message=evt.message,
+                spell=spell,
+                exit_dungeon=evt.type.name == "EXIT_DUNGEON",
+            )
+        return SpellResult(success=True, spell=spell)
 
     # Light / Torches (LORUM, LUMINAE, SOMINAE)
-    if spell in (Spell.LORUM, Spell.LUMINAE, Spell.SOMINAE):
-        if hasattr(world_map, "light_spell"):
+    if spell in (Spell.LORUM, Spell.LUMINAE):
+        # Java SpellUtil.java:89-94 (LORUM) and 161-163 (LUMINAE) both set
+        # DungeonScreen.isTorchOn = true — the Task 10 boolean torch model.
+        if world_map is not None and hasattr(world_map, "light_spell"):
             world_map.light_spell = True
-        duration = 100 if spell == Spell.SOMINAE else 25
-        if party is not None:
-            party.torch_duration = getattr(party, "torch_duration", 0) + duration
         return SpellResult(
             success=True,
             message=f"{spell.name.capitalize()} illuminates the darkness.",
             spell=spell,
         )
 
+    if spell == Spell.SOMINAE:
+        # Java SpellUtil.java:187-189 — "REPLACE ME": the spell is a no-op
+        # (mana is spent, nothing happens).
+        return SpellResult(success=True, spell=spell)
+
     # Food (PABULUM)
     if spell == Spell.PABULUM:
+        # Java SpellUtil.java:111-114 — getRandomBetween(5, 10) == 5..9 per member.
+        def _food_roll() -> int:
+            return random.randrange(10 - 5) + 5
+
         if party is not None and hasattr(party, "members"):
             for m in party.members:
-                m.food += random.randint(10, 25)
+                m.food += _food_roll()
         else:
-            caster_char.food += random.randint(10, 25)
+            caster_char.food += _food_roll()
         return SpellResult(
             success=True,
             message="Pabulum conjures nourishing rations for the journey!",
@@ -563,67 +640,61 @@ def _apply_spell_effect(
 
     # Chest Disarm (APPAR_UNEM)
     if spell == Spell.APPAR_UNEM:
-        # Safely disarms, opens, and collects chest contents (gold) without triggering traps
-        found = False
-        gold_found = 0
+        # Java SpellUtil.java:140-148 — GameScreen/DungeonScreen.getChest at
+        # the caster's own tile with disarmed=true; the prompted direction is
+        # ignored. Gold and the "The Chest Holds: N Gold" log come from the
+        # shared chests pipeline (world/chests.py, Task 1).
+        from py_exodus.world.chests import ChestNotFound, open_chest, take_chest_object
+        from py_exodus.world.map import DungeonTile
+
+        member = caster_entity
+        lines: list[str] = []
+        opened = False
+
         px = getattr(party, "x", 0) if party is not None else 0
         py = getattr(party, "y", 0) if party is not None else 0
 
-        # 1. Check party dynamic_objects (e.g., overland or combat chests)
-        if party is not None and hasattr(party, "dynamic_objects"):
-            target_idx = -1
-            for idx, obj in enumerate(party.dynamic_objects):
-                ox = obj.get("x", -99)
-                oy = obj.get("y", -99)
-                tile = str(obj.get("tile", "")).lower()
-                if tile == "chest" and abs(ox - px) <= 1 and abs(oy - py) <= 1:
-                    target_idx = idx
-                    break
-            if target_idx >= 0:
-                party.dynamic_objects.pop(target_idx)
-                found = True
-                gold_found = random.randint(50, 200)
-                party.gold += gold_found
+        is_dungeon = world_map is not None and hasattr(world_map, "dmap") and hasattr(world_map, "z")
 
-        # 2. Check world_map chest tiles (towns, castles)
-        if not found and world_map is not None and hasattr(world_map, "get_tile") and hasattr(world_map, "set_tile"):
-            offsets = [(0, 0), (0, -1), (0, 1), (1, 0), (-1, 0), (1, -1), (-1, -1), (1, 1), (-1, 1)]
-            for dx, dy in offsets:
-                tx = px + dx
-                ty = py + dy
-                tile = world_map.get_tile(tx, ty)
+        # 1. Chest object at the party's tile (Java getChest drawables scan)
+        if party is not None and hasattr(party, "dynamic_objects"):
+            try:
+                take_chest_object(party, px, py)
+                lines.extend(open_chest(party, member, dungeon=is_dungeon, disarmed=True))
+                opened = True
+            except ChestNotFound:
+                pass
+
+        # 2. Chest tile at the party's position (GameScreen.getChest tile
+        #    fallback) — dungeon chest tiles are cleared for the shared path.
+        if not opened and world_map is not None:
+            if hasattr(world_map, "dmap") and hasattr(world_map, "z"):
+                tile = world_map.dmap.get_tile(
+                    getattr(world_map, "x", px), getattr(world_map, "y", py),
+                    world_map.z,
+                )
+                if tile == DungeonTile.CHEST:
+                    world_map.dmap.set_tile(
+                        getattr(world_map, "x", px), getattr(world_map, "y", py),
+                        world_map.z, DungeonTile.NOTHING,
+                    )
+                    lines.extend(open_chest(party, member, dungeon=True, disarmed=True))
+                    opened = True
+            elif hasattr(world_map, "get_tile") and hasattr(world_map, "set_tile"):
+                tile = world_map.get_tile(px, py)
                 if tile is not None and (
                     getattr(tile, "name", "") == "chest"
                     or str(getattr(tile, "rule", "")).lower() == "chest"
                 ):
                     from py_exodus.assets import TileDef
-                    floor_tile = TileDef(index=3, name="floor")
-                    world_map.set_tile(tx, ty, floor_tile)
-                    found = True
-                    gold_found = random.randint(50, 200)
-                    if party is not None:
-                        party.gold += gold_found
-                    break
 
-        # 3. Check dungeon exploration state (DungeonState)
-        if not found and world_map is not None and hasattr(world_map, "open_chest"):
-            ev = world_map.open_chest(disarm=True)
-            if getattr(ev, "success", False) or getattr(ev, "gold", 0) > 0:
-                found = True
-                gold_found = getattr(ev, "gold", 0)
+                    world_map.set_tile(px, py, TileDef(index=3, name="floor"))
+                    lines.extend(open_chest(party, member, dungeon=False, disarmed=True))
+                    opened = True
 
-        if found:
-            return SpellResult(
-                success=True,
-                message=f"Appar Unem safely disarms and opens the chest! The Chest Holds: {gold_found} Gold.",
-                spell=spell,
-            )
-        else:
-            return SpellResult(
-                success=False,
-                message="Appar Unem: No chest nearby to disarm!",
-                spell=spell,
-            )
+        if opened:
+            return SpellResult(success=True, message="\n".join(lines), spell=spell)
+        return SpellResult(success=False, message="Not Here!", spell=spell)
 
     # Overhead View / Peer (VIEDA)
     if spell == Spell.VIEDA:
@@ -644,6 +715,29 @@ def _apply_spell_effect(
     return SpellResult(success=True, message=f"{spell.name} cast successfully.", spell=spell)
 
 
+def _caster_damage(min_damage: int, max_damage: int) -> int:
+    """Java Utils.castAt:816-828 — rand(min..max) inclusive; when not
+    (0 <= min < max) the roll falls through to maxDamage."""
+    if 0 <= min_damage < max_damage:
+        return random.randint(min_damage, max_damage)
+    return max_damage
+
+
+def _get_random_between(low: int, high: int) -> int:
+    """Java Utils.getRandomBetween:50-52 — rand.nextInt(high - low) + low,
+    i.e. low..high-1."""
+    if high > low:
+        return random.randrange(high - low) + low
+    return low
+
+
+def _monster_resists_fire(monster: Any) -> bool:
+    resists = getattr(getattr(monster, "definition", None), "resists", None)
+    if resists is None:
+        resists = getattr(monster, "resists", None)
+    return resists == "fire"
+
+
 def _apply_projectile_attack(
     spell: Spell,
     caster_char: Character,
@@ -651,13 +745,18 @@ def _apply_projectile_attack(
     target_dir: Direction | None,
     arena: CombatArena | None,
 ) -> SpellResult:
-    """Execute directional projectile attacks against monsters in combat."""
+    """Execute directional projectile attacks against monsters in combat.
+
+    Java truth: SpellUtil.spellMagicAttack → Utils.animateMagicAttack traces
+    the ray with weaponCanAttackThroughObjects=true — spell bolts pass over
+    walls — and Utils.castAt rolls the damage (with the FULGAR fire-resist).
+    """
     if spell == Spell.MITTAR:
         min_dmg, max_dmg = 16, 24
     elif spell == Spell.FULGAR:
         min_dmg, max_dmg = 32, 64
     elif spell == Spell.MENTAR:
-        min_dmg, max_dmg = 32, max(32, caster_char.int)
+        min_dmg, max_dmg = 32, caster_char.int
     elif spell == Spell.DECORP:
         min_dmg, max_dmg = 128, 255
     elif spell == Spell.EXCUUN:
@@ -673,6 +772,7 @@ def _apply_projectile_attack(
             start_y=cy,
             direction=target_dir,
             max_range=11,
+            attack_through_objects=True,
             monsters=arena.monsters,
             players=arena.player_positions,
         )
@@ -687,7 +787,19 @@ def _apply_projectile_attack(
                 break
 
         if target_m is not None:
-            dmg = random.randint(min_dmg, max_dmg)
+            # Java castAt:815-820 — FULGAR is shrugged off by fire resistors.
+            if spell == Spell.FULGAR and _monster_resists_fire(target_m):
+                return SpellResult(
+                    success=True,
+                    message="Resisted!",
+                    damage=0,
+                    targets_affected=0,
+                    spell=spell,
+                    target_pos=(target_m.x, target_m.y),
+                    projectile_path=path,
+                    hit=False,
+                )
+            dmg = _caster_damage(min_dmg, max_dmg)
             target_m.take_damage(dmg)
             killed = target_m.is_dead
             if killed:
@@ -714,7 +826,7 @@ def _apply_projectile_attack(
             hit=False,
         )
 
-    dmg = random.randint(min_dmg, max_dmg)
+    dmg = _caster_damage(min_dmg, max_dmg)
     return SpellResult(
         success=True,
         message=f"{spell.name.capitalize()} unleashed for {dmg} damage.",
@@ -728,24 +840,40 @@ def _apply_group_damage(
     caster_char: Character,
     arena: CombatArena | None,
 ) -> SpellResult:
-    """Deal area damage to all active monsters in combat."""
+    """Deal area damage to all active monsters in combat.
+
+    Java truth: spellGroupDamage (SpellUtil.java:352-385) rolls
+    Utils.getRandomBetween(min, max) per creature; useMaskOfMinax (646-688)
+    and useRageOfGod (690-732) use their own per-creature rolls — with the
+    ZXKUQYB ``hp * (3/4)`` == 0 bug ported verbatim.
+    """
     if arena is not None:
         total_dmg = 0
         affected_count = 0
         for m in list(arena.monsters):
             if not m.is_dead:
                 if spell == Spell.NOXUM:
-                    dmg = random.randint(24, max(24, caster_char.int))
+                    dmg = _get_random_between(24, caster_char.int)
                 elif spell == Spell.DAG_MENTAR:
-                    dmg = random.randint(32, max(32, caster_char.int))
+                    dmg = _get_random_between(32, caster_char.int)
                 elif spell == Spell.NECORP:
-                    dmg = random.randint(64, 128)
+                    dmg = _get_random_between(64, 128)
                 elif spell == Spell.ZXKUQYB:
-                    dmg = 255 if random.randint(0, 2) == 0 else max(15, m.hp * 3 // 4)
+                    if random.randrange(3) == 0:
+                        dmg = 255
+                    elif m.hp > 23:
+                        dmg = m.hp * (3 // 4)  # Java integer 3/4 == 0 — ported bug
+                    else:
+                        dmg = 15
                 elif spell == Spell.UNSPEAKABLE:
-                    dmg = 255 if random.randint(0, 1) == 0 else max(15, m.hp // 2)
+                    if random.randrange(2) == 0:
+                        dmg = 255
+                    elif random.randrange(2) == 0:
+                        dmg = (m.hp - 23) if m.hp > 23 else 0
+                    else:
+                        dmg = m.hp // 2
                 else:
-                    dmg = random.randint(20, 50)
+                    dmg = _get_random_between(20, 50)
 
                 m.take_damage(dmg)
                 if m.is_dead:
@@ -768,33 +896,71 @@ def _apply_group_damage(
     )
 
 
-def _teleport_in_arena(
-    arena: CombatArena,
+def _apply_spell_blink(
+    world_map: Any,
     caster_entity: Any,
-    spell: Spell,
+    party: Any,
 ) -> SpellResult:
-    """Teleport caster to a random walkable open cell within the combat arena."""
-    occupied = set(arena.player_positions.values())
-    for m in arena.monsters:
-        if not m.is_dead:
-            occupied.add((m.x, m.y))
+    """Java SpellUtil.spellBlink (SpellUtil.java:267-350) — DOR/DAG ACRON's
+    surface teleport: a random valid direction, the 0x10-grid distance walk,
+    and a backward scan to the closest walkable tile. Non-surface screens log
+    "Outdoors only!" instead."""
+    target = caster_entity if getattr(caster_entity, "x", None) is not None else party
+    if target is None:
+        target = party
 
-    open_cells: list[tuple[int, int]] = []
-    for y in range(arena.combat_map.height):
-        for x in range(arena.combat_map.width):
-            if (x, y) not in occupied:
-                tile = arena.combat_map.get_tile(x, y)
-                if tile is not None:
-                    attribs = getattr(tile, "attribs", TileAttrib.NONE)
-                    if not bool(attribs & TileAttrib.UNWALKABLE):
-                        open_cells.append((x, y))
+    if (
+        world_map is None
+        or getattr(world_map, "map_type", None) not in (MapType.WORLD, MapType.WORLD.value)
+    ):
+        return SpellResult(success=True, message="Outdoors only!", spell=Spell.DAG_ACRON)
 
-    if not open_cells:
-        return SpellResult(success=False, message="Failed to teleport! No open space.", spell=spell)
+    direction = random.choice(list(Direction))
+    x = getattr(target, "x", 0)
+    y = getattr(target, "y", 0)
+    orig_x, orig_y = x, y
 
-    nx, ny = random.choice(open_cells)
-    _set_caster_coords(arena, caster_entity, nx, ny)
-    return SpellResult(success=True, message=f"Blink! Teleported to ({nx}, {ny}).", spell=spell)
+    var = x if direction.mask & (Direction.WEST.mask | Direction.EAST.mask) else y
+    distance = var % 0x10
+    if direction in (Direction.EAST, Direction.SOUTH):
+        distance = 0x10 - distance
+
+    # See if we move another 16 spaces over (Utils.rand.nextInt(diff * diff)).
+    diff = 0x10 - distance
+    if diff > 0 and random.randrange(diff * diff) > distance:
+        distance += 0x10
+
+    for _ in range(distance):
+        x += direction.dx
+        y += direction.dy
+
+    reverse_dir = direction.reverse()
+    remaining = distance
+    while remaining > 0:
+        tile = world_map.get_tile(x, y)
+        if tile is None or not bool(getattr(tile, "attribs", TileAttrib.NONE) & TileAttrib.UNWALKABLE):
+            break
+        remaining -= 1
+        x += reverse_dir.dx
+        y += reverse_dir.dy
+
+    tile = world_map.get_tile(x, y)
+    if tile is not None and not bool(getattr(tile, "attribs", TileAttrib.NONE) & TileAttrib.UNWALKABLE):
+        width = getattr(world_map, "width", None)
+        height = getattr(world_map, "height", None)
+        if (
+            getattr(world_map, "border_behavior", None) == "wrap"
+            and width is not None and height is not None
+        ):
+            x %= width
+            y %= height
+        # Java logs "Failed to teleport!" when the walk never left the tile.
+        if (x, y) != (orig_x, orig_y):
+            target.x = x
+            target.y = y
+            return SpellResult(success=True, spell=Spell.DAG_ACRON)
+        return SpellResult(success=True, message="Failed to teleport!", spell=Spell.DAG_ACRON)
+    return SpellResult(success=True, message="Failed to teleport!", spell=Spell.DAG_ACRON)
 
 
 def _get_caster_coords(arena: CombatArena, caster_entity: Any) -> tuple[int, int]:
@@ -830,14 +996,19 @@ def prompt_cast_party(
     party: Any,
     world_map: Any | None = None,
     audio: Any | None = None,
+    view_callback: Any | None = None,
+    exit_callback: Any | None = None,
 ) -> None:
     """Standard party spellcasting prompt flow (overworld, town, dungeon).
 
     1. Cast: Which member? (1-4)
     2. If profession has multiple disciplines (Druid, Ranger): Spell Type? [W]izard or [C]leric
     3. [Wizard/Cleric] Spell? (A-P)
-    4. If targeted restorative spell: On who? (1-4)
-    5. Execute via cast_spell(...)
+    4. Directional spells prompt "Direction?" (Java SpellInputProcessor.java
+       :52-59; the direction value is ignored where the spell needs none)
+    5. If targeted restorative spell: On who? (1-4)
+    6. Execute via cast_spell(...); VIEDA invokes ``view_callback`` and a
+       dungeon-exiting spell invokes ``exit_callback``.
     """
     def _on_member(m_str: str) -> None:
         try:
@@ -879,17 +1050,23 @@ def prompt_cast_party(
                     text_log.add_message(f"Not enough MP! Need {found_spell.mp_cost} MP.")
                     return
 
-                def _dispatch(target: Any | None = None) -> None:
+                def _dispatch(target: Any | None = None, direction: Direction | None = None) -> None:
                     res = cast_spell(
                         spell=found_spell,
                         caster=caster_m,
                         party=party,
                         world_map=world_map,
                         target_member=target,
+                        target_dir=direction,
                     )
-                    text_log.add_message(res.message)
+                    if res.message:
+                        text_log.add_message(res.message)
                     if res.success and audio is not None:
                         audio.play_sfx("magic")
+                    if res.success and found_spell == Spell.VIEDA and view_callback is not None:
+                        view_callback()
+                    if res.success and getattr(res, "exit_dungeon", False) and exit_callback is not None:
+                        exit_callback()
 
                 if found_spell in TARGETED_MEMBER_SPELLS:
                     def _on_target(target_str: str) -> None:
@@ -904,6 +1081,17 @@ def prompt_cast_party(
                         _dispatch(target_m)
 
                     text_log.prompt("On who? (1-4):", callback=_on_target, single_char=True)
+                elif found_spell in DIRECTIONAL_SPELLS:
+                    text_log.add_message("Direction?")
+
+                    def _on_dir(d_str: str) -> None:
+                        d = Direction.from_name_or_key(d_str)
+                        if d is None:
+                            text_log.add_message("Invalid direction!")
+                            return
+                        _dispatch(direction=d)
+
+                    text_log.prompt("Direction? (N,S,E,W):", callback=_on_dir, single_char=True)
                 else:
                     _dispatch(None)
 

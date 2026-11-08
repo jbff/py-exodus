@@ -6,6 +6,7 @@ from enum import Enum
 import random
 from typing import TYPE_CHECKING, Any
 
+from py_exodus.aura import AuraType
 from py_exodus.constants import (
     ArmorType,
     Direction,
@@ -100,6 +101,10 @@ class ActionResult:
     attack_res: AttackResolution | None = None
     fled: bool = False
     spell_res: Any | None = None
+    # Java SpellUtil: LORUM, PABULUM, ALTAIR, DAG_ACRON and the dungeon spells
+    # never call finishPlayerTurn — in combat the caster acts again. The turn
+    # is consumed by every other successful combat spell (and by failures).
+    consume_turn: bool = True
 
 
 @dataclass
@@ -376,8 +381,10 @@ class CombatArena:
             self._evaluate_party_status()
             return res
 
-        # Advance to next eligible member
-        self._advance_player_turn(member_idx)
+        # Java's finishPlayerTurn gate: LORUM/PABULUM/ALTAIR/DAG_ACRON and the
+        # dungeon spells leave the caster active (SpellUtil.java:87-237).
+        if res.consume_turn:
+            self._advance_player_turn(member_idx)
 
         return res
 
@@ -571,21 +578,28 @@ class CombatArena:
     def _handle_player_cast(
         self, member_idx: int, member: PartyMember, action: Action
     ) -> ActionResult:
-        from py_exodus.combat.magic import cast_spell
+        from py_exodus.combat.magic import NO_TURN_SPELLS, cast_spell, resolve_spell
 
+        resolved = resolve_spell(action.spell, caster=member)
+        if resolved is None:
+            resolved = action.spell
         spell_res = cast_spell(
-            spell=action.spell,
+            spell=resolved,
             caster=member,
             target_dir=action.direction,
             arena=self,
             target_member=action.target_member,
             party=self.party,
         )
+        # Java: an effect that never calls finishPlayerTurn leaves the caster
+        # active; failed casts fall back to consuming the turn attempt.
+        consumes = not (spell_res.success and resolved in NO_TURN_SPELLS)
         return ActionResult(
             success=spell_res.success,
             action=action,
             message=spell_res.message,
             spell_res=spell_res,
+            consume_turn=consumes,
         )
 
     def _advance_player_turn(self, current_member_idx: int) -> None:
@@ -608,21 +622,28 @@ class CombatArena:
     # --- Monster Turn Execution & AI ---
 
     def execute_monster_turns(self) -> list[MonsterTurnResult]:
-        """Execute turn for each active monster, apply poison damage, and check win/loss."""
+        """Execute turn for each active monster, apply poison damage, and check win/loss.
+
+        Java CombatScreen.finishTurn (CombatScreen.java:479-502): the aura
+        passes a turn every round and a live QUICKNESS aura skips the
+        creature-action sequence entirely (silent in Java).
+        """
         if self.is_finished:
             return []
 
-        if getattr(self, "freeze_rounds", 0) > 0:
-            self.freeze_rounds -= 1
-            self.log_messages.append("Monsters are frozen in time!")
-            self._apply_poison_tick()
-            self._evaluate_party_status()
-            if len(self.monsters) == 0 and not self.is_finished:
-                self._handle_victory()
-            self.round_count += 1
-            self.is_party_round_done = False
-            self.active_party_member_idx = self._find_first_eligible_member_idx()
-            return []
+        aura = getattr(self.party, "aura", None)
+        if aura is not None:
+            aura.pass_turn()
+            if aura.get_type() == AuraType.QUICKNESS:
+                # The monster phase is skipped outright — no movement, no attack.
+                self._apply_poison_tick()
+                self._evaluate_party_status()
+                if len(self.monsters) == 0 and not self.is_finished:
+                    self._handle_victory()
+                self.round_count += 1
+                self.is_party_round_done = False
+                self.active_party_member_idx = self._find_first_eligible_member_idx()
+                return []
 
         results: list[MonsterTurnResult] = []
 

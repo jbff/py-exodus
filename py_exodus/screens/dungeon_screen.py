@@ -245,7 +245,9 @@ class DungeonScreen(BaseScreen):
                 self.audio.play_sfx("trigger")
 
         if evt.type == DungeonEventType.EXIT_DUNGEON:
-            self.text_log.add_message("Leaving dungeon...")
+            # Java spellXit (SpellUtil.java:501-509) logs "Leaving <label>!";
+            # ladder exits surface as their own event message.
+            self.text_log.add_message(evt.message or "Leaving dungeon...")
             self.exit_screen()
         elif evt.type == DungeonEventType.COMBAT:
             c_name = "skeleton"
@@ -446,7 +448,13 @@ class DungeonScreen(BaseScreen):
 
     def _cast_spell(self) -> None:
         from py_exodus.combat.magic import prompt_cast_party
-        prompt_cast_party(self.text_log, self.party, world_map=self.state, audio=self.audio)
+        prompt_cast_party(
+            self.text_log,
+            self.party,
+            world_map=self.state,
+            audio=self.audio,
+            exit_callback=self.exit_screen,
+        )
 
     def update(self, dt: float) -> None:
         pass

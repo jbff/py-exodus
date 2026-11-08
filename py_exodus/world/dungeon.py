@@ -633,12 +633,115 @@ class DungeonState:
         self.party = party
         self.asset_manager = asset_manager
         self.rng = rng or random.Random()
+        self.random_encounters_enabled = random_encounters
 
         # Torch: Java DungeonScreen.java:81 `boolean isTorchOn` — a plain
         # toggle, default off when entering. There is no rounds counter and
         # no dim; the old torch_duration inheritance is gone.
         self.is_torch_on = False
-        self.random_encounters_enabled = random_encounters
+
+    # --- Spell-utility routing (Java SpellUtil.java:511-608) ---
+
+    def valid_teleport_location(self, x: int, y: int, z: int) -> bool:
+        """Java DungeonScreen.validTeleportLocation (DungeonScreen.java:1220-1222):
+        the only valid relocation spot is the open NOTHING tile."""
+        return self.dmap.get_tile(x, y, z) == DungeonTile.NOTHING
+
+    def _relocate_random(self, z: int) -> bool:
+        """Java's 32-try loop (SpellUtil.java:521-539 etc.): random x/y on the
+        level, position applied on the first valid NOTHING tile. Direction is
+        kept; Java only refreshes the minimap."""
+        for _ in range(32):
+            x = self.rng.randrange(self.dmap.width)
+            y = self.rng.randrange(self.dmap.height)
+            if self.valid_teleport_location(x, y, z):
+                self.x = x
+                self.y = y
+                self.z = z
+                if self.party:
+                    self.party.dungeon_level = z
+                return True
+        self.z = z
+        return False
+
+    def _sync_level(self) -> None:
+        if self.party:
+            self.party.dungeon_level = self.z
+
+    def spell_up(self) -> DungeonEvent:
+        """REC_SU / SUR_ACRON (Java SpellUtil.spellYup, SpellUtil.java:511-544):
+        step a level up; from level 0 return to the overworld screen; otherwise
+        relocate onto a random valid spot of the new level. Java is silent."""
+        self.z -= 1
+        if self.z < 0:
+            self.z = 0
+            self._sync_level()
+            return DungeonEvent(
+                type=DungeonEventType.EXIT_DUNGEON,
+                x=self.x,
+                y=self.y,
+                z=self.z,
+                tile=self.current_tile,
+            )
+        self._relocate_random(self.z)
+        self._sync_level()
+        return DungeonEvent(
+            type=DungeonEventType.LADDER_UP,
+            x=self.x,
+            y=self.y,
+            z=self.z,
+            tile=self.current_tile,
+        )
+
+    def spell_down(self) -> DungeonEvent:
+        """REC_DU / DOR_ACRON (Java SpellUtil.spellZdown, SpellUtil.java:546-581):
+        step a level down, clamped at the deepest level without relocation
+        there; otherwise relocate on a random valid spot of the new level."""
+        self.z += 1
+        if self.z > self.dmap.levels:
+            self.z = self.dmap.levels
+            self._sync_level()
+            return DungeonEvent(
+                type=DungeonEventType.LADDER_DOWN,
+                x=self.x,
+                y=self.y,
+                z=self.z,
+                tile=self.current_tile,
+            )
+        self._relocate_random(self.z)
+        self._sync_level()
+        return DungeonEvent(
+            type=DungeonEventType.LADDER_DOWN,
+            x=self.x,
+            y=self.y,
+            z=self.z,
+            tile=self.current_tile,
+        )
+
+    def spell_teleport(self) -> DungeonEvent:
+        """LIB_REC (Java SpellUtil.spellLibRec, SpellUtil.java:583-609): random
+        valid spot on the *current* level."""
+        self._relocate_random(self.z)
+        self._sync_level()
+        return DungeonEvent(
+            type=DungeonEventType.MESSAGE,
+            x=self.x,
+            y=self.y,
+            z=self.z,
+            tile=self.current_tile,
+        )
+
+    def spell_exit(self) -> DungeonEvent:
+        """SEQUITU (Java SpellUtil.spellXit, SpellUtil.java:501-509): log
+        "Leaving <label>!" and return to the overworld screen."""
+        return DungeonEvent(
+            type=DungeonEventType.EXIT_DUNGEON,
+            message=f"Leaving {self.dmap.name}!",
+            x=self.x,
+            y=self.y,
+            z=self.z,
+            tile=self.current_tile,
+        )
 
     @property
     def light_spell(self) -> bool:
