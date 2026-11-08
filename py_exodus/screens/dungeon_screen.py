@@ -14,11 +14,15 @@ from py_exodus.constants import (
 )
 from py_exodus.entities.party import PartyDeathException
 from py_exodus.screens.base import BaseScreen
+from py_exodus.screens.member_prompts import (
+    prompt_modify_order,
+    prompt_ready_weapon,
+    prompt_wear_armor,
+)
 from py_exodus.ui.stats_panel import StatsPanel
 from py_exodus.ui.text_log import (
     EGA_BLACK,
     EGA_BRIGHT_CYAN,
-    EGA_BRIGHT_GREEN,
     EGA_BRIGHT_RED,
     EGA_DARK_GRAY,
     EGA_LIGHT_GRAY,
@@ -89,6 +93,9 @@ class DungeonScreen(BaseScreen):
         self.camera = DungeonCamera(viewport_size=176)
         self.stats_panel = StatsPanel()
         self.text_log = TextLog(max_lines=5, wrap_width=28)
+        # Java DungeonScreen.java:79-80 — the minimap shows by default and P
+        # toggles it.
+        self.show_minimap = True
 
         self.text_log.add_message(f"Entering {self.dungeon_map.name}...")
         self.text_log.add_message("Level 1. Darkness surrounds thee.")
@@ -118,11 +125,15 @@ class DungeonScreen(BaseScreen):
             return
 
         # Movement and navigation keys: Arrow keys and Keypad ONLY (no WASD)
+        # Java DungeonScreen.java:859-957 — LEFT/RIGHT rotate the camera in
+        # place (no turn consumed); UP steps forward; DOWN steps one square
+        # *backward* in the current facing (with wrap) — it is not a 180
+        # degree turn.
         if event.key in (pygame.K_UP, pygame.K_KP8):
             evt = self.state.move_forward()
             self._process_event(evt)
         elif event.key in (pygame.K_DOWN, pygame.K_KP2):
-            evt = self.state.turn_around()
+            evt = self.state.move_backward()
             self._process_event(evt)
         elif event.key in (pygame.K_LEFT, pygame.K_KP4):
             evt = self.state.turn_left()
@@ -130,28 +141,70 @@ class DungeonScreen(BaseScreen):
         elif event.key in (pygame.K_RIGHT, pygame.K_KP6):
             evt = self.state.turn_right()
             self._process_event(evt)
-        elif event.key in (pygame.K_k, pygame.K_u):
+        elif event.key == pygame.K_k:
+            # Java DungeonScreen.java:959-971 — K on an up-ladder steps the
+            # level and returns before finishTurn: no turn consumed.
             evt = self.state.klimb_up()
             self._process_event(evt)
-        elif event.key in (pygame.K_d, pygame.K_j):  # Down ladder
+        elif event.key == pygame.K_d:
+            # Java DungeonScreen.java:973-981 — D on a down-ladder steps the
+            # level (clamped at DUNGEON_LVLS) and consumes no turn.
             evt = self.state.klimb_down()
             self._process_event(evt)
-        elif event.key in (pygame.K_t, pygame.K_i):
+        elif event.key == pygame.K_i:
             self._use_torch()
+        elif event.key == pygame.K_q:
+            self._save_game()
+        elif event.key == pygame.K_p:
+            # Java DungeonScreen.java:79-80 + 1012-1015 — P toggles the
+            # minimap and falls through the keyUp tail (turn consumed).
+            self.show_minimap = not self.show_minimap
+            self._consume_turn()
+        elif event.key == pygame.K_v:
+            # Java DungeonScreen.java:1013-1023 — V toggles music and falls
+            # through the keyUp tail (turn consumed).
+            self._toggle_music()
+        elif event.key == pygame.K_m:
+            # Java DungeonScreen.java:1024-1031 — M routes to
+            # NewOrderInputAdapter, which does not finishTurn from a dungeon.
+            prompt_modify_order(self.text_log, self.party)
+        elif event.key == pygame.K_r:
+            # Java DungeonScreen.java:1011-1013 — G/R/W/C/S fall through to
+            # finishTurn at the press, then route to the member selection flow.
+            self._consume_turn()
+            prompt_ready_weapon(
+                self.text_log, self.party, self.asset_mgr, turn_callback=self._consume_turn
+            )
+        elif event.key == pygame.K_w:
+            self._consume_turn()
+            prompt_wear_armor(
+                self.text_log, self.party, self.asset_mgr, turn_callback=self._consume_turn
+            )
         elif event.key == pygame.K_c:
+            self._consume_turn()
             self._cast_spell()
-        elif event.key == pygame.K_z:
-            self._toggle_zstats()
         elif event.key == pygame.K_s:
+            self._consume_turn()
             self._search()
         elif event.key == pygame.K_g:
+            self._consume_turn()
             self._get_chest()
-        elif event.key == pygame.K_o:
-            def _on_other(cmd: str) -> None:
-                self.text_log.add_message(f"'{cmd.strip().upper()}': Nothing happened.")
-            self.text_log.prompt("Other Command? ", callback=_on_other)
-        elif event.key == pygame.K_SPACE:
-            self.text_log.add_message("Pass.")
+        elif event.key == pygame.K_z:
+            # Java DungeonScreen.java:1033-1044 — Z cycles the zstats view and
+            # returns before finishTurn (no turn consumed, unlike the
+            # overworld's Z).
+            self._toggle_zstats()
+        else:
+            # Java DungeonScreen.java:1045-1049 + 1049-1050 — any key without
+            # a handler logs "Pass" and falls through to finishTurn.
+            self.text_log.add_message("Pass")
+            self._consume_turn()
+
+    def _consume_turn(self) -> None:
+        """Java DungeonScreen.finishTurn (DungeonScreen.java:1124) — the
+        keyUp tail for keys without an early return."""
+        self.state._tick_turn()
+        self.check_party_death()
 
     def _toggle_zstats(self) -> None:
         """Cycle Ztats inspect mode through party members."""
@@ -185,7 +238,7 @@ class DungeonScreen(BaseScreen):
                 self.audio.play_sfx("trigger")
             elif evt.type == DungeonEventType.MARK:
                 self.audio.play_sfx("lightning") or self.audio.play_sfx("magic")
-            elif evt.type in (DungeonEventType.FOUNTAIN, DungeonEventType.HEAL):
+            elif evt.type == DungeonEventType.FOUNTAIN:
                 self.audio.play_sfx("magic")
             elif evt.type == DungeonEventType.CHEST:
                 self.audio.play_sfx("trigger")
@@ -246,9 +299,7 @@ class DungeonScreen(BaseScreen):
 
             if not (0 <= idx < len(self.party.members)):
                 self.text_log.add_message("Invalid member #!")
-                return
-
-            if action is not None:
+            elif action is not None:
                 try:
                     evt = action(idx)
                 except PartyDeathException:
@@ -260,6 +311,12 @@ class DungeonScreen(BaseScreen):
             else:
                 self.text_log.add_message("Search: Thou searchest the damp corridor... Nothing here!")
 
+            # Java: dungeon S is routed through the G/R/W/C/S fall-through
+            # branch (DungeonScreen.java:1011-1013) and every sip keypress
+            # ends in the sip tail finishTurn — valid or not.
+            self.state._tick_turn()
+            self.check_party_death()
+
         self.text_log.prompt(prompt_msg, callback=_on_who, single_char=True)
 
     def _get_chest(self) -> None:
@@ -268,7 +325,6 @@ class DungeonScreen(BaseScreen):
 
         def _on_who(who_str: str) -> None:
             self.state._tick_turn()  # Java routes G through finishTurn
-
             try:
                 idx = int(who_str.strip()) - 1
             except ValueError:
@@ -330,13 +386,62 @@ class DungeonScreen(BaseScreen):
             pass
 
     def _use_torch(self) -> None:
-        """Light a torch from party inventory."""
-        if self.state.light_torch():
-            self.text_log.add_message("Torch ignited! Corridors illuminate.")
-            if self.audio is not None:
-                self.audio.play_sfx("fire_field_walking")
+        """Toggle the torch (Java DungeonScreen.java:988-1004 Keys.I).
+
+        A lit torch press extinguishes it with no consumption; otherwise the
+        first member with torches burns one to light it. With none owned the
+        log prints "No Torches!". Every press falls through to finishTurn.
+        """
+        if self.state.is_torch_on:
+            self.state.is_torch_on = False
         else:
-            self.text_log.add_message("No torches left in inventory!")
+            found_torch = False
+            for pm in self.party.members:
+                if pm.torches > 0:
+                    pm.torches -= 1
+                    self.state.is_torch_on = True
+                    found_torch = True
+                    break
+            if not found_torch:
+                self.text_log.add_message("No Torches!")
+        self._consume_turn()
+
+    def _toggle_music(self) -> None:
+        """Java DungeonScreen.java:1013-1023 Keys.V — toggle music; the key
+        falls through to finishTurn, so it consumes a turn."""
+        if self.audio is not None:
+            self.audio.enabled = not self.audio.enabled
+            if self.audio.enabled:
+                self.audio.play_music("dungeon")
+            else:
+                self.audio.stop_music()
+        self._consume_turn()
+
+    def _save_game(self) -> None:
+        """Java DungeonScreen.java:976-986 Keys.Q — the dungeon save. Q calls
+        ``context.saveGame`` with the dungeon coordinates and logs
+        "Saved Game." (there is no map restriction inside a dungeon; the
+        Sosaria-only gate lives only in GameScreen.java:557-563). Q returns
+        false before the keyUp tail, so saving consumes no turn."""
+        from py_exodus.save_system import SaveSystem
+
+        try:
+            SaveSystem.save_game(
+                self.party,
+                "saves/party.json",
+                extra={
+                    "dungeon": {
+                        "x": self.state.x,
+                        "y": self.state.y,
+                        "level": self.state.z,
+                        "dir": self.state.dir.name,
+                        "map_id": self.dungeon_map.id,
+                    }
+                },
+            )
+            self.text_log.add_message("Saved Game.")
+        except Exception:
+            self.text_log.add_message("Save failed!")
 
     def _cast_spell(self) -> None:
         from py_exodus.combat.magic import prompt_cast_party
@@ -345,11 +450,40 @@ class DungeonScreen(BaseScreen):
     def update(self, dt: float) -> None:
         pass
 
+    def _render_minimap(self, target: pygame.Surface) -> None:
+        """Draw the current dungeon level as a small top-down chart.
+
+        Java truth: DungeonScreen.java:79-80 keeps ``showMiniMap`` True by
+        default and the Keys.P handler (DungeonScreen.java:1012-1015)
+        toggles it — the party explores with a level plan overlaid on the
+        viewport and presses P to hide it.
+        """
+        from py_exodus.world.map import DungeonTile
+
+        cell = 4
+        dmap = self.state.dmap
+        offset_x = target.get_width() - dmap.width * cell - 4
+        offset_y = 20
+        for gy in range(dmap.height):
+            for gx in range(dmap.width):
+                tile = dmap.get_tile(gx, gy, self.state.z)
+                if tile == DungeonTile.WALL:
+                    color = EGA_BRIGHT_CYAN
+                else:
+                    color = EGA_DARK_GRAY
+                target.fill(color, (offset_x + gx * cell, offset_y + gy * cell, cell - 1, cell - 1))
+        # Party position dot
+        px = offset_x + self.state.x * cell
+        py = offset_y + self.state.y * cell
+        target.fill(EGA_BRIGHT_RED, (px, py, cell - 1, cell - 1))
+
     def render(self, surface: pygame.Surface) -> None:
         surface.fill(EGA_BLACK)
         w, h = surface.get_width(), surface.get_height()
         scale = 3 if w >= 640 else 1
         v_size = 176 * scale
+
+        torch_lit = self.state.is_torch_on
 
         if scale > 1:
             temp_v = pygame.Surface((176, 176))
@@ -360,8 +494,7 @@ class DungeonScreen(BaseScreen):
                 y=self.state.y,
                 z=self.state.z,
                 dir=self.state.dir,
-                torch_rounds=self.state.torch_rounds,
-                light_spell=self.state.light_spell,
+                torch_lit=torch_lit,
             )
 
             font = get_hud_font(size=10)
@@ -369,10 +502,8 @@ class DungeonScreen(BaseScreen):
             stat_surf = font.render(status_line, True, EGA_YELLOW)
             temp_v.blit(stat_surf, (4, 4))
 
-            if self.state.torch_rounds > 0 or self.state.light_spell:
-                torch_line = f"TORCH: {self.state.torch_rounds}"
-                torch_surf = font.render(torch_line, True, EGA_BRIGHT_GREEN)
-                temp_v.blit(torch_surf, (4, 16))
+            if self.show_minimap:
+                self._render_minimap(temp_v)
 
             scaled_v = pygame.transform.scale(temp_v, (v_size, v_size))
             surface.blit(scaled_v, (0, 0))
@@ -398,8 +529,7 @@ class DungeonScreen(BaseScreen):
                 y=self.state.y,
                 z=self.state.z,
                 dir=self.state.dir,
-                torch_rounds=self.state.torch_rounds,
-                light_spell=self.state.light_spell,
+                torch_lit=torch_lit,
             )
 
             font = get_hud_font(size=10)
@@ -407,10 +537,8 @@ class DungeonScreen(BaseScreen):
             stat_surf = font.render(status_line, True, EGA_YELLOW)
             surface.blit(stat_surf, (4, 4))
 
-            if self.state.torch_rounds > 0 or self.state.light_spell:
-                torch_line = f"TORCH: {self.state.torch_rounds}"
-                torch_surf = font.render(torch_line, True, EGA_BRIGHT_GREEN)
-                surface.blit(torch_surf, (4, 16))
+            if self.show_minimap:
+                self._render_minimap(surface)
 
             self.stats_panel.render(
                 surface,

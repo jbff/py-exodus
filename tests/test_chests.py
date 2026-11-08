@@ -276,7 +276,10 @@ def test_dungeon_get_opens_chest_on_party_tile(monkeypatch):
     assert member.gold == 150 + 41
     assert party.gold == member.gold + 150  # per-member total: the opener's purse plus the untouched Cleric
     assert any("The Chest Holds: 41 Gold" in msg for msg in screen.text_log.history)
-    assert party.moves == moves_before + 1  # G consumes a turn (finishTurn)
+    # G consumes two turns now: Java DungeonScreen.java:1011-1013 routes the
+    # G press itself through finishTurn (fall-through), and the member
+    # selection runs the sip keyUp tail finishTurn.
+    assert party.moves == moves_before + 2
 
 
 def test_dungeon_get_chest_not_here_consumes_turn(monkeypatch):
@@ -290,7 +293,7 @@ def test_dungeon_get_chest_not_here_consumes_turn(monkeypatch):
 
     assert not screen.text_log.is_waiting_for_input
     assert any("Not Here!" in msg for msg in screen.text_log.history)
-    assert party.moves == moves_before + 1
+    assert party.moves == moves_before + 2  # press + selection (Java fall-through)
 
 
 def test_dungeon_get_checks_only_party_tile(monkeypatch):

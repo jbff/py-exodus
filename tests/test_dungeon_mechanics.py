@@ -116,15 +116,15 @@ def test_dungeon_hazard_wind_trap_and_gremlins(asset_mgr, party, test_dmap):
     test_dmap.set_tile(1, 2, 0, DungeonTile.WIND_TRAP)
     test_dmap.set_tile(1, 3, 0, DungeonTile.GREMLINS)
     state = DungeonState(test_dmap, start_x=1, start_y=1, start_z=0, start_dir=Direction.SOUTH, party=party)
-    state.torch_rounds = 20
-    party.torch_duration = 20
+    state.is_torch_on = True
     initial_food = party.food
 
-    # Step forward onto (1, 2) WIND_TRAP
+    # Step forward onto (1, 2) WIND_TRAP — Java DungeonScreen.java:1080-1085
+    # sets the torch boolean off (no torchduration bookkeeping in Java).
     evt1 = state.move_forward()
     assert evt1.type == DungeonEventType.WIND_TRAP
-    assert state.torch_rounds == 0
-    assert party.torch_duration == 0
+    assert state.is_torch_on is False
+    assert not hasattr(state, "torch_rounds")
 
     # Step forward onto (1, 3) GREMLINS
     evt2 = state.move_forward()

@@ -81,7 +81,7 @@ def test_dungeon_wireframe_all_directions(empty_dmap):
     cam = DungeonCamera()
 
     for direction in (Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST):
-        cam.render_wireframe(surf, empty_dmap, 5, 5, 0, direction, torch_rounds=50)
+        cam.render_wireframe(surf, empty_dmap, 5, 5, 0, direction, torch_lit=True)
         # Verify surface has drawn lines (non-black pixels)
         non_black = False
         for px in range(0, 176, 8):
@@ -102,9 +102,9 @@ def test_dungeon_render_torch_vs_dark(empty_dmap):
     cam = DungeonCamera()
 
     # Dark: 0 torch rounds, no light spell
-    cam.render_wireframe(surf_dark, empty_dmap, 5, 5, 0, Direction.NORTH, torch_rounds=0, light_spell=False)
+    cam.render_wireframe(surf_dark, empty_dmap, 5, 5, 0, Direction.NORTH, torch_lit=False)
     # Lit: 50 torch rounds
-    cam.render_wireframe(surf_lit, empty_dmap, 5, 5, 0, Direction.NORTH, torch_rounds=50)
+    cam.render_wireframe(surf_lit, empty_dmap, 5, 5, 0, Direction.NORTH, torch_lit=True)
 
     # Lit view should render more wireframe details/depth than dark view
     dark_pixels = sum(
@@ -140,7 +140,7 @@ def test_dungeon_render_fixtures(empty_dmap):
 
     for fix in fixtures:
         empty_dmap.set_tile(5, 4, 0, fix)
-        cam.render_wireframe(surf, empty_dmap, 5, 5, 0, Direction.NORTH, torch_rounds=50)
+        cam.render_wireframe(surf, empty_dmap, 5, 5, 0, Direction.NORTH, torch_lit=True)
         # Check non-black fixture pixels exist
         colored = sum(
             1 for x in range(30, 146) for y in range(30, 146) if surf.get_at((x, y))[:3] != COLOR_BLACK
@@ -285,15 +285,16 @@ def test_pit_trap(empty_dmap, test_party):
 
 
 def test_wind_trap(empty_dmap, test_party):
+    """Java DungeonScreen.java:1080-1085 — wind sets isTorchOn = False and
+    nothing else (torchduration is unused in Java)."""
     empty_dmap.set_tile(5, 4, 0, DungeonTile.WIND_TRAP)
     state = DungeonState(empty_dmap, start_x=5, start_y=5, start_z=0, start_dir=Direction.NORTH, party=test_party)
-    state.torch_rounds = 40
-    test_party.torch_duration = 40
+    state.is_torch_on = True
 
     ev = state.move_forward()
     assert ev.type == DungeonEventType.WIND_TRAP
-    assert state.torch_rounds == 0
-    assert test_party.torch_duration == 0
+    assert state.is_torch_on is False
+    assert not hasattr(state, "torch_rounds")
 
 
 def test_gremlins_trap(empty_dmap, test_party):
@@ -428,26 +429,34 @@ def test_random_combat_encounter(empty_dmap, asset_mgr, test_party):
     assert cr.name != ""
 
 
-def test_torch_lighting_and_consumption(empty_dmap, test_party):
+def test_torch_boolean_toggle_model(empty_dmap, test_party):
+    """Java DungeonScreen.java:81 + 988-1005 — the torch is one boolean.
+
+    I with the torch out burns the first member's torches to light it; I
+    with the torch lit just extinguishes it (no consumption, no expiry).
+    Movement no longer decrements anything.
+    """
     state = DungeonState(empty_dmap, start_x=5, start_y=5, start_z=0, start_dir=Direction.NORTH, party=test_party)
-    assert state.torch_rounds == 0
+    assert state.is_torch_on is False
+    assert not hasattr(state, "torch_rounds")
 
     # Light torch from inventory
     torches_before = test_party.members[0].torches
-    ok = state.light_torch(duration=10)
-    assert ok
-    assert state.torch_rounds == 10
+    state.is_torch_on = True
+    test_party.members[0].torches -= 1
     assert test_party.members[0].torches == torches_before - 1
 
-    # Move forward consumes 1 round
+    # Move forward: no torch rounds to decrement
     state.move_forward()
-    assert state.torch_rounds == 9
-    assert test_party.torch_duration == 9
+    assert state.is_torch_on is True
 
-    # Spell light
-    state.cast_light_spell(duration=30)
-    assert state.light_spell
-    assert state.torch_rounds == 30
+    # Extinguish: no consumption
+    state.is_torch_on = False
+    assert test_party.members[0].torches == torches_before - 1
+
+    # Spell light shares the same boolean (Java SpellUtil LORUM/LUMINAE)
+    state.light_spell = True
+    assert state.is_torch_on is True
 
 
 def test_misty_writings_and_time_lord(empty_dmap):
@@ -476,7 +485,7 @@ def test_door_rendering_and_traversal(empty_dmap):
     empty_dmap.set_tile(6, 5, 0, DungeonTile.DOOR)
 
     # Render with front and side doors
-    cam.render_wireframe(surf, empty_dmap, 5, 5, 0, Direction.NORTH, torch_rounds=50)
+    cam.render_wireframe(surf, empty_dmap, 5, 5, 0, Direction.NORTH, torch_lit=True)
     non_black = sum(1 for x in range(176) for y in range(176) if surf.get_at((x, y))[:3] != COLOR_BLACK)
     assert non_black > 0
 
@@ -508,10 +517,13 @@ def test_fallback_monsters_no_assets(empty_dmap):
     assert cr.level <= 1
 
 
-def test_deepest_level_klimb_down(empty_dmap):
+def test_deepest_level_klimb_down_clamps(empty_dmap):
+    """Java DungeonScreen.java:973-981 — D on a down-ladder increments
+    currentLevel and only clamps when it exceeds DUNGEON_LVLS (8); a descent
+    off the deepest playable grid is accepted at 8 (world-audit #23)."""
     empty_dmap.set_tile(5, 5, 7, DungeonTile.LADDER_DOWN)
     state = DungeonState(empty_dmap, start_x=5, start_y=5, start_z=7)
     ev = state.klimb_down()
-    assert ev.type == DungeonEventType.BLOCKED
-    assert not ev.success
+    assert ev.type == DungeonEventType.LADDER_DOWN
+    assert state.z == 8
 

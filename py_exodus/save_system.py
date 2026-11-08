@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import struct
 from pathlib import Path
+from typing import Any
 
 from py_exodus.constants import (
     ArmorType,
@@ -22,9 +23,23 @@ class SaveSystem:
     """Manages serialization of party, character roster, and dynamic overworld deltas."""
 
     @classmethod
-    def save_game(cls, party: Party, path: str | Path) -> None:
-        """Save active party state and dynamic overworld delta to human-readable JSON."""
+    def save_game(
+        cls,
+        party: Party,
+        path: str | Path,
+        extra: dict[str, Any] | None = None,
+    ) -> None:
+        """Save active party state and dynamic overworld delta to human-readable JSON.
+
+        ``extra`` carries screen-side location context Java's
+        ``Context.saveGame`` stores alongside the party record — for a
+        dungeon save, DungeonScreen passes the dungeon x/y/level/dir and map
+        id (DungeonScreen.java:983-986). Unknown keys are ignored by
+        ``Party.from_dict``.
+        """
         data = party.to_dict()
+        if extra:
+            data.update(extra)
         p = Path(path)
         p.parent.mkdir(parents=True, exist_ok=True)
         with open(p, "w", encoding="utf-8") as f:

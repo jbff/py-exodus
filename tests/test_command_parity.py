@@ -269,7 +269,10 @@ class TestNegateTime:
         assert sample_party.members[0].powder == 0
         assert sample_party.members[1].powder == 2
         assert sample_party.aura.get_type() == AuraType.QUICKNESS
-        assert sample_party.aura.get_duration() == 6
+        # Java GameScreen.java:604-628 — N runs negateTime (set 6) and the
+        # keyUp tail finishTurn immediately ticks aura.passTurn, so the
+        # effective duration right after the key is 5.
+        assert sample_party.aura.get_duration() == 5
 
     def test_negate_time_none(self, ow, sample_party):
         key(ow, pygame.K_n)

@@ -638,9 +638,11 @@ def test_dungeon_screen_navigation(pygame_setup, asset_mgr, sample_party):
     dungeon.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_LEFT))
     assert dungeon.state.dir != initial_dir
 
-    # Use torch
-    dungeon.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_t))
-    assert dungeon.state.torch_rounds > 0
+    # Use torch (Java DungeonScreen.java:988-1004 — I is the torch key)
+    sample_party.members[0].character.torches = 2
+    dungeon.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_i))
+    assert dungeon.state.is_torch_on is True
+    assert sample_party.members[0].character.torches == 1
 
 
 def test_dungeon_screen_render(pygame_setup, asset_mgr, sample_party):
@@ -666,24 +668,26 @@ def test_dungeon_screen_turn_around_and_ladders(pygame_setup, asset_mgr, sample_
     )
     sm.push_screen(dungeon)
 
-    # 1. Turn around (180 degrees)
+    # 1. DOWN steps backward in the current facing (Java
+    #    DungeonScreen.java:933-957) — the facing never changes.
     initial_dir = dungeon.state.dir
     dungeon.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_DOWN))
-    assert dungeon.state.dir == initial_dir.reverse()
+    assert dungeon.state.dir == initial_dir
 
-    # 2. Ladder down on ladder tile
+    # 2. Ladder down on ladder tile (Java keys: K up, D down)
     dungeon.dungeon_map.set_tile(dungeon.state.x, dungeon.state.y, dungeon.state.z, DungeonTile.LADDER_DOWN)
-    dungeon.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_j))
+    dungeon.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_d))
     assert dungeon.state.z == 1
 
     # 3. Ladder up on ladder tile
     dungeon.dungeon_map.set_tile(dungeon.state.x, dungeon.state.y, dungeon.state.z, DungeonTile.LADDER_UP)
-    dungeon.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_u))
+    dungeon.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_k))
     assert dungeon.state.z == 0
 
 
-def test_dungeon_screen_torch_inventory_consumption(pygame_setup, asset_mgr, sample_party):
-    # Give member 2 torches
+def test_dungeon_screen_torch_toggle(pygame_setup, asset_mgr, sample_party):
+    """Java DungeonScreen.java:988-1004 — I lights once, I again extinguishes
+    with no consumption, I with no torches logs "No Torches!"."""
     sample_party.members[0].character.torches = 2
 
     dungeon = DungeonScreen(
@@ -691,13 +695,22 @@ def test_dungeon_screen_torch_inventory_consumption(pygame_setup, asset_mgr, sam
         map_id=14,
         asset_mgr=asset_mgr,
     )
-    dungeon.state.torch_rounds = 0
 
     # Ignite torch
     dungeon._use_torch()
+    assert dungeon.state.is_torch_on is True
     assert sample_party.members[0].character.torches == 1
-    assert dungeon.state.torch_rounds == 100
-    assert any("Torch ignited" in msg for msg in dungeon.text_log.history)
+
+    # Extinguish: no torch consumed
+    dungeon._use_torch()
+    assert dungeon.state.is_torch_on is False
+    assert sample_party.members[0].character.torches == 1
+
+    # No torches owned: "No Torches!"
+    sample_party.members[0].character.torches = 0
+    dungeon._use_torch()
+    assert dungeon.state.is_torch_on is False
+    assert any("No Torches!" in msg for msg in dungeon.text_log.history)
 
 
 def test_dungeon_screen_combat_encounter_trigger(pygame_setup, asset_mgr, sample_party):
@@ -988,14 +1001,18 @@ def test_overworld_commands_cast_ztats_get_chest_pass(pygame_setup, asset_mgr, s
     assert opening_member.gold <= 9999
     assert any("The Chest Holds: " in msg for msg in overworld.text_log.history)
 
-    # 4. Ignite torch (I)
+    # 4. Ignite torch (I) — Java: I is NOT handled on the overworld
+    #    (GameScreen.keyUp has no Keys.I branch) — it falls through to
+    #    finishTurn silently, consuming no torches.
     sample_party.torches = 2
     sample_party.torch_duration = 0
+    moves_before = sample_party.moves
     evt_i = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_i)
     overworld.handle_event(evt_i)
-    assert sample_party.torches == 1
-    assert sample_party.torch_duration == 100
-    assert any("Torch ignited!" in msg for msg in overworld.text_log.history)
+    assert sample_party.torches == 2
+    assert sample_party.torch_duration == 0
+    assert not any("Torch ignited" in msg for msg in overworld.text_log.history)
+    assert sample_party.moves == moves_before + 1
 
     # 5. Join gold (J) — Task 9 parity: member prompt + pool_gold(index)
     total_before_join = sample_party.gold  # derived: the members' purses sum
@@ -1153,18 +1170,20 @@ def test_all_overland_commands_a_to_z(pygame_setup, asset_mgr, sample_party):
     ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_n))
     assert sample_party.members[0].powder == 1
     assert sample_party.aura.get_type() == AuraType.QUICKNESS
-    assert sample_party.aura.get_duration() == 6
+    # Java GameScreen.java:604-628 — N falls through to finishTurn, whose
+    # aura.passTurn ticks once at the press, so 6 becomes 5 immediately.
+    assert sample_party.aura.get_duration() == 5
     assert any("Stop time with a powder!" in msg for msg in ow.text_log.history)
 
     # V - Volume
     ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_v))
     assert any("Volume:" in msg for msg in ow.text_log.history)
 
-    # D & K - Descend and Klimb in overworld
+    # D & K - unhandled on the overworld (Java GameScreen.keyUp has no
+    # Keys.D/Keys.K branch): they fall through to finishTurn with no message.
     ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_d))
-    assert any("Descend:" in msg for msg in ow.text_log.history)
     ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_k))
-    assert any("Klimb:" in msg for msg in ow.text_log.history)
+    assert not any("Descend:" in msg or "Klimb:" in msg for msg in ow.text_log.history)
 
     # T & U - Talk and Unlock in overworld (Task 9 parity: real member flows,
     # Java SIP:152-238; "Transact:" stub is gone)

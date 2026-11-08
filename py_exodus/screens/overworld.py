@@ -12,15 +12,18 @@ from py_exodus.constants import (
     BASE_HEIGHT,
     BASE_WIDTH,
     TILE_SIZE,
-    ArmorType,
     Direction,
     MapType,
     Status,
     Transport,
-    WeaponType,
 )
 from py_exodus.entities.party import PartyDeathException
 from py_exodus.screens.base import BaseScreen
+from py_exodus.screens.member_prompts import (
+    prompt_modify_order,
+    prompt_ready_weapon,
+    prompt_wear_armor,
+)
 from py_exodus.screens.final import (
     apply_exodus_card_tiles,
     prompt_insert_card,
@@ -190,8 +193,6 @@ class OverworldScreen(BaseScreen):
             self._board_transport()
         elif event.key == pygame.K_c:
             self._prompt_cast()
-        elif event.key == pygame.K_d:
-            self._descend()
         elif event.key == pygame.K_e:
             self._enter_portal()
         elif event.key == pygame.K_f:
@@ -203,12 +204,8 @@ class OverworldScreen(BaseScreen):
             self._get_chest()
         elif event.key == pygame.K_h:
             self._prompt_hand_equipment()
-        elif event.key == pygame.K_i:
-            self._ignite_torch()
         elif event.key == pygame.K_j:
             self._join_gold()
-        elif event.key == pygame.K_k:
-            self._klimb()
         elif event.key == pygame.K_l:
             self._open()
         elif event.key == pygame.K_m:
@@ -239,6 +236,18 @@ class OverworldScreen(BaseScreen):
             self._prompt_yell()
         elif event.key == pygame.K_z:
             self._toggle_zstats()
+        else:
+            # Java GameScreen.keyUp tail (GameScreen.java:628): every key that
+            # has no explicit early return — including the unhandled D, I and
+            # K — falls through to finishTurn(v.x, v.y) with no message.
+            self._consume_pass_turn()
+
+    def _consume_pass_turn(self) -> None:
+        """Java GameScreen.keyUp tail (GameScreen.java:628): finishTurn on the
+        party's tile, with no message. Used by the unhandled-key fall-through
+        and by handled keys that Java lets reach the tail (Q, Z, H, P, N, V)."""
+        self._finish_turn(self.game_map.get_tile(self.party.x, self.party.y) if self.game_map else None)
+        self._update_creatures()
 
     def _pass_turn(self) -> None:
         """Pass turn in place without moving avatar.
@@ -278,6 +287,8 @@ class OverworldScreen(BaseScreen):
                 self.text_log.add_message("Armors: " + ", ".join(arm_list))
         else:
             self.text_log.add_message("Zstats: Normal view")
+        # Java GameScreen.java:564-572 — Z has no early return; consumes a turn.
+        self._consume_pass_turn()
 
     def _prompt_cast(self) -> None:
         """Prompt active member to cast an overland spell."""
@@ -345,15 +356,6 @@ class OverworldScreen(BaseScreen):
 
         self.text_log.prompt("GET> Which party member? (1-4):", callback=_on_who, single_char=True)
 
-    def _ignite_torch(self) -> None:
-        """Light a torch from inventory."""
-        if self.party.torches > 0:
-            self.party.torches -= 1
-            self.party.torch_duration += 100
-            self.text_log.add_message("Torch ignited! Area is illuminated.")
-        else:
-            self.text_log.add_message("None owned!")
-
     def _join_gold(self) -> None:
         """JOIN GOLD: prompt a member 1-4 and pool every purse into theirs.
 
@@ -374,13 +376,19 @@ class OverworldScreen(BaseScreen):
         self.party.pool_gold(self.party.members.index(member))
 
     def _peer_gem(self) -> None:
-        """Peer into mystical gem to survey surroundings."""
+        """Peer into mystical gem to survey surroundings.
+
+        Java truth: GameScreen.java:604-605 — P runs peerGem() and falls
+        through the keyUp tail, so peer commands consume a turn even when no
+        gem is owned.
+        """
         if self.party.gems > 0:
             self.party.gems -= 1
             m_name = getattr(self.game_map, "name", "Sosaria")
             self.text_log.add_message(f"Gem vision: {m_name} at X={self.party.x}, Y={self.party.y}.")
         else:
             self.text_log.add_message("None owned!")
+        self._consume_pass_turn()
 
     def _exit_transport(self) -> None:
         """Dismount horse or ship onto foot, persisting transport on map.
@@ -464,14 +472,6 @@ class OverworldScreen(BaseScreen):
 
         self.text_log.add_message("Board What?")
 
-    def _descend(self) -> None:
-        """Descend ladder command (dungeon only)."""
-        self.text_log.add_message("Descend: No dungeon ladder here!")
-
-    def _klimb(self) -> None:
-        """Klimb ladder command (dungeon only)."""
-        self.text_log.add_message("Klimb: No ladder or rope here!")
-
     def _parse_member(self, who_str: str):
         """Resolve a 1-4 member prompt answer to a PartyMember (or None)."""
         try:
@@ -502,7 +502,12 @@ class OverworldScreen(BaseScreen):
             self.text_log.add_message("Can't!")
 
     def _prompt_hand_equipment(self) -> None:
-        """Hand an unequipped weapon or armor item between party members."""
+        """Hand an unequipped weapon or armor item between party members.
+
+        Java truth: GameScreen.java:574-576 — H opens HandDialog and falls
+        through the keyUp tail, so it consumes a turn at the press.
+        """
+        self._consume_pass_turn()
         if len(self.party.members) < 2:
             self.text_log.add_message("Hand Equipment: Need at least 2 members!")
             return
@@ -559,39 +564,9 @@ class OverworldScreen(BaseScreen):
         self.text_log.prompt("Hand Equipment: From member #? (1-4): ", callback=_on_from, single_char=True)
 
     def _prompt_modify_order(self) -> None:
-        """Modify marching order of party."""
-        if len(self.party.members) < 2:
-            self.text_log.add_message("Modify Order: Need at least 2 members!")
-            return
-
-        def _on_first(p1_str: str) -> None:
-            try:
-                p1 = int(p1_str.strip()) - 1
-            except ValueError:
-                self.text_log.add_message("Invalid member #!")
-                return
-            if not (0 <= p1 < len(self.party.members)):
-                self.text_log.add_message("Invalid member #!")
-                return
-
-            def _on_second(p2_str: str) -> None:
-                try:
-                    p2 = int(p2_str.strip()) - 1
-                except ValueError:
-                    self.text_log.add_message("Invalid member #!")
-                    return
-                if not (0 <= p2 < len(self.party.members)):
-                    self.text_log.add_message("Invalid member #!")
-                    return
-
-                m1 = self.party.members[p1]
-                m2 = self.party.members[p2]
-                self.party.swap_members(p1, p2)
-                self.text_log.add_message(f"Order modified: {m1.name} and {m2.name} swapped.")
-
-            self.text_log.prompt("With member #? (1-4): ", callback=_on_second, single_char=True)
-
-        self.text_log.prompt("Modify Order: Exchange member #? (1-4): ", callback=_on_first, single_char=True)
+        """Modify marching order of party (Java BaseScreen.java:165-204
+        NewOrderInputAdapter — shared member_prompts flow)."""
+        prompt_modify_order(self.text_log, self.party, turn_callback=self._consume_pass_turn)
 
     def _negate_time(self) -> None:
         """NEGATE TIME: consume the FIRST member's powder for a 6-turn
@@ -601,8 +576,10 @@ class OverworldScreen(BaseScreen):
                 m.powder -= 1
                 self.text_log.add_message("Stop time with a powder!")
                 self.party.aura.set(AuraType.QUICKNESS, 6)
+                self._consume_pass_turn()  # Java keyUp tail: N falls through
                 return
         self.text_log.add_message("None!")
+        self._consume_pass_turn()  # Java keyUp tail: N falls through
 
     def _prompt_other(self) -> None:
         """Prompt for custom other command (PRAY, BRIBE, STEAL, DIG, etc.)."""
@@ -631,48 +608,13 @@ class OverworldScreen(BaseScreen):
         self.text_log.prompt("Other Command? ", callback=_on_other)
 
     def _prompt_ready_weapon(self) -> None:
-        """Equip weapon on selected party member with A-P selection and inventory tracking."""
-        def _on_member(m_str: str) -> None:
-            try:
-                idx = int(m_str.strip()) - 1
-            except ValueError:
-                self.text_log.add_message("Invalid member #!")
-                return
-            m = self.party.get_member(idx)
-            if m is None:
-                self.text_log.add_message("Invalid member #!")
-                return
+        """Equip weapon on selected party member with A-P selection and inventory tracking.
 
-            weapon_types = list(WeaponType)
-            self.text_log.add_message(f"-- Ready Weapon for {m.name} --")
-            for w_idx, wt in enumerate(weapon_types):
-                letter = chr(ord('A') + w_idx)
-                if wt == WeaponType.NONE:
-                    self.text_log.add_message(f"{letter} - Hands")
-                    continue
-                cnt = m.weapons.get(wt, 0)
-                is_equipped = (m.weapon == wt)
-                if cnt > 0 or is_equipped:
-                    status_tag = " (readied)" if is_equipped else f" ({cnt})"
-                    self.text_log.add_message(f"{letter} - {wt.name.capitalize()}{status_tag}")
-
-            def _on_weap(w_code: str) -> None:
-                c = w_code.strip().upper()
-                if not c:
-                    return
-                w_idx = ord(c[0]) - ord('A')
-                if 0 <= w_idx < len(weapon_types):
-                    success = m.ready_weapon(w_idx, self.asset_mgr)
-                    if success:
-                        self.text_log.add_message(f"Success! {m.name} readied {m.weapon.name}.")
-                    else:
-                        self.text_log.add_message("Cannot ready that weapon!")
-                else:
-                    self.text_log.add_message("Invalid weapon selection!")
-
-            self.text_log.prompt("Ready Weapon? (A-P): ", callback=_on_weap, single_char=True)
-
-        self.text_log.prompt("Ready Weapon: Which member? (1-4): ", callback=_on_member, single_char=True)
+        Java truth: GameScreen.java:608-613 routes R to the shared
+        SecondaryInputProcessor / ReadyWearInputAdapter flow; the shared
+        implementation now lives in member_prompts.prompt_ready_weapon.
+        """
+        prompt_ready_weapon(self.text_log, self.party, self.asset_mgr, turn_callback=self._consume_pass_turn)
 
     def _search(self) -> None:
         """SEARCH: a member 1-4 searches the party's tile (Java SIP:240-250).
@@ -814,50 +756,16 @@ class OverworldScreen(BaseScreen):
                 self.text_log.add_message("Volume: Sound and Music ENABLED.")
         else:
             self.text_log.add_message("Volume: Audio subsystem unavailable.")
+        # Java GameScreen.java:615-622 — V has no early return; consumes a turn.
+        self._consume_pass_turn()
 
     def _prompt_wear_armor(self) -> None:
-        """Equip armor on selected party member with A-H selection and inventory tracking."""
-        def _on_member(m_str: str) -> None:
-            try:
-                idx = int(m_str.strip()) - 1
-            except ValueError:
-                self.text_log.add_message("Invalid member #!")
-                return
-            m = self.party.get_member(idx)
-            if m is None:
-                self.text_log.add_message("Invalid member #!")
-                return
+        """Equip armor on selected party member with A-H selection and inventory tracking.
 
-            armor_types = list(ArmorType)
-            self.text_log.add_message(f"-- Wear Armor for {m.name} --")
-            for a_idx, at in enumerate(armor_types):
-                letter = chr(ord('A') + a_idx)
-                if at == ArmorType.NONE:
-                    self.text_log.add_message(f"{letter} - Skin")
-                    continue
-                cnt = m.armors.get(at, 0)
-                is_equipped = (m.armor == at)
-                if cnt > 0 or is_equipped:
-                    status_tag = " (worn)" if is_equipped else f" ({cnt})"
-                    self.text_log.add_message(f"{letter} - {at.name.capitalize()}{status_tag}")
-
-            def _on_arm(a_code: str) -> None:
-                c = a_code.strip().upper()
-                if not c:
-                    return
-                a_idx = ord(c[0]) - ord('A')
-                if 0 <= a_idx < len(armor_types):
-                    success = m.wear_armor(a_idx, self.asset_mgr)
-                    if success:
-                        self.text_log.add_message(f"Success! {m.name} wears {m.armor.name}.")
-                    else:
-                        self.text_log.add_message("Cannot wear that armor!")
-                else:
-                    self.text_log.add_message("Invalid armor selection!")
-
-            self.text_log.prompt("Wear Armor? (A-H): ", callback=_on_arm, single_char=True)
-
-        self.text_log.prompt("Wear Armor: Which member? (1-4): ", callback=_on_member, single_char=True)
+        Java truth: GameScreen.java:608-613 routes W to the shared member
+        flow (member_prompts.prompt_wear_armor).
+        """
+        prompt_wear_armor(self.text_log, self.party, self.asset_mgr, turn_callback=self._consume_pass_turn)
 
     def _prompt_yell(self) -> None:
         """YELL: a member 1-4, then a word (Java SIP:252-260 + YellInputAdapter
@@ -1381,14 +1289,24 @@ class OverworldScreen(BaseScreen):
         self._update_creatures()
 
     def _save_game(self) -> None:
-        """Save party progress to JSON file."""
-        try:
-            from py_exodus.save_system import SaveSystem
+        """Save party progress to JSON file.
 
-            SaveSystem.save_game(self.party, "saves/party.json")
-            self.text_log.add_message("Game saved successfully.")
-        except Exception as e:
-            self.text_log.add_message("Save failed!")
+        Java truth: GameScreen.java:557-563 — Q is the save command on every
+        GameScreen map, but only SOSARIA (map id 0) accepts it: "Saved Game."
+        there, "Cannot save here!" anywhere else. Both paths fall through the
+        keyUp tail and consume a turn.
+        """
+        if getattr(self.game_map, "id", None) == 0:
+            try:
+                from py_exodus.save_system import SaveSystem
+
+                SaveSystem.save_game(self.party, "saves/party.json")
+                self.text_log.add_message("Saved Game.")
+            except Exception:
+                self.text_log.add_message("Save failed!")
+        else:
+            self.text_log.add_message("Cannot save here!")
+        self._consume_pass_turn()
 
     def update(self, dt: float) -> None:
         self.anim_timer += dt

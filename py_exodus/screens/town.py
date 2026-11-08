@@ -196,8 +196,6 @@ class TownScreen(BaseScreen):
             self._get_chest()
         elif event.key == pygame.K_h:
             self._prompt_hand_equipment()
-        elif event.key == pygame.K_i:
-            self._ignite_torch()
         elif event.key == pygame.K_j:
             self._join_gold()
         elif event.key == pygame.K_l:
@@ -209,13 +207,20 @@ class TownScreen(BaseScreen):
         elif event.key == pygame.K_o:
             self._prompt_other()
         elif event.key == pygame.K_p:
+            # Java GameScreen.java:604-605 — P runs peerGem() and falls through
+            # the keyUp tail, so peer commands consume a turn either way.
             if self.party.gems > 0:
                 self.party.gems -= 1
                 self.text_log.add_message(f"Gem vision: {getattr(self.game_map, 'name', 'Town')} survey at ({self.avatar_x}, {self.avatar_y}).")
             else:
                 self.text_log.add_message("Peer: None owned!")
+            self._consume_pass_turn()
         elif event.key == pygame.K_q:
-            self.text_log.add_message("Quit: Cannot save in town! Journey outside or see Lord British.")
+            # Java GameScreen.java:557-563 — Q is the save command on every
+            # GameScreen map; only SOSARIA (id 0) accepts it, so towns always
+            # refuse. The key has no early return and consumes a turn.
+            self.text_log.add_message("Cannot save here!")
+            self._consume_pass_turn()
         elif event.key == pygame.K_r:
             self._prompt_ready_weapon()
         elif event.key == pygame.K_s:
@@ -229,6 +234,8 @@ class TownScreen(BaseScreen):
                 self.audio.enabled = not self.audio.enabled
                 msg = "Sound & Music ENABLED." if self.audio.enabled else "Sound & Music MUTED."
                 self.text_log.add_message(f"Volume: {msg}")
+            # Java GameScreen.java:615-622 — V has no early return; consumes a turn.
+            self._consume_pass_turn()
         elif event.key == pygame.K_w:
             self._prompt_wear_armor()
         elif event.key == pygame.K_x:
@@ -239,6 +246,16 @@ class TownScreen(BaseScreen):
             self._prompt_yell()
         elif event.key == pygame.K_z:
             self._toggle_zstats()
+        else:
+            # Java GameScreen.keyUp tail (GameScreen.java:628): keys without an
+            # explicit early return — including unhandled D, I and K — fall
+            # through to finishTurn with no message.
+            self._consume_pass_turn()
+
+    def _consume_pass_turn(self) -> None:
+        """Java GameScreen.keyUp tail (GameScreen.java:628): finishTurn on the
+        party's tile with no message (unhandled keys and fall-throughs)."""
+        self._finish_turn(self.game_map.get_tile(self.avatar_x, self.avatar_y) if self.game_map else None)
 
     def _toggle_zstats(self) -> None:
         """Cycle Ztats inspect mode through party members."""
@@ -267,6 +284,8 @@ class TownScreen(BaseScreen):
                 self.text_log.add_message("Armors: " + ", ".join(arm_list))
         else:
             self.text_log.add_message("Zstats: Normal view")
+        # Java GameScreen.java:564-572 — Z has no early return; consumes a turn.
+        self._consume_pass_turn()
 
     def _try_move(self, direction: Direction) -> None:
         if self.game_map is None:
@@ -665,6 +684,7 @@ class TownScreen(BaseScreen):
 
     def _prompt_hand_equipment(self) -> None:
         """Hand an unequipped weapon or armor item between party members."""
+        self._consume_pass_turn()  # Java GameScreen.java:574-576: H falls through
         if len(self.party.members) < 2:
             self.text_log.add_message("Hand Equipment: Need at least 2 members!")
             return
@@ -720,15 +740,6 @@ class TownScreen(BaseScreen):
 
         self.text_log.prompt("Hand Equipment: From member #? (1-4): ", callback=_on_from, single_char=True)
 
-    def _ignite_torch(self) -> None:
-        """Light a torch."""
-        if self.party.torches > 0:
-            self.party.torches -= 1
-            self.party.torch_duration += 100
-            self.text_log.add_message("Torch ignited! Area is illuminated.")
-        else:
-            self.text_log.add_message("None owned!")
-
     def _join_gold(self) -> None:
         """JOIN GOLD: prompt a member 1-4 and pool every purse into theirs.
 
@@ -756,8 +767,10 @@ class TownScreen(BaseScreen):
                 m.powder -= 1
                 self.text_log.add_message("Stop time with a powder!")
                 self.party.aura.set(AuraType.QUICKNESS, 6)
+                self._consume_pass_turn()  # Java keyUp tail: N falls through
                 return
         self.text_log.add_message("None!")
+        self._consume_pass_turn()  # Java keyUp tail: N falls through
 
     def _search(self) -> None:
         """SEARCH: a member 1-4 searches the party's tile (Java SIP:240-250

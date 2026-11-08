@@ -148,8 +148,7 @@ class DungeonCamera:
         y: int = 0,
         z: int = 0,
         dir: Direction = Direction.NORTH,
-        torch_rounds: int = 0,
-        light_spell: bool = False,
+        torch_lit: bool = False,
         max_steps: int = 4,
         *,
         dng: DungeonMap | None = None,
@@ -167,7 +166,10 @@ class DungeonCamera:
 
         # Light / torch visibility check
         # When dark, view is limited to 1 step ahead
-        if torch_rounds <= 0 and not light_spell:
+        # Java truth: DungeonScreen.java:81 `boolean isTorchOn` — the torch is
+        # a plain boolean toggle (lit vs dark); there are no rounds, no dimming
+        # and no expiry. Render light follows the same binary model.
+        if not torch_lit:
             max_visible = 1
         else:
             max_visible = min(max_steps, len(self.BOXES) - 2)
@@ -632,10 +634,26 @@ class DungeonState:
         self.asset_manager = asset_manager
         self.rng = rng or random.Random()
 
-        # Torch rounds: inherited from party if present
-        self.torch_rounds = party.torch_duration if party is not None else 0
-        self.light_spell = False
+        # Torch: Java DungeonScreen.java:81 `boolean isTorchOn` — a plain
+        # toggle, default off when entering. There is no rounds counter and
+        # no dim; the old torch_duration inheritance is gone.
+        self.is_torch_on = False
         self.random_encounters_enabled = random_encounters
+
+    @property
+    def light_spell(self) -> bool:
+        """Spell-lit alias of the torch boolean.
+
+        Java truth: SpellUtil.java:89-91 (LORUM) and 158-161 (LUMINAE) both
+        set ``DungeonScreen.isTorchOn = True`` — the light spells and the
+        torch share the single on/off flag, so pressing I extinguishes a
+        spell-lit corridor the same way it extinguishes a torch.
+        """
+        return self.is_torch_on
+
+    @light_spell.setter
+    def light_spell(self, value: bool) -> None:
+        self.is_torch_on = value
 
     @property
     def current_tile(self) -> DungeonTile:
@@ -662,18 +680,6 @@ class DungeonState:
         return DungeonEvent(
             type=DungeonEventType.TURNED,
             message=f"Turned right, now facing {self.dir.name}.",
-            x=self.x,
-            y=self.y,
-            z=self.z,
-            tile=self.current_tile,
-        )
-
-    def turn_around(self) -> DungeonEvent:
-        """Turn 180 degrees to face opposite direction."""
-        self.dir = self.dir.reverse()
-        return DungeonEvent(
-            type=DungeonEventType.TURNED,
-            message=f"Turned around, now facing {self.dir.name}.",
             x=self.x,
             y=self.y,
             z=self.z,
@@ -755,12 +761,11 @@ class DungeonState:
                 moved=True,
             )
 
-        # Wind trap: extinguishes torch
+        # Wind trap: extinguishes the torch (Java DungeonScreen.java:1080-1085
+        # — log "Wind extinguished your torch!", Sounds.WIND, isTorchOn =
+        # false; no torchduration change — that field is dead in Java).
         if target_tile == DungeonTile.WIND_TRAP:
-            self.torch_rounds = 0
-            self.light_spell = False
-            if self.party:
-                self.party.torch_duration = 0
+            self.is_torch_on = False
             self._tick_turn()
             return DungeonEvent(
                 type=DungeonEventType.WIND_TRAP,
@@ -873,14 +878,12 @@ class DungeonState:
     # --- Turn & Resource Management ---
 
     def _tick_turn(self) -> None:
-        """Decrement torch counters and run the per-move endTurn tick."""
-        if self.torch_rounds > 0:
-            self.torch_rounds -= 1
-            if self.torch_rounds <= 0:
-                self.light_spell = False
-            if self.party:
-                self.party.torch_duration = self.torch_rounds
+        """Run the per-move endTurn tick.
 
+        Java truth: DungeonScreen.finishTurn (DungeonScreen.java:1124-1142)
+        passes the turn with the aura and creature updates only — the torch
+        boolean needs no upkeep (no rounds to decrement, no expiry ever).
+        """
         if self.party:
             # Java endTurn (Party.java:592-639): dungeons are non-surface
             # maps, so submorsels drain 10 per move. A wipe from tick damage
@@ -892,34 +895,15 @@ class DungeonState:
             except PartyDeathException:
                 pass
 
-    def light_torch(self, duration: int = 100) -> bool:
-        """Light a torch from party inventory."""
-        if self.party:
-            found = False
-            for pm in self.party.members:
-                if pm.player.torches > 0:
-                    pm.player.torches -= 1
-                    found = True
-                    break
-            if not found:
-                return False
-
-        self.torch_rounds = duration
-        if self.party:
-            self.party.torch_duration = duration
-        return True
-
-    def cast_light_spell(self, duration: int = 50) -> None:
-        """Activate magical illumination (LUMINA / SOMINAE)."""
-        self.light_spell = True
-        self.torch_rounds = max(self.torch_rounds, duration)
-        if self.party:
-            self.party.torch_duration = self.torch_rounds
-
     # --- Fixture Interactions ---
 
     def klimb_up(self) -> DungeonEvent:
-        """Ascend via ladder towards surface (z decrements towards 0)."""
+        """Ascend via ladder towards surface (z decrements towards 0).
+
+        Java truth: DungeonScreen.java:959-971 — the K branch steps
+        currentLevel down, exits to the overworld below level 0 and returns
+        false before finishTurn, so ladders never consume a turn.
+        """
         tile = self.current_tile
         if tile not in (DungeonTile.LADDER_UP, DungeonTile.LADDER_UP_DOWN):
             return DungeonEvent(
@@ -946,7 +930,6 @@ class DungeonState:
         self.z -= 1
         if self.party:
             self.party.dungeon_level = self.z
-        self._tick_turn()
 
         return DungeonEvent(
             type=DungeonEventType.LADDER_UP,
@@ -958,7 +941,14 @@ class DungeonState:
         )
 
     def klimb_down(self) -> DungeonEvent:
-        """Descend via ladder deeper into the dungeon (z increments towards 7)."""
+        """Descend via ladder deeper into the dungeon (z increments).
+
+        Java truth: DungeonScreen.java:973-981 — the D branch increments
+        currentLevel and only clamps when currentLevel exceeds DUNGEON_LVLS
+        (8), so a descent off the deepest playable grid is *accepted* and
+        clamped at 8 (one level past the last playable array index), never
+        refused. K/D return false before finishTurn: no turn is consumed.
+        """
         tile = self.current_tile
         if tile not in (DungeonTile.LADDER_DOWN, DungeonTile.LADDER_UP_DOWN):
             return DungeonEvent(
@@ -971,21 +961,11 @@ class DungeonState:
                 success=False,
             )
 
-        if self.z >= 7:
-            return DungeonEvent(
-                type=DungeonEventType.BLOCKED,
-                message="You are at the deepest dungeon level!",
-                x=self.x,
-                y=self.y,
-                z=self.z,
-                tile=tile,
-                success=False,
-            )
-
         self.z += 1
+        if self.z > self.dmap.levels:
+            self.z = self.dmap.levels
         if self.party:
             self.party.dungeon_level = self.z
-        self._tick_turn()
 
         return DungeonEvent(
             type=DungeonEventType.LADDER_DOWN,
@@ -995,14 +975,6 @@ class DungeonState:
             z=self.z,
             tile=tile,
         )
-
-    def climb_ladder_up(self) -> DungeonEvent:
-        """Alias for klimb_up()."""
-        return self.klimb_up()
-
-    def climb_ladder_down(self) -> DungeonEvent:
-        """Alias for klimb_down()."""
-        return self.klimb_down()
 
     def drink_fountain(self, member_index: int = 0) -> DungeonEvent:
         """Inspect and drink from a dungeon fountain."""
