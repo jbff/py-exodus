@@ -248,13 +248,15 @@ def test_journey_onward_without_game_over_keeps_in_memory_party(pygame_setup, mo
 
 def test_overworld_starvation_wipe_transitions_to_start_screen(sm, asset_mgr):
     """Starving with one living member wipes the party → StartScreen game over."""
-    party = single_member_party(hp=1)
+    party = single_member_party(hp=0)
     party.food = 0
     party.moves = 40
     ow = OverworldScreen(party=party, map_id=0, asset_mgr=asset_mgr, manager=sm)
     sm.set_screen(ow)
 
-    ow._check_food_consumption()
+    # Drive the member's submorsels to the crossing point (Party.java:592-639).
+    party.get_member(0).submorsels = 5
+    ow._pass_turn()
 
     assert party.is_party_dead()
     assert sm.current_screen is not ow
@@ -275,11 +277,16 @@ def test_overworld_starvation_leaving_survivor_no_transition(sm, asset_mgr):
     ow = OverworldScreen(party=party, map_id=0, asset_mgr=asset_mgr, manager=sm)
     sm.set_screen(ow)
 
-    ow._check_food_consumption()
+    # Java tick order: heal +1 happens first, then the starvation blow of 2 —
+    # a net loss of 1 for a member who was alive at the crossing.
+    for m in party.members:
+        m.food = 0
+        m.submorsels = 5
+    ow._pass_turn()
 
     assert not party.is_party_dead()
     assert sm.current_screen is ow
-    assert party.get_member(1).hp == 4
+    assert party.get_member(1).hp == 5
 
 
 def test_overworld_chest_gas_trap_wipe_transitions_to_start_screen(sm, asset_mgr, monkeypatch):

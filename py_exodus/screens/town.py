@@ -124,6 +124,13 @@ class TownScreen(BaseScreen):
         elif event.key in (pygame.K_RIGHT, pygame.K_KP6):
             self._try_move(Direction.EAST)
         elif event.key == pygame.K_SPACE:
+            # Java GameScreen.passTurn → finishTurn → endTurn: passing time
+            # in town ticks the submorsels pool (10 per move off the surface).
+            try:
+                self.party.end_turn(surface=False)
+            except PartyDeathException:
+                pass
+            self.check_party_death()
             self.text_log.add_message("Pass.")
         # Town commands:
         elif event.key == pygame.K_a:
@@ -139,8 +146,10 @@ class TownScreen(BaseScreen):
         elif event.key == pygame.K_i:
             self._ignite_torch()
         elif event.key == pygame.K_j:
-            self.party.pool_gold(0)
-            self.text_log.add_message(f"All gold gathered into party pool: {self.party.gold} GP.")
+            total = self.party.pool_gold(0) or 0
+            target = self.party.get_member(0)
+            name = getattr(target, "name", "party member") if target else "party member"
+            self.text_log.add_message(f"All gold gathered into {name}'s purse: {total} GP.")
         elif event.key == pygame.K_l:
             self._prompt_door(open_door=True)
         elif event.key == pygame.K_m:
@@ -222,6 +231,13 @@ class TownScreen(BaseScreen):
         if can_move_to(self.game_map, nx, ny, transport=Transport.FOOT, party=self.party):
             self.avatar_x = nx
             self.avatar_y = ny
+            # Java GameScreen.finishTurn → Party.endTurn (Party.java:592-639);
+            # towns drain submorsels at 10 per move (non-surface map).
+            try:
+                self.party.end_turn(surface=False)
+            except PartyDeathException:
+                pass
+            self.check_party_death()
             if self.audio is not None:
                 self.audio.play_sfx("walk_normal")
         else:

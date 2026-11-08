@@ -219,8 +219,11 @@ class OverworldScreen(BaseScreen):
 
     def _pass_turn(self) -> None:
         """Pass turn in place without moving avatar."""
-        self.party.moves += 1
-        self._check_food_consumption()
+        try:
+            self.party.end_turn(surface=True)
+        except PartyDeathException:
+            pass
+        self.check_party_death()
         self._update_creatures()
         self.text_log.add_message("Pass.")
 
@@ -304,9 +307,15 @@ class OverworldScreen(BaseScreen):
             self.text_log.add_message("None owned!")
 
     def _join_gold(self) -> None:
-        """Gather all party gold into primary pool."""
-        self.party.pool_gold(0)
-        self.text_log.add_message(f"All gold gathered into party pool: {self.party.gold} GP.")
+        """Gather all members' gold into the first member's purse.
+
+        Java truth: ``exodus/Party.java:88-97`` ``poolGold(index)`` — gold is
+        per member; the join command credits the whole sum to one member.
+        """
+        total = self.party.pool_gold(0) or 0
+        target = self.party.get_member(0)
+        name = getattr(target, "name", "party member") if target else "party member"
+        self.text_log.add_message(f"All gold gathered into {name}'s purse: {total} GP.")
 
     def _peer_gem(self) -> None:
         """Peer into mystical gem to survey surroundings."""
@@ -807,13 +816,17 @@ class OverworldScreen(BaseScreen):
         if can_move_to(self.game_map, nx, ny, transport=self.party.transport, party=self.party):
             self.party.x = nx
             self.party.y = ny
-            self.party.moves += 1
-
+            # Java GameScreen.finishTurn → Party.endTurn (Party.java:592-639):
+            # the move counter and the submorsels/food/regen tick land in the
+            # same per-move call.
             if self.audio is not None:
                 self.audio.play_sfx("walk_normal")
 
-            # Check food consumption (and party death by starvation)
-            self._check_food_consumption()
+            try:
+                self.party.end_turn(surface=True)
+            except PartyDeathException:
+                pass
+            self.check_party_death()
 
             # Check moongate teleports
             self._check_moongates()
@@ -1022,26 +1035,6 @@ class OverworldScreen(BaseScreen):
                     self.text_log.add_message("Stepped through mystical moongate!")
                     if self.audio is not None:
                         self.audio.play_sfx("moongate_flash")
-
-    def _check_food_consumption(self) -> None:
-        """Consume food on every 40th move; starve the party when depleted.
-
-        Java truth: starvation lands on the last living member through
-        ``PartyMember.applyDamage`` (exodus/Party.java:556-577); a party wipe
-        routes the game over (exodus/GameScreen.java:433-446).
-        """
-        if self.party.moves % 40 == 0:
-            if self.party.food > 0:
-                self.party.food -= 1
-            else:
-                self.text_log.add_message("Starving! Party loses health.")
-                try:
-                    for m in self.party.members:
-                        m.apply_damage(2)
-                except PartyDeathException:
-                    # Java: catch → partyDeath(); the post-check routes identically
-                    pass
-            self.check_party_death()
 
     def _spawn_wandering_creature(self) -> None:
         """Spawn a wandering creature near the edge of the viewport."""

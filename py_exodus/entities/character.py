@@ -50,6 +50,7 @@ class Character(metaclass=CharacterMeta):
         powder: _builtin_int = 0,
         food: _builtin_int = 150,
         gold: _builtin_int = 150,
+        submorsels: _builtin_int = 400,
         portrait_index: _builtin_int = 43,
         **kwargs: Any,
     ) -> None:
@@ -159,6 +160,9 @@ class Character(metaclass=CharacterMeta):
         self.powder = powder
         self.food = food
         self.gold = gold
+        # Java SaveGame.CharacterRecord.submorsels (SaveGame.java:191):
+        # fractional-food accumulator, 400 submorsels per unit of food.
+        self.submorsels = submorsels
         self.portrait_index = portrait_index
 
     # --- Stat properties & aliases ---
@@ -306,6 +310,18 @@ class Character(metaclass=CharacterMeta):
         return self.status in (Status.DEAD, Status.ASHES)
 
     # --- Progression & Lord British ---
+    def adjust_gold(self, pts: _builtin_int) -> _builtin_int:
+        """Adjust this character's gold, clamped to 0..9999.
+
+        Java truth: ``objects/SaveGame.java:390-392`` — ``CharacterRecord
+        .adjustGold`` uses ``Utils.adjustValue(gold, v, 9999, 0)``. Gold lives
+        on the individual character record, not on the party (per-member
+        model); vendor purchases, chest loot, and shrine donations all debit
+        or credit a member's own purse.
+        """
+        self.gold = max(0, min(9999, self.gold + pts))
+        return self.gold
+
     def meet_lord_british(self) -> bool:
         """Advance character level when visiting Lord British with sufficient EXP."""
         if self.level >= 25:
@@ -566,6 +582,7 @@ class Character(metaclass=CharacterMeta):
             "powder": self.powder,
             "food": self.food,
             "gold": self.gold,
+            "submorsels": self.submorsels,
             "portrait_index": self.portrait_index,
         }
 
@@ -598,6 +615,7 @@ class Character(metaclass=CharacterMeta):
             powder=data.get("powder", 0),
             food=data.get("food", 150),
             gold=data.get("gold", 150),
+            submorsels=data.get("submorsels", 400),
             portrait_index=data.get("portrait_index", 43),
         )
         if "weapons" in data and isinstance(data["weapons"], dict):

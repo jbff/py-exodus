@@ -849,7 +849,7 @@ class DungeonState:
     # --- Turn & Resource Management ---
 
     def _tick_turn(self) -> None:
-        """Decrement torch counters and consume party food per turn."""
+        """Decrement torch counters and run the per-move endTurn tick."""
         if self.torch_rounds > 0:
             self.torch_rounds -= 1
             if self.torch_rounds <= 0:
@@ -858,8 +858,15 @@ class DungeonState:
                 self.party.torch_duration = self.torch_rounds
 
         if self.party:
-            self.party.moves += 1
-            self.party.consume_food()
+            # Java endTurn (Party.java:592-639): dungeons are non-surface
+            # maps, so submorsels drain 10 per move. A wipe from tick damage
+            # raises PartyDeathException; the dungeon state catches it here —
+            # the owning DungeonScreen routes game over (Task 2 flow) and
+            # full routing out of the dungeon is not this task's scope.
+            try:
+                self.party.end_turn(surface=False)
+            except PartyDeathException:
+                pass
 
     def light_torch(self, duration: int = 100) -> bool:
         """Light a torch from party inventory."""
@@ -1193,7 +1200,14 @@ class DungeonState:
                     member.status = Status.DEAD
 
         if self.party:
-            self.party.gold += gold_amount
+            # Java truth: chest gold credits the opening member's purse via
+            # CharacterRecord.adjustGold (Party.getChestGold → adjustGold),
+            # capped at 9999 — not a party-level pool.
+            member = self.party.get_member(member_index)
+            if member is not None:
+                member.adjust_gold(gold_amount)
+            else:
+                self.party.gold += gold_amount
 
         self.dmap.set_tile(self.x, self.y, self.z, DungeonTile.NOTHING)
 

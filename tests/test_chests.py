@@ -40,14 +40,28 @@ def make_member(name: str, **kwargs) -> PartyMember:
     )
 
 
-def make_party(members: list[PartyMember], gold: int = 500) -> Party:
-    return Party(members, food=200, gold=gold, transport=Transport.FOOT)
+def make_party(members: list[PartyMember], gold: int | None = None, food: int | None = None) -> Party:
+    """Per-member model (Task 4): gold and food live on each member's own
+    record — there is no party pool. The optional gold/food arguments are
+    split evenly across the members' purses."""
+    party = Party(members, transport=Transport.FOOT)
+    n = len(party.members)
+    if n and gold is not None:
+        share, rem = divmod(gold, n)
+        for i, m in enumerate(party.members):
+            m.gold = share + (1 if i < rem else 0)
+    if n and food is not None:
+        share, rem = divmod(food, n)
+        for i, m in enumerate(party.members):
+            m.food = share + (1 if i < rem else 0)
+    return party
 
 
 # --- Step 1: pipeline gold behavior ---
 
 def test_chest_gold_credits_member_not_party_pool(monkeypatch):
-    """Chest gold goes to member.gold within 10-66; the party pool is untouched."""
+    """Chest gold goes to member.gold within 10-66; other members are untouched
+    and the party total rises only by the chest amount (per-member model)."""
     member = make_member("Fighter", dexterity=15)
     other = make_member("Cleric", dexterity=15)
     party = make_party([member, other], gold=500)
@@ -58,15 +72,16 @@ def test_chest_gold_credits_member_not_party_pool(monkeypatch):
     lines = open_chest(party, member, dungeon=False)
 
     assert lines == ["The Chest Holds: 41 Gold"]
-    assert member.gold == 150 + 41
-    assert other.gold == 150
-    assert party.gold == 500
+    assert member.gold == 250 + 41
+    assert other.gold == 250
+    assert party.gold == 500 + 41
 
 
 def test_chest_gold_value_range_10_to_66(monkeypatch):
     """Over many seeded chests, credited gold is always 10-66 and member-only."""
     member = make_member("Fighter", dexterity=200)
-    party = make_party([member, make_member("Cleric")], gold=500)
+    other = make_member("Cleric")
+    party = make_party([member, other], gold=500)
     monkeypatch.setattr(chests, "random", random.Random(7))
 
     for _ in range(100):
@@ -76,13 +91,13 @@ def test_chest_gold_value_range_10_to_66(monkeypatch):
         assert 10 <= delta <= 66
         assert lines[-1] == f"The Chest Holds: {delta} Gold"
         assert member.gold <= 9999
-        assert party.gold == 500
+        assert other.gold == 250  # non-opening members are never credited
 
 
 def test_chest_gold_caps_at_9999(monkeypatch):
     """A member's gold caps at 9999 on chest credit (Java adjustGold)."""
     member = make_member("Fighter", gold=9990, dexterity=200)
-    party = make_party([member])
+    party = make_party([member], gold=9990)
     monkeypatch.setattr(chests, "random", random.Random(3))
 
     open_chest(party, member, dungeon=False)
@@ -248,7 +263,7 @@ def test_dungeon_get_opens_chest_on_party_tile(monkeypatch):
     assert not screen.text_log.is_waiting_for_input
     assert screen.dungeon_map.get_tile(2, 2, 0) == DungeonTile.NOTHING
     assert member.gold == 150 + 41
-    assert party.gold == 500
+    assert party.gold == member.gold + 150  # per-member total: the opener's purse plus the untouched Cleric
     assert any("The Chest Holds: 41 Gold" in msg for msg in screen.text_log.history)
     assert party.moves == moves_before + 1  # G consumes a turn (finishTurn)
 

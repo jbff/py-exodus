@@ -94,14 +94,13 @@ class ShrineScreen(BaseScreen):
     def donate(self, member_idx: int, amount: int = 1) -> bool:
         """Donate 100 gold per point to boost character stat up to racial cap.
 
+        Java truth: ``exodus/ShrineScreen.java:200-231`` — the donation is
+        debited from the *selected member's* own purse via
+        ``CharacterRecord.adjustGold`` (gold is per member), and the check
+        against a too-poor player is ``You cannot cheat the gods!``.
+
         Returns True if donation succeeded, False if insufficient gold or invalid member.
         """
-        cost = amount * 100
-        if self.party.gold < cost:
-            self.log_messages.append("You cannot cheat the gods!")
-            self.last_message = "You cannot cheat the gods!"
-            return False
-
         member = self.party.get_member(member_idx)
         if member is None:
             self.log_messages.append("Who else?")
@@ -109,10 +108,16 @@ class ShrineScreen(BaseScreen):
             return False
 
         char = getattr(member, "player", member)
+        cost = amount * 100
+        if getattr(char, "gold", 0) < cost:
+            self.log_messages.append("You cannot cheat the gods!")
+            self.last_message = "You cannot cheat the gods!"
+            return False
+
         current_stat = getattr(char, self.stat_attr)
         max_stat = getattr(char.race, self.stat_cap_attr)
 
-        self.party.gold -= cost
+        char.adjust_gold(-cost)
         new_stat = min(current_stat + amount, max_stat)
         setattr(char, self.stat_attr, new_stat)
 

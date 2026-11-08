@@ -6,6 +6,7 @@ from typing import Any
 from py_exodus.constants import (
     MAX_PARTY_MEMBERS,
     Direction,
+    Profession,
     Status,
     Transport,
 )
@@ -130,8 +131,8 @@ class Party:
         transport: Transport | str = Transport.FOOT,
         ship_hull: int = 50,
         wind_direction: Direction | str = Direction.NORTH,
-        gold: int = 0,
-        food: int = 0,
+        gold: int | None = None,
+        food: int | None = None,
         moves: int = 0,
         torch_duration: int = 0,
         active_member_index: int = 0,
@@ -163,6 +164,8 @@ class Party:
 
         self.ship_hull = max(0, min(50, ship_hull))
 
+        self.active_member_index = active_member_index
+
         # Wind direction resolution
         if isinstance(wind_direction, Direction):
             self.wind_direction = wind_direction
@@ -176,11 +179,16 @@ class Party:
             else:
                 self.wind_direction = Direction.NORTH
 
-        self.gold = gold
-        self.food = food
+        # Gold and food live on each member (Java CharacterRecord); these
+        # optional constructor arguments RE-SEED the party's total via the
+        # derived setters below. There is no party-level pool, and the
+        # default of None leaves the members' own purses untouched.
+        if gold is not None:
+            self.gold = gold
+        if food is not None:
+            self.food = food
         self.moves = moves
         self.torch_duration = torch_duration
-        self.active_member_index = active_member_index
 
         # Exodus machine card-insertion status (SaveGame.exodusCardsStatus):
         # bit 0x1 love, 0x2 sol, 0x4 moons, 0x8 death.
@@ -408,44 +416,119 @@ class Party:
         return [m for m in self.members if not m.is_disabled() and not m.fled and not m.is_dead()]
 
     # --- Resources & Turn Actions ---
-    def pool_gold(self, target_index: int | None = None) -> int:
-        """Pool all individual members' gold into party gold or a specific member."""
-        total_member_gold = sum(m.gold for m in self.members)
-        for m in self.members:
-            m.gold = 0
+    @property
+    def gold(self) -> int:
+        """Total gold carried by the party.
 
-        if target_index is None:
-            self.gold += total_member_gold
-            return self.gold
-        else:
-            if 0 <= target_index < len(self.members):
-                total = self.gold + total_member_gold
-                self.members[target_index].gold = total
-                self.gold = 0
-                return total
-            self.gold += total_member_gold
-            return self.gold
+        Java truth: gold lives on each ``CharacterRecord`` (SaveGame.java:192)
+        — there is no party-level pool. This property is the derived sum.
+        The setter distributes the delta the same way the torches/gems/keys
+        setters do: additions land on the active member, debits are taken
+        member by member.
+        """
+        return sum(m.gold for m in self.members)
 
-    def consume_food(self, amount: int | None = None) -> int:
-        """Consume food for active members per turn; apply starvation damage if depleted."""
-        if amount is None:
-            living_members = [m for m in self.members if not m.is_dead()]
-            req = len(living_members)
-        else:
-            req = amount
-
-        if self.food >= req:
-            self.food -= req
-        else:
-            self.food = 0
-            # Apply starvation damage (2 HP) to all living members
+    @gold.setter
+    def gold(self, val: int) -> None:
+        cur = self.gold
+        diff = val - cur
+        if diff > 0 and self.members:
+            target = self.active_member or self.members[0]
+            target.gold = getattr(target, "gold", 0) + diff
+        elif diff < 0:
+            need = -diff
             for m in self.members:
-                if not m.is_dead():
-                    m.hp = max(0, m.hp - 2)
-                    if m.hp == 0:
-                        m.status = Status.DEAD
+                g = getattr(m, "gold", 0)
+                take = min(g, need)
+                m.gold = g - take
+                need -= take
+                if need <= 0:
+                    break
 
-        return self.food
+    @property
+    def food(self) -> int:
+        """Total food carried by the party.
+
+        Java truth: food lives on each ``CharacterRecord`` (SaveGame.java:190)
+        — there is no party-level pool. This property is the derived sum; the
+        setter distributes the delta like the gold setter.
+        """
+        return sum(m.food for m in self.members)
+
+    @food.setter
+    def food(self, val: int) -> None:
+        cur = self.food
+        diff = val - cur
+        if diff > 0 and self.members:
+            target = self.active_member or self.members[0]
+            target.food = getattr(target, "food", 0) + diff
+        elif diff < 0:
+            need = -diff
+            for m in self.members:
+                f = getattr(m, "food", 0)
+                take = min(f, need)
+                m.food = f - take
+                need -= take
+                if need <= 0:
+                    break
+
+    def pool_gold(self, target_index: int = 0) -> int | None:
+        """Pool every member's gold into member ``target_index``.
+
+        Java truth: ``exodus/Party.java:88-97`` — ``poolGold(index)`` zeroes
+        every member's purse and credits the whole sum to ``members[index]``.
+        There is no party-level pool to pool into in the per-member model.
+        """
+        if target_index >= len(self.members) or target_index < 0:
+            return None
+
+        total = 0
+        for m in self.members:
+            total += m.gold
+            m.gold = 0
+        self.members[target_index].gold = total
+        return total
+
+    def end_turn(self, surface: bool = True) -> None:
+        """Advance one movement turn: submorsels, food, heal/poison, mana.
+
+        Java truth: ``exodus/Party.java:592-639`` ``Party.endTurn``. Increments
+        the move counter, then for every non-DEAD member: decrement the
+        member's ``submorsels`` by 40 on the surface maps (Sosaria/Exodus) or
+        10 elsewhere (towns, castles, dungeons); when the pool crosses below
+        0 it resets to 400 and one unit of food is consumed, triggering —
+        poisoned member: 1 damage via ``applyDamage`` (the Task 2 death-flow
+        chokepoint, so a wipe raises ``PartyDeathException``); otherwise +1
+        health capped at max. Mana regenerates +1 (+2 for a Druid) while the
+        member is alive, not disabled, and below max mana. Members with food
+        at 0 after eating take 2 damage. Ship hull repair (Task 6) and the
+        combat map type guard are not implemented here.
+        """
+        self.moves += 1
+
+        decr_interval = 40 if surface else 10
+
+        for m in self.members:
+            if m.is_dead():
+                continue
+
+            m.submorsels -= decr_interval
+            if m.submorsels < 0:
+                m.submorsels = 400
+                m.food = max(0, m.food - 1)
+
+                if m.status == Status.POISONED:
+                    m.apply_damage(1, False)
+                else:
+                    m.hp = min(m.max_hp, m.hp + 1)
+
+                if not m.is_disabled() and m.mp < m.max_mp:
+                    m.mp += 1
+                    if m.profession == Profession.DRUID:
+                        m.mp += 1
+
+                if m.food <= 0:
+                    m.apply_damage(2, False)
 
     def adjust_ship_hull(self, val: int) -> int:
         """Adjust ship hull health between 0 and 50."""
@@ -525,8 +608,10 @@ class Party:
             transport=p_data.get("transport", Transport.FOOT),
             ship_hull=p_data.get("ship_hull", 50),
             wind_direction=p_data.get("wind_direction", Direction.NORTH),
-            gold=p_data.get("gold", 0),
-            food=p_data.get("food", 0),
+            # Per-member model: gold and food live on the member records
+            # (Java CharacterRecord, SaveGame.java:190-192). Legacy party-level
+            # gold/food keys in old saves are derived sums only and are not
+            # re-seeded here to avoid double-crediting.
             moves=p_data.get("moves", 0),
             torch_duration=p_data.get("torch_duration", 0),
             active_member_index=p_data.get("active_member_index", 0),

@@ -161,7 +161,10 @@ class RosterScreen(BaseScreen):
         self.audio = audio
 
         # Load or initialize active party
-        self.party = party or Party(members=[], x=44, y=20, food=400, gold=200)
+        # Load or initialize active party.
+        # Per-member model (Task 4): gold and food live on each Character
+        # record — there is no party-level seed pool.
+        self.party = party or Party(members=[], x=44, y=20)
 
         # Load or initialize roster
         if roster is not None:

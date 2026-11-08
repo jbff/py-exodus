@@ -116,7 +116,7 @@ def test_town_get_chest_adjacent(asset_mgr, party_four):
     # Chest gold is credited to the opening member, not the party pool
     opening_gold_delta = opening_member.gold - member_gold_before
     assert 10 <= opening_gold_delta <= 66
-    assert party_four.gold == party_gold_before
+    assert party_four.gold == party_gold_before + opening_gold_delta  # gold is per member (Task 4)
     assert town.game_map.get_tile(11, 10).name != "chest"
     assert opening_member.gold <= 9999
     assert any("The Chest Holds: " in msg for msg in town.text_log.history)

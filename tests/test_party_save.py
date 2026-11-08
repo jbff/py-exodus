@@ -219,26 +219,29 @@ def test_party_gold_food_and_transport():
     p.add_member(c1)
     p.add_member(c2)
 
-    # Pool gold into party
-    p.pool_gold()
+    # Pool gold into the first member (Java Party.poolGold(index))
+    p.pool_gold(0)
     assert p.gold == 300
-    assert c1.gold == 0
+    assert c1.gold == 300
     assert c2.gold == 0
 
-    # Food consumption
-    p.food = 10
-    remaining = p.consume_food()
-    # 2 alive members consume 2 food
-    assert remaining == 8
-    assert p.food == 8
+    # Submorsels tick (town interval 10): crossing eats one unit of food each
+    for m in p.members:
+        m.submorsels = 5
+        m.food = 10
+        m.hp = 100
+    p.end_turn(surface=False)
+    assert p.food == 18
+    assert c1.hp == 101
+    assert c2.hp == 101
 
-    # Starvation damage when food is 0
-    p.food = 0
-    c1.hp = 100
-    c2.hp = 100
-    p.consume_food()
-    assert c1.hp < 100
-    assert c2.hp < 100
+    # Starvation: food 0 → heal +1 then 2 damage (Java tick order)
+    for m in p.members:
+        m.food = 0
+        m.submorsels = 5
+    p.end_turn(surface=False)
+    assert c1.hp == 100
+    assert c2.hp == 100
 
     # Transport & Ship hull
     assert p.transport == Transport.FOOT
@@ -476,7 +479,8 @@ def test_save_system_missing_file_errors():
 
 
 def test_pool_gold_no_duplication():
-    """Verify calling pool_gold(target_index) then pool_gold() does not duplicate gold."""
+    """Verify calling pool_gold(target_index) twice does not duplicate gold
+    (Java Party.poolGold(index): total lands on member[index], rest zeroed)."""
     p = Party()
     c1 = Character(name="C1", gold=100)
     c2 = Character(name="C2", gold=200)
@@ -488,12 +492,12 @@ def test_pool_gold_no_duplication():
     assert total == 300
     assert p.members[0].gold == 300
     assert p.members[1].gold == 0
-    assert p.gold == 0  # Party pool must be 0 to avoid duplication
+    assert p.gold == 300  # the sum is the whole gold in play
 
-    # Now pool into party without arguments
-    p.pool_gold()
-    assert p.gold == 300  # Must remain exactly 300, not 600!
-    assert p.members[0].gold == 0
+    # Pool again: idempotent — the total cannot grow
+    p.pool_gold(0)
+    assert p.gold == 300
+    assert p.members[0].gold == 300
     assert p.members[1].gold == 0
 
 
