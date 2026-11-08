@@ -125,14 +125,11 @@ class TownScreen(BaseScreen):
         elif event.key in (pygame.K_RIGHT, pygame.K_KP6):
             self._try_move(Direction.EAST)
         elif event.key == pygame.K_SPACE:
-            # Java GameScreen.passTurn → finishTurn → endTurn: passing time
-            # in town ticks the submorsels pool (10 per move off the surface).
-            try:
-                self.party.end_turn(surface=False)
-            except PartyDeathException:
-                pass
-            self.check_party_death()
+            # Java GameScreen.java:624-628 — the pass key finishes the turn
+            # at the party's tile (ticks + standing effect). Towns drain the
+            # submorsels pool at 10 per turn (non-surface map).
             self.text_log.add_message("Pass.")
+            self._finish_turn(self.game_map.get_tile(self.avatar_x, self.avatar_y) if self.game_map else None)
         # Town commands:
         elif event.key == pygame.K_a:
             self.text_log.add_message("Attack: The guards eye thee suspiciously! Peace reigns here.")
@@ -232,15 +229,8 @@ class TownScreen(BaseScreen):
         start_tile = self.game_map.get_tile(self.avatar_x, self.avatar_y)
 
         if can_move_to(self.game_map, nx, ny, transport=Transport.FOOT, party=self.party):
-            dest_tile = self.game_map.get_tile(nx, ny)
-            if tile_effects.slowed_by_tile(dest_tile):
-                # Java Context.slowedByTile: the move is lost but the turn
-                # runs (GameScreen.preMove finishes the turn on a block).
-                if self.audio is not None:
-                    self.audio.play_sfx("blocked")
-                self._finish_turn(start_tile)
-                return
-
+            # Java exploration movement is never slowed (slowedByTile's only
+            # caller is CombatScreen.java:937) — no speed roll on town moves.
             self.avatar_x = nx
             self.avatar_y = ny
             if self.audio is not None:

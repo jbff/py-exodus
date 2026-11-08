@@ -1,17 +1,19 @@
 """Task 5: tile effects, tile speeds, and energy-field passage.
 
 Java truth:
-- ``exodus/Party.java:279-306`` — ``Party.applyEffect`` per-member rolls
-  (LAVA/FIRE/GREMLINS 1-in-2, POISON/POISONFIELD 1-in-5, ELECTRICITY always).
-- ``exodus/Party.java:342-368`` — ``PartyMember.applyEffect``: GREMLINS food
-  −2 (floored at 0); LAVA/FIRE ``16 + rand(32)`` damage through the
-  ``apply_damage`` chokepoint unless the member carries the Mark of Fire
-  (``marks[1]``); POISON/POISONFIELD set POISONED; ELECTRICITY no-op.
+- ``exodus/Party.java:279-283`` — ``Party.applyEffect`` fans out
+  unconditionally: every non-DEAD member takes the effect (GREMLINS food −2
+  clamped, LAVA/FIRE 16+rand(32) w/ Mark-of-Fire immunity, POISON sets
+  status). This is what the standing tile-effect path uses.
+- ``exodus/Party.java:285-306`` — the per-member ROLLED overload
+  (1-in-2 FIRE/LAVA/GREMLINS, 1-in-5 POISON/POISONFIELD) is combat-only
+  (CombatScreen.java:372); ported as ``apply_effect_rolled`` for Task 12.
 - ``exodus/GameScreen.java:706-754`` — every turn (move, blocked move, pass)
   runs ``finishTurn``: endTurn tick, then the tile-rule effect of the tile the
   party occupies at the start of the turn.
 - ``exodus/Context.java:212-240`` — ``slowedByTile``: SLOW 1-in-8, VSLOW
-  1-in-4, VVSLOW 1-in-2 chance the move is consumed without moving.
+  1-in-4, VVSLOW 1-in-2 — but combat-creatures-only (CombatScreen.java:937);
+  exploration movement is never slowed.
 - ``objects/BaseMap.java:719-744`` — on foot, ``dispelable`` (field) tiles
   pass only when some member carries the Mark of Force (``marks[3]``).
 - ``exodus/DungeonScreen.java:1040-1103`` — dungeons block only WALL +
@@ -139,47 +141,38 @@ def test_rule_speeds_and_effects_exposed_on_tiles(asset_mgr):
     assert fire.speed is TileSpeed.VVSLOW and fire.effect is TileEffect.FIRE
 
 
-def test_slow_move_consumes_turn_without_displacement(pygame_setup, asset_mgr):
-    """A slowed move burns the turn: no displacement, but the tick still runs."""
-    grass = asset_mgr.get_tile_by_name("grass")
+def test_rule_speeds_and_effects_exposed_on_tiles(asset_mgr):
+    """assets.py exposes the Java TileRule speed/effect table per rule."""
     brush = asset_mgr.get_tile_by_name("brush")
-    gmap = GameMap(
-        id=0,
-        name="Sosaria",
-        width=64,
-        height=64,
-        border_behavior="wrap",
-        tiles=[grass for _ in range(64 * 64)],
-    )
-    gmap.tiles[19 * 64 + 44] = brush  # (44, 19) brush
+    forest = asset_mgr.get_tile_by_name("forest")
+    grass = asset_mgr.get_tile_by_name("grass")
+    energy = asset_mgr.get_tile_by_name("energy_field")
+    lava = asset_mgr.get_tile_by_name("lava")
+    fire = asset_mgr.get_tile_by_name("fire")
 
-    party = make_party()
-    ow = OverworldScreen(
-        party=party, map_id=0, asset_mgr=asset_mgr, random_encounters=False
-    )
-    ow.game_map = gmap
-    party.x, party.y = 44, 20
+    assert brush.speed is TileSpeed.VSLOW and brush.effect is TileEffect.NONE
+    assert forest.speed is TileSpeed.VSLOW
+    assert grass.speed is TileSpeed.FAST and grass.effect is TileEffect.NONE
+    assert energy.speed is TileSpeed.VVSLOW and energy.effect is TileEffect.ELECTRICITY
+    assert lava.speed is TileSpeed.VVSLOW and lava.effect is TileEffect.LAVA
+    assert fire.speed is TileSpeed.VVSLOW and fire.effect is TileEffect.FIRE
 
-    moves_before = party.moves
-    saved_rng = tile_effects._rng
-    # First move: VSLOW roll (1-in-4) hits — the turn burns, no displacement.
-    tile_effects._rng = RemainderRng(0)
-    try:
-        ow._move_avatar(Direction.NORTH)
-    finally:
-        tile_effects._rng = saved_rng
 
-    assert (party.x, party.y) == (44, 20)
-    assert party.moves == moves_before + 1
+def test_exploration_movement_is_never_slowed():
+    """Java exploration movement never rolls slowedByTile — its only caller
+    is CombatScreen.java:937 (combat creatures). The 2D move paths contain
+    no speed roll."""
+    import inspect
 
-    # A brush turn with no roll hit displaces normally.
-    party.x, party.y = 44, 20
-    tile_effects._rng = RemainderRng(1)
-    try:
-        ow._move_avatar(Direction.NORTH)
-    finally:
-        tile_effects._rng = saved_rng
-    assert (party.x, party.y) == (44, 19)
+    from py_exodus.screens import overworld, town
+
+    src = inspect.getsource(overworld.OverworldScreen._move_avatar)
+    assert "slowed_by_tile" not in src
+    src_town = inspect.getsource(town.TownScreen._try_move)
+    assert "slowed_by_tile" not in src_town
+
+
+# --- Standing tile effect + pass turn (GameScreen.java:706-754, 624-628) ---
 
 
 def test_standing_tile_effect_applies_each_turn_on_the_2d_maps(
@@ -213,35 +206,101 @@ def test_standing_tile_effect_applies_each_turn_on_the_2d_maps(
     finally:
         tile_effects._rng = saved_rng
 
-    # Moved off the lava onto grass; the turn spent on the lava tile rolled
-    # the LAVA effect: 50% hits (stub), 16 + rand(32)==0 → 16 damage each.
+    # Moved off the lava onto grass; the turn spent on the lava tile applied
+    # the LAVA effect unconditionally: 16 + rand(32)==0 → 16 damage each.
     assert (party.x, party.y) == (44, 19)
     assert all(m.hp == 100 - 16 for m in party.members)
 
 
-# --- applyEffect port (Party.java:279-306, 342-368) ---
+def test_overworld_pass_turn_applies_standing_effect_and_consumes_turn(
+    pygame_setup, asset_mgr
+):
+    """Java GameScreen.java:624-628: the pass key finishes the turn at the
+    party's tile — endTurn tick plus the standing tile effect, no movement."""
+    grass = asset_mgr.get_tile_by_name("grass")
+    poison_field = grass.__class__(  # a walkable, rule-"poison" field tile
+        index=200, name="poison_field", rule="poison"
+    )
+    gmap = GameMap(
+        id=0,
+        name="Sosaria",
+        width=2,
+        height=1,
+        border_behavior="wrap",
+        tiles=[poison_field, grass],
+    )
+
+    party = make_party()
+    ow = OverworldScreen(
+        party=party, map_id=0, asset_mgr=asset_mgr, random_encounters=False
+    )
+    ow.game_map = gmap
+    party.x, party.y = 0, 0
+
+    moves_before = party.moves
+    ow._pass_turn()
+    ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_SPACE))
+
+    # Both passes consumed a turn without moving, and the unconditional
+    # POISONFIELD fan-out (Party.java:279-283 — no 1-in-5 roll) poisoned
+    # every non-DEAD member.
+    assert (party.x, party.y) == (0, 0)
+    assert party.moves == moves_before + 2
+    assert all(m.status == Status.POISONED for m in party.members)
+    assert all(m.hp == 100 for m in party.members)
+
+
+def test_town_pass_turn_applies_standing_effect_and_consumes_turn(
+    pygame_setup, asset_mgr
+):
+    """Town pass routes through the same _finish_turn flow."""
+    from py_exodus.screens.town import TownScreen
+
+    grass = asset_mgr.get_tile_by_name("grass")
+    lava = grass.__class__(index=201, name="lava", rule="lava")
+    gmap = GameMap(
+        id=1, name="British", width=2, height=2, border_behavior="exit",
+        tiles=[lava, grass, grass, grass],
+    )
+
+    party = make_party()
+    tw = TownScreen(party=party, map_id=1, asset_mgr=asset_mgr)
+    tw.game_map = gmap
+    tw.avatar_x, tw.avatar_y = 0, 0
+
+    moves_before = party.moves
+    saved_rng = tile_effects._rng
+    tile_effects._rng = RemainderRng(0)
+    try:
+        tw.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_SPACE))
+    finally:
+        tile_effects._rng = saved_rng
+
+    assert (tw.avatar_x, tw.avatar_y) == (0, 0)
+    assert party.moves == moves_before + 1
+    # Unconditional LAVA fan-out: 16 + rand(32)==0 → 16 damage each.
+    assert all(m.hp == 100 - 16 for m in party.members)
+
+
+# --- applyEffect port (Party.java:279-283 + 342-368 unconditional;
+#     Party.java:285-306 rolled, combat-only) ---
 
 
 def test_lava_effect_damage_range_and_mark_of_fire_immunity():
-    """LAVA: 1-in-2 per member; 16-47 damage unless marks[1] is set."""
+    """LAVA via the unconditional fan-out: 16-47 damage unless marks[1]."""
     party = make_party()
     party.members[0].marks[1] = 1  # Mark of Fire
     party.members[1].marks[1] = 0
 
-    # Fire-immune member takes nothing even on a guaranteed hit.
-    tile_effects.apply_effect(party, TileEffect.LAVA, rng=RemainderRng(0))
+    tile_effects.apply_effect(party, TileEffect.LAVA)
     assert party.members[0].hp == 100
-    assert party.members[1].hp == 100 - 16  # 16 + rand(32)==0
 
     # Top of the range: 16 + 31 = 47.
     party = make_party()
-    tile_effects.apply_effect(party, TileEffect.LAVA, rng=ScriptedRng(0, 31, 0, 31))
+    party.members[0].marks[1] = 0
+    party.members[1].marks[1] = 0
+    tile_effects.apply_effect(party, TileEffect.LAVA, rng=ScriptedRng(31, 31))
     assert all(m.hp == 100 - 47 for m in party.members)
-
-    # The 1-in-2 roll misses for every member.
-    party = make_party()
-    tile_effects.apply_effect(party, TileEffect.LAVA, rng=RemainderRng(1))
-    assert all(m.hp == 100 for m in party.members)
 
 
 def test_lava_effect_100_turns_mark_of_fire_member_untouched():
@@ -262,13 +321,9 @@ def test_lava_effect_wipe_routes_party_death():
     assert party.members[0].hp == 0
 
 
-def test_poison_effect_1_in_5_and_hp_unchanged():
+def test_poison_effect_unconditional_and_hp_unchanged():
     party = make_party()
-    for _ in range(100):
-        tile_effects.apply_effect(party, TileEffect.POISONFIELD, rng=RemainderRng(1))
-    assert all(m.status == Status.GOOD for m in party.members)
-
-    tile_effects.apply_effect(party, TileEffect.POISONFIELD, rng=RemainderRng(0))
+    tile_effects.apply_effect(party, TileEffect.POISONFIELD)
     assert all(m.status == Status.POISONED for m in party.members)
     assert all(m.hp == 100 for m in party.members)
 
@@ -278,23 +333,55 @@ def test_gremlins_effect_food_minus_two_per_member():
     party.members[0].food = 5
     party.members[1].food = 1
 
-    tile_effects.apply_effect(party, TileEffect.GREMLINS, rng=RemainderRng(0))
+    tile_effects.apply_effect(party, TileEffect.GREMLINS)
     assert party.members[0].food == 3
     assert party.members[1].food == 0  # floored at 0
 
-    # The 1-in-2 roll misses for every member.
-    tile_effects.apply_effect(party, TileEffect.GREMLINS, rng=RemainderRng(1))
+
+def test_rolled_party_overload_keeps_the_java_dice():
+    """Party.java:285-306 (combat-only) — 1-in-2 LAVA/GREMLINS, 1-in-5 POISON."""
+    party = make_party()
+    party.members[0].food = 5
+    party.members[1].food = 5
+    # RemainderRng(1): randrange(2) == 1 → the 1-in-2 roll misses everyone.
+    tile_effects.apply_effect_rolled(party, TileEffect.GREMLINS, rng=RemainderRng(1))
+    assert party.members[0].food == 5
+    assert party.members[1].food == 5
+    # randrange(2) == 0 → hits; 5 → −2 food, 1 → floored at 0.
+    party.members[0].food = 5
+    party.members[1].food = 1
+    tile_effects.apply_effect_rolled(party, TileEffect.GREMLINS, rng=RemainderRng(0))
     assert party.members[0].food == 3
+    assert party.members[1].food == 0
+
+    # 1-in-5 POISONFIELD: RemainderRng(1) misses; RemainderRng(0) hits.
+    party = make_party()
+    tile_effects.apply_effect_rolled(party, TileEffect.POISONFIELD, rng=RemainderRng(1))
+    assert all(m.status == Status.GOOD for m in party.members)
+    tile_effects.apply_effect_rolled(party, TileEffect.POISONFIELD, rng=RemainderRng(0))
+    assert all(m.status == Status.POISONED for m in party.members)
+
+    # LAVA: the mark gate still applies; the miss leaves hp untouched.
+    party = make_party()
+    party.members[0].marks[1] = 1
+    tile_effects.apply_effect_rolled(party, TileEffect.LAVA, rng=RemainderRng(0))
+    assert party.members[0].hp == 100
+    assert party.members[1].hp == 100 - 16
+    party = make_party()
+    tile_effects.apply_effect_rolled(party, TileEffect.LAVA, rng=RemainderRng(1))
+    assert all(m.hp == 100 for m in party.members)
 
 
 def test_none_and_electricity_effects_are_no_ops():
     party = make_party()
+    party.members[0].food = 7
+    party.members[1].food = 7
     party.members[0].marks[1] = 0
-    tile_effects.apply_effect(party, TileEffect.NONE, rng=RemainderRng(0))
-    tile_effects.apply_effect(party, TileEffect.ELECTRICITY, rng=RemainderRng(0))
+    tile_effects.apply_effect(party, TileEffect.NONE)
+    tile_effects.apply_effect(party, TileEffect.ELECTRICITY)
     assert all(m.hp == 100 for m in party.members)
     assert all(m.status == Status.GOOD for m in party.members)
-    assert all(m.food == party.members[0].food or True for m in party.members)
+    assert all(m.food == 7 for m in party.members)
 
 
 # --- Energy-field passage (BaseMap.java:719-744) ---
@@ -453,7 +540,7 @@ def test_dungeon_pit_trap_java_behavior():
     assert dmap.get_tile(5, 4, 0) is DungeonTile.NOTHING
 
 
-def test_dungeon_pit_trap_mark_of_fire_and_miss():
+def test_dungeon_pit_trap_mark_of_fire_immune():
     dmap = make_dmap()
     dmap.set_tile(5, 4, 0, DungeonTile.PIT_TRAP)
     party = make_party()
@@ -465,10 +552,11 @@ def test_dungeon_pit_trap_mark_of_fire_and_miss():
         start_z=0,
         start_dir=Direction.NORTH,
         party=party,
-        rng=RemainderRng(1),  # the 1-in-2 LAVA roll misses for everyone
+        rng=RemainderRng(1),  # rand(32)==1 → 17 damage without the mark
         random_encounters=False,
     )
     evt = state.move_forward()
     assert evt.type == DungeonEventType.PIT_TRAP
-    assert all(m.hp == 100 for m in party.members)
+    assert party.members[0].hp == 100  # Mark of Fire absorbs the pit
+    assert party.members[1].hp == 100 - 17
     assert dmap.get_tile(5, 4, 0) is DungeonTile.NOTHING

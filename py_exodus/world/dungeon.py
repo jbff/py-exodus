@@ -731,9 +731,10 @@ class DungeonState:
         self.y = target_y
 
         # Pit trap: Java DungeonScreen.checkTileAffects (1090-1095) — log
-        # "Pit!", apply the LAVA effect (1-in-2 per member, 16+rand(32)
-        # unless the Mark of Fire), clear the tile to NOTHING. No level
-        # change and no flat damage: those were invented here.
+        # "Pit!", apply the LAVA effect through the unconditional
+        # Party.applyEffect fan-out (16+rand(32) unless the Mark of Fire),
+        # clear the tile to NOTHING. No level change and no flat damage:
+        # those were invented here.
         if target_tile == DungeonTile.PIT_TRAP:
             self.dmap.set_tile(self.x, self.y, self.z, DungeonTile.NOTHING)
             try:
@@ -791,7 +792,9 @@ class DungeonState:
 
         # Poison and fire fields: Java checkTileAffects (DungeonScreen.java
         # 1096-1104) applies POISONFIELD on FIELD_POISON and LAVA on
-        # FIELD_FIRE on entering; the tile is neither consumed nor blocking.
+        # FIELD_FIRE on entering, through the unconditional
+        # Party.applyEffect fan-out; the tile is neither consumed nor
+        # blocking.
         if target_tile == DungeonTile.FIELD_POISON:
             try:
                 tile_effects.apply_effect(

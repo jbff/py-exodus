@@ -219,14 +219,15 @@ class OverworldScreen(BaseScreen):
             self._toggle_zstats()
 
     def _pass_turn(self) -> None:
-        """Pass turn in place without moving avatar."""
-        try:
-            self.party.end_turn(surface=True)
-        except PartyDeathException:
-            pass
-        self.check_party_death()
-        self._update_creatures()
+        """Pass turn in place without moving avatar.
+
+        Java truth: ``GameScreen.java:624-628`` — the pass key ends the key
+        handler with ``finishTurn(v.x, v.y)``, so passing consumes the turn
+        and applies the rule effect of the party's tile exactly like a move.
+        """
         self.text_log.add_message("Pass.")
+        self._finish_turn(self.game_map.get_tile(self.party.x, self.party.y) if self.game_map else None)
+        self._update_creatures()
 
     def _toggle_zstats(self) -> None:
         """Cycle Ztats inspect mode through party members."""
@@ -817,17 +818,9 @@ class OverworldScreen(BaseScreen):
         start_tile = self.game_map.get_tile(self.party.x, self.party.y)
 
         if can_move_to(self.game_map, nx, ny, transport=self.party.transport, party=self.party):
-            dest_tile = self.game_map.get_tile(nx, ny)
-            if tile_effects.slowed_by_tile(dest_tile):
-                # Java Context.slowedByTile: the speed roll was lost, so this
-                # move consumes the turn without displacing. Java GameScreen
-                # still runs finishTurn after a blocked move (preMove →
-                # finishTurn at the party's current tile).
-                if self.audio is not None:
-                    self.audio.play_sfx("blocked")
-                self._finish_turn(start_tile)
-                return
-
+            # Java exploration movement is never slowed (slowedByTile's only
+            # caller is CombatScreen.java:937, combat creatures only) — no
+            # speed roll on the 2D move paths.
             self.party.x = nx
             self.party.y = ny
             if self.audio is not None:
@@ -848,13 +841,13 @@ class OverworldScreen(BaseScreen):
     def _finish_turn(self, effect_tile=None) -> None:
         """End the movement turn: submorsel tick, then the standing tile effect.
 
-        Java truth: ``exodus/GameScreen.java:706-754`` ``finishTurn`` — every
-        turn (a move, a blocked move, a pass) runs ``endTurn`` and then
-        applies the tile-rule effect of the tile the party occupies at the
-        start of the turn (``getCurrentMapCoords`` is captured pre-move, so
-        the effect lands on the tile being left, not the one entered). A
-        wipe raises ``PartyDeathException``; the post-check routes the
-        game-over flow (Task 2).
+        Java truth: ``exodus/GameScreen.java:706-754`` ``finishTurn`` — the
+        turn's end runs ``endTurn`` and then applies the tile-rule effect of
+        the tile the party occupies at the start of the turn
+        (``getCurrentMapCoords`` is captured pre-move, so the effect lands on
+        the tile being left, not the one entered); moves and the pass key
+        route through it. A wipe raises ``PartyDeathException``; the
+        post-check routes the game-over flow (Task 2).
         """
         try:
             self.party.end_turn(surface=True)
