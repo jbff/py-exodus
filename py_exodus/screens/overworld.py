@@ -103,6 +103,11 @@ class OverworldScreen(BaseScreen):
     def on_enter(self) -> None:
         super().on_enter()
         self._play_overworld_music()
+        # Purge any creature at the party's tile to prevent combat re-trigger loops
+        self.creatures = [
+            c for c in self.creatures
+            if not (c.get("x") == self.party.x and c.get("y") == self.party.y)
+        ]
 
     def _play_overworld_music(self) -> None:
         if self.audio is None:
@@ -898,15 +903,24 @@ class OverworldScreen(BaseScreen):
             self._spawn_wandering_creature()
 
         import random
-        if random.random() < 0.25 and len(self.creatures) < 6:
+        if self.random_encounters_enabled and random.random() < 0.25 and len(self.creatures) < 6:
             self._spawn_wandering_creature()
 
         width = self.game_map.width if self.game_map else 64
         height = self.game_map.height if self.game_map else 64
 
         survivors: list[dict[str, Any]] = []
+        encounter_creature = None
+
         for c in self.creatures:
             cx, cy = c["x"], c["y"]
+
+            # If already on the party, engage and remove
+            if cx == self.party.x and cy == self.party.y:
+                if encounter_creature is None:
+                    encounter_creature = c
+                continue
+
             dx = self.party.x - cx
             dy = self.party.y - cy
 
@@ -941,12 +955,16 @@ class OverworldScreen(BaseScreen):
 
             # Check collision with party
             if cx == self.party.x and cy == self.party.y:
-                self._trigger_combat(c.get("tile_name", "orc"))
-                return
+                if encounter_creature is None:
+                    encounter_creature = c
+                continue
 
             survivors.append(c)
 
         self.creatures = survivors
+
+        if encounter_creature is not None:
+            self._trigger_combat(encounter_creature.get("tile_name", "orc"))
 
     def _trigger_combat(self, creature_name: str) -> None:
         """Initiate tactical combat screen with creature."""

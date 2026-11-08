@@ -324,7 +324,7 @@ class CombatScreen(BaseScreen):
 
         # Reverse viewport screen flash on cast
         if action.type == ActionType.CAST:
-            self.flash_timer = 0.25
+            self.flash_timer = 0.10
 
         # Visual FX for weapon attack
         if action.type == ActionType.ATTACK and res.attack_res:
@@ -346,25 +346,32 @@ class CombatScreen(BaseScreen):
             self.combat_fx.append({
                 "type": "weapon",
                 "color": color,
+                "start_pos": start_pos,
                 "path": path,
                 "target_pos": target_pos,
                 "hit_tile": hit_tile if ares.hit else None,
-                "timer": 0.25,
+                "duration": 0.35,
+                "timer": 0.35,
             })
         elif action.type == ActionType.CAST:
-            color = (85, 255, 255)
             spell_obj = action.spell
             s_name = getattr(spell_obj, "name", str(spell_obj)).upper()
             if "FULGAR" in s_name:
-                color = (255, 85, 85)
+                color = (255, 60, 60)
             elif "DECORP" in s_name:
-                color = (170, 0, 170)
-            elif "MITTAR" in s_name or "MENTAR" in s_name:
-                color = (85, 255, 255)
+                color = (200, 60, 255)
+            else:
+                color = (0, 180, 255)
 
             target_pos = None
             path = []
-            if action.direction:
+            hit = False
+            if res.spell_res is not None:
+                path = res.spell_res.projectile_path
+                target_pos = res.spell_res.target_pos
+                hit = res.spell_res.hit
+
+            if not path and action.direction:
                 d = action.direction
                 for step in range(1, 6):
                     step_x = start_pos[0] + d.dx * step
@@ -372,14 +379,21 @@ class CombatScreen(BaseScreen):
                     if 0 <= step_x < COMBAT_WIDTH and 0 <= step_y < COMBAT_HEIGHT:
                         path.append((step_x, step_y))
                         target_pos = (step_x, step_y)
-            self.combat_fx.append({
-                "type": "spell",
-                "color": color,
-                "path": path,
-                "target_pos": target_pos,
-                "hit_tile": "magic",
-                "timer": 0.25,
-            })
+
+            if not target_pos and path:
+                target_pos = path[-1]
+
+            if path or target_pos:
+                self.combat_fx.append({
+                    "type": "spell",
+                    "color": color,
+                    "start_pos": start_pos,
+                    "path": path,
+                    "target_pos": target_pos,
+                    "hit_tile": "magic" if hit else None,
+                    "duration": 0.35,
+                    "timer": 0.35,
+                })
 
         # Sync arena log messages to HUD
         for msg in self.arena.log_messages:
@@ -479,8 +493,8 @@ class CombatScreen(BaseScreen):
 
         self._render_monsters(temp_v)
         self._render_players(temp_v)
-        self._render_combat_fx(temp_v)
         self._apply_flash_invert(temp_v)
+        self._render_combat_fx(temp_v)
 
         if scale > 1:
             scaled_v = pygame.transform.scale(temp_v, (v_size, v_size))
@@ -518,22 +532,43 @@ class CombatScreen(BaseScreen):
             )
 
     def _render_combat_fx(self, surface: pygame.Surface) -> None:
-        """Render active weapon/spell projectile dots and hit/fire bursts."""
+        """Render active weapon/spell projectile travelling orbs and hit/fire bursts."""
         for fx in self.combat_fx:
             color = fx.get("color", (255, 85, 85))
-            path = fx.get("path", [])
-            for pt in path:
-                px = pt[0] * TILE_SIZE + TILE_SIZE // 2
-                py = pt[1] * TILE_SIZE + TILE_SIZE // 2
-                pygame.draw.circle(surface, color, (px, py), 2)
-
-            tpos = fx.get("target_pos")
+            duration = fx.get("duration", 0.35)
+            timer = fx.get("timer", 0.35)
+            start_pos = fx.get("start_pos")
+            target_pos = fx.get("target_pos")
             hit_tile = fx.get("hit_tile")
-            if tpos and hit_tile and self.asset_mgr is not None:
+
+            progress = 1.0 - (timer / duration) if duration > 0 else 1.0
+
+            # Draw projectile travelling from start_pos to target_pos
+            if start_pos and target_pos:
+                t_travel = min(1.0, progress / 0.7)
+                curr_x = start_pos[0] + (target_pos[0] - start_pos[0]) * t_travel
+                curr_y = start_pos[1] + (target_pos[1] - start_pos[1]) * t_travel
+                px = int(curr_x * TILE_SIZE + TILE_SIZE // 2)
+                py = int(curr_y * TILE_SIZE + TILE_SIZE // 2)
+
+                # Outer glowing orb (radius 4, 8px diameter)
+                pygame.draw.circle(surface, color, (px, py), 4)
+                # Inner bright white core (radius 2)
+                pygame.draw.circle(surface, (255, 255, 255), (px, py), 2)
+            else:
+                path = fx.get("path", [])
+                for pt in path:
+                    px = pt[0] * TILE_SIZE + TILE_SIZE // 2
+                    py = pt[1] * TILE_SIZE + TILE_SIZE // 2
+                    pygame.draw.circle(surface, color, (px, py), 4)
+                    pygame.draw.circle(surface, (255, 255, 255), (px, py), 2)
+
+            # Hit burst on target once projectile arrives
+            if progress >= 0.5 and target_pos and hit_tile and self.asset_mgr is not None:
                 try:
                     hit_surf = self.asset_mgr.get_tile_surface(hit_tile)
                     if hit_surf is not None:
-                        surface.blit(hit_surf, (tpos[0] * TILE_SIZE, tpos[1] * TILE_SIZE))
+                        surface.blit(hit_surf, (target_pos[0] * TILE_SIZE, target_pos[1] * TILE_SIZE))
                 except Exception:
                     pass
 

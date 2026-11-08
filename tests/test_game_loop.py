@@ -1085,3 +1085,64 @@ def test_new_game_starter_party_spawn_location(pygame_setup, asset_mgr):
     assert spawn_tile.name == "grass"
     castle_tile = world_map.get_tile(45, 18)
     assert castle_tile.name == "castle"
+
+
+def test_overworld_creature_encounter_cleans_up_creature(pygame_setup, asset_mgr, sample_party):
+    """Verify colliding creature is removed from overworld.creatures and on_enter purges party tile."""
+    ow = OverworldScreen(party=sample_party, map_id=0, asset_mgr=asset_mgr, random_encounters=False)
+    sample_party.x = 25
+    sample_party.y = 25
+
+    # Add an ogre directly on the party
+    ogre = {"tile_name": "giant", "x": 25, "y": 25}
+    ow.creatures = [ogre]
+
+    # Updating creatures should detect encounter and purge the creature
+    ow._update_creatures()
+    assert ogre not in ow.creatures
+    assert len(ow.creatures) == 0
+
+    # Test on_enter also cleans up any creature at party position
+    ow.creatures = [{"tile_name": "orc", "x": 25, "y": 25}, {"tile_name": "orc", "x": 30, "y": 30}]
+    ow.on_enter()
+    assert len(ow.creatures) == 1
+    assert ow.creatures[0]["x"] == 30
+
+
+def test_combat_screen_mittar_visual_projectile(pygame_setup, asset_mgr, sample_party):
+    """Verify Mittar spellcast sets up blue projectile FX with travel trajectory and hit burst."""
+    from py_exodus.constants import Spell
+    from py_exodus.world.loader import MapLoader
+    loader = MapLoader(asset_mgr)
+    c_map = loader.load_conflict_map("CNFLCT_A.ULT")
+
+    # Ensure member 0 has MP and can cast wizard spells
+    m = sample_party.members[0]
+    m.mp = 50
+
+    combat = CombatScreen(party=sample_party, combat_map=c_map, creature_tile="orc", asset_mgr=asset_mgr)
+    combat.combat_fx.clear()
+
+    # Execute Mittar spell cast
+    cast_action = Action.cast(Spell.MITTAR, direction=Direction.NORTH)
+    combat._execute_action(cast_action)
+
+    # Check flash timer is set to a crisp 0.10s
+    assert combat.flash_timer == pytest.approx(0.10, rel=1e-2)
+
+    # Check combat_fx has the projectile
+    assert len(combat.combat_fx) == 1
+    fx = combat.combat_fx[0]
+    assert fx["type"] == "spell"
+    assert fx["color"] == (0, 180, 255)  # Bright blue
+    assert fx["start_pos"] is not None
+    assert fx["target_pos"] is not None
+    assert fx["duration"] == 0.35
+
+    # Render into surface to ensure drawing works properly
+    surf = pygame.Surface((640, 400))
+    combat.render(surf)
+
+    # Update half-way (progress >= 0.5) to test hit burst rendering
+    combat.update(0.20)
+    combat.render(surf)

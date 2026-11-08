@@ -6,7 +6,7 @@ Connects with tactical combat (CombatArena) and overworld/dungeon exploration.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import random
 from typing import TYPE_CHECKING, Any
 
@@ -37,6 +37,9 @@ class SpellResult:
     healed: int = 0
     targets_affected: int = 0
     spell: Spell | None = None
+    target_pos: tuple[int, int] | None = None
+    projectile_path: list[tuple[int, int]] = field(default_factory=list)
+    hit: bool = False
 
 
 # Spell name and synonym lookup table
@@ -659,6 +662,9 @@ def _apply_projectile_attack(
                 damage=dmg,
                 targets_affected=1,
                 spell=spell,
+                target_pos=(target_m.x, target_m.y),
+                projectile_path=path,
+                hit=True,
             )
         return SpellResult(
             success=True,
@@ -666,6 +672,9 @@ def _apply_projectile_attack(
             damage=0,
             targets_affected=0,
             spell=spell,
+            target_pos=path[-1] if path else None,
+            projectile_path=path,
+            hit=False,
         )
 
     dmg = random.randint(min_dmg, max_dmg)
