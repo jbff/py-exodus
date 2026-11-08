@@ -16,6 +16,10 @@ from py_exodus.constants import (
 )
 from py_exodus.entities.party import PartyDeathException
 from py_exodus.screens.base import BaseScreen
+from py_exodus.screens.final import (
+    apply_exodus_card_tiles,
+    prompt_insert_card,
+)
 from py_exodus.ui.renderer import WorldRenderer, can_move_to
 from py_exodus.ui.stats_panel import StatsPanel
 from py_exodus.ui.text_log import (
@@ -86,6 +90,10 @@ class TownScreen(BaseScreen):
     def on_enter(self) -> None:
         super().on_enter()
         self._play_town_music()
+        # Restore cleared machine panels from exodusCardsStatus (GameScreen.java:299-311)
+        apply_exodus_card_tiles(
+            self.game_map, self.asset_mgr, getattr(self.party, "exodus_cards_status", 0)
+        )
 
     def _play_town_music(self) -> None:
         if self.audio is None:
@@ -771,6 +779,8 @@ class TownScreen(BaseScreen):
                 self.text_log.add_message("Cobblestones are too hard to dig here.")
             elif c == "KISS":
                 self.text_log.add_message("A citizen smiles and waves.")
+            elif c == "INSERT":
+                prompt_insert_card(self, self.avatar_x, self.avatar_y)
             else:
                 self.text_log.add_message(f"'{c}': Nothing happened.")
 

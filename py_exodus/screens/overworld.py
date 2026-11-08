@@ -21,6 +21,10 @@ from py_exodus.constants import (
 )
 from py_exodus.entities.party import PartyDeathException
 from py_exodus.screens.base import BaseScreen
+from py_exodus.screens.final import (
+    apply_exodus_card_tiles,
+    prompt_insert_card,
+)
 from py_exodus.ui.renderer import WorldRenderer, can_move_to
 from py_exodus.ui.stats_panel import StatsPanel
 from py_exodus.ui.text_log import (
@@ -119,6 +123,10 @@ class OverworldScreen(BaseScreen):
     def on_enter(self) -> None:
         super().on_enter()
         self._play_overworld_music()
+        # Restore cleared machine panels from exodusCardsStatus (GameScreen.java:299-311)
+        apply_exodus_card_tiles(
+            self.game_map, self.asset_mgr, getattr(self.party, "exodus_cards_status", 0)
+        )
         # Purge any creature at the party's tile to prevent combat re-trigger loops
         self.creatures = [
             c for c in self.creatures
@@ -525,10 +533,7 @@ class OverworldScreen(BaseScreen):
             elif c == "KISS":
                 self.text_log.add_message("Thou kissest the gentle breeze.")
             elif c == "INSERT":
-                if str(self.map_id) in ("exodus", "21") or (self.party.x >= 30 and self.party.y == 12):
-                    self.text_log.add_message("Insert which card? (Love, Sol, Moon, Death)")
-                else:
-                    self.text_log.add_message("Insert: Nothing to insert into here!")
+                prompt_insert_card(self, self.party.x, self.party.y)
             else:
                 self.text_log.add_message(f"'{c}': Nothing happened.")
 

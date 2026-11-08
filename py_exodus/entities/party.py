@@ -135,6 +135,7 @@ class Party:
         moves: int = 0,
         torch_duration: int = 0,
         active_member_index: int = 0,
+        exodus_cards_status: int = 0,
         dynamic_objects: list[dict[str, int]] | None = None,
         dynamic_monsters: list[dict[str, int]] | None = None,
     ) -> None:
@@ -180,6 +181,10 @@ class Party:
         self.moves = moves
         self.torch_duration = torch_duration
         self.active_member_index = active_member_index
+
+        # Exodus machine card-insertion status (SaveGame.exodusCardsStatus):
+        # bit 0x1 love, 0x2 sol, 0x4 moons, 0x8 death.
+        self.exodus_cards_status = exodus_cards_status & 0xF
 
         # Dynamic overworld delta: up to 24 mutable objects on Sosaria (e.g. docked ships, horses, chests)
         self.dynamic_objects: list[dict[str, int]] = (
@@ -488,6 +493,7 @@ class Party:
             "moves": self.moves,
             "torch_duration": self.torch_duration,
             "active_member_index": self.active_member_index,
+            "exodus_cards_status": self.exodus_cards_status,
             "members": [m.to_dict() for m in self.members],
             "dynamic_objects": list(self.dynamic_objects),
             "dynamic_monsters": list(self.dynamic_monsters),
@@ -524,6 +530,7 @@ class Party:
             moves=p_data.get("moves", 0),
             torch_duration=p_data.get("torch_duration", 0),
             active_member_index=p_data.get("active_member_index", 0),
+            exodus_cards_status=p_data.get("exodus_cards_status", 0),
             dynamic_objects=data.get("dynamic_objects", p_data.get("dynamic_objects", [])),
             dynamic_monsters=data.get("dynamic_monsters", p_data.get("dynamic_monsters", [])),
         )

@@ -18,6 +18,39 @@ from py_exodus.ui.text_log import (
 )
 
 
+# Mark and card row pairs in Java zstats order (exodus/Party.java:703-711):
+# "MARK KINGS"/"MARK FIRE", "MARK SNAKE"/"MARK FORCE", "CARD DEATH"/"CARD SOL",
+# "CARD MOONS"/"CARD LOVE" over marks[0..3] and cards[0..3].
+MARK_CARD_ROW_PAIRS = (
+    ("MARK KINGS", 0, "MARK FIRE", 1, "marks"),
+    ("MARK SNAKE", 2, "MARK FORCE", 3, "marks"),
+    ("CARD DEATH", 0, "CARD SOL", 1, "cards"),
+    ("CARD MOONS", 2, "CARD LOVE", 3, "cards"),
+)
+
+
+def _zstats_cell(label: str, values: list[int], idx: int) -> str | None:
+    """One "LABEL: n" cell, or None when 0 (Java shows only non-zero counts)."""
+    if idx < len(values) and values[idx] > 0:
+        return f"{label}: {values[idx]}"
+    return None
+
+
+def mark_and_card_rows(pm: object) -> list[str]:
+    """Zstats MARK/CARD rows for a party member (exodus/Party.java:703-715)."""
+    rows = []
+    for label_l, i_l, label_r, i_r, field in MARK_CARD_ROW_PAIRS:
+        values = getattr(pm, field, None) or []
+        cells = [
+            cell
+            for cell in (_zstats_cell(label_l, values, i_l), _zstats_cell(label_r, values, i_r))
+            if cell
+        ]
+        if cells:
+            rows.append("  ".join(cells))
+    return rows
+
+
 class StatsPanel:
     """Renders the party sidebar with member stats, status conditions, active transport,
 
@@ -175,6 +208,9 @@ class StatsPanel:
                     f"TORCH:{target_pm.torches:<2} POWD:{target_pm.powder:<2}",
                     EGA_BRIGHT_GREEN,
                 )
+                # Marks and cards (exodus/Party.java:703-715)
+                for row in mark_and_card_rows(target_pm):
+                    draw_line(row, EGA_BRIGHT_GREEN)
             elif eff_inspect == -1:
                 # Pooled party supplies inspection
                 draw_line("-- SUPPLIES --", EGA_BRIGHT_CYAN)

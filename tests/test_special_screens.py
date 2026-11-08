@@ -3,9 +3,9 @@ import pygame
 import pytest
 
 from py_exodus.assets import AssetManager
-from py_exodus.constants import Profession, Race
+from py_exodus.constants import Profession, Race, Status
 from py_exodus.entities.character import Character
-from py_exodus.entities.party import Party
+from py_exodus.entities.party import Party, PartyDeathException
 from py_exodus.screens.base import BaseScreen
 from py_exodus.screens.book import BookScreen
 from py_exodus.screens.final import FinalScreen
@@ -171,7 +171,7 @@ def test_book_screen_navigation_and_rendering():
 
 
 def test_final_screen_card_insertion_sequence():
-    """Verify 4 cards must be inserted in the correct sequence (Love, Sol, Moons, Death)."""
+    """Verify all four cards reach victory when placed on their own panel (order-free)."""
     p = Party()
     c = Character("Hero", "M", Race.HUMAN, Profession.FIGHTER)
     # Give all 4 cards to Hero: [Love, Sol, Moon, Death]
@@ -181,33 +181,19 @@ def test_final_screen_card_insertion_sequence():
     scr = FinalScreen(party=p, return_screen=None)
     assert not scr.victory
 
-    # Insert panel 0: Love
-    res1 = scr.insert_card("love", member_idx=0)
-    assert res1 is True
-    assert scr.panels_inserted == ["love"]
-    assert not scr.victory
-
-    # Insert panel 1: Sol
-    res2 = scr.insert_card("sol", member_idx=0)
-    assert res2 is True
-    assert scr.panels_inserted == ["love", "sol"]
-    assert not scr.victory
-
-    # Insert panel 2: Moons
-    res3 = scr.insert_card("moons", member_idx=0)
-    assert res3 is True
-    assert scr.panels_inserted == ["love", "sol", "moons"]
-    assert not scr.victory
-
-    # Insert panel 3: Death
-    res4 = scr.insert_card("death", member_idx=0)
-    assert res4 is True
-    assert scr.panels_inserted == ["love", "sol", "moons", "death"]
+    # Each panel is independent: Love at x30, Sol x31, Moons x32, Death x33
+    for card, px in (("love", 30), ("sol", 31), ("moons", 32), ("death", 33)):
+        p.x = px
+        p.y = 12
+        res = scr.insert_card(card, member_idx=0, pos=(px, 12))
+        assert res is True
+    assert p.exodus_cards_status == 0x1 | 0x2 | 0x4 | 0x8
+    assert c.cards == [0, 0, 0, 0]
     assert scr.victory is True
 
 
 def test_final_screen_wrong_sequence():
-    """Verify inserting cards out of sequence fails and causes party shock/damage."""
+    """Java: a card at a wrong panel costs health + 1 (lethal), no status bit."""
     p = Party()
     c = Character("Hero", "M", Race.HUMAN, Profession.FIGHTER)
     c.hp = 100
@@ -216,12 +202,14 @@ def test_final_screen_wrong_sequence():
 
     scr = FinalScreen(party=p, return_screen=None)
 
-    # Trying to insert Death first should fail
-    res = scr.insert_card("death", member_idx=0)
-    assert res is False
-    assert scr.panels_inserted == []
+    # Inserting Love at x31 (Sol's panel) consumes the card and kills Hero;
+    # a wipe raises PartyDeathException (Party.java:572-574)
+    with pytest.raises(PartyDeathException):
+        scr.insert_card("love", member_idx=0, pos=(31, 12))
+    assert p.exodus_cards_status == 0
     assert not scr.victory
-    # Party member takes damage or error message
+    assert c.status == Status.DEAD
+    assert c.hp == 0
     assert scr.last_message != ""
 
 
@@ -233,9 +221,9 @@ def test_final_screen_epilogue_and_effects():
     p.add_member(c)
 
     scr = FinalScreen(party=p, return_screen=None)
-    # Insert in sequence
-    for card in ["love", "sol", "moons", "death"]:
-        scr.insert_card(card, member_idx=0)
+    # Insert each card onto its own panel (order-free)
+    for card, px in (("love", 30), ("moons", 32), ("death", 33), ("sol", 31)):
+        assert scr.insert_card(card, member_idx=0, pos=(px, 12)) is True
 
     assert scr.victory is True
     assert scr.screen_shake is True
@@ -314,17 +302,19 @@ def test_final_screen_card_from_any_party_member():
     p = Party()
     c1 = Character("Fighter", "M", Race.HUMAN, Profession.FIGHTER)
     c2 = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC)
-    # c1 has no cards, c2 has the Love card
+    # c1 has no cards, c2 has the Love card (cards[3], Party.java:711)
     c1.cards = [0, 0, 0, 0]
-    c2.cards = [1, 0, 0, 0]
+    c2.cards = [0, 0, 0, 1]
     p.add_member(c1)
     p.add_member(c2)
+    p.x = 30
+    p.y = 12  # Love's machine panel
 
     scr = FinalScreen(party=p, return_screen=None)
-    # Press 'L' to insert Love card without selecting a member
+    # Press 'L' to insert the Love card without selecting a member
     event_l = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_l)
     scr.handle_event(event_l)
 
-    assert scr.panels_inserted == ["love"]
-    assert c2.cards[0] == 0  # Consumed from c2
+    assert p.exodus_cards_status == 0x1
+    assert c2.cards[3] == 0  # Consumed from c2
 
