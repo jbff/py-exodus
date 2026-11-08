@@ -105,13 +105,15 @@ def trace_projectile_path(
     attack_through_objects: bool = False,
     monsters: list[Any] | None = None,
     players: dict[int, tuple[int, int]] | None = None,
+    is_player_attack: bool = True,
 ) -> list[tuple[int, int]]:
     """Trace directional projectile path until stopped by boundary, wall, or target creature.
 
     Stops at:
       - Map edge (0 <= x < 11, 0 <= y < 11)
       - Solid wall / unwalkable tile without rangeattackover (unless weapon attacks through objects)
-      - First living monster or player encountered along the trajectory.
+      - Living target creature (monsters for player attacks; players for monster attacks).
+        Player attacks pass cleanly through party members.
     """
     path: list[tuple[int, int]] = []
     nx = start_x
@@ -138,13 +140,13 @@ def trace_projectile_path(
 
         path.append((nx, ny))
 
-        # Check if hitting a monster target
-        if (nx, ny) in monster_positions:
-            break
-
-        # Check if hitting a player target
-        if (nx, ny) in player_positions_set:
-            break
+        # Check if hitting target (monsters for player attack, players for monster attack)
+        if is_player_attack:
+            if (nx, ny) in monster_positions:
+                break
+        else:
+            if (nx, ny) in player_positions_set:
+                break
 
         # Check wall / obstacle blocking
         tile = combat_map.get_tile(nx, ny)

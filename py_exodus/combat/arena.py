@@ -687,6 +687,7 @@ class CombatArena:
                     attack_through_objects=False,
                     monsters=self.monsters,
                     players=self.player_positions,
+                    is_player_attack=False,
                 )
                 if path and path[-1] == target_pos:
                     # Clear line of sight - attack!

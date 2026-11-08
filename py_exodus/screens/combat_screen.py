@@ -90,6 +90,7 @@ class CombatScreen(BaseScreen):
         self.awaiting_exit_ack = False
         self.flash_timer: float = 0.0
         self.combat_fx: list[dict[str, Any]] = []
+        self.dying_monsters: list[dict[str, Any]] = []
 
     @property
     def active_party_member(self) -> PartyMember | None:
@@ -177,10 +178,6 @@ class CombatScreen(BaseScreen):
         if not types:
             prof_name = char.profession.value.capitalize() if hasattr(char.profession, "value") else str(char.profession)
             self.text_log.add_message(f"{char.name} ({prof_name}) cannot cast spells!")
-            return
-
-        if char.mp <= 0:
-            self.text_log.add_message(f"{char.name} has no Magic Points!")
             return
 
         def _ask_spell_code(discipline: str) -> None:
@@ -320,7 +317,24 @@ class CombatScreen(BaseScreen):
         p_idx = self.arena.active_party_member_idx
         start_pos = self.arena.player_positions.get(p_idx, (5, 5))
 
+        # Snapshot living monsters to keep dying monsters visible during hit animations
+        monsters_before = [
+            {"tile": m.tile, "name": m.name, "x": m.x, "y": m.y, "obj": m}
+            for m in self.arena.monsters if not m.is_dead
+        ]
+
         res = self.arena.execute_turn(action)
+
+        current_living_objs = {m for m in self.arena.monsters if not m.is_dead}
+        for mb in monsters_before:
+            if mb["obj"] not in current_living_objs:
+                self.dying_monsters.append({
+                    "tile": mb["tile"],
+                    "name": mb["name"],
+                    "x": mb["x"],
+                    "y": mb["y"],
+                    "timer": 0.35,
+                })
 
         # Reverse viewport screen flash on cast
         if action.type == ActionType.CAST:
@@ -471,6 +485,10 @@ class CombatScreen(BaseScreen):
             fx["timer"] -= dt
             if fx["timer"] <= 0:
                 self.combat_fx.remove(fx)
+        for dm in list(self.dying_monsters):
+            dm["timer"] -= dt
+            if dm["timer"] <= 0:
+                self.dying_monsters.remove(dm)
 
     def render(self, surface: pygame.Surface) -> None:
         surface.fill(EGA_BLACK)
@@ -602,6 +620,26 @@ class CombatScreen(BaseScreen):
                 rect = pygame.Rect(px + 1, py + 1, TILE_SIZE - 2, TILE_SIZE - 2)
                 pygame.draw.rect(surface, EGA_BRIGHT_RED, rect)
                 txt = font.render(m.name[:1], True, EGA_WHITE)
+                surface.blit(txt, (px + 3, py + 1))
+
+        # Render dying monsters during their hit burst / attack animation
+        for dm in self.dying_monsters:
+            px = dm["x"] * TILE_SIZE
+            py = dm["y"] * TILE_SIZE
+            blitted = False
+            if self.asset_mgr is not None:
+                try:
+                    t_img = self.asset_mgr.get_tile_surface(dm["tile"])
+                    if t_img is not None:
+                        surface.blit(t_img, (px, py))
+                        blitted = True
+                except Exception:
+                    pass
+
+            if not blitted:
+                rect = pygame.Rect(px + 1, py + 1, TILE_SIZE - 2, TILE_SIZE - 2)
+                pygame.draw.rect(surface, EGA_BRIGHT_RED, rect)
+                txt = font.render(dm["name"][:1], True, EGA_WHITE)
                 surface.blit(txt, (px + 3, py + 1))
 
     def _render_players(self, surface: pygame.Surface) -> None:

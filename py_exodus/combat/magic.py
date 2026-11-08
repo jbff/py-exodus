@@ -824,10 +824,6 @@ def prompt_cast_party(
             text_log.add_message(f"{char.name} ({prof_name}) cannot cast spells!")
             return
 
-        if char.mp <= 0:
-            text_log.add_message(f"{char.name} has no Magic Points!")
-            return
-
         def _ask_spell_code(discipline: str) -> None:
             type_label = "Wizard" if discipline == "wizard" else "Cleric"
 

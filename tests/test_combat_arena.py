@@ -388,3 +388,84 @@ def test_victory_spawns_chest_for_overworld_only_not_on_combat_map(asset_mgr, co
     assert len(party.dynamic_objects) >= 1
     assert any(obj.get("tile") == "chest" for obj in party.dynamic_objects)
 
+
+def test_player_projectile_passes_through_party_members(asset_mgr, conflict_map):
+    """Verify player projectile passes cleanly through party members to hit the enemy beyond."""
+    party = Party()
+    # Wizard in back at (5, 9)
+    wiz = Character("Mage", "M", Race.FUZZY, Profession.WIZARD, intelligence=50, mp=50)
+    # Fighter in front at (5, 8)
+    front = Character("Knight", "M", Race.HUMAN, Profession.FIGHTER, strength=50)
+    party.add_member(wiz)
+    party.add_member(front)
+
+    arena = CombatArena(party, conflict_map, creature_tile="orc", asset_mgr=asset_mgr, monster_count=1)
+    arena.player_positions[0] = (5, 9)
+    arena.player_positions[1] = (5, 8)
+    monster = arena.monsters[0]
+    monster.x = 5
+    monster.y = 5
+    monster.hp = 100
+
+    from py_exodus.constants import Spell
+    res = arena.execute_player_action(0, Action.cast(Spell.MITTAR, direction=Direction.NORTH))
+    assert res.success
+    # The projectile must NOT stop at the party member at (5, 8), it must reach the monster at (5, 5)
+    assert res.spell_res.hit
+    assert res.spell_res.target_pos == (5, 5)
+    assert (5, 8) in res.spell_res.projectile_path
+    assert monster.hp < 100
+
+
+def test_casting_with_zero_mp_for_zero_cost_spells(asset_mgr, conflict_map):
+    """Verify spells costing 0 MP (Spell A: Repond / Pontori) can be cast even with 0 MP."""
+    party = Party()
+    wiz = Character("Mage", "M", Race.FUZZY, Profession.WIZARD, intelligence=50, mp=0)
+    party.add_member(wiz)
+
+    arena = CombatArena(party, conflict_map, creature_tile="giant", asset_mgr=asset_mgr, monster_count=3)
+    from py_exodus.constants import Spell
+    # Wizard Spell A (REPOND) costs 0 MP and should succeed even with 0 MP
+    res = arena.execute_player_action(0, Action.cast(Spell.REPOND))
+    assert res.success
+
+    # Wizard Spell B (MITTAR) costs 5 MP and should fail with 0 MP
+    res_b = arena.execute_player_action(0, Action.cast(Spell.MITTAR, direction=Direction.NORTH))
+    assert not res_b.success
+    assert "not enough" in res_b.message.lower() or "magic points" in res_b.message.lower()
+
+
+def test_dying_monster_visible_during_attack_burst(asset_mgr, conflict_map):
+    """Verify dead monster remains in dying_monsters during hit animation and then disappears."""
+    import pygame
+    party = Party()
+    hero = Character("Hero", "M", Race.HUMAN, Profession.FIGHTER, strength=50, dexterity=50)
+    party.add_member(hero)
+
+    from py_exodus.screens.combat_screen import CombatScreen
+    combat = CombatScreen(party=party, combat_map=conflict_map, creature_tile="orc", asset_mgr=asset_mgr, monster_count=1)
+    combat.arena.player_positions[0] = (5, 5)
+    monster = combat.arena.monsters[0]
+    monster.x = 5
+    monster.y = 4
+    monster.hp = 1
+
+    combat.combat_fx.clear()
+    combat.dying_monsters.clear()
+
+    # Melee attack kills the monster
+    combat._execute_action(Action.attack(Direction.NORTH))
+
+    # Monster is dead in arena, but registered in dying_monsters for the hit animation
+    assert len(combat.dying_monsters) == 1
+    assert combat.dying_monsters[0]["x"] == 5
+    assert combat.dying_monsters[0]["y"] == 4
+
+    # Render while dying
+    surf = pygame.Surface((640, 400))
+    combat.render(surf)
+
+    # After timer expires (0.35s+), dying monster is cleared
+    combat.update(0.40)
+    assert len(combat.dying_monsters) == 0
+

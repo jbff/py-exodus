@@ -1210,3 +1210,26 @@ def test_combat_screen_mittar_visual_projectile(pygame_setup, asset_mgr, sample_
     # Update half-way (progress >= 0.5) to test hit burst rendering
     combat.update(0.20)
     combat.render(surf)
+
+
+def test_combat_screen_zero_mp_casting(pygame_setup, asset_mgr, sample_party):
+    """Verify in combat screen that 0 MP allows casting 0-cost Spell A and prompts correctly."""
+    from py_exodus.world.loader import MapLoader
+    loader = MapLoader(asset_mgr)
+    c_map = loader.load_conflict_map("CNFLCT_A.ULT")
+
+    m = sample_party.members[0]
+    m.profession = Profession.WIZARD
+    m.mp = 0
+
+    combat = CombatScreen(party=sample_party, combat_map=c_map, creature_tile="giant", asset_mgr=asset_mgr)
+
+    # Press 'C' to Cast
+    combat.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_c))
+    assert combat.text_log.is_waiting_for_input
+    assert "Wizard Spell?" in combat.text_log.current_prompt
+
+    # Select Spell A (REPOND, 0 MP)
+    combat.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_a, unicode="A"))
+    # Repond resolves without MP error
+    assert not any("not enough mp" in msg.lower() for msg in combat.text_log.history)
