@@ -406,8 +406,9 @@ class OverworldScreen(BaseScreen):
         drops the frigate object on the tile and records it as
         ``Context.lastShip``, so re-boarding the same hull keeps its damage.
         """
+        # Java GameScreen.java:584-596 — X is silent on foot (it only resets
+        # the transport and sets the avatar anim); the keyUp tail still ticks.
         if self.party.transport == Transport.FOOT:
-            self.text_log.add_message("Already on foot.")
             return
 
         old_t = self.party.transport
@@ -1091,9 +1092,8 @@ class OverworldScreen(BaseScreen):
         if self.game_map is None:
             return
         if not portal_entry.enter_portal(self, self.party.x, self.party.y):
-            self.text_log.add_message("Nothing to enter here!")
-            # Java GameScreen.java:538-556 — E returns early only when a
-            # portal was used; with no portal the keyUp tail consumes a turn.
+            # Java GameScreen.java:538-556 — no portal on the tile: E falls
+            # through SILENTLY to the keyUp tail, which consumes the turn.
             self._consume_pass_turn()
 
     _toggle_board_transport = _board_transport

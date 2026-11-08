@@ -167,12 +167,16 @@ class TestEnterAndWhirlpool:
         assert (sample_party.x, sample_party.y) == (1, 1)
         assert o.map_id == 0
 
-    def test_e_in_town_with_no_portal(self, town, sample_party):
-        """E is now handled on every map including towns (GameScreen.java:538-556)."""
+    def test_e_in_town_with_no_portal(self, town, sample_party, monkeypatch):
+        """Java GameScreen.java:538-556 — E with no portal on the tile falls
+        through silently to the keyUp tail: no message, one turn consumed."""
+        monkeypatch.setattr("py_exodus.entities.party.random.randint", lambda a, b: 1)
+        moves = sample_party.moves
         key(town, pygame.K_e)
-        assert any("Nothing to enter here!" in m for m in town.text_log.history)
+        assert not any("Nothing to enter" in m for m in town.text_log.history)
         assert (town.avatar_x, town.avatar_y) == (10, 10)
         assert not town.is_finished
+        assert sample_party.moves == moves + 1
 
     def test_whirlpool_never_triggers_combat_or_wanders(self, ow, sample_party):
         """Whirlpools never move and never start combat (wontattack creature)."""

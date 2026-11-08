@@ -424,8 +424,10 @@ def test_overworld_b_x_e_f_fall_through_ticks(pygame_setup, asset_mgr):
     assert not any("Only frigates" in m for m in ow.text_log.history)
     assert party.moves == moves + 1
 
-    # X on foot: "Already on foot." + tail turn (GameScreen.java:584-596)
+    # X on foot: Java X is silent but the keyUp tail still ticks
+    # (GameScreen.java:584-596 + 628)
     ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_x))
+    assert not any("Already on foot" in m for m in ow.text_log.history)
     assert party.moves == moves + 2
 
     # B with nothing to board: "Board What?" + tail turn (GameScreen.java:578-580)

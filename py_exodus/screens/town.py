@@ -189,9 +189,10 @@ class TownScreen(BaseScreen):
         elif event.key == pygame.K_a:
             self.text_log.add_message("Attack: The guards eye thee suspiciously! Peace reigns here.")
         elif event.key == pygame.K_b:
-            # Java GameScreen.java:578-580 — B falls through the keyUp tail;
-            # every board press consumes a turn.
-            self.text_log.add_message("Board: No transport vessels within city walls.")
+            # Java GameScreen.java:578-580 + 945-979 — B is board(v.x, v.y) on
+            # every GameScreen map ("Board: Can't!" mounted, transport scan,
+            # else "Board What?"), then the keyUp tail consumes a turn.
+            self.board(self.avatar_x, self.avatar_y)
             self._consume_pass_turn()
         elif event.key == pygame.K_c:
             self._prompt_cast()
@@ -804,17 +805,17 @@ class TownScreen(BaseScreen):
         if self.game_map is None:
             return
         if not portal_entry.enter_portal(self, self.avatar_x, self.avatar_y):
-            self.text_log.add_message("Nothing to enter here!")
-            # Java GameScreen.java:538-556 — no portal on the tile: the keyUp
-            # tail consumes a turn.
+            # Java GameScreen.java:538-556 — no portal on the tile: E falls
+            # through SILENTLY to the keyUp tail, which consumes the turn.
             self._consume_pass_turn()
 
     def _exit_transport(self) -> None:
         """X only dismounts to FOOT, dropping the ridden transport on the
         tile (Java GameScreen.java:584-596); leaving a town is border-walking
         only."""
+        # Java GameScreen.java:584-596 — X is silent on foot (it only resets
+        # the transport and sets the avatar anim); the keyUp tail still ticks.
         if self.party.transport == Transport.FOOT:
-            self.text_log.add_message("Already on foot.")
             return
 
         old_t = self.party.transport
