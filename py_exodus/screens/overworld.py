@@ -77,6 +77,9 @@ class OverworldScreen(BaseScreen):
         self.text_log = TextLog(max_lines=5, wrap_width=28)
         self.time_stopped_turns = 0
 
+        # Heading / facing direction (for broadside cannon checks)
+        self.heading: Direction = Direction.NORTH
+
         # Wandering overland creatures visible on Sosaria
         self.creatures: list[dict[str, Any]] = []
         if self.random_encounters_enabled:
@@ -692,6 +695,8 @@ class OverworldScreen(BaseScreen):
         if self.game_map is None:
             return
 
+        self.heading = direction
+
         # Frigate sailing rules
         if self.party.transport == Transport.SHIP:
             # Check headwind
@@ -740,6 +745,15 @@ class OverworldScreen(BaseScreen):
         self.text_log.prompt("Fire cannon direction? (N,S,E,W):", callback=_on_dir, single_char=True)
 
     def _fire_cannons(self, direction: Direction) -> None:
+        if self.party.transport == Transport.SHIP:
+            if self.heading in (Direction.NORTH, Direction.SOUTH):
+                valid_dirs = (Direction.WEST, Direction.EAST)
+            else:
+                valid_dirs = (Direction.NORTH, Direction.SOUTH)
+            if direction not in valid_dirs:
+                self.text_log.add_message("Broadsides only!")
+                return
+
         if self.audio is not None:
             self.audio.play_sfx("cannon") or self.audio.play_sfx("enemy_magic_proj")
 
@@ -752,6 +766,27 @@ class OverworldScreen(BaseScreen):
         for step in range(1, 4):
             tx = (cx + direction.dx * step) % self.game_map.width
             ty = (cy + direction.dy * step) % self.game_map.height
+
+            # Check creature hit
+            hit_creature = None
+            for c in list(self.creatures):
+                if c.get("x") == tx and c.get("y") == ty:
+                    hit_creature = c
+                    break
+
+            if hit_creature is not None:
+                c_name = hit_creature.get("tile_name", "creature").capitalize()
+                hp = hit_creature.get("hp", 50)
+                damage = random.randint(30, 60)
+                hp -= damage
+                hit_creature["hp"] = hp
+                if hp <= 0:
+                    self.creatures.remove(hit_creature)
+                    self.text_log.add_message(f"Direct hit! The {c_name} sinks into the sea!")
+                else:
+                    self.text_log.add_message(f"Direct hit on {c_name}!")
+                break
+
             tile = self.game_map.get_tile(tx, ty)
             if tile is not None and not tile.walkable and not tile.sailable:
                 self.text_log.add_message("Cannonball crashed into the shoreline!")

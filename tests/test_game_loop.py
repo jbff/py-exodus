@@ -305,6 +305,7 @@ def test_overworld_screen_movement(pygame_setup, asset_mgr, sample_party):
 def test_overworld_screen_frigate_cannons(pygame_setup, asset_mgr, sample_party):
     sample_party.transport = Transport.SHIP
     ow = OverworldScreen(party=sample_party, map_id=0, asset_mgr=asset_mgr)
+    ow.heading = Direction.EAST
 
     ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_f))
     assert ow.text_log.is_waiting_for_input
