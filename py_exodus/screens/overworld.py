@@ -88,21 +88,6 @@ class OverworldScreen(BaseScreen):
         self.stats_panel = StatsPanel()
         self.text_log = TextLog(max_lines=5, wrap_width=28)
 
-        # Java GameScreen.java:111-121 — the two Sosaria whirlpools are added
-        # manually at startup (they never spawn automatically). They never
-        # wander and never start combat; sailing within one tile engulfs the
-        # ship (BaseMap.java:540-553).
-        if str(self.map_id) == "0":
-            for wx, wy in ((50, 13), (17, 48)):
-                self.creatures.append({
-                    "name": "Whirlpool",
-                    "tile_name": "whirlpool",
-                    "tile": "whirlpool",
-                    "x": wx,
-                    "y": wy,
-                    "wontattack": True,
-                })
-
         # Heading / facing direction (for broadside cannon checks)
         self.heading: Direction = Direction.NORTH
 
@@ -128,8 +113,7 @@ class OverworldScreen(BaseScreen):
 
     def _load_world_map(self) -> None:
         # A map switch drops every standing creature (wanderer or whirlpool
-        # fixture): whirlpools only exist where they were placed (GameScreen
-        # .java:111-121) and are re-seeded by __init__ for Sosaria.
+        # fixture).
         self.creatures.clear()
         if self.asset_mgr is None:
             return
@@ -142,6 +126,22 @@ class OverworldScreen(BaseScreen):
                 self.game_map = loaded
         except Exception:
             pass
+
+        # Java GameScreen.java:111-121 — the two Sosaria whirlpools are added
+        # manually on the SOSARIA map each time it is prepared (they never
+        # spawn automatically and never wander); re-seeding HERE (not in
+        # __init__) keeps the engulf route alive after Ambrosia round trips,
+        # which reload this screen in place with map_id 0.
+        if str(self.map_id) == "0":
+            for wx, wy in ((50, 13), (17, 48)):
+                self.creatures.append({
+                    "name": "Whirlpool",
+                    "tile_name": "whirlpool",
+                    "tile": "whirlpool",
+                    "x": wx,
+                    "y": wy,
+                    "wontattack": True,
+                })
 
     def on_enter(self) -> None:
         super().on_enter()

@@ -180,6 +180,32 @@ class TestEnterAndWhirlpool:
         ow._update_creatures()
         assert (6, 6) in [(c["x"], c["y"]) for c in ow.creatures]
 
+    def test_whirlpool_fixtures_reseeded_after_ambrosia_round_trip(self, ow, sample_party):
+        """Fix round 3: the two Sosaria whirlpools are re-seeded on every map
+        load — otherwise Ambrosia's only sea route dies after one return."""
+        # Round 1: the (50, 13) fixture engulfs the party at (49, 13)
+        sample_party.transport = Transport.SHIP
+        sample_party.x, sample_party.y = 49, 13
+        move(ow, Direction.EAST)
+        assert sample_party.transport == Transport.FOOT
+        assert (sample_party.x, sample_party.y) == (32, 54)
+        assert ow.map_id == 13
+        assert not [c for c in ow.creatures if c.get("tile_name") == "whirlpool"]
+
+        # Return through Ambrosia's WHIRLPOOL portal (E → fixed (1, 1))
+        sample_party.x, sample_party.y = 32, 58
+        key(ow, pygame.K_e)
+        assert (sample_party.x, sample_party.y) == (1, 1)
+        spots = {(c["x"], c["y"]) for c in ow.creatures if c.get("tile_name") == "whirlpool"}
+        assert spots == {(50, 13), (17, 48)}
+
+        # Round 2: the re-seeded fixture engulfs again
+        sample_party.transport = Transport.SHIP
+        sample_party.x, sample_party.y = 49, 13
+        move(ow, Direction.EAST)
+        assert (sample_party.x, sample_party.y) == (32, 54)
+        assert ow.map_id == 13
+
 
 class TestExitTransport:
     """(b) X = dismount/set FOOT everywhere; never exits a town."""
