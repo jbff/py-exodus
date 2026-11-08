@@ -249,7 +249,7 @@ def cast_spell(
         if getattr(caster, "used_free_spell_in_combat", False):
             return SpellResult(
                 success=False,
-                message="Can't! Free combat prayer already used.",
+                message="Can't!",
                 spell=resolved_spell,
             )
 
@@ -365,6 +365,7 @@ def cast_spell(
         target_dir=dir_val,
         arena=arena,
         party=active_party,
+        world_map=world_map,
     )
 
 
@@ -376,6 +377,7 @@ def _apply_spell_effect(
     target_dir: Direction | None,
     arena: CombatArena | None,
     party: Party | None,
+    world_map: Any | None = None,
 ) -> SpellResult:
     """Dispatch and execute specific spell mechanics."""
     # --- Clerical Prayer Spells ---
@@ -504,6 +506,8 @@ def _apply_spell_effect(
 
     # Dungeon Ascent / Descent / Exit
     if spell in (Spell.REC_SU, Spell.SUR_ACRON):
+        if hasattr(world_map, "klimb_up"):
+            world_map.klimb_up()
         if party is not None and getattr(party, "dungeon_level", 0) > 0:
             party.dungeon_level = max(0, party.dungeon_level - 1)
             return SpellResult(
@@ -514,6 +518,8 @@ def _apply_spell_effect(
         return SpellResult(success=True, message="Mystical levitation lifts upward.", spell=spell)
 
     if spell in (Spell.REC_DU, Spell.DOR_ACRON):
+        if hasattr(world_map, "klimb_down"):
+            world_map.klimb_down()
         if party is not None:
             party.dungeon_level = min(DUNGEON_LEVELS, getattr(party, "dungeon_level", 0) + 1)
             return SpellResult(
@@ -531,6 +537,8 @@ def _apply_spell_effect(
 
     # Light / Torches (LORUM, LUMINAE, SOMINAE)
     if spell in (Spell.LORUM, Spell.LUMINAE, Spell.SOMINAE):
+        if hasattr(world_map, "light_spell"):
+            world_map.light_spell = True
         duration = 100 if spell == Spell.SOMINAE else 25
         if party is not None:
             party.torch_duration = getattr(party, "torch_duration", 0) + duration
@@ -558,9 +566,11 @@ def _apply_spell_effect(
         # Safely disarms, opens, and collects chest contents (gold) without triggering traps
         found = False
         gold_found = 0
+        px = getattr(party, "x", 0) if party is not None else 0
+        py = getattr(party, "y", 0) if party is not None else 0
+
+        # 1. Check party dynamic_objects (e.g., overland or combat chests)
         if party is not None and hasattr(party, "dynamic_objects"):
-            px = getattr(party, "x", 0)
-            py = getattr(party, "y", 0)
             target_idx = -1
             for idx, obj in enumerate(party.dynamic_objects):
                 ox = obj.get("x", -99)
@@ -575,10 +585,37 @@ def _apply_spell_effect(
                 gold_found = random.randint(50, 200)
                 party.gold += gold_found
 
+        # 2. Check world_map chest tiles (towns, castles)
+        if not found and world_map is not None and hasattr(world_map, "get_tile") and hasattr(world_map, "set_tile"):
+            offsets = [(0, 0), (0, -1), (0, 1), (1, 0), (-1, 0), (1, -1), (-1, -1), (1, 1), (-1, 1)]
+            for dx, dy in offsets:
+                tx = px + dx
+                ty = py + dy
+                tile = world_map.get_tile(tx, ty)
+                if tile is not None and (
+                    getattr(tile, "name", "") == "chest"
+                    or str(getattr(tile, "rule", "")).lower() == "chest"
+                ):
+                    from py_exodus.assets import TileDef
+                    floor_tile = TileDef(index=3, name="floor")
+                    world_map.set_tile(tx, ty, floor_tile)
+                    found = True
+                    gold_found = random.randint(50, 200)
+                    if party is not None:
+                        party.gold += gold_found
+                    break
+
+        # 3. Check dungeon exploration state (DungeonState)
+        if not found and world_map is not None and hasattr(world_map, "open_chest"):
+            ev = world_map.open_chest(disarm=True)
+            if getattr(ev, "success", False) or getattr(ev, "gold", 0) > 0:
+                found = True
+                gold_found = getattr(ev, "gold", 0)
+
         if found:
             return SpellResult(
                 success=True,
-                message=f"Appar Unem safely disarms and opens the chest! Found {gold_found} gold.",
+                message=f"Appar Unem safely disarms and opens the chest! The Chest Holds: {gold_found} Gold.",
                 spell=spell,
             )
         else:

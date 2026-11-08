@@ -226,19 +226,8 @@ class DungeonScreen(BaseScreen):
             self.text_log.add_message("No torches left in inventory!")
 
     def _cast_spell(self) -> None:
-        def _on_spell(code: str) -> None:
-            c = code.strip().upper()
-            if c == "C":  # LORUM
-                self.state.light_spell = True
-                self.text_log.add_message("LORUM casts bright radiance!")
-            elif c == "D":  # DOR_ACRON (down level)
-                self.state.klimb_down()
-            elif c == "E":  # SUR_ACRON (up level)
-                self.state.klimb_up()
-            elif c == "I":  # SEQUITU (exit)
-                self.exit_screen()
-
-        self.text_log.prompt("Spell? (A-P):", callback=_on_spell, single_char=True)
+        from py_exodus.combat.magic import prompt_cast_party
+        prompt_cast_party(self.text_log, self.party, world_map=self.state, audio=self.audio)
 
     def update(self, dt: float) -> None:
         pass

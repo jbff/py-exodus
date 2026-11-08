@@ -174,6 +174,13 @@ class CombatArena:
         self.creature_tile = creature_tile
         self.asset_mgr = asset_mgr
 
+        # Reset free combat spell per encounter
+        for m in self.party.members:
+            m.used_free_spell_in_combat = False
+            char = getattr(m, "character", m)
+            if hasattr(char, "used_free_spell_in_combat"):
+                char.used_free_spell_in_combat = False
+
         # State tracking
         self.is_finished = False
         self.is_victory = False
