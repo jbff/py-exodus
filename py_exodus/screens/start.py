@@ -240,8 +240,18 @@ class StartScreen(BaseScreen):
         surface.blit(foot_surf, ((w - foot_surf.get_width()) // 2, h - 25 * scale))
 
     def _start_journey(self) -> None:
-        """Begin or resume the adventure in the overworld."""
+        """Begin or resume the adventure in the overworld.
+
+        Java truth: ``exodus/StartScreen.java:100-117`` — Journey Onward always
+        reads the on-disk party save, never screen-attached state (after
+        ``partyDeath`` that would be a dead party); no valid party record
+        falls back to the party-management (roster) screen.
+        """
         party = self.party
+        if self.game_over:
+            # Never reuse the in-memory party after game over (start.py port
+            # of StartScreen.java:100-117): read the save file instead.
+            party = None
         if party is None:
             # Check JSON save first, then binary save
             try:
@@ -260,7 +270,8 @@ class StartScreen(BaseScreen):
                 party = None
 
         if party is None or not party.members:
-            # No saved party exists: open Roster to form party
+            # No viable party record (Java StartScreen.java:109-111 only
+            # checks record validity): roster fallback
             self._new_game()
             return
 

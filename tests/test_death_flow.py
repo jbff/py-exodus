@@ -18,6 +18,7 @@ from py_exodus.screens.combat_screen import CombatScreen
 from py_exodus.screens.dungeon_screen import DungeonScreen
 from py_exodus.screens.overworld import OverworldScreen
 from py_exodus.state_machine import StateMachine
+from py_exodus.save_system import SaveSystem
 from py_exodus.world.map import DungeonMap, DungeonTile
 
 
@@ -110,6 +111,67 @@ def test_apply_damage_is_noop_on_dead_member():
     assert hero.status == Status.DEAD
     assert hero.apply_damage(5) is False
     assert hero.hp == 0
+
+
+# --- Journey Onward after game over reads the on-disk save, not the dead party ---
+
+
+def test_game_over_journey_onward_loads_party_from_save(pygame_setup, asset_mgr, monkeypatch, tmp_path):
+    """Java StartScreen.java:100-117: Journey Onward reads party.sav from disk.
+    After a game over the in-memory (dead) party must be ignored in favor of
+    the save file's party state."""
+    monkeypatch.chdir(tmp_path)
+
+    saved_party = single_member_party(hp=77)
+    SaveSystem.save_game(saved_party, tmp_path / "saves" / "party.json")
+
+    from py_exodus.screens.start import StartScreen
+
+    dead_party = single_member_party(hp=10)
+    dead_party.get_member(0).apply_damage(20, combat_related_damage=True)
+    assert dead_party.is_party_dead()
+
+    start = StartScreen(party=dead_party, asset_mgr=asset_mgr, game_over=True)
+    start._start_journey()
+
+    from py_exodus.screens.overworld import OverworldScreen
+
+    assert isinstance(start.next_screen, OverworldScreen)
+    loaded = start.next_screen.party
+    assert not loaded.is_party_dead()
+    assert loaded.get_member(0).hp == 77
+    assert loaded.get_member(0).status != Status.DEAD
+
+
+def test_game_over_journey_onward_without_save_falls_back_to_roster(pygame_setup, monkeypatch, tmp_path):
+    """Java StartScreen.java:109-111: no valid party record → ManagePartyScreen."""
+    monkeypatch.chdir(tmp_path)
+
+    from py_exodus.screens.roster_screen import RosterScreen
+    from py_exodus.screens.start import StartScreen
+
+    dead_party = single_member_party(hp=10)
+    dead_party.get_member(0).apply_damage(20, combat_related_damage=True)
+
+    start = StartScreen(party=dead_party, game_over=True)
+    start._start_journey()
+
+    assert isinstance(start.next_screen, RosterScreen)
+
+
+def test_journey_onward_without_game_over_keeps_in_memory_party(pygame_setup, monkeypatch, tmp_path):
+    """Without game_over the StartScreen still prefers screen-attached party state."""
+    monkeypatch.chdir(tmp_path)
+
+    from py_exodus.screens.overworld import OverworldScreen
+    from py_exodus.screens.start import StartScreen
+
+    party = single_member_party(hp=64)
+    start = StartScreen(party=party, game_over=False)
+    start._start_journey()
+
+    assert isinstance(start.next_screen, OverworldScreen)
+    assert start.next_screen.party is party
 
 
 # --- Screen-level game-over routing ---
