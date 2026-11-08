@@ -1085,7 +1085,9 @@ def test_all_overland_commands_a_to_z(pygame_setup, asset_mgr, sample_party):
 
     # S - Search
     ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_s))
-    assert any("Search:" in msg for msg in ow.text_log.history)
+    if ow.text_log.is_waiting_for_input:
+        ow.text_log.submit_input("1")
+    assert any("Search:" in msg or "searches" in msg or "Nothing here" in msg for msg in ow.text_log.history)
 
     # N - Negate Time
     sample_party.members[0].powder = 2

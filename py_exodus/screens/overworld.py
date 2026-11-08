@@ -564,26 +564,104 @@ class OverworldScreen(BaseScreen):
         self.text_log.prompt("Ready Weapon: Which member? (1-4): ", callback=_on_member, single_char=True)
 
     def _search(self) -> None:
-        """Search current tile for hidden entrances, fountains, or items."""
-        tile = self.game_map.get_tile(self.party.x, self.party.y) if self.game_map else None
-        tile_name = getattr(tile, "name", "ground").lower()
+        """Search current tile for hidden entrances, exotic items, cards, fountains."""
+        def _on_who(who_str: str) -> None:
+            try:
+                idx = int(who_str.strip()) - 1
+                pm = self.party.get_member(idx)
+            except ValueError:
+                pm = None
 
-        portal = None
-        if self.game_map is not None:
-            for p in self.game_map.portals:
-                if p.x == self.party.x and p.y == self.party.y:
-                    portal = p
-                    break
+            if pm is None:
+                self.text_log.add_message("Invalid member #!")
+                return
 
-        if portal is not None:
-            self.text_log.add_message(f"Search: Thou discoverest an entrance to destination #{portal.dest_map_id}!")
-        elif "fountain" in tile_name:
-            self.text_log.add_message("Search: A clear bubbling fountain! Waters refresh the party.")
-            for m in self.party.members:
-                if not m.is_dead():
-                    m.hp = min(m.max_hp, m.hp + 25)
-        else:
-            self.text_log.add_message("Search: Thou searchest the area... Nothing here!")
+            char = getattr(pm, "character", pm)
+
+            # Check map labels first (Exotic items, Cards)
+            matched_label = None
+            if self.game_map and hasattr(self.game_map, "labels"):
+                for lbl in self.game_map.labels:
+                    if lbl.x == self.party.x and lbl.y == self.party.y:
+                        matched_label = lbl
+                        break
+
+            if matched_label is not None:
+                name = matched_label.name.upper()
+                if name == "EXOTIC_ARMOR":
+                    if char.armors.get(ArmorType.EXOTIC, 0) > 0:
+                        self.text_log.add_message("Thou already hast Exotic Armour!")
+                    else:
+                        char.armors[ArmorType.EXOTIC] = char.armors.get(ArmorType.EXOTIC, 0) + 1
+                        char.award_xp(100)
+                        self.text_log.add_message("You found Exotic Armour.")
+                    return
+                elif name == "EXOTIC_WEAPON":
+                    if char.weapons.get(WeaponType.EXOTIC, 0) > 0:
+                        self.text_log.add_message("Thou already hast Exotic Weapon!")
+                    else:
+                        char.weapons[WeaponType.EXOTIC] = char.weapons.get(WeaponType.EXOTIC, 0) + 1
+                        char.award_xp(100)
+                        self.text_log.add_message("You found Exotic Weapon.")
+                    return
+                elif name == "CARD_OF_DEATH":
+                    if char.cards[0] > 0:
+                        self.text_log.add_message("Thou already hast the Card of Death!")
+                    else:
+                        char.cards[0] += 1
+                        char.award_xp(100)
+                        self.text_log.add_message("You found Card of Death.")
+                    return
+                elif name == "CARD_OF_SOL":
+                    if char.cards[1] > 0:
+                        self.text_log.add_message("Thou already hast the Card of Sol!")
+                    else:
+                        char.cards[1] += 1
+                        char.award_xp(100)
+                        self.text_log.add_message("You found Card of Sol.")
+                    return
+                elif name == "CARD_OF_MOONS":
+                    if char.cards[2] > 0:
+                        self.text_log.add_message("Thou already hast the Card of Moons!")
+                    else:
+                        char.cards[2] += 1
+                        char.award_xp(100)
+                        self.text_log.add_message("You found Card of Moons.")
+                    return
+                elif name == "CARD_OF_LOVE":
+                    if char.cards[3] > 0:
+                        self.text_log.add_message("Thou already hast the Card of Love!")
+                    else:
+                        char.cards[3] += 1
+                        char.award_xp(100)
+                        self.text_log.add_message("You found Card of Love.")
+                    return
+
+            # Check portals
+            portal = None
+            if self.game_map is not None:
+                for p in self.game_map.portals:
+                    if p.x == self.party.x and p.y == self.party.y:
+                        portal = p
+                        break
+
+            if portal is not None:
+                self.text_log.add_message(f"Search: Thou discoverest an entrance to destination #{portal.dest_map_id}!")
+                return
+
+            # Check fountain
+            tile = self.game_map.get_tile(self.party.x, self.party.y) if self.game_map else None
+            tile_name = getattr(tile, "name", "ground").lower()
+            if "fountain" in tile_name:
+                self.text_log.add_message("Search: A clear bubbling fountain! Waters refresh the party.")
+                for m in self.party.members:
+                    if not m.is_dead():
+                        m.hp = min(m.max_hp, m.hp + 25)
+                return
+
+            self.text_log.add_message("Nothing here!")
+
+        self.text_log.prompt("Who searches? (1-4): ", callback=_on_who, single_char=True)
 
     def _transact(self) -> None:
         """Transact / Talk command (town only)."""

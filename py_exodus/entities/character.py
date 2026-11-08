@@ -334,6 +334,10 @@ class Character(metaclass=CharacterMeta):
 
         return True
 
+    def award_xp(self, amount: int) -> None:
+        """Award experience points up to the 9999 cap."""
+        self.exp = min(9999, self.exp + amount)
+
     # --- Character Creation Validation ---
     @classmethod
     def validate_creation(

@@ -124,7 +124,7 @@ class TownScreen(BaseScreen):
         elif event.key == pygame.K_c:
             self._prompt_cast()
         elif event.key == pygame.K_g:
-            self.text_log.add_message("Get: No chest here!")
+            self._get_chest()
         elif event.key == pygame.K_h:
             self._prompt_hand_equipment()
         elif event.key == pygame.K_i:
@@ -481,6 +481,77 @@ class TownScreen(BaseScreen):
                 self.audio.play_sfx("trigger")
         else:
             self.text_log.add_message("No door there!")
+
+    def _get_chest(self) -> None:
+        """Get chest from party's tile or adjacent tile in town."""
+        px = self.avatar_x
+        py = self.avatar_y
+
+        # Check dynamic objects first
+        target_obj = None
+        target_idx = -1
+        if hasattr(self.party, "dynamic_objects"):
+            for idx, obj in enumerate(self.party.dynamic_objects):
+                ox = obj.get("x", -1)
+                oy = obj.get("y", -1)
+                tile = obj.get("tile", "")
+                if tile == "chest" and abs(ox - px) <= 1 and abs(oy - py) <= 1:
+                    target_obj = obj
+                    target_idx = idx
+                    break
+
+        # Check town map chest tile
+        chest_pos = None
+        if target_obj is None and self.game_map:
+            offsets = [(0, 0), (0, -1), (0, 1), (1, 0), (-1, 0), (1, -1), (-1, -1), (1, 1), (-1, 1)]
+            for dx, dy in offsets:
+                tx = px + dx
+                ty = py + dy
+                tile = self.game_map.get_tile(tx, ty)
+                if tile and (tile.name == "chest" or str(getattr(tile, "rule", "")).lower() == "chest"):
+                    chest_pos = (tx, ty)
+                    break
+
+        if target_obj is None and chest_pos is None:
+            self.text_log.add_message("Get: No chest here!")
+            return
+
+        def _on_who(who_str: str) -> None:
+            try:
+                idx = int(who_str.strip()) - 1
+                pm = self.party.get_member(idx)
+            except ValueError:
+                pm = None
+
+            if pm is None:
+                self.text_log.add_message("Invalid member #!")
+                return
+
+            if target_obj is not None:
+                self.party.dynamic_objects.pop(target_idx)
+            elif chest_pos is not None:
+                tx, ty = chest_pos
+                from py_exodus.assets import TileDef
+                floor_tile = TileDef(index=3, name="floor")
+                self.game_map.set_tile(tx, ty, floor_tile)
+
+            # 20% trap chance
+            import random
+            trap_roll = random.random()
+            if trap_roll < 0.10:
+                self.text_log.add_message("TRAP! Acid burns party!")
+                for m in self.party.members:
+                    m.hp = max(1, m.hp - 10)
+            elif trap_roll < 0.20:
+                self.text_log.add_message("TRAP! Poison gas released!")
+                for m in self.party.members:
+                    m.status = Status.POISON
+
+            gold_found = random.randint(50, 200)
+            self.party.gold += gold_found
+            self.text_log.add_message(f"The Chest Holds: {gold_found} Gold")
+
+        self.text_log.prompt("Who gets the chest? (1-4): ", callback=_on_who, single_char=True)
 
     def _prompt_cast(self) -> None:
         """Cast non-combat spells while in town."""
