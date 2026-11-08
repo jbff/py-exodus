@@ -146,6 +146,15 @@ class Party:
 
     # --- Aliases & Properties ---
     @property
+    def moons(self) -> tuple[int, int]:
+        """Return celestial moon phases (trammel, felucca)."""
+        return getattr(self, "_moons", (0, 0))
+
+    @moons.setter
+    def moons(self, val: tuple[int, int]) -> None:
+        self._moons = val
+
+    @property
     def active_member(self) -> PartyMember | None:
         """Return currently active PartyMember or None."""
         if 0 <= self.active_member_index < len(self.members):

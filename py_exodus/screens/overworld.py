@@ -90,6 +90,18 @@ class OverworldScreen(BaseScreen):
         self.text_log.add_message(f"Entering the realm of {map_name}...")
         self.text_log.add_message(f"Wind blows {self.party.wind_direction.name}.")
 
+    @property
+    def trammel_phase(self) -> int:
+        return min(7, self.moon_phase // 3)
+
+    @property
+    def felucca_phase(self) -> int:
+        return self.moon_phase % 8
+
+    @property
+    def moons(self) -> tuple[int, int]:
+        return (self.trammel_phase, self.felucca_phase)
+
     def _load_world_map(self) -> None:
         if self.asset_mgr is None:
             return
@@ -889,6 +901,26 @@ class OverworldScreen(BaseScreen):
         start_x = portal.start_x
         start_y = portal.start_y
 
+        # Restrict Dawn (dest_id == 11) to dual new moon conjunction (0, 0)
+        if dest_id == 11:
+            if self.trammel_phase != 0 or self.felucca_phase != 0:
+                self.text_log.add_message("The mythical city of Dawn only appears during a double new moon!")
+                return
+
+        # Ambrosia whirlpool portal warp to Sosaria coast
+        if (self.map_id == 13 and dest_id == 0) or str(getattr(portal, "name", "") or "").upper() == "WHIRLPOOL":
+            dx = random.randint(48, 53)
+            dy = random.randint(0, 8)
+            self.party.x = dx
+            self.party.y = dy
+            if self.audio is not None:
+                self.audio.play_sfx("wave") or self.audio.play_sfx("whirlpool")
+            self.text_log.add_message("Engulfed by the whirlpool! Washed ashore on the coast of Sosaria.")
+            if self.map_id != 0:
+                self.map_id = 0
+                self._load_world_map()
+            return
+
         # Determine if destination is town, dungeon, or shrine
         if dest_id in (55, 56, 57, 58):  # Shrine
             from py_exodus.screens.shrine import ShrineScreen
@@ -954,17 +986,40 @@ class OverworldScreen(BaseScreen):
         """Check if party stepped onto an active moongate."""
         if self.game_map is None:
             return
+
+        active_gate = None
         for gate in self.game_map.moongates:
-            if gate.phase == (self.moon_phase % 8):
-                if gate.x == self.party.x and gate.y == self.party.y:
-                    # Teleport to destination gate
-                    dest_gate = self.game_map.moongates[(gate.d1) % len(self.game_map.moongates)]
+            if gate.phase == self.trammel_phase:
+                active_gate = gate
+                break
+
+        if active_gate is None:
+            return
+
+        if active_gate.x == self.party.x and active_gate.y == self.party.y:
+            if self.felucca_phase == active_gate.phase:
+                return
+
+            dest_gate_phase = -1
+            if self.felucca_phase == active_gate.d1:
+                dest_gate_phase = active_gate.d1
+            elif self.felucca_phase == active_gate.d2:
+                dest_gate_phase = active_gate.d2
+            elif self.felucca_phase == active_gate.d3:
+                dest_gate_phase = active_gate.d3
+
+            if dest_gate_phase >= 0:
+                dest_gate = None
+                for g in self.game_map.moongates:
+                    if g.phase == dest_gate_phase:
+                        dest_gate = g
+                        break
+                if dest_gate is not None:
                     self.party.x = dest_gate.x
                     self.party.y = dest_gate.y
                     self.text_log.add_message("Stepped through mystical moongate!")
                     if self.audio is not None:
                         self.audio.play_sfx("moongate_flash")
-                    break
 
     def _check_food_consumption(self) -> None:
         if self.party.moves % 40 == 0:
@@ -1149,6 +1204,8 @@ class OverworldScreen(BaseScreen):
             if random.random() < 0.15:
                 dirs = list(Direction)
                 self.party.wind_direction = random.choice(dirs)
+
+        self.party.moons = self.moons
 
     def render(self, surface: pygame.Surface) -> None:
         surface.fill(EGA_BLACK)
