@@ -435,6 +435,70 @@ def test_town_screen_vendor_shopping(pygame_setup, asset_mgr, sample_party):
     assert any("Bought Dagger" in msg for msg in town.text_log.history)
 
 
+def test_town_screen_all_vendor_types_shopping(pygame_setup, asset_mgr, sample_party):
+    """Verify purchasing guild items, food rations, horse transport, and healer services."""
+    from py_exodus.entities.defs import VendorDef, VendorItemDef
+    from py_exodus.constants import Status, Transport
+
+    vendor = VendorDef(
+        id="test_guild_and_services",
+        name="Market",
+        owner="Trader",
+        vendor_type="GUILD",
+        start_x=10,
+        start_y=10,
+        items=[
+            VendorItemDef(choice="t", name="Torches", price=10, guild_item_type="torch", quantity=5),
+            VendorItemDef(choice="g", name="Gems", price=25, guild_item_type="gem", quantity=2),
+            VendorItemDef(choice="k", name="Keys", price=30, guild_item_type="key", quantity=3),
+            VendorItemDef(choice="p", name="Powder", price=50, guild_item_type="powder", quantity=1),
+            VendorItemDef(choice="f", name="Rations", price=15, item_type="food", quantity=25),
+            VendorItemDef(choice="h", name="Steed", price=200, item_type="horse"),
+            VendorItemDef(choice="c", name="Cure", price=40, heal_type="cure"),
+        ],
+    )
+    town = TownScreen(party=sample_party, map_id=4, asset_mgr=asset_mgr)
+    sample_party.gold = 500
+    active = sample_party.active_member
+    active.character.status = Status.POISON
+
+    # Buy Torches
+    town._start_vendor_shopping(vendor)
+    town.text_log.handle_char("t")
+    assert sample_party.torches >= 5
+
+    # Buy Gems
+    town._start_vendor_shopping(vendor)
+    town.text_log.handle_char("g")
+    assert sample_party.gems >= 2
+
+    # Buy Keys
+    town._start_vendor_shopping(vendor)
+    town.text_log.handle_char("k")
+    assert sample_party.keys >= 3
+
+    # Buy Powder
+    town._start_vendor_shopping(vendor)
+    town.text_log.handle_char("p")
+    assert sample_party.powder >= 1
+
+    # Buy Food
+    prev_food = sample_party.food
+    town._start_vendor_shopping(vendor)
+    town.text_log.handle_char("f")
+    assert sample_party.food > prev_food
+
+    # Buy Horse
+    town._start_vendor_shopping(vendor)
+    town.text_log.handle_char("h")
+    assert sample_party.transport == Transport.HORSE
+
+    # Buy Cure
+    town._start_vendor_shopping(vendor)
+    town.text_log.handle_char("c")
+    assert active.character.status == Status.GOOD
+
+
 # --- CombatScreen Tests ---
 
 

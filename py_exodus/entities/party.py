@@ -179,6 +179,90 @@ class Party:
     def torchduration(self, val: int) -> None:
         self.torch_duration = val
 
+    @property
+    def torches(self) -> int:
+        return sum(getattr(m, "torches", 0) for m in self.members)
+
+    @torches.setter
+    def torches(self, val: int) -> None:
+        cur = self.torches
+        diff = val - cur
+        if diff > 0 and self.members:
+            target = self.active_member or self.members[0]
+            target.torches = getattr(target, "torches", 0) + diff
+        elif diff < 0:
+            need = -diff
+            for m in self.members:
+                t = getattr(m, "torches", 0)
+                take = min(t, need)
+                m.torches = t - take
+                need -= take
+                if need <= 0:
+                    break
+
+    @property
+    def gems(self) -> int:
+        return sum(getattr(m, "gems", 0) for m in self.members)
+
+    @gems.setter
+    def gems(self, val: int) -> None:
+        cur = self.gems
+        diff = val - cur
+        if diff > 0 and self.members:
+            target = self.active_member or self.members[0]
+            target.gems = getattr(target, "gems", 0) + diff
+        elif diff < 0:
+            need = -diff
+            for m in self.members:
+                t = getattr(m, "gems", 0)
+                take = min(t, need)
+                m.gems = t - take
+                need -= take
+                if need <= 0:
+                    break
+
+    @property
+    def keys(self) -> int:
+        return sum(getattr(m, "keys", 0) for m in self.members)
+
+    @keys.setter
+    def keys(self, val: int) -> None:
+        cur = self.keys
+        diff = val - cur
+        if diff > 0 and self.members:
+            target = self.active_member or self.members[0]
+            target.keys = getattr(target, "keys", 0) + diff
+        elif diff < 0:
+            need = -diff
+            for m in self.members:
+                t = getattr(m, "keys", 0)
+                take = min(t, need)
+                m.keys = t - take
+                need -= take
+                if need <= 0:
+                    break
+
+    @property
+    def powder(self) -> int:
+        return sum(getattr(m, "powder", 0) for m in self.members)
+
+    @powder.setter
+    def powder(self, val: int) -> None:
+        cur = self.powder
+        diff = val - cur
+        if diff > 0 and self.members:
+            target = self.active_member or self.members[0]
+            target.powder = getattr(target, "powder", 0) + diff
+        elif diff < 0:
+            need = -diff
+            for m in self.members:
+                t = getattr(m, "powder", 0)
+                take = min(t, need)
+                m.powder = t - take
+                need -= take
+                if need <= 0:
+                    break
+
     # --- Party Member Management ---
     def add_member(self, member: Character | PartyMember) -> PartyMember:
         """Add a member to the party, ensuring maximum capacity is respected."""

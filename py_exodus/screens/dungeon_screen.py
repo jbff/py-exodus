@@ -238,7 +238,7 @@ class DungeonScreen(BaseScreen):
             elif c == "I":  # SEQUITU (exit)
                 self.exit_screen()
 
-        self.text_log.prompt("Spell? (A-P):", callback=_on_spell)
+        self.text_log.prompt("Spell? (A-P):", callback=_on_spell, single_char=True)
 
     def update(self, dt: float) -> None:
         pass

@@ -246,6 +246,10 @@ class TownScreen(BaseScreen):
 
         npc = self._find_npc_at(tx, ty)
         if npc is None:
+            # Check 1 tile further in case of speaking across a counter or sign
+            npc = self._find_npc_at(tx + direction.dx, ty + direction.dy)
+
+        if npc is None:
             self.text_log.add_message("Funny, no response!")
             return
 
@@ -350,17 +354,57 @@ class TownScreen(BaseScreen):
             else:
                 self.party.gold -= item.price
                 active = self.party.active_member
-                if active is not None and item.weapon_type:
+                qty = getattr(item, "quantity", 1) or 1
+                g_type = (getattr(item, "guild_item_type", "") or "").lower()
+                i_type = (getattr(item, "item_type", "") or "").lower()
+                h_type = (getattr(item, "heal_type", "") or "").lower()
+                name_l = getattr(item, "name", "").lower()
+
+                if item.weapon_type and active is not None:
                     active.character.weapons[item.weapon_type] = active.character.weapons.get(item.weapon_type, 0) + 1
-                elif active is not None and item.armor_type:
+                    self.text_log.add_message(f"Bought {item.name}! Added to inventory.")
+                elif item.armor_type and active is not None:
                     active.character.armors[item.armor_type] = active.character.armors.get(item.armor_type, 0) + 1
-                self.text_log.add_message(f"Bought {item.name}! Added to inventory.")
+                    self.text_log.add_message(f"Bought {item.name}! Added to inventory.")
+                elif "torch" in g_type or "torch" in name_l:
+                    self.party.torches += qty
+                    self.text_log.add_message(f"Bought {qty} Torches! Added to pack.")
+                elif "gem" in g_type or "gem" in name_l:
+                    self.party.gems += qty
+                    self.text_log.add_message(f"Bought {qty} Gems! Added to pack.")
+                elif "key" in g_type or "key" in name_l:
+                    self.party.keys += qty
+                    self.text_log.add_message(f"Bought {qty} Keys! Added to pack.")
+                elif "powder" in g_type or "powder" in name_l:
+                    self.party.powder += qty
+                    self.text_log.add_message(f"Bought {qty} Powder! Added to pack.")
+                elif "food" in i_type or "food" in name_l or "ration" in name_l:
+                    food_gain = qty * 25 if qty <= 5 else qty
+                    self.party.food += food_gain
+                    self.text_log.add_message(f"Bought {food_gain} food rations!")
+                elif "horse" in i_type or "horse" in name_l:
+                    self.party.transport = Transport.HORSE
+                    self.text_log.add_message("Thou dost mount a fine steed! (Transport is now Horse)")
+                elif h_type or "heal" in name_l or "cure" in name_l or "resurrect" in name_l:
+                    if active is not None:
+                        if "cure" in h_type or "cure" in name_l:
+                            active.character.status = Status.GOOD
+                            self.text_log.add_message(f"{active.name} has been cured of poison!")
+                        elif "resurrect" in h_type or "resurrect" in name_l:
+                            active.character.status = Status.GOOD
+                            active.character.hp = active.character.max_hp
+                            self.text_log.add_message(f"{active.name} has been resurrected!")
+                        else:
+                            active.character.hp = active.character.max_hp
+                            self.text_log.add_message(f"{active.name} has been fully healed!")
+                else:
+                    self.text_log.add_message(f"Bought {item.name}!")
                 if self.audio is not None:
                     self.audio.play_sfx("trigger")
 
             self._play_town_music()
 
-        self.text_log.prompt("What wouldst thou buy? (Choice):", callback=_on_choice)
+        self.text_log.prompt("What wouldst thou buy? (Choice):", callback=_on_choice, single_char=True)
 
     def _prompt_door(self, open_door: bool) -> None:
         def _on_dir(d_str: str) -> None:
@@ -443,9 +487,9 @@ class TownScreen(BaseScreen):
                     else:
                         self.text_log.add_message(f"{m1.name} has no spare equipment for {m2.name}.")
 
-            self.text_log.prompt("To member #? (1-4): ", callback=_on_to)
+            self.text_log.prompt("To member #? (1-4): ", callback=_on_to, single_char=True)
 
-        self.text_log.prompt("Hand Equipment: From member #? (1-4): ", callback=_on_from)
+        self.text_log.prompt("Hand Equipment: From member #? (1-4): ", callback=_on_from, single_char=True)
 
     def _ignite_torch(self) -> None:
         """Light a torch."""
@@ -487,9 +531,9 @@ class TownScreen(BaseScreen):
                 self.party.swap_members(p1, p2)
                 self.text_log.add_message(f"Order modified: {m1.name} and {m2.name} swapped.")
 
-            self.text_log.prompt("With member #? (1-4): ", callback=_on_second)
+            self.text_log.prompt("With member #? (1-4): ", callback=_on_second, single_char=True)
 
-        self.text_log.prompt("Modify Order: Exchange member #? (1-4): ", callback=_on_first)
+        self.text_log.prompt("Modify Order: Exchange member #? (1-4): ", callback=_on_first, single_char=True)
 
     def _prompt_other(self) -> None:
         """Prompt for custom other command (PRAY, BRIBE, STEAL, DIG, etc.)."""

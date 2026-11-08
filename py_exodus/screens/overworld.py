@@ -427,9 +427,9 @@ class OverworldScreen(BaseScreen):
                     else:
                         self.text_log.add_message(f"{m1.name} has no spare equipment for {m2.name}.")
 
-            self.text_log.prompt("To member #? (1-4): ", callback=_on_to)
+            self.text_log.prompt("To member #? (1-4): ", callback=_on_to, single_char=True)
 
-        self.text_log.prompt("Hand Equipment: From member #? (1-4): ", callback=_on_from)
+        self.text_log.prompt("Hand Equipment: From member #? (1-4): ", callback=_on_from, single_char=True)
 
     def _prompt_modify_order(self) -> None:
         """Modify marching order of party."""
@@ -462,9 +462,9 @@ class OverworldScreen(BaseScreen):
                 self.party.swap_members(p1, p2)
                 self.text_log.add_message(f"Order modified: {m1.name} and {m2.name} swapped.")
 
-            self.text_log.prompt("With member #? (1-4): ", callback=_on_second)
+            self.text_log.prompt("With member #? (1-4): ", callback=_on_second, single_char=True)
 
-        self.text_log.prompt("Modify Order: Exchange member #? (1-4): ", callback=_on_first)
+        self.text_log.prompt("Modify Order: Exchange member #? (1-4): ", callback=_on_first, single_char=True)
 
     def _negate_time(self) -> None:
         """Freeze time using Silver Powder / Sands of Time."""
@@ -686,7 +686,7 @@ class OverworldScreen(BaseScreen):
             else:
                 self.text_log.add_message("You attack the empty air!")
 
-        self.text_log.prompt("Attack Direction? (N,S,E,W):", callback=_on_dir)
+        self.text_log.prompt("Attack Direction? (N,S,E,W):", callback=_on_dir, single_char=True)
 
     def _move_avatar(self, direction: Direction) -> None:
         if self.game_map is None:
@@ -737,7 +737,7 @@ class OverworldScreen(BaseScreen):
                 return
             self._fire_cannons(d)
 
-        self.text_log.prompt("Fire cannon direction? (N,S,E,W):", callback=_on_dir)
+        self.text_log.prompt("Fire cannon direction? (N,S,E,W):", callback=_on_dir, single_char=True)
 
     def _fire_cannons(self, direction: Direction) -> None:
         if self.audio is not None:

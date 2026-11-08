@@ -262,7 +262,7 @@ class TextLog:
                 return True
 
             # Direction prompt shortcut: arrow keys and keypad auto-commit direction
-            if "dir" in self.current_prompt.lower():
+            if any(k in self.current_prompt.lower() for k in ("dir", "n,s,e,w", "where")):
                 if event.key in (pygame.K_UP, pygame.K_KP8):
                     self.submit_input("NORTH")
                     return True

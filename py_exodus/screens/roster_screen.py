@@ -383,17 +383,17 @@ class RosterScreen(BaseScreen):
             }
             code = race_str.strip().upper()[:1]
             self._new_char_data["race"] = race_map.get(code, Race.HUMAN)
-            self.text_log.prompt("Class: [F]ight [C]leric [W]iz [T]hief [P]al [R]ang [B]arb:", _step_profession)
+            self.text_log.prompt("Class: [F]ight [C]leric [W]iz [T]hief [P]al [R]ang [B]arb:", _step_profession, single_char=True)
 
         def _step_sex(sex_str: str) -> None:
             sex = Sex.FEMALE if sex_str.strip().upper().startswith("F") else Sex.MALE
             self._new_char_data["sex"] = sex
-            self.text_log.prompt("Race: [H]uman [E]lf [D]warf [B]obit [F]uzzy:", _step_race)
+            self.text_log.prompt("Race: [H]uman [E]lf [D]warf [B]obit [F]uzzy:", _step_race, single_char=True)
 
         def _step_name(name_str: str) -> None:
             name = name_str.strip() or f"Hero{len(self.roster)+1}"
             self._new_char_data["name"] = name[:8]
-            self.text_log.prompt("Sex: [M]ale or [F]emale:", _step_sex)
+            self.text_log.prompt("Sex: [M]ale or [F]emale:", _step_sex, single_char=True)
 
         self.text_log.prompt("Character Name (up to 8 chars):", _step_name)
 
