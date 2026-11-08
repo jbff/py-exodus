@@ -250,44 +250,33 @@ class DungeonScreen(BaseScreen):
         self.text_log.prompt(prompt_msg, callback=_on_who, single_char=True)
 
     def _get_chest(self) -> None:
-        """Open a treasure chest by direction-targeting the adjacent tile."""
+        """Open a treasure chest on the party's own tile."""
         from py_exodus.world.map import DungeonTile
 
-        def _on_dir(dir_str: str) -> None:
-            direction = Direction.from_name_or_key(dir_str)
-            if direction is None:
-                self.text_log.add_message("Invalid direction!")
-                return
+        def _on_who(who_str: str) -> None:
+            self.state._tick_turn()  # Java routes G through finishTurn
 
-            tx = self.state.x + direction.dx
-            ty = self.state.y + direction.dy
+            try:
+                idx = int(who_str.strip()) - 1
+            except ValueError:
+                idx = -1
+            member = self.party.get_member(idx)
+            if member is None:
+                self.text_log.add_message("Invalid member #!")
+                return
 
             from py_exodus.world.chests import open_chest
 
-            if self.dungeon_map.get_tile(tx, ty, self.state.z) != DungeonTile.CHEST:
-                self.state._tick_turn()  # Java routes G through finishTurn
+            x, y, z = self.state.x, self.state.y, self.state.z
+            if self.dungeon_map.get_tile(x, y, z) != DungeonTile.CHEST:
                 self.text_log.add_message("Not Here!")
                 return
 
-            self.state._tick_turn()  # Java routes G through finishTurn
+            self.dungeon_map.set_tile(x, y, z, DungeonTile.NOTHING)
+            for line in open_chest(self.party, member, dungeon=True):
+                self.text_log.add_message(line)
 
-            def _on_who(who_str: str) -> None:
-                try:
-                    idx = int(who_str.strip()) - 1
-                except ValueError:
-                    idx = -1
-                member = self.party.get_member(idx)
-                if member is None:
-                    self.text_log.add_message("Invalid member #!")
-                    return
-
-                self.dungeon_map.set_tile(tx, ty, self.state.z, DungeonTile.NOTHING)
-                for line in open_chest(self.party, member, dungeon=True):
-                    self.text_log.add_message(line)
-
-            self.text_log.prompt("Who gets the chest? (1-4): ", callback=_on_who, single_char=True)
-
-        self.text_log.prompt("Get: Direction? (N,S,E,W):", callback=_on_dir, single_char=True)
+        self.text_log.prompt("Who gets the chest? (1-4): ", callback=_on_who, single_char=True)
 
     def _trigger_combat(self, creature_name: str) -> None:
         """Launch combat screen from dungeon encounter."""

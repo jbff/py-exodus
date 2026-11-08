@@ -5,7 +5,7 @@ import re
 import pygame
 import pytest
 
-from py_exodus.constants import Direction, Profession, Race, Status, Transport
+from py_exodus.constants import Profession, Race, Status, Transport
 from py_exodus.entities.character import Character
 from py_exodus.entities.party import Party, PartyMember
 from py_exodus.screens.dungeon_screen import DungeonScreen
@@ -202,7 +202,7 @@ def test_take_chest_object_raises_when_no_chest():
     assert party.dynamic_objects == [{"tile": "horse", "x": 10, "y": 10}]
 
 
-# --- Step 1: dungeon Get (G) direction targeting + crash fix ---
+# --- Step 1: dungeon Get (G) checks the party's own tile + crash fix ---
 
 def make_dungeon_screen(party: Party) -> DungeonScreen:
     """An 8x8 interior dungeon with wall borders, party standing at (2,2)."""
@@ -224,29 +224,29 @@ def make_dungeon_screen(party: Party) -> DungeonScreen:
     )
 
 
-def press_and_answer(screen: DungeonScreen, directions: list[str]) -> None:
+def press_and_answer(screen: DungeonScreen, answers: list[str]) -> None:
     """Press G, answer each successive prompt with the given single characters."""
     screen.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_g))
-    for answer in directions:
+    for answer in answers:
         assert screen.text_log.is_waiting_for_input
         screen.text_log.handle_char(answer)
 
 
-def test_dungeon_get_opens_chest_on_direction_tile(monkeypatch):
-    """Dungeon G takes a direction and opens only the chest on the target tile."""
+def test_dungeon_get_opens_chest_on_party_tile(monkeypatch):
+    """Dungeon G prompts for the member and opens the chest on the party's own tile."""
     member = make_member("Fighter", dexterity=200)
     party = make_party([member, make_member("Cleric")])
     screen = make_dungeon_screen(party)
-    # Chest one tile north of the party
-    screen.dungeon_map.set_tile(2, 1, 0, DungeonTile.CHEST)
+    # Chest under the party's feet
+    screen.dungeon_map.set_tile(2, 2, 0, DungeonTile.CHEST)
     moves_before = party.moves
 
     monkeypatch.setattr(chests, "random", ScriptedRNG([1, 25, 6]))
 
-    press_and_answer(screen, ["N", "1"])
+    press_and_answer(screen, ["1"])
 
     assert not screen.text_log.is_waiting_for_input
-    assert screen.dungeon_map.get_tile(2, 1, 0) == DungeonTile.NOTHING
+    assert screen.dungeon_map.get_tile(2, 2, 0) == DungeonTile.NOTHING
     assert member.gold == 150 + 41
     assert party.gold == 500
     assert any("The Chest Holds: 41 Gold" in msg for msg in screen.text_log.history)
@@ -254,28 +254,27 @@ def test_dungeon_get_opens_chest_on_direction_tile(monkeypatch):
 
 
 def test_dungeon_get_chest_not_here_consumes_turn(monkeypatch):
-    """G at a chestless tile completes the prompt, logs 'Not Here!', consumes a turn."""
+    """G on a chestless tile completes the prompt, logs 'Not Here!', consumes a turn."""
     member = make_member("Fighter", dexterity=200)
     party = make_party([member])
     screen = make_dungeon_screen(party)
     moves_before = party.moves
 
-    press_and_answer(screen, ["E"])
+    press_and_answer(screen, ["1"])
 
     assert not screen.text_log.is_waiting_for_input
     assert any("Not Here!" in msg for msg in screen.text_log.history)
     assert party.moves == moves_before + 1
 
 
-def test_dungeon_get_direction_only_targets_that_tile(monkeypatch):
-    """Only the direction-targeted tile is checked: a chest on another tile is 'Not Here!'."""
+def test_dungeon_get_checks_only_party_tile(monkeypatch):
+    """Only the party's own tile is checked: an adjacent chest is 'Not Here!'."""
     member = make_member("Fighter", dexterity=200)
     party = make_party([member])
     screen = make_dungeon_screen(party)
-    # Chest north of the party, but the player answers WEST
-    screen.dungeon_map.set_tile(2, 1, 0, DungeonTile.CHEST)
+    screen.dungeon_map.set_tile(2, 1, 0, DungeonTile.CHEST)  # north of the party
 
-    press_and_answer(screen, ["W"])
+    press_and_answer(screen, ["1"])
 
     assert any("Not Here!" in msg for msg in screen.text_log.history)
     assert screen.dungeon_map.get_tile(2, 1, 0) == DungeonTile.CHEST
