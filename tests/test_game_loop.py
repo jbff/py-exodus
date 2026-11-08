@@ -998,13 +998,13 @@ def test_overworld_commands_cast_ztats_get_chest_pass(pygame_setup, asset_mgr, s
     assert any("Torch ignited!" in msg for msg in overworld.text_log.history)
 
     # 5. Join gold (J) — Task 9 parity: member prompt + pool_gold(index)
-    sample_party.gold = 50
+    total_before_join = sample_party.gold  # derived: the members' purses sum
     evt_j = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_j, unicode="j")
     overworld.handle_event(evt_j)
     assert overworld.text_log.is_waiting_for_input
     overworld.text_log.submit_input("1")
-    assert opening_member.gold >= opening_gold_delta
-    assert all(g == 0 for g in [m.gold for m in sample_party.members[1:]])
+    assert opening_member.gold == total_before_join
+    assert all(m.gold == 0 for m in sample_party.members[1:])
 
 
 def test_overworld_wandering_creatures(pygame_setup, asset_mgr, sample_party):
