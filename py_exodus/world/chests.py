@@ -26,6 +26,17 @@ class ChestNotFound(Exception):
     """Raised when a Get (G) finds no chest where it looked; callers log "Not Here!"."""
 
 
+class ChestOpenResult(list):
+    """The chest's log lines, carrying the credited gold total (``result.gold``).
+
+    A ``list`` subclass so existing callers that iterate or compare the lines
+    keep working unchanged while the dungeon state reads the gold figure for
+    its event payload.
+    """
+
+    gold: int = 0
+
+
 def take_chest_object(party: Party, x: int, y: int) -> dict:
     """Pop the chest dynamic object exactly at (x, y) and return it.
 
@@ -45,7 +56,7 @@ def open_chest(
     member: PartyMember,
     dungeon: bool = False,
     disarmed: bool = False,
-) -> list[str]:
+) -> ChestOpenResult:
     """Open the chest the caller located: roll traps unless disarmed, credit gold.
 
     Mutates ``member.gold`` / ``member.hp`` / ``member.status`` (and, for a Gas
@@ -55,13 +66,14 @@ def open_chest(
     routes (DungeonScreen.java:1224-1252, GameScreen.java:1036-1074) share the
     same trap and gold rules.
     """
-    lines: list[str] = []
+    lines = ChestOpenResult()
     if not disarmed:
         lines.extend(_chest_trap(party, member))
 
     gold = random.randrange(50) + random.randrange(8) + 10
     member.gold = max(0, min(9999, member.gold + gold))
     lines.append(f"The Chest Holds: {gold} Gold")
+    lines.gold = gold
     return lines
 
 

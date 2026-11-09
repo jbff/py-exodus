@@ -314,9 +314,11 @@ def test_combat_resolver_calculations(asset_mgr):
     dmg = calculate_player_damage(char, sword_def)
     assert sword_def.dmin <= dmg <= 255
 
-    # Monster damage formula
+    # Monster damage formula — Java Creature.getDamage has no floor
+    # (resolver.calculate_monster_damage docstring): small monsters can
+    # deal 0, so the assertion is only that the result is non-negative.
     m_dmg = calculate_monster_damage(basehp=48)
-    assert m_dmg >= 1
+    assert 0 <= m_dmg <= 255
 
 
 def test_poisonous_monster_fatal_blow_preserves_dead_status(asset_mgr, monkeypatch):

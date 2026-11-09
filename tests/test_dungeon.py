@@ -303,8 +303,10 @@ def test_gremlins_trap(empty_dmap, test_party):
     test_party.food = 200
 
     ev = state.move_forward()
+    # Java Party.applyEffect fan-out: food -2 per non-DEAD member, "Gremlins!".
     assert ev.type == DungeonEventType.GREMLINS
-    assert test_party.food < 200
+    assert ev.message == "Gremlins!"
+    assert test_party.food == 200 - 2 * len(test_party.members)
     assert empty_dmap.get_tile(5, 4, 0) == DungeonTile.NOTHING
 
 
@@ -377,16 +379,12 @@ def test_marks_interaction(empty_dmap, test_party):
     assert m.marks[3] == 1
 
 
-def test_orb_interaction(empty_dmap, test_party):
-    m = test_party.members[0]
-    str_before = m.strength
-    empty_dmap.set_tile(5, 5, 0, DungeonTile.ORB)
+def test_orb_removed(empty_dmap, test_party):
+    """Kept-Divergence #2: orbs are gone entirely — no touch handler, no event
+    type, and the ORB tile is plain scenery. See tests/test_dungeon_specials.py."""
     state = DungeonState(empty_dmap, start_x=5, start_y=5, start_z=0, party=test_party)
-
-    ev_orb = state.touch_orb(member_index=0)
-    assert ev_orb.type == DungeonEventType.ORB
-    assert m.strength == str_before + 5
-    assert ev_orb.damage == 50
+    assert not hasattr(state, "touch_orb")
+    assert not hasattr(DungeonEventType, "ORB")
 
 
 # --- Chests Tests ---
@@ -395,10 +393,12 @@ def test_open_chest(empty_dmap, test_party):
     empty_dmap.set_tile(5, 5, 0, DungeonTile.CHEST)
     state = DungeonState(empty_dmap, start_x=5, start_y=5, start_z=0, party=test_party)
 
-    gold_before = test_party.gold
+    gold_before = test_party.members[0].gold
     ev = state.open_chest(member_index=0, disarm=True)
     assert ev.type == DungeonEventType.CHEST
-    assert test_party.gold > gold_before
+    # Java Party.getChestGold: rand(50) + rand(8) + 10 credited to the opener.
+    assert ev.gold == test_party.members[0].gold - gold_before
+    assert 10 <= ev.gold <= 66
     # Chest replaced with NOTHING
     assert empty_dmap.get_tile(5, 5, 0) == DungeonTile.NOTHING
 
@@ -406,6 +406,9 @@ def test_open_chest(empty_dmap, test_party):
 # --- Combat Encounter & Torch Mechanics ---
 
 def test_random_combat_encounter(empty_dmap, asset_mgr, test_party):
+    """Task 13: the invented direct-ambush roll is replaced by persistent
+    wandering creatures (see tests/test_dungeon_specials.py); the creature
+    pool still honours the level/deepness rules."""
     import random
     rng = random.Random(42)
     state = DungeonState(
@@ -418,15 +421,12 @@ def test_random_combat_encounter(empty_dmap, asset_mgr, test_party):
         asset_manager=asset_mgr,
         rng=rng,
     )
-    # Force combat check
-    encounter = state._check_random_encounter()
-    assert encounter is None or hasattr(encounter, "name")
-
-    # Force creature pick
-    cr = state._pick_dungeon_creature()
-    assert cr is not None
-    assert cr.level <= state.z + 1
-    assert cr.name != ""
+    for _ in range(30):
+        cr = state._pick_dungeon_creature()
+        assert cr is not None
+        assert cr.level > 0
+        assert cr.level <= state.z + 1
+        assert cr.name != ""
 
 
 def test_torch_boolean_toggle_model(empty_dmap, test_party):
@@ -511,10 +511,10 @@ def test_camera_validation_and_dng_alias(empty_dmap):
 
 
 def test_fallback_monsters_no_assets(empty_dmap):
+    """Java getRandomDungeonInstance (CreatureSet.java:42-56) invents no
+    fallback table: nothing eligible means no spawn (None)."""
     state = DungeonState(empty_dmap, start_x=5, start_y=5, start_z=0, asset_manager=None)
-    cr = state._pick_dungeon_creature()
-    assert cr is not None
-    assert cr.level <= 1
+    assert state._pick_dungeon_creature() is None
 
 
 def test_deepest_level_klimb_down_clamps(empty_dmap):

@@ -96,7 +96,7 @@ class CreatureDef:
     hp: int = 0
     exp: int = 0
     encounter_size: int = 1
-    level: int = 1
+    level: int = 0
     nes_exp: int = 0
     good: bool = False
     wont_attack: bool = False

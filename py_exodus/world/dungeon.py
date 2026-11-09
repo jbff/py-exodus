@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, ClassVar
 
 import pygame
 
+from py_exodus.aura import AuraType
 from py_exodus.constants import Direction, Status, TileEffect
 from py_exodus.entities.defs import CreatureDef
 from py_exodus.entities.party import PartyDeathException
@@ -49,7 +50,6 @@ class DungeonEventType(str, Enum):
     GREMLINS = "gremlins"
     FOUNTAIN = "fountain"
     MARK = "mark"
-    ORB = "orb"
     CHEST = "chest"
     COMBAT = "combat"
     MESSAGE = "message"
@@ -70,6 +70,23 @@ class DungeonEvent:
     tile: DungeonTile | None = None
     success: bool = True
     moved: bool = False
+
+
+#: Java ``Constants.MAX_WANDERING_CREATURES_IN_DUNGEON`` (Constants.java:43).
+MAX_WANDERING_CREATURES = 2
+
+#: Java ``DungeonScreen.spawnDungeonCreature`` tries (DungeonScreen.java:1281).
+WANDERING_SPAWN_TRIES = 10
+
+
+@dataclass
+class WanderingCreature:
+    """A wandering monster loose on one dungeon level (DungeonScreen.java:1255+)."""
+
+    creature: CreatureDef
+    x: int
+    y: int
+    level: int
 
 
 def turn_left_dir(d: Direction) -> Direction:
@@ -356,7 +373,7 @@ class DungeonCamera:
         pygame.draw.lines(surface, self.door_color, True, door_pts, 1)
 
     def _render_fixture(self, surface: pygame.Surface, tile: DungeonTile, step: int) -> None:
-        """Render wireframe 3D fixtures (ladders, chests, fountains, pit traps, orbs)."""
+        """Render wireframe 3D fixtures (ladders, chests, fountains, pit traps, marks)."""
         if tile in (DungeonTile.WALL, DungeonTile.NOTHING, DungeonTile.FLOOR, DungeonTile.DOOR):
             return
 
@@ -385,14 +402,13 @@ class DungeonCamera:
         elif tile == DungeonTile.PIT_TRAP:
             self._draw_pit_trap(surface, cx, bottom, w, h)
         elif tile in (
-            DungeonTile.ORB,
             DungeonTile.MARK,
             DungeonTile.MARK_KINGS,
             DungeonTile.MARK_FIRE,
             DungeonTile.MARK_FORCE,
             DungeonTile.MARK_SNAKE,
         ):
-            self._draw_orb_or_mark(surface, cx, bottom, w, h, tile)
+            self._draw_mark(surface, cx, bottom, w, h)
         elif tile == DungeonTile.TIME_LORD:
             self._draw_time_lord(surface, cx, bottom, w, h)
 
@@ -547,19 +563,15 @@ class DungeonCamera:
         pygame.draw.line(surface, COLOR_DARK_GRAY, pts[0], (cx, bottom + ph // 2), 1)
         pygame.draw.line(surface, COLOR_DARK_GRAY, pts[1], (cx, bottom + ph // 2), 1)
 
-    def _draw_orb_or_mark(
+    def _draw_mark(
         self,
         surface: pygame.Surface,
         cx: int,
         bottom: int,
         w: int,
         h: int,
-        tile: DungeonTile,
     ) -> None:
-        """Render 3D wireframe altar/pedestal with glowing floating magical orb or mark."""
-        is_orb = tile == DungeonTile.ORB
-        glow_color = COLOR_MAGENTA if is_orb else COLOR_YELLOW
-
+        """Render the 3D wireframe pedestal of a mystical Mark shrine."""
         ow = max(6, int(w * 0.28))
         oh = max(4, int(h * 0.22))
         pedestal_top = bottom - oh
@@ -573,14 +585,11 @@ class DungeonCamera:
         ]
         pygame.draw.lines(surface, self.default_color, True, pedestal_pts, 1)
 
-        # Floating orb
+        # Sparkle above the pedestal
         radius = max(3, w // 10)
-        orb_cy = pedestal_top - radius - 3
-        pygame.draw.circle(surface, glow_color, (cx, orb_cy), radius, 1)
-
-        # Internal diamond or cross sparkle
-        pygame.draw.line(surface, COLOR_WHITE, (cx - radius, orb_cy), (cx + radius, orb_cy), 1)
-        pygame.draw.line(surface, COLOR_WHITE, (cx, orb_cy - radius), (cx, orb_cy + radius), 1)
+        cy = pedestal_top - radius - 3
+        pygame.draw.line(surface, COLOR_WHITE, (cx - radius, cy), (cx + radius, cy), 1)
+        pygame.draw.line(surface, COLOR_WHITE, (cx, cy - radius), (cx, cy + radius), 1)
 
     def _draw_time_lord(
         self,
@@ -634,6 +643,11 @@ class DungeonState:
         self.asset_manager = asset_manager
         self.rng = rng or random.Random()
         self.random_encounters_enabled = random_encounters
+
+        # Wandering monsters loose on the current level
+        # (DungeonScreen.java:1255-1330): spawned by the finishTurn roll,
+        # moved toward the avatar, cleaned up on level change.
+        self.wandering_creatures: list[WanderingCreature] = []
 
         # Torch: Java DungeonScreen.java:81 `boolean isTorchOn` — a plain
         # toggle, default off when entering. There is no rounds counter and
@@ -852,16 +866,19 @@ class DungeonState:
                 # Java catches PartyDeathException around the move; the
                 # owning DungeonScreen's post-check routes the wipe.
                 pass
-            self._tick_turn()
+            combat_evt = self._tick_turn()
 
-            return DungeonEvent(
-                type=DungeonEventType.PIT_TRAP,
-                message="Pit!",
-                x=self.x,
-                y=self.y,
-                z=self.z,
-                tile=target_tile,
-                moved=True,
+            return self._with_combat(
+                DungeonEvent(
+                    type=DungeonEventType.PIT_TRAP,
+                    message="Pit!",
+                    x=self.x,
+                    y=self.y,
+                    z=self.z,
+                    tile=target_tile,
+                    moved=True,
+                ),
+                combat_evt,
             )
 
         # Wind trap: extinguishes the torch (Java DungeonScreen.java:1080-1085
@@ -869,33 +886,42 @@ class DungeonState:
         # false; no torchduration change — that field is dead in Java).
         if target_tile == DungeonTile.WIND_TRAP:
             self.is_torch_on = False
-            self._tick_turn()
-            return DungeonEvent(
-                type=DungeonEventType.WIND_TRAP,
-                message="Wind extinguished your torch!",
-                x=self.x,
-                y=self.y,
-                z=self.z,
-                tile=target_tile,
-                moved=True,
+            combat_evt = self._tick_turn()
+            return self._with_combat(
+                DungeonEvent(
+                    type=DungeonEventType.WIND_TRAP,
+                    message="Wind extinguished your torch!",
+                    x=self.x,
+                    y=self.y,
+                    z=self.z,
+                    tile=target_tile,
+                    moved=True,
+                ),
+                combat_evt,
             )
 
-        # Gremlins: steal food
+        # Gremlins: Java checkTileAffects (DungeonScreen.java:1092-1097) logs
+        # "Gremlins!" and applies the unconditional Party.applyEffect
+        # (Party.java:279-283, 347-352) fan-out — food -2 per non-DEAD
+        # member, tile cleared to NOTHING.
         if target_tile == DungeonTile.GREMLINS:
-            stolen = 0
-            if self.party:
-                stolen = self.party.food // 2
-                self.party.food -= stolen
             self.dmap.set_tile(self.x, self.y, self.z, DungeonTile.NOTHING)
-            self._tick_turn()
-            return DungeonEvent(
-                type=DungeonEventType.GREMLINS,
-                message=f"Gremlins! They stole {stolen} food!",
-                x=self.x,
-                y=self.y,
-                z=self.z,
-                tile=target_tile,
-                moved=True,
+            try:
+                tile_effects.apply_effect(self.party, TileEffect.GREMLINS, rng=self.rng)
+            except PartyDeathException:
+                pass
+            combat_evt = self._tick_turn()
+            return self._with_combat(
+                DungeonEvent(
+                    type=DungeonEventType.GREMLINS,
+                    message="Gremlins!",
+                    x=self.x,
+                    y=self.y,
+                    z=self.z,
+                    tile=target_tile,
+                    moved=True,
+                ),
+                combat_evt,
             )
 
         # Poison and fire fields: Java checkTileAffects (DungeonScreen.java
@@ -923,50 +949,44 @@ class DungeonState:
                 if self.z < len(self.dmap.level_texts)
                 else ""
             )
-            self._tick_turn()
-            return DungeonEvent(
-                type=DungeonEventType.MESSAGE,
-                message=f"Misty Writings: {inscription}",
-                x=self.x,
-                y=self.y,
-                z=self.z,
-                tile=target_tile,
-                moved=True,
+            combat_evt = self._tick_turn()
+            return self._with_combat(
+                DungeonEvent(
+                    type=DungeonEventType.MESSAGE,
+                    message=f"Misty Writings: {inscription}",
+                    x=self.x,
+                    y=self.y,
+                    z=self.z,
+                    tile=target_tile,
+                    moved=True,
+                ),
+                combat_evt,
             )
 
         # Time Lord vision
         if target_tile == DungeonTile.TIME_LORD:
-            self._tick_turn()
+            combat_evt = self._tick_turn()
             msg = (
                 "You see a vision of the Time Lord. He says... "
                 "There is only one way. Love, Sol, Moons and Death. All else fails."
             )
-            return DungeonEvent(
-                type=DungeonEventType.MESSAGE,
-                message=msg,
-                x=self.x,
-                y=self.y,
-                z=self.z,
-                tile=target_tile,
-                moved=True,
+            return self._with_combat(
+                DungeonEvent(
+                    type=DungeonEventType.MESSAGE,
+                    message=msg,
+                    x=self.x,
+                    y=self.y,
+                    z=self.z,
+                    tile=target_tile,
+                    moved=True,
+                ),
+                combat_evt,
             )
 
         # Normal successful step
-        self._tick_turn()
-
-        # Check random monster combat encounter
-        encounter = self._check_random_encounter()
-        if encounter is not None:
-            return DungeonEvent(
-                type=DungeonEventType.COMBAT,
-                message=f"Ambushed by {encounter.name}!",
-                x=self.x,
-                y=self.y,
-                z=self.z,
-                creature=encounter,
-                tile=target_tile,
-                moved=True,
-            )
+        combat_evt = self._tick_turn()
+        if combat_evt is not None:
+            return combat_evt
 
         return DungeonEvent(
             type=DungeonEventType.MOVED,
@@ -978,14 +998,34 @@ class DungeonState:
             moved=True,
         )
 
+    @staticmethod
+    def _with_combat(
+        evt: DungeonEvent, combat_evt: DungeonEvent | None
+    ) -> DungeonEvent:
+        """Merge a wandering-creature battle into the move's tile event.
+
+        Java runs checkTileAffects and then finishTurn inside one move, so a
+        creature reaching the avatar raises the battle in the same turn as
+        the tile effect. The tile message is kept and the event becomes the
+        combat trigger.
+        """
+        if combat_evt is None:
+            return evt
+        evt.type = combat_evt.type
+        evt.creature = combat_evt.creature
+        return evt
+
     # --- Turn & Resource Management ---
 
-    def _tick_turn(self) -> None:
-        """Run the per-move endTurn tick.
+    def _tick_turn(self) -> DungeonEvent | None:
+        """Run the per-move finishTurn tick (DungeonScreen.java:1124-1142).
 
-        Java truth: DungeonScreen.finishTurn (DungeonScreen.java:1124-1142)
-        passes the turn with the aura and creature updates only — the torch
-        boolean needs no upkeep (no rounds to decrement, no expiry ever).
+        Java truth: DungeonScreen.finishTurn passes the turn with the aura
+        and creature updates only — the torch boolean needs no upkeep (no
+        rounds to decrement, no expiry ever). After the endTurn tick this
+        runs the wandering-creature upkeep — creatureCleanup, the spawn
+        roll, then moveDungeonCreatures — and returns a COMBAT event when a
+        creature reaches the avatar (battleWandering), else None.
         """
         if self.party:
             # Java endTurn (Party.java:592-639): dungeons are non-surface
@@ -997,6 +1037,160 @@ class DungeonState:
                 self.party.end_turn(surface=False)
             except PartyDeathException:
                 pass
+        return self._update_wandering_creatures()
+
+    # --- Wandering monsters (DungeonScreen.java:1255-1330) ---
+
+    def _update_wandering_creatures(self) -> DungeonEvent | None:
+        """Java creatureCleanup + spawn roll + moveDungeonCreatures.
+
+        Returns a COMBAT event when any creature lands on the avatar's tile
+        (DungeonScreen.java:1338-1340 battleWandering), else None.
+        """
+        # creatureCleanup (DungeonScreen.java:1221-1228): only creatures on
+        # the current level survive a level change.
+        self.wandering_creatures = [
+            wc for wc in self.wandering_creatures if wc.level == self.z
+        ]
+
+        if self.random_encounters_enabled:
+            self._spawn_wandering_creature()
+
+        # Java finishTurn (DungeonScreen.java:1135-1141): the QUICKNESS aura
+        # skips moveDungeonCreatures for the turn (spawn still applies).
+        if self.party is not None and self.party.aura.get_type() == AuraType.QUICKNESS:
+            return None
+
+        combat_evt: DungeonEvent | None = None
+        for wc in list(self.wandering_creatures):
+            mask = self._wandering_moves_mask(wc)
+            dirs = mask & self._directions_toward(wc.x, wc.y)
+            if dirs:
+                d = self._random_direction(dirs)
+                wc.x = (wc.x + d.dx) % self.dmap.width
+                wc.y = (wc.y + d.dy) % self.dmap.height
+
+            if wc.x == self.x and wc.y == self.y and combat_evt is None:
+                combat_evt = DungeonEvent(
+                    type=DungeonEventType.COMBAT,
+                    x=self.x,
+                    y=self.y,
+                    z=self.z,
+                    creature=wc.creature,
+                    tile=self.current_tile,
+                )
+        return combat_evt
+
+    def _wandering_moves_mask(self, wc: WanderingCreature) -> int:
+        """Java DungeonScreen.getValidMovesMask/addToMask (1355-1392): the
+        creature may step onto a creature-walkable tile that no other
+        wandering creature occupies."""
+        mask = 0
+        for d in (Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST):
+            nx = (wc.x + d.dx) % self.dmap.width
+            ny = (wc.y + d.dy) % self.dmap.height
+            tile = self.dmap.get_tile(nx, ny, wc.level)
+            can_move = tile.creature_walkable
+            if can_move:
+                for other in self.wandering_creatures:
+                    if (
+                        other is not wc
+                        and other.x == nx
+                        and other.y == ny
+                        and other.level == wc.level
+                    ):
+                        can_move = False
+                        break
+            if can_move:
+                mask |= d.mask
+        return mask
+
+    def _directions_toward(self, from_x: int, from_y: int) -> int:
+        """Java Utils.getRelativeDirection with wrap (Utils.java:354-394): the
+        cardinal directions leading toward the avatar."""
+        width, height = self.dmap.width, self.dmap.height
+        fx, fy = from_x, from_y
+        if abs(fx - self.x) > abs(fx + width - self.x):
+            fx += width
+        elif abs(fx - self.x) > abs(fx - width - self.x):
+            fx -= width
+        if abs(fy - self.y) > abs(fy + height - self.y):
+            fy += height
+        elif abs(fy - self.y) > abs(fy - height - self.y):
+            fy -= height
+
+        mask = 0
+        if fy - self.y < 0:
+            mask |= Direction.SOUTH.mask
+        elif fy - self.y > 0:
+            mask |= Direction.NORTH.mask
+        if fx - self.x < 0:
+            mask |= Direction.EAST.mask
+        elif fx - self.x > 0:
+            mask |= Direction.WEST.mask
+        return mask
+
+    def _random_direction(self, mask: int) -> Direction:
+        """Java Direction.getRandomValidDirection: one of the masked dirs."""
+        valid = [
+            d
+            for d in (Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST)
+            if d.mask & mask
+        ]
+        return valid[self.rng.randrange(len(valid))]
+
+    def _spawn_wandering_creature(self) -> bool:
+        """Java DungeonScreen.spawnDungeonCreature (DungeonScreen.java:1272-1309)."""
+        if len(self.wandering_creatures) >= MAX_WANDERING_CREATURES:
+            return False
+
+        # checkRandomDungeonCreatures (DungeonScreen.java:1262-1266): spawn
+        # one time in 32 - currentLevel*2 while under the per-level cap.
+        spawn_value = max(1, 32 - self.z * 2)
+        if self.rng.randrange(spawn_value) != 0:
+            return False
+
+        creature = self._pick_dungeon_creature()
+        if creature is None:
+            return False
+
+        for _ in range(WANDERING_SPAWN_TRIES):
+            dx = self.rng.randrange(self.dmap.width)
+            dy = self.rng.randrange(self.dmap.height)
+            if self.dmap.get_tile(dx, dy, self.z).creature_walkable:
+                self.wandering_creatures.append(
+                    WanderingCreature(creature, dx, dy, self.z)
+                )
+                return True
+        return False
+
+    def _pick_dungeon_creature(self) -> CreatureDef | None:
+        """Java CreatureSet.getRandomDungeonInstance (CreatureSet.java:42-56).
+
+        Creatures without a ``level`` attribute default to 0 and are
+        excluded (Java ``Creature.level`` field default); so are sails/swims/
+        good/wont_attack creatures. Returns None — no spawn — when nothing is
+        eligible: Java invents no fallback monster table.
+        """
+        dungeon_level = self.z + 1
+
+        if self.asset_manager and self.asset_manager.creatures:
+            eligible: dict[int, CreatureDef] = {}
+            for cr in self.asset_manager.creatures.values():
+                if (
+                    cr.level > 0
+                    and cr.level <= dungeon_level
+                    and not cr.sails
+                    and not cr.swims
+                    and not cr.good
+                    and not cr.wont_attack
+                ):
+                    eligible[cr.id] = cr
+            eligible_list = list(eligible.values())
+            if eligible_list:
+                # Java: eligible.get(rand.nextInt(eligible.size()))
+                return eligible_list[self.rng.randrange(len(eligible_list))]
+        return None
 
     # --- Fixture Interactions ---
 
@@ -1239,44 +1433,17 @@ class DungeonState:
             tile=tile,
         )
 
-    def touch_orb(self, member_index: int = 0) -> DungeonEvent:
-        """Touch the Magical Orb, boosting stats at the cost of damage."""
-        tile = self.current_tile
-        if tile != DungeonTile.ORB:
-            return DungeonEvent(
-                type=DungeonEventType.BLOCKED,
-                message="No Magical Orb here!",
-                x=self.x,
-                y=self.y,
-                z=self.z,
-                tile=tile,
-                success=False,
-            )
-
-        damage = 50
-        member = self.party.get_member(member_index) if self.party else None
-        if member:
-            race = member.character.race
-            member.strength = min(race.max_str, member.strength + 5)
-            member.dexterity = min(race.max_dex, member.dexterity + 5)
-            member.intelligence = min(race.max_int, member.intelligence + 5)
-            member.wisdom = min(race.max_wis, member.wisdom + 5)
-            member.hp = max(0, member.hp - damage)
-            if member.hp == 0:
-                member.status = Status.DEAD
-
-        return DungeonEvent(
-            type=DungeonEventType.ORB,
-            message="You touch the Magical Orb! A surge of power flows through you!",
-            x=self.x,
-            y=self.y,
-            z=self.z,
-            damage=damage,
-            tile=tile,
-        )
-
     def open_chest(self, member_index: int = 0, disarm: bool = False) -> DungeonEvent:
-        """Open a treasure chest found on the dungeon floor."""
+        """Open a treasure chest found on the dungeon floor.
+
+        Java truth: DungeonScreen.getChest (DungeonScreen.java:1224-1252)
+        delegates the trap roll to Context.getChestTrapHandler unless the
+        chest was disarmed (APPAR_UNEM) and the gold to Party.getChestGold —
+        both shared with the overworld via world/chests.py, so this routes
+        through the same pipeline.
+        """
+        from py_exodus.world.chests import open_chest
+
         tile = self.current_tile
         if tile != DungeonTile.CHEST:
             return DungeonEvent(
@@ -1289,88 +1456,29 @@ class DungeonState:
                 success=False,
             )
 
-        gold_amount = self.rng.randint(50, 150)
-        damage = 0
-        if not disarm and self.rng.random() < 0.35:
-            # Trap triggers if not disarmed
-            damage = 15
-            member = self.party.get_member(member_index) if self.party else None
-            if member:
-                member.hp = max(0, member.hp - damage)
-                if member.hp == 0:
-                    member.status = Status.DEAD
+        member = self.party.get_member(member_index) if self.party else None
+        if member is None:
+            self.dmap.set_tile(self.x, self.y, self.z, DungeonTile.NOTHING)
+            return DungeonEvent(
+                type=DungeonEventType.CHEST,
+                message="The Chest Holds: 0 Gold",
+                x=self.x,
+                y=self.y,
+                z=self.z,
+                gold=0,
+                tile=tile,
+            )
 
-        if self.party:
-            # Java truth: chest gold credits the opening member's purse via
-            # CharacterRecord.adjustGold (Party.getChestGold → adjustGold),
-            # capped at 9999 — not a party-level pool.
-            member = self.party.get_member(member_index)
-            if member is not None:
-                member.adjust_gold(gold_amount)
-            else:
-                self.party.gold += gold_amount
-
+        result = open_chest(self.party, member, dungeon=True, disarmed=disarm)
         self.dmap.set_tile(self.x, self.y, self.z, DungeonTile.NOTHING)
-
-        msg = f"The Chest Holds: {gold_amount} Gold!"
-        if damage > 0:
-            msg += f" A trap sprang for {damage} damage!"
 
         return DungeonEvent(
             type=DungeonEventType.CHEST,
-            message=msg,
+            message="\n".join(result),
             x=self.x,
             y=self.y,
             z=self.z,
-            gold=gold_amount,
-            damage=damage,
+            gold=result.gold,
             tile=tile,
         )
 
-    # --- Helper methods ---
-
-    def _check_random_encounter(self) -> CreatureDef | None:
-        """Check for random monster ambush based on dungeon level."""
-        if not self.random_encounters_enabled:
-            return None
-
-        # Chance scales with depth: 32 - z * 2
-        spawn_val = max(6, 32 - self.z * 2)
-        if self.rng.randint(0, spawn_val - 1) != 0:
-            return None
-
-        return self._pick_dungeon_creature()
-
-    def _pick_dungeon_creature(self) -> CreatureDef:
-        """Select an eligible creature definition for current dungeon depth."""
-        dungeon_level = self.z + 1
-
-        if self.asset_manager and self.asset_manager.creatures:
-            eligible: list[CreatureDef] = []
-            for cr in self.asset_manager.creatures.values():
-                if (
-                    cr.level > 0
-                    and cr.level <= dungeon_level
-                    and not cr.sails
-                    and not cr.swims
-                    and not cr.good
-                    and not cr.wont_attack
-                ):
-                    eligible.append(cr)
-            if eligible:
-                return self.rng.choice(eligible)
-
-        # Fallback default creatures scaled by dungeon depth
-        fallback_monsters = [
-            CreatureDef(id=10, name="Orc", tile="orc", basehp=30, level=1, exp=3),
-            CreatureDef(id=11, name="Skeleton", tile="skeleton", basehp=50, level=1, exp=4, undead=True),
-            CreatureDef(id=12, name="Thief", tile="thief", basehp=80, level=2, exp=5),
-            CreatureDef(id=13, name="Giant", tile="giant", basehp=80, level=3, exp=6),
-            CreatureDef(id=15, name="Fighter", tile="fighter", basehp=96, level=4, exp=8),
-            CreatureDef(id=14, name="Daemon", tile="daemon", basehp=135, level=5, exp=8),
-            CreatureDef(id=16, name="Wizard", tile="wizard", basehp=112, level=6, exp=10),
-            CreatureDef(id=17, name="Pincher", tile="pincher", basehp=144, level=7, exp=10, poisons=True),
-            CreatureDef(id=18, name="Dragon", tile="dragon", basehp=228, level=8, exp=15),
-        ]
-        eligible = [m for m in fallback_monsters if m.level <= dungeon_level]
-        return self.rng.choice(eligible or fallback_monsters[:1])

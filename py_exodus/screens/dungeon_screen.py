@@ -203,8 +203,11 @@ class DungeonScreen(BaseScreen):
 
     def _consume_turn(self) -> None:
         """Java DungeonScreen.finishTurn (DungeonScreen.java:1124) — the
-        keyUp tail for keys without an early return."""
-        self.state._tick_turn()
+        keyUp tail for keys without an early return. A wandering creature
+        reaching the avatar raises the battle here too."""
+        evt = self.state._tick_turn()
+        if evt is not None:
+            self._process_event(evt)
         self.check_party_death()
 
     def _toggle_zstats(self) -> None:
@@ -221,7 +224,7 @@ class DungeonScreen(BaseScreen):
             self.stats_panel.inspect_index = None
 
     def _process_event(self, evt: DungeonEvent) -> None:
-        # Task 2 death flow: pit traps, fountains, marks, and orbs apply
+        # Task 2 death flow: pit traps, fountains, and marks apply
         # damage before the event surfaces — a wiped party routes here
         # (Java GameScreen.java:433-446 partyDeath → start screen).
         if self.check_party_death():
@@ -259,7 +262,7 @@ class DungeonScreen(BaseScreen):
             self._trigger_combat(c_name)
 
     def _search(self) -> None:
-        """Search dungeon tile for fountains, marks, orbs, or chests."""
+        """Search dungeon tile for fountains, marks, or chests."""
         from py_exodus.world.map import DungeonTile
 
         tile = self.state.current_tile
@@ -284,9 +287,6 @@ class DungeonScreen(BaseScreen):
         elif tile in marks:
             prompt_msg = "You find a mystical Mark. Who touches? (1-4): "
             action = self.state.touch_mark
-        elif tile == DungeonTile.ORB:
-            prompt_msg = "You find a Magical Orb...Who touches? (1-4): "
-            action = self.state.touch_orb
         elif tile == DungeonTile.CHEST:
             prompt_msg = "Who gets the chest? (1-4): "
             action = lambda idx: self.state.open_chest(idx, disarm=False)
@@ -316,8 +316,11 @@ class DungeonScreen(BaseScreen):
 
             # Java: dungeon S is routed through the G/R/W/C/S fall-through
             # branch (DungeonScreen.java:1011-1013) and every sip keypress
-            # ends in the sip tail finishTurn — valid or not.
-            self.state._tick_turn()
+            # ends in the sip tail finishTurn — valid or not. A wandering
+            # creature reaching the avatar in that tail raises the battle.
+            tick_evt = self.state._tick_turn()
+            if tick_evt is not None:
+                self._process_event(tick_evt)
             self.check_party_death()
 
         self.text_log.prompt(prompt_msg, callback=_on_who, single_char=True)
@@ -327,7 +330,7 @@ class DungeonScreen(BaseScreen):
         from py_exodus.world.map import DungeonTile
 
         def _on_who(who_str: str) -> None:
-            self.state._tick_turn()  # Java routes G through finishTurn
+            tick_evt = self.state._tick_turn()  # Java routes G through finishTurn
             try:
                 idx = int(who_str.strip()) - 1
             except ValueError:
@@ -335,29 +338,35 @@ class DungeonScreen(BaseScreen):
             member = self.party.get_member(idx)
             if member is None:
                 self.text_log.add_message("Invalid member #!")
-                return
-
-            from py_exodus.world.chests import open_chest
-
-            x, y, z = self.state.x, self.state.y, self.state.z
-            if self.dungeon_map.get_tile(x, y, z) != DungeonTile.CHEST:
-                self.text_log.add_message("Not Here!")
-                return
-
-            self.dungeon_map.set_tile(x, y, z, DungeonTile.NOTHING)
-            # Task 2 death flow: a chest trap (gas) can leave the whole party
-            # dead; route game over (Java GameScreen.java:444-446 partyDeath
-            # → start screen). The chests pipeline does not currently raise —
-            # the try/except is future-proofing for later tasks routing it
-            # through PartyMember.apply_damage; the post-check covers both.
-            try:
-                for line in open_chest(self.party, member, dungeon=True):
-                    self.text_log.add_message(line)
-            except PartyDeathException:
-                pass
+            else:
+                self._finish_dungeon_chest(member)
+            if tick_evt is not None:
+                self._process_event(tick_evt)
             self.check_party_death()
 
         self.text_log.prompt("Who gets the chest? (1-4): ", callback=_on_who, single_char=True)
+
+    def _finish_dungeon_chest(self, member) -> None:
+        """Open the chest on the party's own tile through the Task 1 pipeline."""
+        from py_exodus.world.chests import open_chest
+        from py_exodus.world.map import DungeonTile
+
+        x, y, z = self.state.x, self.state.y, self.state.z
+        if self.dungeon_map.get_tile(x, y, z) != DungeonTile.CHEST:
+            self.text_log.add_message("Not Here!")
+            return
+
+        self.dungeon_map.set_tile(x, y, z, DungeonTile.NOTHING)
+        # Task 2 death flow: a chest trap (gas) can leave the whole party
+        # dead; route game over (Java GameScreen.java:444-446 partyDeath
+        # → start screen). The chests pipeline does not currently raise —
+        # the try/except is future-proofing for later tasks routing it
+        # through PartyMember.apply_damage; the post-check covers both.
+        try:
+            for line in open_chest(self.party, member, dungeon=True):
+                self.text_log.add_message(line)
+        except PartyDeathException:
+            pass
 
     def _trigger_combat(self, creature_name: str) -> None:
         """Launch combat screen from dungeon encounter."""

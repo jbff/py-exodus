@@ -591,7 +591,7 @@ class AssetManager:
                 hp=hp_val,
                 exp=_parse_int(elem.get("exp"), 0),
                 encounter_size=_parse_int(elem.get("encounterSize"), 1),
-                level=_parse_int(elem.get("level"), 1),
+                level=_parse_int(elem.get("level"), 0),
                 nes_exp=_parse_int(elem.get("nesExp"), 0),
                 good=_parse_bool(elem.get("good")),
                 wont_attack=_parse_bool(elem.get("wontattack")),

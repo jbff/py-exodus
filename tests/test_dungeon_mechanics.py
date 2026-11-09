@@ -112,12 +112,11 @@ def test_dungeon_drink_fountain_poison_and_cure(asset_mgr, party, test_dmap):
 
 
 def test_dungeon_hazard_wind_trap_and_gremlins(asset_mgr, party, test_dmap):
-    """Stepping into wind trap turns off torch; gremlins steal half of party food."""
+    """Stepping into wind trap turns off torch; gremlins take 2 food per member."""
     test_dmap.set_tile(1, 2, 0, DungeonTile.WIND_TRAP)
     test_dmap.set_tile(1, 3, 0, DungeonTile.GREMLINS)
     state = DungeonState(test_dmap, start_x=1, start_y=1, start_z=0, start_dir=Direction.SOUTH, party=party)
     state.is_torch_on = True
-    initial_food = party.food
 
     # Step forward onto (1, 2) WIND_TRAP — Java DungeonScreen.java:1080-1085
     # sets the torch boolean off (no torchduration bookkeeping in Java).
@@ -126,7 +125,12 @@ def test_dungeon_hazard_wind_trap_and_gremlins(asset_mgr, party, test_dmap):
     assert state.is_torch_on is False
     assert not hasattr(state, "torch_rounds")
 
+    # Java Party.applyEffect (Party.java:279-283, 347-352): food -2 per
+    # non-DEAD member, floored at 0 — there is no party-sum halving.
+    foods_before = [m.food for m in party.members]
+
     # Step forward onto (1, 3) GREMLINS
     evt2 = state.move_forward()
     assert evt2.type == DungeonEventType.GREMLINS
-    assert party.food <= initial_food // 2 and party.food >= (initial_food // 2) - 5
+    for i, m in enumerate(party.members):
+        assert m.food == max(0, foods_before[i] - 2)
