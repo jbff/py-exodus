@@ -753,6 +753,20 @@ def test_blocked_move_battle_keeps_encounter_and_ends_cleanly(
     removed nothing. Java battleWandering always keeps the creature until
     endCombat removes it (DungeonScreen.java:724-737, 767-769)."""
     screen = _dungeon_screen(open_dmap, test_party, asset_mgr)
+    # The wandering SPAWN roll (self.rng.randrange(32), DungeonScreen.java
+    # finishTurn) is orthogonal to what this test asserts — the pre-placed
+    # wanderer that the blocked move must merge. With DungeonScreen's live
+    # state (random_encounters on by default and an unseeded RNG seeded from
+    # os.urandom per construction) a 1-in-32 spawn on any of the four ticks
+    # below leaves a stray creature after end_combat (which removes only the
+    # encounter creature) or drops a fresh one into the closing move loop,
+    # failing assertions that the spawn roll itself never controlled. Pin
+    # both dials: spawn off (matching the file's other DungeonState tests)
+    # and a seeded rng for the contact-direction roll, so the test's own
+    # assertions stay exact.
+    screen.state.random_encounters_enabled = False
+    screen.state.rng = random.Random(7)
+
     open_dmap.set_tile(5, 4, 0, DungeonTile.WALL)  # the forward move blocks
     open_dmap.set_tile(5, 5, 0, DungeonTile.NOTHING)  # chest-eligible tile
     cr = CreatureDef(id=10, name="Orc", tile="orc", basehp=30, level=1)

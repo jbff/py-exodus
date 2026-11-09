@@ -21,20 +21,26 @@ party's own tile YELLOW (Utils.java:938-944). Dungeon maps draw nothing
 
 Presentation adaptation from the Java/libGDX renderer to this port's
 colored-cell HUD precedent (dungeon_screen._render_minimap):
-- Tiles are drawn as fixed 8px colored cells (Java scales 16px sprites into
-  a 512x512 canvas on a 1024x768 screen); 8px fills the 320x200 base
-  surface with a 40x25-grid window, as the task presentation guidance
-  prescribes ("enough tiles to fill the screen at a reasonable cell size").
+- WHOLE MAP when it fits (Java's city presentation, Utils.java:887-944):
+  whenever the map's full extent fits the view at a cell size of at least
+  WHOLE_MAP_MIN_CELL px (a 64x64 map becomes 192x192 at 3px inside the
+  320x200 base surface), the entire map is blitted centered on the screen
+  exactly as Java blits all 64x64 city tiles, with the party marked YELLOW
+  at its true map-scaled cell (Utils.java:938-944) and NPC marks WHITE
+  anywhere in the map.
+- Otherwise a fixed 8px colored-cell window centered on the party (Java's
+  world presentation, Utils.java:946-1042 — a party-centered wrapped
+  region); 8px fills the 320x200 base surface with a 40x25-grid window, as
+  the task presentation guidance prescribes ("enough tiles to fill the
+  screen at a reasonable cell size").
 - Terrain colors come from a fixed name->EGA table with a deterministic
   CRC32 fallback for rare names, so repeated renders are byte-identical.
-- The region is centered on the party and WRAPPED for wrap-border maps
-  (matching Java's world peerGem modulo math) but CLIPPED at bounds
-  elsewhere (Java's city view blits the whole map centered on the screen —
-  the task presentation guidance instead asks for a region centered on the
-  party, so towns reuse the world path).
-- People/creatures/objects are WHITE cells (Utils.java:899-931) and the
-  party cell is YELLOW (the city coloring — unifies Java's white center
-  tile on the world map with the yellow city party marker).
+- The WHOLE-map mode reuses the city rule; the party-centered region is
+  WRAPPED for wrap-border maps (matching Java's world peerGem modulo math)
+  but CLIPPED at bounds elsewhere.
+- People/creatures/objects are WHITE cells (Utils.java:899-931, 1003-1020)
+  and the party cell is YELLOW (the city coloring — unifies Java's white
+  center tile on the world map with the yellow city party marker).
 """
 from __future__ import annotations
 
@@ -66,6 +72,14 @@ PEER_MESSAGE = "Peer at a Gem!"
 NO_GEMS_MESSAGE = "Thou dost have no gems!"
 
 CELL = 8
+
+# Java's city gem view blits the whole 64x64 map as 10px tiles on the
+# screen (Utils.java:874-880). The port matches that whole-map presentation
+# whenever the full extent fits the surface at a usable cell size: a 64x64
+# map becomes 192x192 at 3px cells inside the 320x200 base surface. Maps too
+# large to fit that way fall back to the world presentation — a
+# party-centered window at CELL px (Utils.java:946-1042).
+WHOLE_MAP_MIN_CELL = 3
 
 _TILE_COLORS = {
     "water": EGA_BLUE,
@@ -166,6 +180,15 @@ def consume_peer_gem(party):
     return member
 
 
+def whole_map_cell(width: int, height: int, map_w: int, map_h: int) -> int:
+    """Cell size the WHOLE map uses on a width x height surface, or 0 when
+    the extent does not fit at WHOLE_MAP_MIN_CELL (window fallback)."""
+    if map_w <= 0 or map_h <= 0:
+        return 0
+    cell = min(CELL, width // map_w, height // map_h)
+    return cell if cell >= WHOLE_MAP_MIN_CELL else 0
+
+
 def render_gem_view(
     surface: pygame.Surface,
     game_map,
@@ -173,11 +196,74 @@ def render_gem_view(
     center_y: int,
     marks=(),
 ) -> None:
-    """Draw the gem-vision picture: the map region around (center_x,
-    center_y) as fixed colored cells, people/marks WHITE and the party cell
-    YELLOW (see module docstring for the Java->port adaptation)."""
+    """Draw the gem-vision picture: the WHOLE map as colored cells centered
+    on the screen when it fits at a usable cell size (Java's city view,
+    Utils.java:887-944), otherwise the party-centered map region
+    (Java's world view, Utils.java:946-1042). People/marks are WHITE and
+    the party cell YELLOW (see module docstring for the Java->port
+    adaptation)."""
 
     surface.fill(EGA_BLACK)
+
+    width = surface.get_width()
+    height = surface.get_height()
+    map_w = game_map.width
+    map_h = game_map.height
+
+    cell = whole_map_cell(width, height, map_w, map_h)
+    if cell >= WHOLE_MAP_MIN_CELL:
+        _draw_whole_map(
+            surface, game_map, center_x, center_y, marks, cell, width, height
+        )
+    else:
+        _draw_centered_window(surface, game_map, center_x, center_y, marks)
+
+
+def _cell_rect(x: int, y: int, cell: int) -> pygame.Rect:
+    """Top-left pixel origin of map cell (x, y) at the given cell size,
+    minus the grid gap."""
+    return pygame.Rect(x * cell, y * cell, cell - 1, cell - 1)
+
+
+def _draw_whole_map(
+    surface, game_map, center_x: int, center_y: int, marks, cell: int,
+    width: int, height: int,
+) -> None:
+    """Java city peerGem (Utils.java:873-944): every tile of the map at the
+    given cell size, the blit centered on the screen so the party can be
+    marked at its TRUE map-scaled cell anywhere in it."""
+    map_w = game_map.width
+    map_h = game_map.height
+    off_x = (width - map_w * cell) // 2
+    off_y = (height - map_h * cell) // 2
+
+    for my in range(map_h):
+        for mx in range(map_w):
+            tile = game_map.get_tile(mx, my)
+            if tile is None:
+                continue
+            rect = _cell_rect(mx, my, cell).move(off_x, off_y)
+            surface.fill(_tile_color(tile.name), rect)
+
+    # People/creatures/objects anywhere in the map as WHITE cells.
+    for (ex, ey) in marks:
+        if not (0 <= ex < map_w and 0 <= ey < map_h):
+            continue
+        surface.fill(EGA_WHITE, _cell_rect(ex, ey, cell).move(off_x, off_y))
+
+    # Party marker: YELLOW at its true map-scaled cell (Utils.java:938-944).
+    if 0 <= center_x < map_w and 0 <= center_y < map_h:
+        surface.fill(
+            EGA_YELLOW, _cell_rect(center_x, center_y, cell).move(off_x, off_y)
+        )
+
+
+def _draw_centered_window(
+    surface, game_map, center_x: int, center_y: int, marks
+) -> None:
+    """Java world peerGem (Utils.java:946-1042): the region of tiles around
+    the party at CELL px, wrapped at map borders where the map wraps and
+    clipped outside its bounds elsewhere."""
 
     width = surface.get_width()
     height = surface.get_height()
@@ -202,8 +288,7 @@ def render_gem_view(
             tile = game_map.get_tile(mx, my)
             if tile is None:
                 continue
-            rect = pygame.Rect(col * CELL, row * CELL, CELL - 1, CELL - 1)
-            surface.fill(_tile_color(tile.name), rect)
+            surface.fill(_tile_color(tile.name), _cell_rect(col, row, CELL))
 
     # People/creatures/objects on the viewed region as WHITE cells.
     for (ex, ey) in marks:
