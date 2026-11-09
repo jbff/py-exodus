@@ -1011,13 +1011,16 @@ class OverworldScreen(BaseScreen):
         at Chebyshev distance ≤ 1), which runs last. A wipe raises
         ``PartyDeathException``; the post-check routes the game-over flow
         (Task 2). The 1-in-4 hull repair sits in ``endTurn``'s Sosaria branch
-        (``Party.java:633-638``), so ``sosaria`` tracks the current map id.
+        (``Party.java:633-638``), so ``sosaria`` tracks the current map id;
+        the 40-submorsel interval is surface maps SOSARIA (0) and EXODUS (2)
+        only — Ambrosia (13) drains at 10 (``Party.java:598-600``).
         """
-        sosaria = str(getattr(self.game_map, "id", self.map_id)) == "0"
+        map_id = str(getattr(self.game_map, "id", self.map_id))
+        sosaria = map_id == "0"
         try:
             self._check_hull_integrity()
             # Java order (GameScreen.java:710-714): endTurn, then aura.passTurn.
-            self.party.end_turn(surface=True, sosaria=sosaria)
+            self.party.end_turn(surface=map_id in ("0", "2"), sosaria=sosaria)
             self.party.aura.pass_turn()
             tile_effects.apply_rule_effect(self.party, effect_tile)
         except PartyDeathException:

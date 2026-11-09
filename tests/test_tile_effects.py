@@ -141,23 +141,6 @@ def test_rule_speeds_and_effects_exposed_on_tiles(asset_mgr):
     assert fire.speed is TileSpeed.VVSLOW and fire.effect is TileEffect.FIRE
 
 
-def test_rule_speeds_and_effects_exposed_on_tiles(asset_mgr):
-    """assets.py exposes the Java TileRule speed/effect table per rule."""
-    brush = asset_mgr.get_tile_by_name("brush")
-    forest = asset_mgr.get_tile_by_name("forest")
-    grass = asset_mgr.get_tile_by_name("grass")
-    energy = asset_mgr.get_tile_by_name("energy_field")
-    lava = asset_mgr.get_tile_by_name("lava")
-    fire = asset_mgr.get_tile_by_name("fire")
-
-    assert brush.speed is TileSpeed.VSLOW and brush.effect is TileEffect.NONE
-    assert forest.speed is TileSpeed.VSLOW
-    assert grass.speed is TileSpeed.FAST and grass.effect is TileEffect.NONE
-    assert energy.speed is TileSpeed.VVSLOW and energy.effect is TileEffect.ELECTRICITY
-    assert lava.speed is TileSpeed.VVSLOW and lava.effect is TileEffect.LAVA
-    assert fire.speed is TileSpeed.VVSLOW and fire.effect is TileEffect.FIRE
-
-
 def test_exploration_movement_is_never_slowed():
     """Java exploration movement never rolls slowedByTile — its only caller
     is CombatScreen.java:937 (combat creatures). The 2D move paths contain
@@ -248,6 +231,42 @@ def test_overworld_pass_turn_applies_standing_effect_and_consumes_turn(
     assert party.moves == moves_before + 2
     assert all(m.status == Status.POISONED for m in party.members)
     assert all(m.hp == 100 for m in party.members)
+
+
+def test_ambrosia_drains_at_the_10_interval(pygame_setup, asset_mgr):
+    """Java Party.java:598-600: the 40-submorsel interval is Sosaria (0) and
+    Exodus (2) only — Ambrosia (13) drains at 10. With 30 submorsels banked,
+    a 10-per-move turn survives; a 40 turn crosses and takes the food."""
+    def _screen_and_party(map_id: int):
+        grass = asset_mgr.get_tile_by_name("grass")
+        gmap = GameMap(
+            id=map_id,
+            name="Ambrosia" if map_id == 13 else "Sosaria",
+            width=2,
+            height=1,
+            border_behavior="wrap",
+            tiles=[grass, grass],
+        )
+        party = make_party()
+        for m in party.members:
+            m.submorsels = 30
+        ow = OverworldScreen(
+            party=party, map_id=map_id, asset_mgr=asset_mgr, random_encounters=False
+        )
+        ow.game_map = gmap
+        party.x, party.y = 0, 0
+        return ow, party
+
+    ow, party = _screen_and_party(13)
+    food_before = party.food
+    ow._pass_turn()
+    assert all(m.submorsels == 20 for m in party.members)
+    assert party.food == food_before  # 10 drain: no crossing
+
+    ow0, party0 = _screen_and_party(0)
+    ow0._pass_turn()
+    assert all(m.submorsels == 400 for m in party0.members)  # 40 drain: crossed, reset
+    assert party0.food == food_before - len(party0.members)  # -1 food per member
 
 
 def test_town_pass_turn_applies_standing_effect_and_consumes_turn(

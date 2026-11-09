@@ -532,6 +532,14 @@ class DungeonScreen(BaseScreen):
         px = offset_x + self.state.x * cell
         py = offset_y + self.state.y * cell
         target.fill(EGA_BRIGHT_RED, (px, py, cell - 1, cell - 1))
+        # Wandering-creature dots: one marker per creature on the level so
+        # the dungeon monsters are visible next to the party dot.
+        for wc in self.state.wandering_creatures:
+            if wc.level != self.state.z:
+                continue
+            cx = offset_x + wc.x * cell
+            cy = offset_y + wc.y * cell
+            target.fill(EGA_YELLOW, (cx, cy, cell - 1, cell - 1))
 
     def render(self, surface: pygame.Surface) -> None:
         surface.fill(EGA_BLACK)

@@ -356,6 +356,35 @@ def test_legacy_save_pool_migration():
     assert loaded.food == 800
 
 
+def test_legacy_migration_clamps_to_java_ranges():
+    """The migration credit runs through Java's clamp semantics: gold adjusts
+    within 0..9999 (CharacterRecord.adjustGold, SaveGame.java:390-392) and
+    food within 0..999900 (Utils.adjustValue(food, v, 999900, 0) — the same
+    call Party.endTurn uses, Party.java:604). An oversized legacy pool clamps
+    instead of corrupting the save."""
+    legacy = {
+        "x": 44,
+        "y": 18,
+        "map_id": 0,
+        "transport": "FOOT",
+        "gold": 50000,
+        "food": 2000000,
+        "members": [
+            {"name": "Hero", "gold": 120, "food": 300},
+            {"name": "Mage", "gold": 0, "food": 0},
+        ],
+    }
+
+    loaded = Party.from_dict(legacy)
+
+    # Pooled 120 + legacy 50000 clamps at the 9999 cap, not 50120.
+    assert loaded.members[0].gold == 9999
+    assert loaded.gold == 9999
+    # Pooled 300 + legacy 2000000 clamps at 999900, not 2000300.
+    assert loaded.members[0].food == 999900
+    assert loaded.food == 999900
+
+
 def test_legacy_keys_in_modern_saves_do_not_double_credit():
     """A modern save's party-level gold/food are derived sums equal to the
     member purses; loading must not re-gather or double them."""

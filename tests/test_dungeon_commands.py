@@ -16,6 +16,7 @@ from py_exodus.constants import (
     Direction,
     WeaponType,
 )
+from py_exodus.aura import AuraType
 from py_exodus.entities.character import Character
 from py_exodus.entities.party import Party
 from py_exodus.screens.dungeon_screen import DungeonScreen
@@ -30,6 +31,14 @@ def pygame_setup():
         pygame.font.init()
     yield
     pygame.quit()
+
+
+def turn_meter(party: Party):
+    """Java finishTurn opens with aura.passTurn() and NEVER calls
+    Party.endTurn from a dungeon (DungeonScreen.java:1124-1142) — party.moves
+    does not tick while exploring, so aura decrements are the turn meter."""
+    party.aura.set(AuraType.QUICKNESS, 99)
+    return party.aura.get_duration
 
 
 def make_dmap() -> DungeonMap:
@@ -83,10 +92,12 @@ def test_dungeon_r_ready_weapon(pygame_setup):
     scr = make_screen(party)
 
     moves_before = party.moves
+    ticks = turn_meter(party)
     press(scr, pygame.K_r)
     # Java DungeonScreen.java:1011-1013: the G/R/W/C/S branch falls through
     # to finishTurn, so pressing R itself consumes a turn.
-    assert party.moves == moves_before + 1
+    assert party.moves == moves_before
+    assert ticks() == 98
     assert scr.text_log.is_waiting_for_input
     scr.text_log.submit_input("1")
     assert any("Ready Weapon for" in m for m in scr.text_log.history)
@@ -95,7 +106,7 @@ def test_dungeon_r_ready_weapon(pygame_setup):
     assert any("Success!" in m for m in scr.text_log.history)  # SIP:479-483
     # Java SecondaryInputProcessor: R press falls through (1 tick), then
     # ReadyWearInputAdapter.keyUp runs finishTurn after the letter (tick 2).
-    assert party.moves == moves_before + 2
+    assert ticks() == 97
 
 
 def test_dungeon_w_wear_armor(pygame_setup):
@@ -140,22 +151,22 @@ def test_dungeon_v_music_toggle(pygame_setup):
     scr = make_screen()
     audio = scr.audio
     enabled_before = audio.enabled
-    moves_before = scr.party.moves
+    ticks = turn_meter(scr.party)
 
     press(scr, pygame.K_v)
     assert audio.enabled != enabled_before
     # Java DungeonScreen.java:1013-1023 — V falls through to finishTurn.
-    assert scr.party.moves == moves_before + 1
+    assert ticks() == 98
 
 
 def test_dungeon_p_minimap_toggle(pygame_setup):
     scr = make_screen()
-    moves_before = scr.party.moves
+    ticks = turn_meter(scr.party)
 
     press(scr, pygame.K_p)
     # Java DungeonScreen.java:80 + 1012-1015 — P toggles the minimap; the
     # key falls through to finishTurn.
-    assert scr.party.moves == moves_before + 1
+    assert ticks() == 98
 
 
 def test_dungeon_q_saves_and_logs(pygame_setup, monkeypatch, tmp_path):
@@ -195,12 +206,13 @@ def test_dungeon_down_arrow_backsteps(pygame_setup):
     scr.state.x, scr.state.y = 5, 5
     scr.state.dir = Direction.EAST
     moves_before = scr.party.moves
+    ticks = turn_meter(scr.party)
 
     press(scr, pygame.K_DOWN)
     assert scr.state.x == 4
     assert scr.state.y == 5
     assert scr.state.dir == Direction.EAST
-    assert scr.party.moves == moves_before + 1
+    assert ticks() == 98
 
 
 def test_dungeon_down_arrow_backstep_wraps(pygame_setup):
@@ -236,18 +248,18 @@ def test_dungeon_torch_toggle_consumption(pygame_setup):
     scr = make_screen(party)
     scr.state.x, scr.state.y = 5, 5
     scr.state.z = 0
-    moves = scr.party.moves
+    ticks = turn_meter(party)
 
     press(scr, pygame.K_i)
     assert scr.state.is_torch_on is True
     assert party.members[0].torches == 4  # one torch consumed
     assert not hasattr(scr.state, "torch_rounds")
-    assert party.moves == moves + 1  # Java I key falls through to finishTurn
+    assert ticks() == 98  # Java I key falls through to finishTurn
 
     press(scr, pygame.K_i)
     assert scr.state.is_torch_on is False
     assert party.members[0].torches == 4  # extinguishing consumes no torch
-    assert party.moves == moves + 2
+    assert ticks() == 97
 
     party.members[0].torches = 0
     scr.state.is_torch_on = False
@@ -284,17 +296,17 @@ def test_dungeon_wind_trap_extinguishes_boolean(pygame_setup):
 def test_dungeon_unhandled_keys_pass_and_consume_turn(pygame_setup):
     party = make_party()
     scr = make_screen(party)
-    moves = party.moves
+    ticks = turn_meter(party)
 
     press(scr, pygame.K_u)  # removed alias; Java dungeon has no U handler
     assert any("Pass" in m for m in scr.text_log.history)
-    assert party.moves == moves + 1
+    assert ticks() == 98
 
     press(scr, pygame.K_t)  # torch is keyed I in Java; T is unhandled
-    assert party.moves == moves + 2
+    assert ticks() == 97
 
     press(scr, pygame.K_SPACE)
-    assert party.moves == moves + 3
+    assert ticks() == 96
 
 
 def test_dungeon_ladders_do_not_consume_turns(pygame_setup):
@@ -473,10 +485,10 @@ def test_overworld_d_i_k_are_unhandled_consumes_turn(pygame_setup, asset_mgr):
 
 def test_dungeon_g_c_s_press_consumes_turn(pygame_setup):
     scr = make_screen()
-    moves = scr.party.moves
+    ticks = turn_meter(scr.party)
     press(scr, pygame.K_s)
-    assert scr.party.moves == moves + 1
+    assert ticks() == 98
     scr.text_log.handle_escape()
-    moves = scr.party.moves
+    ticks = turn_meter(scr.party)
     press(scr, pygame.K_c)
-    assert scr.party.moves == moves + 1
+    assert ticks() == 98

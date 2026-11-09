@@ -109,7 +109,6 @@ class ActionResult:
     action: Action
     message: str = ""
     attack_res: AttackResolution | None = None
-    fled: bool = False
     spell_res: Any | None = None
     # Java SpellUtil: LORUM, PABULUM, ALTAIR, DAG_ACRON and the dungeon spells
     # never call finishPlayerTurn — in combat the caster acts again. The turn
@@ -215,7 +214,6 @@ class CombatArena:
         self.is_finished = False
         self.is_victory = False
         self.is_defeat = False
-        self.is_fled = False
         self.chest_spawned = False
         self.round_count = 1
         self.freeze_rounds = 0
@@ -411,7 +409,7 @@ class CombatArena:
             self._handle_victory()
             return res
 
-        # Check if combat finished because all players fled or died
+        # Check if combat finished because all players died
         if not self.player_positions:
             self._evaluate_party_status()
             return res
@@ -1096,21 +1094,20 @@ class CombatArena:
     # --- End of Round Checks & Completion ---
 
     def _evaluate_party_status(self) -> None:
+        # Java has no fled-battle outcome left (FLEE is commented out of
+        # CombatScreen) — combat ends in victory or defeat only. Party
+        # members keep their ``fled`` flag purely for the blocking skip
+        # (hasBlockingCombatPlayerAt skips fled members).
         living_on_board = [
             i for i, pos in self.player_positions.items()
             if not self.party.members[i].is_dead() and self.party.members[i].hp > 0
         ]
-        any_survivor_fled = any(m.fled for m in self.party.members)
         any_alive = any(not m.is_dead() and m.hp > 0 for m in self.party.members)
 
         if not living_on_board:
             self.is_finished = True
             if not any_alive:
                 self.is_defeat = True
-                self.is_victory = False
-            elif any_survivor_fled:
-                self.is_fled = True
-                self.is_defeat = False
                 self.is_victory = False
 
     def _handle_victory(self) -> None:

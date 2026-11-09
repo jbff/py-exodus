@@ -407,7 +407,6 @@ def test_player_off_edge_move_is_blocked_not_flee(asset_mgr, conflict_map):
     assert arena.player_positions[0] == pos_before
     assert not party.members[0].fled
     assert not arena.is_finished
-    assert not arena.is_fled
 
 
 # --- (g) XP for every player-caused death, capped 9999 -----------------------

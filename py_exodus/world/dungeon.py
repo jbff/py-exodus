@@ -1033,21 +1033,24 @@ class DungeonState:
     def _tick_turn(self) -> DungeonEvent | None:
         """Run the per-move finishTurn tick (DungeonScreen.java:1124-1142).
 
-        Java truth: DungeonScreen.finishTurn passes the turn with the aura
-        and creature updates only — the torch boolean needs no upkeep (no
-        rounds to decrement, no expiry ever). After the endTurn tick this
-        runs the wandering-creature upkeep — creatureCleanup, the spawn
-        roll, then moveDungeonCreatures — and returns a COMBAT event when a
-        creature reaches the avatar (battleWandering), else None.
+        Java truth: finishTurn runs ``getAura().passTurn()`` +
+        creatureCleanup + the spawn roll + moveDungeonCreatures ONLY.
+        ``Party.endTurn`` is NEVER called while exploring a dungeon — it
+        runs only from GameScreen.java:712 and CombatScreen.java:472 — so
+        submorsel drain, food loss, poison ticks, mana regen, starvation and
+        the move counter do not tick per dungeon move, and the torch boolean
+        needs no upkeep (no rounds to decrement, no expiry ever). After the
+        aura pass this runs the wandering-creature upkeep and returns a
+        COMBAT event when a creature reaches the avatar (battleWandering),
+        else None.
         """
-        if self.party:
-            # Java endTurn (Party.java:592-639): dungeons are non-surface
-            # maps, so submorsels drain 10 per move. A wipe from tick damage
-            # raises PartyDeathException; the dungeon state catches it here —
-            # the owning DungeonScreen routes game over (Task 2 flow) and
-            # full routing out of the dungeon is not this task's scope.
+        if self.party is not None:
+            # Java order: the aura pass precedes the wandering upkeep. It
+            # only decrements the aura counter, but a member death raised
+            # from a future aura effect must not crash the move — mirror the
+            # post-routing guard the other tick paths carry.
             try:
-                self.party.end_turn(surface=False)
+                self.party.aura.pass_turn()
             except PartyDeathException:
                 pass
         return self._update_wandering_creatures()
@@ -1465,7 +1468,7 @@ class DungeonState:
         if tile != DungeonTile.CHEST:
             return DungeonEvent(
                 type=DungeonEventType.BLOCKED,
-                message="No chest here!",
+                message="Not Here!",
                 x=self.x,
                 y=self.y,
                 z=self.z,

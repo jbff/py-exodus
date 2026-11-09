@@ -709,12 +709,18 @@ class Party:
         legacy_food = p_data.get("food")
         if p.members:
             if legacy_gold is not None and legacy_gold != p.gold:
-                gold_total = p.gold
+                # pool_gold(0) leaves the pooled total on member 0; credit
+                # the legacy value on top through the Java clamp semantics —
+                # CharacterRecord.adjustGold (SaveGame.java:390-392) clamps
+                # 0..9999, so an oversized legacy pool clamps instead of
+                # corrupting the save.
                 p.pool_gold(0)
-                p.members[0].gold = gold_total + legacy_gold
+                p.members[0].adjust_gold(legacy_gold)
             if legacy_food is not None and legacy_food != p.food:
                 food_total = p.food
                 for m in p.members:
                     m.food = 0
-                p.members[0].food = food_total + legacy_food
+                # Java clamp semantics: food adjusts within 0..999900
+                # (Utils.adjustValue(food, v, 999900, 0) — Party.java:604).
+                p.members[0].food = max(0, min(999900, food_total + legacy_food))
         return p

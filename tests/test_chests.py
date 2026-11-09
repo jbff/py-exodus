@@ -276,10 +276,12 @@ def test_dungeon_get_opens_chest_on_party_tile(monkeypatch):
     assert member.gold == 150 + 41
     assert party.gold == member.gold + 150  # per-member total: the opener's purse plus the untouched Cleric
     assert any("The Chest Holds: 41 Gold" in msg for msg in screen.text_log.history)
-    # G consumes two turns now: Java DungeonScreen.java:1011-1013 routes the
-    # G press itself through finishTurn (fall-through), and the member
-    # selection runs the sip keyUp tail finishTurn.
-    assert party.moves == moves_before + 2
+    # G consumes two turns (Java DungeonScreen.java:1011-1013 routes the G
+    # press itself through finishTurn, and the member selection runs the sip
+    # keyUp tail finishTurn) — but finishTurn never calls Party.endTurn in
+    # dungeons, so the move counter does not tick (Party.endTurn is only
+    # called from GameScreen.java:712 / CombatScreen.java:472).
+    assert party.moves == moves_before
 
 
 def test_dungeon_get_chest_not_here_consumes_turn(monkeypatch):
@@ -293,7 +295,9 @@ def test_dungeon_get_chest_not_here_consumes_turn(monkeypatch):
 
     assert not screen.text_log.is_waiting_for_input
     assert any("Not Here!" in msg for msg in screen.text_log.history)
-    assert party.moves == moves_before + 2  # press + selection (Java fall-through)
+    # Turn consumed (press + selection Java fall-through) without a moves
+    # increment: dungeon finishTurn never calls Party.endTurn.
+    assert party.moves == moves_before
 
 
 def test_dungeon_get_checks_only_party_tile(monkeypatch):

@@ -317,7 +317,33 @@ def test_wandering_cleanup_on_level_change(open_dmap, test_party):
     assert state.wandering_creatures == []
 
 
-def test_quickness_holds_wandering_movement(open_dmap, test_party):
+def test_dungeon_tick_never_runs_party_end_turn(open_dmap, test_party):
+    """Java DungeonScreen.finishTurn (1124-1142) runs aura.passTurn +
+    creature upkeep ONLY — Party.endTurn is never called in dungeons, so no
+    submorsel drain, food loss or move-counter increment per dungeon move."""
+    state = DungeonState(
+        open_dmap,
+        start_x=5,
+        start_y=5,
+        start_z=0,
+        party=test_party,
+        rng=ZeroRNG(),
+        random_encounters=False,
+    )
+    m = test_party.members[0]
+    m.submorsels = 10
+    m.food = 90
+    moves_before = test_party.moves
+    for _ in range(45):  # 45 x 10-drain ticks would have crossed twice
+        state._tick_turn()
+    assert m.submorsels == 10
+    assert m.food == 90
+    assert test_party.moves == moves_before
+
+
+def test_dungeon_tick_passes_the_aura_turn(open_dmap, test_party):
+    """Java finishTurn opens with getAura().passTurn() — a dungeon move
+    decrements the aura (and expires it at 0) like any other screen."""
     from py_exodus.aura import AuraType
 
     state = DungeonState(
@@ -330,8 +356,36 @@ def test_quickness_holds_wandering_movement(open_dmap, test_party):
         random_encounters=False,
     )
     test_party.aura.set(AuraType.QUICKNESS, 1)
+    state._tick_turn()
+    assert not test_party.aura.is_active()
+    assert test_party.aura.get_type() == AuraType.NONE
+
+
+def test_quickness_holds_wandering_movement(open_dmap, test_party):
+    from py_exodus.aura import AuraType
+
+    state = DungeonState(
+        open_dmap,
+        start_x=5,
+        start_y=5,
+        start_z=0,
+        party=test_party,
+        rng=ZeroRNG(),
+        random_encounters=False,
+    )
+    # Java order (DungeonScreen.finishTurn): passTurn runs BEFORE the
+    # quickness check, so an aura with 1 turn left expires without holding
+    # this turn's creature movement.
+    test_party.aura.set(AuraType.QUICKNESS, 1)
     cr = CreatureDef(id=10, name="Orc", tile="orc", basehp=30, level=1)
     state.wandering_creatures.append(WanderingCreature(cr, 5, 3, 0))
+    state._tick_turn()
+    assert (state.wandering_creatures[0].x, state.wandering_creatures[0].y) == (5, 4)
+
+    # A fresh turn of quickness still freezes the wanderers for the turn.
+    test_party.aura.set(AuraType.QUICKNESS, 2)
+    cr2 = CreatureDef(id=11, name="Skeleton", tile="skeleton", basehp=50, level=1)
+    state.wandering_creatures = [WanderingCreature(cr2, 5, 3, 0)]
     state._tick_turn()
     assert (state.wandering_creatures[0].x, state.wandering_creatures[0].y) == (5, 3)
 
@@ -355,6 +409,54 @@ def test_normal_move_no_direct_ambush_roll(open_dmap, test_party):
 
 
 # --- Dungeon chest parity (Context.java:248-285, Party.java:273-277) ---
+
+
+def test_minimap_marks_wandering_creatures(open_dmap, test_party, asset_mgr):
+    """Each wandering creature on the visible level draws a marker dot on
+    the minimap; creatures on other levels do not."""
+    from py_exodus.screens.dungeon_screen import DungeonScreen
+    from py_exodus.ui.text_log import EGA_YELLOW
+
+    pygame.init()
+    screen = DungeonScreen(
+        party=test_party, dungeon_map=open_dmap, asset_mgr=asset_mgr
+    )
+    cr = CreatureDef(id=10, name="Orc", tile="orc", basehp=30, level=1)
+    screen.state.wandering_creatures.append(WanderingCreature(cr, 6, 7, 0))
+    off_level = CreatureDef(id=11, name="Skeleton", tile="skeleton", basehp=50, level=1)
+    screen.state.wandering_creatures.append(WanderingCreature(off_level, 8, 8, 1))
+
+    target = pygame.Surface((96, 96))
+    screen._render_minimap(target)
+
+    cell = 4
+    offset_x = target.get_width() - open_dmap.width * cell - 4
+    offset_y = 20
+    assert (
+        target.get_at((offset_x + 6 * cell + 1, offset_y + 7 * cell + 1))[:3]
+        == EGA_YELLOW
+    )
+    # The off-level creature draws nothing (cell would stay floor-gray).
+    assert (
+        target.get_at((offset_x + 8 * cell + 1, offset_y + 8 * cell + 1))[:3]
+        != EGA_YELLOW
+    )
+
+
+def test_open_chest_fallback_message_matches_java(open_dmap, test_party):
+    """Java DungeonScreen.getChest's fallback line is "Not Here!"
+    (DungeonScreen.java:1247) — not an invented "No chest here!"."""
+    state = DungeonState(
+        open_dmap,
+        start_x=5,
+        start_y=5,
+        start_z=0,
+        party=test_party,
+    )
+    open_dmap.set_tile(5, 5, 0, DungeonTile.FLOOR)
+    evt = state.open_chest()
+    assert evt.message == "Not Here!"
+    assert not evt.success
 
 
 def test_dungeon_chest_delegates_to_pipeline(open_dmap, test_party, monkeypatch):
@@ -586,7 +688,9 @@ def test_blocked_move_still_ticks(open_dmap, test_party):
     ev = state.move_forward()
 
     assert ev.type == DungeonEventType.BLOCKED
-    assert test_party.moves == moves_before + 1
+    # finishTurn runs on the blocked move but NEVER Party.endTurn
+    # (DungeonScreen.java:1124-1141), so the move counter does not tick.
+    assert test_party.moves == moves_before
     # finishTurn ran on the blocked move: the wanderer advanced toward the avatar.
     assert (state.wandering_creatures[0].x, state.wandering_creatures[0].y) == (4, 5)
 
