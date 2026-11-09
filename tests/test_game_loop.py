@@ -835,13 +835,18 @@ def test_combat_screen_defeat_via_state_machine_transitions_to_game_over(pygame_
     assert not sample_party.is_anyone_alive()
 
 
-def test_lord_british_revives_dead_and_ashes_members(pygame_setup, asset_mgr, sample_party):
-    # Member 0: Dead, Member 1: Ashes, Member 2: Good
+def test_lord_british_does_not_resurrect_dead_members(pygame_setup, asset_mgr, sample_party):
+    """Java truth: SecondaryInputProcessor.java:190-197 — Lord British only
+    advances the talking member; the resurrection loop (ConversationDialog
+    .java:133-160) is commented out in Java, so DEAD/ASHES stay as they are."""
     sample_party.members[0].status = Status.DEAD
     sample_party.members[0].hp = 0
+    sample_party.members[0].exp = 0
     sample_party.members[1].status = Status.ASHES
     sample_party.members[1].hp = 0
+    sample_party.members[1].exp = 0
     sample_party.members[2].status = Status.GOOD
+    sample_party.members[2].exp = 0
 
     town = TownScreen(
         party=sample_party,
@@ -851,20 +856,21 @@ def test_lord_british_revives_dead_and_ashes_members(pygame_setup, asset_mgr, sa
 
     town._interact_lord_british()
 
-    # Members 0 and 1 must be resurrected to GOOD status with full hp
-    assert sample_party.members[0].status == Status.GOOD
-    assert sample_party.members[0].hp == sample_party.members[0].max_hp
-    assert sample_party.members[1].status == Status.GOOD
-    assert sample_party.members[1].hp == sample_party.members[1].max_hp
-    assert "Lord British says: 'Thou art resurrected!'" in " ".join(town.text_log.history)
+    # No resurrection: statuses are untouched
+    assert sample_party.members[0].status == Status.DEAD
+    assert sample_party.members[1].status == Status.ASHES
+    joined = " ".join(town.text_log.history)
+    assert "resurrected" not in joined.lower()
+    # No advance -> the welcome flow
+    assert "Experience more!" in joined
 
 
-def test_lord_british_revives_and_advances_eligible_member(pygame_setup, asset_mgr, sample_party):
-    # Member has enough EXP to advance from level 1 to level 2, but is dead
-    sample_party.members[0].status = Status.DEAD
-    sample_party.members[0].hp = 0
+def test_lord_british_advances_active_member_without_mark_at_level_5(pygame_setup, asset_mgr, sample_party):
+    # Active member has enough EXP to reach level 5 (exp 450 / expLvl 4);
+    # no Mark of Kings is needed below level 6.
     sample_party.members[0].level = 1
-    sample_party.members[0].exp = 150  # Eligible for level 2
+    sample_party.members[0].exp = 450
+    sample_party.members[0].marks = [0, 0, 0, 0]
 
     town = TownScreen(
         party=sample_party,
@@ -874,10 +880,7 @@ def test_lord_british_revives_and_advances_eligible_member(pygame_setup, asset_m
 
     town._interact_lord_british()
 
-    # Must be resurrected AND advanced
-    assert sample_party.members[0].status == Status.GOOD
-    assert sample_party.members[0].level == 2
-    assert "Lord British says: 'Thou art resurrected!'" in " ".join(town.text_log.history)
+    assert sample_party.members[0].level == 5
     assert any("Thou hast been advanced!" in msg for msg in town.text_log.history)
 
 
@@ -1291,12 +1294,13 @@ def test_zstats_displays_inventory(pygame_setup, asset_mgr, sample_party):
 
 
 def test_new_game_starter_party_spawn_location(pygame_setup, asset_mgr):
-    """Verify new game party starts 2 tiles south and 1 tile west of castle on grass (44, 20)."""
+    """Verify new game party starts at (45, 19) — Java SaveGame.java:164-169
+    seeds the default position to (45, 19), just south of the castle portal."""
     party = create_default_starter_party()
-    assert party.x == 44
-    assert party.y == 20
+    assert party.x == 45
+    assert party.y == 19
 
-    # Verify tile at (44, 20) is grass and not castle
+    # Verify tile at (45, 19) is grass and not castle
     from py_exodus.world.loader import MapLoader
     loader = MapLoader(asset_mgr)
     world_map = loader.load_map(0)

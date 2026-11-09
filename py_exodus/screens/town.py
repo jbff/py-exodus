@@ -438,33 +438,26 @@ class TownScreen(BaseScreen):
         return v
 
     def _interact_lord_british(self, speaker: PartyMember | None = None) -> None:
-        """Handle Lord British character level advancements and resurrection."""
-        revived_any = False
-        for pm in self.party.members:
-            if pm.status in (Status.DEAD, Status.ASHES):
-                pm.status = Status.GOOD
-                pm.hp = pm.max_hp
-                revived_any = True
+        """Handle Lord British: level advance of the talking member only.
 
-        if revived_any:
-            self.text_log.add_message("Lord British says: 'Thou art resurrected!'")
-            if self.audio is not None:
-                self.audio.play_sfx("magic")
+        Java truth: ``exodus/SecondaryInputProcessor.java:190-197`` — visiting
+        Lord British calls ``meetLordBritish()`` on the *talking* member and
+        logs either "Thou hast been advanced!" or "Welcome my child..
+        Experience more!". There is NO resurrection here: Java's resurrect
+        loop in ``ConversationDialog.java:133-160`` is commented out.
+        """
+        target = speaker
+        if target is None:
+            target = self.party.active_member
+        if target is None:
+            self.text_log.add_message("Lord British says:\n'Welcome my child..\nExperience more!'")
+            return
 
-        advanced_any = False
-        if speaker is not None:
-            if speaker.character.meet_lord_british():
-                advanced_any = True
-        else:
-            for member in self.party.members:
-                if member.character.meet_lord_british():
-                    advanced_any = True
-
-        if advanced_any:
+        if target.character.meet_lord_british():
             self.text_log.add_message("Lord British says:\n'Thou hast been advanced!'")
             if self.audio is not None:
                 self.audio.play_sfx("magic")
-        elif not revived_any:
+        else:
             self.text_log.add_message("Lord British says:\n'Welcome my child..\nExperience more!'")
 
     def _start_vendor_shopping(self, vendor: VendorDef, buyer: PartyMember | None = None) -> None:

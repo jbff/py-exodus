@@ -121,9 +121,10 @@ class ShrineScreen(BaseScreen):
         new_stat = min(current_stat + amount, max_stat)
         setattr(char, self.stat_attr, new_stat)
 
-        msg = f"Shazam! {char.name}'s {self.stat_display} is now {new_stat}!"
-        self.log_messages.append(msg)
-        self.last_message = msg
+        # Java truth: ShrineScreen.java:222 — the success message is exactly
+        # "Shazam!".
+        self.log_messages.append("Shazam!")
+        self.last_message = "Shazam!"
         return True
 
     def handle_event(self, event: pygame.event.Event) -> None:
@@ -133,6 +134,7 @@ class ShrineScreen(BaseScreen):
 
         if event.key == pygame.K_ESCAPE:
             self.log_messages.append("Begone then!")
+            self.last_message = "Begone then!"
             self.exit_screen()
             return
 
@@ -158,17 +160,22 @@ class ShrineScreen(BaseScreen):
         elif self.state == self.STATE_DONATE:
             if event.unicode in "123456789":
                 amt = int(event.unicode)
-                self.donate(self.selected_member_idx, amount=amt)
-                self.state = self.STATE_DONE
-                self.exit_screen()
+                # Java truth: ShrineScreen.java:207-231. An offer the member
+                # cannot pay draws "You cannot cheat the gods!" and the shrine
+                # stays open for another amount; a paid offer logs "Shazam!"
+                # and returns to the overworld.
+                if self.donate(self.selected_member_idx, amount=amt):
+                    self.state = self.STATE_DONE
+                    self.exit_screen()
             elif event.unicode == "0":
                 self.log_messages.append("Begone then!")
+                self.last_message = "Begone then!"
                 self.state = self.STATE_DONE
                 self.exit_screen()
             elif event.key in (pygame.K_RETURN, pygame.K_y):
-                self.donate(self.selected_member_idx, amount=1)
-                self.state = self.STATE_DONE
-                self.exit_screen()
+                if self.donate(self.selected_member_idx, amount=1):
+                    self.state = self.STATE_DONE
+                    self.exit_screen()
             elif event.key == pygame.K_n:
                 self.log_messages.append("Begone then!")
                 self.state = self.STATE_DONE

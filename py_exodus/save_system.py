@@ -101,7 +101,10 @@ class SaveSystem:
 
         # 0x0E: Cards and Marks bitmask
         # Cards: Love=0x01, Sol=0x02, Moon=0x04, Death=0x08
-        # Marks: Kings=0x80, Fire=0x20, Force=0x10, Snake=0x40
+        # Marks, high nibble: Kings=0x80, Fire=0x20, Snake=0x40, Force=0x10.
+        # Java stores marks as a 4-array indexed [0]=KINGS, [1]=FIRE,
+        # [2]=SNAKE, [3]=FORCE (Party.java:703-706; SaveGame.java:218-221
+        # writes them in that order) — mirror that order here.
         b_cm = data[0x0E]
         cards = [
             1 if (b_cm & 0x01) else 0,
@@ -112,8 +115,8 @@ class SaveSystem:
         marks = [
             1 if (b_cm & 0x80) else 0,
             1 if (b_cm & 0x20) else 0,
-            1 if (b_cm & 0x10) else 0,
             1 if (b_cm & 0x40) else 0,
+            1 if (b_cm & 0x10) else 0,
         ]
 
         # 0x0F: Torches
@@ -247,8 +250,14 @@ class SaveSystem:
             p.transport = lookup_t.get(transport_code, Transport.FOOT)
             p.map_id = data[1]
             p.moves = struct.unpack_from("<I", data, 2)[0] if len(data) >= 6 else 0
-            p.x = data[7] if data[7] != 0 or data[8] != 0 else 45
-            p.y = data[8] if data[7] != 0 or data[8] != 0 else 18
+            # Missing/zero position falls back to the default start tile:
+            # Java SaveGame.java:164-169 seeds (45, 19).
+            if data[7] != 0 or data[8] != 0:
+                p.x = data[7]
+                p.y = data[8]
+            else:
+                p.x = 45
+                p.y = 19
             p.dungeon_level = data[9]
             # Ship hull
             if len(data) > 11 and data[11] > 0:

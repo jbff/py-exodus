@@ -103,8 +103,10 @@ def create_default_starter_party() -> Party:
     )
     return Party(
         members=[c1, c2, c3, c4],
-        x=44,
-        y=20,  # 2 tiles south, 1 tile west of Castle British on Sosaria
+        # Default new-game start (Java SaveGame.java:164-169): (45, 19) —
+        # one tile south of the Castle British entrance portal at (45, 18).
+        x=45,
+        y=19,
         gold=200,
         food=400,
         torch_duration=100,

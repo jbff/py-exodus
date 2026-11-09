@@ -39,6 +39,15 @@ if TYPE_CHECKING:
     from py_exodus.audio import AudioManager
 
 
+# Roster capacity: objects/Roster.java holds exactly 20 CharacterRecord slots.
+ROSTER_SLOTS = 20
+# Creation allocation rules (ManagePartyScreen.java:355-358,176-180):
+# sliders 5..25 per stat, total across the four stats at most 50.
+CREATION_MIN_STAT = 5
+CREATION_MAX_STAT = 25
+CREATION_MAX_POINTS = 50
+
+
 def get_starter_roster() -> list[Character]:
     """Return an initial pool of classic adventurer recruits."""
     return [
@@ -164,7 +173,10 @@ class RosterScreen(BaseScreen):
         # Load or initialize active party.
         # Per-member model (Task 4): gold and food live on each Character
         # record — there is no party-level seed pool.
-        self.party = party or Party(members=[], x=44, y=20)
+        # Default new-game position (45, 19): Java SaveGame.java:164-169
+        # seeds partyX/partyY to (45, 19) — the grass tile just south of the
+        # Castle British entrance portal at (45, 18).
+        self.party = party or Party(members=[], x=45, y=19)
 
         # Load or initialize roster
         if roster is not None:
@@ -268,19 +280,48 @@ class RosterScreen(BaseScreen):
         self.text_log.add_message(f"Added {char.name} to party! ({len(self.party.members)}/4)")
 
     def _remove_from_party(self) -> None:
-        """Remove member from party."""
+        """Remove member from party, returning them to a roster slot.
+
+        Java truth: ``exodus/ManagePartyScreen.java:355-367`` — the removed
+        party character is written back into the roster: a roster slot with
+        the same name is replaced with the party-state version; otherwise the
+        first empty slot takes the member. When the registry has no room
+        (``objects/Roster.java`` holds 20 slots) the removal is refused and
+        the member stays in the party.
+        """
         if not self.party.members:
             self.text_log.add_message("Party has no members to remove.")
             return
 
         target_idx = self.selected_party_idx if self.focus_panel == "party" else len(self.party.members) - 1
-        if 0 <= target_idx < len(self.party.members):
-            removed = self.party.members.pop(target_idx)
-            if self.audio is not None:
-                self.audio.play_sfx("trigger")
-            self.text_log.add_message(f"Removed {removed.name} from party. ({len(self.party.members)}/4)")
-        else:
+        if not (0 <= target_idx < len(self.party.members)):
             self.text_log.add_message("No member at selected slot.")
+            return
+
+        member = self.party.members[target_idx].character
+
+        existing_slot = next(
+            (i for i, c in enumerate(self.roster) if c.name.upper() == member.name.upper()),
+            None,
+        )
+        if existing_slot is None and len(self.roster) >= ROSTER_SLOTS:
+            self.text_log.add_message("No room in the roster for that adventurer!")
+            if self.audio is not None:
+                self.audio.play_sfx("negative")
+            return
+
+        self.party.members.pop(target_idx)
+        if existing_slot is not None:
+            self.roster[existing_slot] = member
+        else:
+            self.roster.append(member)
+            self.selected_roster_idx = len(self.roster) - 1
+
+        if self.audio is not None:
+            self.audio.play_sfx("trigger")
+        self.text_log.add_message(
+            f"Removed {member.name} from party. ({len(self.party.members)}/4)"
+        )
 
     def _quick_start_party(self) -> None:
         """Load standard balanced party for immediate embarking."""
@@ -302,8 +343,116 @@ class RosterScreen(BaseScreen):
         self.text_log.add_message(f"Deleted {removed.name} from roster.")
 
     def _start_create_character(self) -> None:
-        """Initiate interactive text prompt sequence to create a character."""
+        """Initiate interactive text prompt sequence to create a character.
+
+        Java truth: ``exodus/ManagePartyScreen.java:165-199,355-367`` — the
+        stat sliders allocate each of STR/DEX/INT/WIS in 5..25, the total may
+        not exceed 50 (over-budget apply is refused, nothing is committed),
+        the name field accepts up to 16 characters, and a created character
+        starts with health/food/gold = 150 and NO weapon or armor. Stat
+        validation is delegated to ``Character.validate_creation``.
+        """
         self._new_char_data = {}
+        stat_names = ["Strength", "Dexterity", "Intelligence", "Wisdom"]
+
+        def _start_stat_allocation() -> None:
+            self._new_char_data["stats"] = [0, 0, 0, 0]
+            self._new_char_data["stat_step"] = 0
+            self.text_log.add_message("Allocate stats: each 5-25, total must not exceed 50.")
+            _prompt_next_stat()
+
+        def _prompt_next_stat() -> None:
+            step = self._new_char_data["stat_step"]
+            self.text_log.prompt(
+                f"{stat_names[step]} (5-25):",
+                _step_stat,
+                single_char=False,
+            )
+
+        def _step_stat(raw: str) -> None:
+            step = self._new_char_data["stat_step"]
+            try:
+                value = int(raw.strip())
+            except ValueError:
+                self.text_log.add_message(f"{stat_names[step]}: enter a number 5-25.")
+                _prompt_next_stat()
+                return
+            if not (CREATION_MIN_STAT <= value <= CREATION_MAX_STAT):
+                self.text_log.add_message(f"{stat_names[step]} ({value}) must be 5-25.")
+                _prompt_next_stat()
+                return
+            self._new_char_data["stats"][step] = value
+            self._new_char_data["stat_step"] = step + 1
+            if self._new_char_data["stat_step"] < len(stat_names):
+                _prompt_next_stat()
+                return
+            _assemble_character()
+
+        def _assemble_character() -> None:
+            name = self._new_char_data["name"]
+            sex = self._new_char_data["sex"]
+            race = self._new_char_data["race"]
+            prof = self._new_char_data["prof"]
+            st, dx, in_, wi = self._new_char_data["stats"]
+
+            # 5-25 per stat and total <= 50 (ManagePartyScreen.java:176-180),
+            # via the shared validator wired here.
+            valid, err = Character.validate_creation(
+                race=race,
+                profession=prof,
+                strength=st,
+                dexterity=dx,
+                intelligence=in_,
+                wisdom=wi,
+                max_points=CREATION_MAX_POINTS,
+                min_stat=CREATION_MIN_STAT,
+                max_stat=CREATION_MAX_STAT,
+            )
+            if not valid:
+                self.text_log.add_message(err)
+                # Java refuses the apply and keeps the allocation UI open:
+                # restart the stat prompts with nothing committed.
+                _start_stat_allocation()
+                return
+
+            if len(self.roster) >= ROSTER_SLOTS:
+                self.text_log.add_message("The roster is full (20 adventurers)!")
+                return
+
+            # Starting record: health/food/gold = 150, portrait index, and
+            # NO weapon or armor (ManagePartyScreen.java:185-192). Max MP is
+            # derived from profession/stats, not chosen here.
+            new_char = Character(
+                name=name,
+                sex=sex,
+                race=race,
+                profession=prof,
+                strength=st,
+                dexterity=dx,
+                intelligence=in_,
+                wisdom=wi,
+                hp=150,
+                max_hp=150,
+                food=150,
+                gold=150,
+                portrait_index=self._new_char_data["portrait"],
+            )
+            self.roster.append(new_char)
+            self.selected_roster_idx = len(self.roster) - 1
+            self.text_log.add_message(f"Created {name} ({prof.name})! Added to roster.")
+
+        def _step_portrait(raw: str) -> None:
+            raw = raw.strip()
+            if not raw:
+                idx = 43
+            else:
+                try:
+                    idx = int(raw)
+                except ValueError:
+                    idx = 43
+            idx = max(0, min(43, idx))
+            self._new_char_data["portrait"] = idx
+            _start_stat_allocation()
 
         def _step_profession(prof_str: str) -> None:
             prof_map = {
@@ -320,61 +469,8 @@ class RosterScreen(BaseScreen):
                 "A": Profession.ALCHEMIST,
             }
             code = prof_str.strip().upper()[:1]
-            prof = prof_map.get(code, Profession.FIGHTER)
-            self._new_char_data["prof"] = prof
-
-            # Assemble character
-            name = self._new_char_data["name"]
-            sex = self._new_char_data["sex"]
-            race = self._new_char_data["race"]
-            prof = self._new_char_data["prof"]
-
-            # Set starting stats
-            base_str = 15
-            base_dex = 15
-            base_int = 10
-            base_wis = 10
-            hp = 150
-            mp = 0
-            wpn = WeaponType.DAGGER
-            arm = ArmorType.CLOTH
-
-            if prof in (Profession.FIGHTER, Profession.PALADIN, Profession.BARBARIAN):
-                base_str = 20
-                wpn = WeaponType.SWORD
-                arm = ArmorType.LEATHER
-            elif prof in (Profession.WIZARD, Profession.ILLUSIONIST, Profession.ALCHEMIST):
-                base_int = 25
-                mp = 25
-            elif prof in (Profession.CLERIC, Profession.DRUID):
-                base_wis = 25
-                mp = 25
-                wpn = WeaponType.MACE
-            elif prof in (Profession.THIEF, Profession.RANGER, Profession.LARK):
-                base_dex = 22
-                wpn = WeaponType.BOW if prof == Profession.RANGER else WeaponType.SLING
-                arm = ArmorType.LEATHER
-
-            new_char = Character(
-                name=name,
-                sex=sex,
-                race=race,
-                profession=prof,
-                strength=base_str,
-                dexterity=base_dex,
-                intelligence=base_int,
-                wisdom=base_wis,
-                hp=hp,
-                max_hp=hp,
-                mp=mp,
-                weapon=wpn,
-                armor=arm,
-                food=150,
-                gold=50,
-            )
-            self.roster.append(new_char)
-            self.selected_roster_idx = len(self.roster) - 1
-            self.text_log.add_message(f"Created {name} ({prof.name})! Added to roster.")
+            self._new_char_data["prof"] = prof_map.get(code, Profession.FIGHTER)
+            self.text_log.prompt("Portrait (0-43, ENTER for 43):", _step_portrait, single_char=False)
 
         def _step_race(race_str: str) -> None:
             race_map = {
@@ -394,11 +490,15 @@ class RosterScreen(BaseScreen):
             self.text_log.prompt("Race: [H]uman [E]lf [D]warf [B]obit [F]uzzy:", _step_race, single_char=True)
 
         def _step_name(name_str: str) -> None:
-            name = name_str.strip() or f"Hero{len(self.roster)+1}"
-            self._new_char_data["name"] = name[:8]
+            # nameField.setMaxLength(16) (ManagePartyScreen.java:389); the
+            # apply listener refuses an empty name.
+            name = name_str.strip()[:16]
+            if not name:
+                name = f"Hero{len(self.roster) + 1}"
+            self._new_char_data["name"] = name
             self.text_log.prompt("Sex: [M]ale or [F]emale:", _step_sex, single_char=True)
 
-        self.text_log.prompt("Character Name (up to 8 chars):", _step_name)
+        self.text_log.prompt("Character Name (up to 16 chars):", _step_name)
 
     def _embark(self) -> None:
         """Validate party and launch overworld adventure."""

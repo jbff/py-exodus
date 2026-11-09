@@ -182,8 +182,10 @@ class Party:
     def __init__(
         self,
         members: list[Character | PartyMember] | None = None,
-        x: int = 44,
-        y: int = 20,
+        # Default new-game position (Java SaveGame.java:164-169): (45, 19) —
+        # the grass tile one step south of the Castle British entrance (45,18).
+        x: int = 45,
+        y: int = 19,
         map_id: int = 0,
         dungeon_level: int = 0,
         transport: Transport | str = Transport.FOOT,
@@ -676,8 +678,9 @@ class Party:
 
         p = cls(
             members=members,
+            # Default new-game position (Java SaveGame.java:164-169): (45, 19)
             x=p_data.get("x", 45),
-            y=p_data.get("y", 18),
+            y=p_data.get("y", 19),
             map_id=p_data.get("map_id", 0),
             dungeon_level=p_data.get("dungeon_level", 0),
             transport=p_data.get("transport", Transport.FOOT),

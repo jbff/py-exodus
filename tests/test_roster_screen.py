@@ -2,7 +2,7 @@
 import pygame
 import pytest
 
-from py_exodus.constants import Profession, Race, Sex
+from py_exodus.constants import ArmorType, Profession, Race, Sex, WeaponType
 from py_exodus.entities.character import Character
 from py_exodus.entities.party import Party
 from py_exodus.screens.base import BaseScreen
@@ -80,6 +80,19 @@ def test_roster_screen_character_creation(pygame_setup, asset_mgr):
     assert "Class" in scr.text_log.current_prompt
     scr.text_log.handle_char("P")
 
+    # Step 5: Portrait index (number + Enter)
+    assert scr.text_log.is_waiting_for_input
+    assert "Portrait" in scr.text_log.current_prompt
+    for ch in "5\r":
+        scr.text_log.handle_char(ch)
+
+    # Step 6-9: stat allocation, each 5-25, total <= 50
+    for word, value in [("Strength", 10), ("Dexterity", 10), ("Intelligence", 10), ("Wisdom", 10)]:
+        assert scr.text_log.is_waiting_for_input
+        assert word in scr.text_log.current_prompt, scr.text_log.current_prompt
+        for ch in f"{value}\r":
+            scr.text_log.handle_char(ch)
+
     # Wizard finished
     assert not scr.text_log.is_waiting_for_input
     assert len(scr.roster) == roster_count_before + 1
@@ -88,6 +101,12 @@ def test_roster_screen_character_creation(pygame_setup, asset_mgr):
     assert created.sex == Sex.MALE
     assert created.race == Race.HUMAN
     assert created.profession == Profession.PALADIN
+    # Java ManagePartyScreen.java:185-192 — creation start values
+    assert created.hp == 150 and created.max_hp == 150
+    assert created.food == 150 and created.gold == 150
+    assert created.weapon == WeaponType.NONE
+    assert created.armor == ArmorType.NONE
+    assert created.portrait_index == 5
 
 
 def test_roster_screen_embark_validation(pygame_setup, asset_mgr):

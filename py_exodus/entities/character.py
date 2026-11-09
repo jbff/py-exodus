@@ -331,8 +331,12 @@ class Character(metaclass=CharacterMeta):
         if eligible_level <= self.level:
             return False
 
-        # Mark of Kings is required to advance past level 4 (to level 5+)
-        if eligible_level >= 5 and (not self.marks or self.marks[0] == 0):
+        # Mark of Kings gate (Java truth: objects/SaveGame.java:406). The
+        # check runs against expLvl = exp / 100 — the *index* below the level
+        # about to be reached (getLevel() == lordBritishLevel + 1). The mark
+        # is therefore required only when advancing to level 6+; reaching
+        # level 5 (expLvl == 4) needs no mark.
+        if self.exp // 100 >= 5 and (not self.marks or self.marks[0] == 0):
             return False
 
         levels_gained = eligible_level - self.level
@@ -547,7 +551,10 @@ class Character(metaclass=CharacterMeta):
             "hp": self.hp,
             "max_hp": self.max_hp,
             "mp": self.mp,
-            "max_mp": self.max_mp,
+            # max_mp is deliberately NOT serialized: Java's CharacterRecord
+            # stores current mana only and recomputes maxMana from
+            # profession/stats via getMaxMana() (SaveGame.java:340-375) on
+            # every load. from_dict never reads it back either.
             "level": self.level,
             "exp": self.exp,
             "str": self.str,
@@ -601,7 +608,10 @@ class Character(metaclass=CharacterMeta):
             hp=data.get("hp"),
             max_hp=data.get("max_hp"),
             mp=data.get("mp"),
-            max_mp=data.get("max_mp"),
+            # max_mp is intentionally not read back: it must be recomputed
+            # from the loaded stats/profession (Java SaveGame.getMaxMana),
+            # never trusted from the stored field. Stale "max_mp" keys in old
+            # JSON saves are ignored.
             level=data.get("level", 1),
             exp=data.get("exp", 0),
             status=data.get("status", Status.GOOD),
