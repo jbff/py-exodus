@@ -71,6 +71,8 @@ class TownScreen(BaseScreen):
         self.avatar_y = start_y if start_y is not None else 60
         self.anim_frame = 0
         self.anim_timer = 0.0
+        # Peer Gem (P) view state (Java PeerGemInputAdapter, see gem_view).
+        self.gem_view_active = False
 
         self.world_renderer = (
             WorldRenderer(asset_mgr) if asset_mgr is not None else None
@@ -166,6 +168,13 @@ class TownScreen(BaseScreen):
         if event.type != pygame.KEYDOWN:
             return
 
+        # Java PeerGemInputAdapter.keyUp (GameScreen.java:1146-1152): the
+        # gem view owns all input; any key closes it and restores the timer
+        # with no turn passing.
+        if self.gem_view_active:
+            self.gem_view_active = False
+            return
+
         if self.text_log.is_waiting_for_input:
             self.text_log.handle_event(event)
             return
@@ -214,14 +223,10 @@ class TownScreen(BaseScreen):
         elif event.key == pygame.K_o:
             self._prompt_other()
         elif event.key == pygame.K_p:
-            # Java GameScreen.java:604-605 — P runs peerGem() and falls through
-            # the keyUp tail, so peer commands consume a turn either way.
-            if self.party.gems > 0:
-                self.party.gems -= 1
-                self.text_log.add_message(f"Gem vision: {getattr(self.game_map, 'name', 'Town')} survey at ({self.avatar_x}, {self.avatar_y}).")
-            else:
-                self.text_log.add_message("Peer: None owned!")
-            self._consume_pass_turn()
+            # Java GameScreen.java:604-605 — P runs peerGem() and falls
+            # through the keyUp tail (GameScreen.java:628), so the press
+            # consumes a turn either way, before the view opens.
+            self._peer_gem()
         elif event.key == pygame.K_q:
             # Java GameScreen.java:557-563 — Q is the save command on every
             # GameScreen map; only SOSARIA (id 0) accepts it, so towns always
@@ -680,6 +685,30 @@ class TownScreen(BaseScreen):
 
         self.text_log.prompt("GET> Which party member? (1-4):", callback=_on_who, single_char=True)
 
+    def _peer_gem(self) -> None:
+        """Peer into a mystical gem to view the map.
+
+        Java truth: GameScreen.java:1076-1087 — peerGem() picks the FIRST
+        member holding gems (no member prompt), decrements that member, logs
+        "Peer at a Gem!" and swaps input to PeerGemInputAdapter (map view,
+        timer paused, GameScreen.java:1114-1152); with none it logs
+        "Thou dost have no gems!". P itself (GameScreen.java:604-605) is a
+        GameScreen branch, so towns run it and then the keyUp tail consumes
+        the turn.
+        """
+        from py_exodus.ui.gem_view import (
+            NO_GEMS_MESSAGE,
+            PEER_MESSAGE,
+            consume_peer_gem,
+        )
+
+        if consume_peer_gem(self.party) is not None:
+            self.text_log.add_message(PEER_MESSAGE)
+            self.gem_view_active = True
+        else:
+            self.text_log.add_message(NO_GEMS_MESSAGE)
+        self._consume_pass_turn()
+
     def _prompt_cast(self) -> None:
         """Cast non-combat spells while in town."""
         prompt_cast_party(self.text_log, self.party, world_map=self.game_map, audio=self.audio)
@@ -930,6 +959,18 @@ class TownScreen(BaseScreen):
     def render(self, surface: pygame.Surface) -> None:
         surface.fill(EGA_BLACK)
         w, h = surface.get_width(), surface.get_height()
+
+        # Peer Gem view (Java PeerGemInputAdapter): the gem picture replaces
+        # the whole screen (GameScreen.java:1119-1129); the port drops to a
+        # plain colored-cell map, see py_exodus/ui/gem_view.py.
+        if self.gem_view_active and self.game_map is not None:
+            from py_exodus.ui.gem_view import render_gem_view
+
+            marks = [(npc.x, npc.y) for npc in self.game_map.npcs]
+            marks.extend((c["x"], c["y"]) for c in self.creatures)
+            render_gem_view(surface, self.game_map, self.avatar_x, self.avatar_y, marks=marks)
+            return
+
         scale = 3 if w >= 640 else 1
         v_size = 176 * scale
 

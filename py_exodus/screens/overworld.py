@@ -134,6 +134,8 @@ class OverworldScreen(BaseScreen):
         self._load_world_map()
 
         self.anim_frame = 0
+        # Peer Gem (P) view state (Java PeerGemInputAdapter, see gem_view).
+        self.gem_view_active = False
         self.anim_timer = 0.0
         self.moon_timer = 0.0
         self.moon_phase = 0
@@ -222,6 +224,13 @@ class OverworldScreen(BaseScreen):
 
     def handle_event(self, event: pygame.event.Event) -> None:
         if event.type != pygame.KEYDOWN:
+            return
+
+        # Java PeerGemInputAdapter.keyUp (GameScreen.java:1146-1152): while
+        # the gem view is up it owns ALL input; any key closes it and
+        # restores the timer, with no turn passing.
+        if self.gem_view_active:
+            self.gem_view_active = False
             return
 
         if self.text_log.is_waiting_for_input:
@@ -454,15 +463,26 @@ class OverworldScreen(BaseScreen):
         """Peer into mystical gem to survey surroundings.
 
         Java truth: GameScreen.java:604-605 — P runs peerGem() and falls
-        through the keyUp tail, so peer commands consume a turn even when no
-        gem is owned.
+        through the keyUp tail (GameScreen.java:628), so the press consumes
+        a turn either way, before the view opens. peerGem itself
+        (GameScreen.java:1076-1087) uses the FIRST member holding gems with
+        no member prompt, logs "Peer at a Gem!" and swaps input to
+        PeerGemInputAdapter (map view, timer paused); with none it logs
+        "Thou dost have no gems!".
         """
-        if self.party.gems > 0:
-            self.party.gems -= 1
-            m_name = getattr(self.game_map, "name", "Sosaria")
-            self.text_log.add_message(f"Gem vision: {m_name} at X={self.party.x}, Y={self.party.y}.")
+        from py_exodus.ui.gem_view import (
+            NO_GEMS_MESSAGE,
+            PEER_MESSAGE,
+            consume_peer_gem,
+        )
+
+        if consume_peer_gem(self.party) is not None:
+            self.text_log.add_message(PEER_MESSAGE)
+            # Java: gameTimer.active = False while viewing; the exit key
+            # costs no turn (test_gem_view_exit_consumes_no_turn).
+            self.gem_view_active = True
         else:
-            self.text_log.add_message("None owned!")
+            self.text_log.add_message(NO_GEMS_MESSAGE)
         self._consume_pass_turn()
 
     def _exit_transport(self) -> None:
@@ -1437,6 +1457,24 @@ class OverworldScreen(BaseScreen):
     def render(self, surface: pygame.Surface) -> None:
         surface.fill(EGA_BLACK)
         w, h = surface.get_width(), surface.get_height()
+
+        # Peer Gem view (Java PeerGemInputAdapter): the gem picture replaces
+        # the whole screen (GameScreen.java:1119-1129 — the image is added
+        # over the stage and the HUD is not shown; the port drops to a plain
+        # colored-cell map, see py_exodus/ui/gem_view.py).
+        if self.gem_view_active and self.game_map is not None:
+            from py_exodus.ui.gem_view import render_gem_view
+
+            marks = [
+                (npc.x, npc.y)
+                for npc in self.game_map.npcs
+            ]
+            marks.extend(
+                (c["x"], c["y"]) for c in self.creatures
+            )
+            render_gem_view(surface, self.game_map, self.party.x, self.party.y, marks=marks)
+            return
+
         scale = 3 if w >= 640 else 1
         v_size = 176 * scale
 
