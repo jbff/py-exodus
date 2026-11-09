@@ -804,6 +804,16 @@ def _apply_projectile_attack(
             killed = target_m.is_dead
             if killed:
                 arena.last_monster_death_pos = (target_m.x, target_m.y)
+                # Task 12 row (g): Java castAt → dealDamage(caster, creature,
+                # damage) (Utils.java:604-611) pays the creature's EXP to the
+                # caster on every kill, capped at 9999 (Party.java:372-375).
+                award = getattr(caster_char, "award_xp", None)
+                if callable(award):
+                    award(getattr(target_m, "exp", 0))
+                else:
+                    caster_char.exp = min(
+                        9999, caster_char.exp + getattr(target_m, "exp", 0)
+                    )
             msg = f"{spell.name.capitalize()} strikes {target_m.name} for {dmg} damage!{' Killed!' if killed else ''}"
             return SpellResult(
                 success=True,
@@ -878,6 +888,16 @@ def _apply_group_damage(
                 m.take_damage(dmg)
                 if m.is_dead:
                     arena.last_monster_death_pos = (m.x, m.y)
+                    # Task 12 row (g): Java spellGroupDamage → dealDamage
+                    # (SpellUtil.java:360) pays the creature's EXP on kill,
+                    # capped at 9999 (Party.java:372-375).
+                    award = getattr(caster_char, "award_xp", None)
+                    if callable(award):
+                        award(getattr(m, "exp", 0))
+                    else:
+                        caster_char.exp = min(
+                            9999, caster_char.exp + getattr(m, "exp", 0)
+                        )
                 total_dmg += dmg
                 affected_count += 1
 

@@ -15,9 +15,13 @@ from py_exodus.combat.resolver import (
     AttackVector,
     calculate_monster_damage,
     calculate_player_damage,
+    get_relative_direction_mask,
     resolve_monster_attack,
+    resolve_monster_melee_attack,
+    resolve_monster_ranged_attack,
     resolve_player_attack,
     roll_hit,
+    trace_directional_path,
     trace_projectile_path,
 )
 
@@ -39,8 +43,12 @@ __all__ = [
     "resolve_spell",
     "calculate_monster_damage",
     "calculate_player_damage",
+    "get_relative_direction_mask",
     "resolve_monster_attack",
+    "resolve_monster_melee_attack",
+    "resolve_monster_ranged_attack",
     "resolve_player_attack",
     "roll_hit",
+    "trace_directional_path",
     "trace_projectile_path",
 ]

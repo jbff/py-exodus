@@ -37,6 +37,9 @@ def test_pirate_victory_drops_frigate_not_chest(asset_mgr, sample_party):
         creature_tile="pirate",
         asset_mgr=asset_mgr,
         monster_count=1,
+        encounter_x=10,
+        encounter_y=10,
+        encounter_tile_walkable=False,  # a pirate stands on unwalkable water
     )
 
     # Trigger victory

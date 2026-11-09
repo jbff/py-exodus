@@ -52,8 +52,9 @@ class AttackResolution:
 def roll_hit(attacker_attack_bonus: int, defender_defense: int) -> bool:
     """Evaluate hit roll matching classic Ultima III mechanics.
 
-    Attack Value = rand(0..255) + attacker_bonus.
-    Hit succeeds if Attack Value > defender_defense.
+    Java ``Utils.attackHit`` (Utils.java:592-602): Attack Value =
+    rand.nextInt(256) + attacker_bonus — i.e. rand(0..255) + bonus; the hit
+    lands when Attack Value > defender_defense.
     """
     attack_value = random.randint(0, 255) + attacker_attack_bonus
     return attack_value > defender_defense
@@ -64,9 +65,10 @@ def calculate_player_damage(
 ) -> int:
     """Calculate damage dealt by a player character.
 
-    Formula:
-      max_damage = min(255, weapon.dmax + int(str * 1.5))
-      damage = rand(weapon.dmin .. max_damage)
+    Java truth: ``Party.PartyMember.getDamage`` (Party.java:333-340) —
+    maxDamage = dmax + str * 1.5 (Int math, capped at 255), then
+    ``Utils.getRandomBetween(dmin, maxDamage)`` → ``rand.nextInt(high - low)
+    + low`` (Utils.java:50-52): the HIGH bound is EXCLUSIVE.
     """
     if weapon_def is None:
         dmin, dmax = 4, 4
@@ -76,15 +78,18 @@ def calculate_player_damage(
     max_damage = min(255, int(dmax + character.str * 1.5))
     if max_damage < dmin:
         max_damage = dmin
-    return random.randint(dmin, max_damage)
+    if max_damage > dmin:
+        # nextInt(high - low) + low — high exclusive.
+        return random.randrange(max_damage - dmin) + dmin
+    return dmin
 
 
 def calculate_monster_damage(basehp: int) -> int:
     """Calculate damage dealt by a monster matching classic Ultima III formula.
 
-    Formula:
-      x = rand(0 .. (basehp >> 2) - 1)
-      damage = (x >> 4) + ((x >> 2) & 0xFC) + (x % 10)
+    Java truth: ``Creature.getDamage`` (Creature.java:465-472) —
+    x = nextInt(basehp >> 2); damage = (x >> 4) + ((x >> 2) & 0xFC) + x % 10.
+    There is NO floor: a small monster deals 0 damage.
     """
     shift_val = basehp >> 2
     if shift_val <= 0:
@@ -93,7 +98,87 @@ def calculate_monster_damage(basehp: int) -> int:
         x = random.randint(0, shift_val - 1)
 
     damage = (x >> 4) + ((x >> 2) & 0xFC) + (x % 10)
-    return max(1, damage)
+    return damage
+
+
+def get_relative_direction_mask(width: int, height: int, to_x: int, to_y: int, from_x: int, from_y: int) -> int:
+    """Java ``Utils.getRelativeDirection`` (Utils.java:359-401), fixed border
+    (every combat map is MapBorderBehavior.fixed): the bitmask of the single
+    axis-aligned directions that lead from (from_x, from_y) toward (to_x, to_y).
+    """
+    dx = from_x - to_x
+    dy = from_y - to_y
+    dirmask = 0
+    if dx < 0:
+        dirmask |= Direction.EAST.mask
+    elif dx > 0:
+        dirmask |= Direction.WEST.mask
+    if dy < 0:
+        dirmask |= Direction.SOUTH.mask
+    elif dy > 0:
+        dirmask |= Direction.NORTH.mask
+    return dirmask
+
+
+def trace_directional_path(
+    combat_map: ConflictMap,
+    dirmask: int,
+    start_x: int,
+    start_y: int,
+    min_distance: int = 1,
+    max_distance: int = 11,
+    attack_through_objects: bool = False,
+    check_for_creatures: bool = False,
+    monsters: list[Any] | None = None,
+) -> list[tuple[int, int]]:
+    """Java ``Utils.getDirectionalActionPath`` (Utils.java:446-494) port.
+
+    Walks the mask — which may hold TWO direction bits, so the "bolt" steps
+    diagonally — up to ``max_distance`` tiles. The action stops at the map
+    edge, or on the first blocking tile (unwalkable without rangeattackover,
+    unless ``attack_through_objects``); the blocking tile itself is included
+    in the path exactly as in Java.
+    """
+    from py_exodus.constants import TileAttrib as _TA
+
+    path: list[tuple[int, int]] = []
+    nx = start_x
+    ny = start_y
+    monster_positions: set[tuple[int, int]] = set()
+    if check_for_creatures and monsters:
+        for m in monsters:
+            if not getattr(m, "is_dead", False):
+                monster_positions.add((m.x, m.y))
+
+    for _ in range(min_distance, max_distance + 1):
+        if not (0 <= nx < combat_map.width and 0 <= ny < combat_map.height):
+            break
+
+        monster_blocked = (nx, ny) in monster_positions
+        tile = combat_map.get_tile(nx, ny)
+        tile_blocked = False
+        if tile is not None:
+            attribs = getattr(tile, "attribs", _TA.NONE)
+            tile_blocked = bool(attribs & _TA.UNWALKABLE) and not bool(
+                attribs & _TA.RANGEATTACKOVER
+            )
+        blocked = tile_blocked or monster_blocked
+        can_attack_over = attack_through_objects and tile is not None
+
+        path.append((nx, ny))
+        if blocked and not can_attack_over:
+            break
+
+        if dirmask & Direction.NORTH.mask:
+            ny -= 1
+        if dirmask & Direction.SOUTH.mask:
+            ny += 1
+        if dirmask & Direction.EAST.mask:
+            nx += 1
+        if dirmask & Direction.WEST.mask:
+            nx -= 1
+
+    return path
 
 
 def trace_projectile_path(
@@ -161,6 +246,21 @@ def trace_projectile_path(
     return path
 
 
+def _deal_monster_damage_to_member(target_player: Any, damage: int) -> bool:
+    """Java ``PartyMember.applyDamage(damage, true)`` (Party.java:556-577): the
+    Task 2 chokepoint. Falls back to the pre-chokepoint direct mutation for
+    bare ``Character`` stand-ins (tests) that carry no ``apply_damage``."""
+    apply_damage = getattr(target_player, "apply_damage", None)
+    if callable(apply_damage):
+        return bool(apply_damage(damage, True))
+    new_hp = target_player.hp - damage
+    if new_hp < 0:
+        target_player.status = Status.DEAD
+        new_hp = 0
+    target_player.hp = new_hp
+    return True
+
+
 def resolve_player_attack(
     character: Character,
     weapon_def: WeaponDef | None,
@@ -201,7 +301,14 @@ def resolve_player_attack(
 
     if killed:
         exp_award = getattr(target_monster, "exp", 0)
-        character.exp += exp_award
+        # Java Utils.dealDamage(PartyMember, Creature, damage) → awardXP
+        # (Party.java:372-375, Utils.java:604-611): every player-caused death
+        # pays the creature's EXP, capped at 9999.
+        award = getattr(character, "award_xp", None)
+        if callable(award):
+            award(exp_award)
+        else:
+            character.exp = min(9999, character.exp + exp_award)
         msg = f"{character.name} struck {target_monster.name} for {damage} dmg - Killed! (+{exp_award} EXP)"
     else:
         msg = f"{character.name} struck {target_monster.name} for {damage} dmg."
@@ -216,24 +323,34 @@ def resolve_player_attack(
     )
 
 
-def resolve_monster_attack(
+def resolve_monster_melee_attack(
     monster: Any,
     target_player: Any,
     armor_def: ArmorDef | None = None,
-    is_ranged: bool = False,
+    context_map_id: int | None = None,
 ) -> AttackResolution:
-    """Resolve an attack by a monster against a player character."""
-    # Attacker attack bonus for monsters is 0
-    attack_bonus = getattr(monster, "get_attack_bonus", lambda: 0)()
+    """Resolve a monster's melee ATTACK (Java CombatScreen.java:720-745).
 
-    # Target defense
-    if armor_def is not None:
-        defense = armor_def.defense
+    The hit roll is forced when the combat happens on the Castle of Death
+    (Maps.EXODUS) and the defender is not wearing EXOTIC armor
+    (CombatScreen.java:723). A hit deals ``Creature.getDamage`` through the
+    ``PartyMember.applyDamage(_, True)`` chokepoint; a surviving target can be
+    robbed (CombatScreen.java:733-743). Java logs nothing here (sounds only).
+    """
+    import py_exodus.assets as assets
+
+    # Java CombatScreen.java:723: EXODUS auto-hit vs exotic-armor-less defenders.
+    armor_name = getattr(getattr(target_player, "armor", None), "value", None)
+    if context_map_id == assets.MAP_NAME_TO_ID["EXODUS"] and armor_name != "EXOTIC":
+        is_hit = True
     else:
-        # Default skin defense is 128
-        defense = getattr(target_player, "get_defense", lambda: 128)()
+        attack_bonus = getattr(monster, "get_attack_bonus", lambda: 0)()
+        if armor_def is not None:
+            defense = armor_def.defense
+        else:
+            defense = getattr(target_player, "get_defense", lambda: 128)()
+        is_hit = roll_hit(attack_bonus, defense)
 
-    is_hit = roll_hit(attack_bonus, defense)
     if not is_hit:
         return AttackResolution(
             hit=False,
@@ -241,50 +358,37 @@ def resolve_monster_attack(
             killed=False,
             result=AttackResult.MISS,
             target_pos=(getattr(target_player, "x", 0), getattr(target_player, "y", 0)),
-            message=f"{monster.name} attacked {target_player.name} - Missed!",
+            message="",
         )
 
-    # Hit succeeds - deal damage
     basehp = getattr(monster, "basehp", 48)
     damage = calculate_monster_damage(basehp)
+    # Java: Utils.dealDamage(Creature, target) → applyDamage(damage, true);
+    # False (no effect) when the member was already DEAD.
+    applied = _deal_monster_damage_to_member(target_player, damage)
+    killed = applied and getattr(target_player, "status", None) == Status.DEAD
 
-    char = getattr(target_player, "character", target_player)
-    char.hp = max(0, char.hp - damage)
-    killed = char.hp <= 0
-    if killed:
-        char.status = Status.DEAD
-
-    # Special creature on-hit effects (only if target survived)
     poisoned = False
     stolen_food = 0
     stolen_gold = 0
 
-    if not killed:
-        # Poison check
-        if getattr(monster, "poisons", False) or (is_ranged and getattr(monster, "ranged_hit_tile", "") == "poison"):
-            if char.status != Status.POISONED and random.randint(0, 1) == 0:
-                char.status = Status.POISONED
-                poisoned = True
+    if applied and not killed:
+        # Java CombatScreen.java:733-743 — the melee branch's only on-hit
+        # specials are the thefts (rand.nextInt(8) == 0 gate). NO poison: the
+        # melee creatureAction has no poison path.
+        if getattr(monster, "steals", None) == "food" and random.randrange(8) == 0:
+            # Java: adjustValue(food, -(rand.nextInt(10)), 9999, 0) — 0..9.
+            stolen_food = random.randrange(10)
+            food = getattr(target_player, "food", 0)
+            setattr(target_player, "food", max(0, food - stolen_food))
+        elif getattr(monster, "steals", None) == "gold" and random.randrange(8) == 0:
+            # Java: adjustValue(gold, -(rand.nextInt(40)), 9999, 0) — 0..39.
+            stolen_gold = random.randrange(40)
+            gold = getattr(target_player, "gold", 0)
+            setattr(target_player, "gold", max(0, gold - stolen_gold))
 
-        # Steal effects
-        steals = getattr(monster, "steals", None)
-        if steals == "food" and random.randint(0, 7) == 0:
-            stolen_food = random.randint(1, 10)
-            char.food = max(0, char.food - stolen_food)
-        elif steals == "gold" and random.randint(0, 7) == 0:
-            stolen_gold = random.randint(1, 40)
-            char.gold = max(0, char.gold - stolen_gold)
-
-    msg = f"{monster.name} struck {char.name} for {damage} dmg."
-    if killed:
-        msg += f" {char.name} was slain!"
-    elif poisoned:
-        msg += f" {char.name} was poisoned!"
-    if stolen_food:
-        msg += f" Stole {stolen_food} food!"
-    if stolen_gold:
-        msg += f" Stole {stolen_gold} gold!"
-
+    # Java logs nothing for the creature melee ATTACK (sounds only).
+    msg = ""
     return AttackResolution(
         hit=True,
         damage=damage,
@@ -295,4 +399,109 @@ def resolve_monster_attack(
         stolen_food=stolen_food,
         stolen_gold=stolen_gold,
         message=msg,
+    )
+
+
+def resolve_monster_ranged_attack(
+    monster: Any,
+    target_player: Any,
+    armor_def: ArmorDef | None = None,
+    context_map_id: int | None = None,
+) -> AttackResolution:
+    """Resolve a monster's ranged bolt vs a party member (Java
+    ``CombatScreen.rangedAttackAt``, CombatScreen.java:591-678).
+
+    Java's single ``rangedAttackAt`` body: the hit roll (forced on EXODUS vs a
+    non-EXOTIC defender), then the ``rangedhittile`` effect switch, then —
+    when the bolt HIT — one more ``dealDamage``:
+
+    - fire/lava ("Fiery Hit!") and energy ("Electrified!") roll damage in the
+      effect switch AND again on a hit → damage TWICE on a hit, once on a miss;
+    - poison rolls 1-in-2 to set POISONED (hit or miss, no damage of its own);
+    - magic/rocks/none deal a single damage roll, only on a hit.
+    """
+    import py_exodus.assets as assets
+
+    armor_name = getattr(getattr(target_player, "armor", None), "value", None)
+    if context_map_id == assets.MAP_NAME_TO_ID["EXODUS"] and armor_name != "EXOTIC":
+        hit = True
+    else:
+        attack_bonus = getattr(monster, "get_attack_bonus", lambda: 0)()
+        if armor_def is not None:
+            defense = armor_def.defense
+        else:
+            defense = getattr(target_player, "get_defense", lambda: 128)()
+        hit = roll_hit(attack_bonus, defense)
+
+    hit_tile = (getattr(monster, "ranged_hit_tile", None) or "").lower()
+    effect: str | None = None
+    if hit_tile == "poison":
+        effect = "poison"
+    elif hit_tile == "fire":
+        effect = "fire"
+    elif hit_tile == "energy":
+        effect = "energy"
+
+    damage_total = 0
+    killed = False
+    poisoned = False
+    message_parts: list[str] = []
+
+    basehp = getattr(monster, "basehp", 48)
+
+    def _deal(amount: int) -> None:
+        nonlocal damage_total, killed
+        _deal_monster_damage_to_member(target_player, amount)
+        damage_total += amount
+        killed = getattr(target_player, "status", None) == Status.DEAD
+
+    # Java CombatScreen.java:646-671 — the effect switch, entered whatever the
+    # hit roll said.
+    if effect == "energy":
+        message_parts.append("Electrified!")
+        _deal(calculate_monster_damage(basehp))
+    elif effect == "fire":
+        message_parts.append("Fiery Hit!")
+        _deal(calculate_monster_damage(basehp))
+    elif effect == "poison":
+        # CombatScreen.java:661-667 — 1-in-2 to poison a non-poisoned member.
+        if random.randrange(2) == 0 and getattr(target_player, "status", None) != Status.POISONED:
+            if not getattr(target_player, "is_dead", lambda: False)():
+                target_player.status = Status.POISONED
+                poisoned = True
+                message_parts.append("Poisoned!")
+
+    # CombatScreen.java:673-675 — the hit's own dealDamage.
+    if hit:
+        _deal(calculate_monster_damage(basehp))
+        if effect in (None, "magic", "rocks") and not message_parts:
+            pass  # Java logs nothing for the plain bolt
+    elif effect == "poison" and not poisoned:
+        pass  # a missed poison bolt leaves no trace
+
+    return AttackResolution(
+        hit=hit,
+        damage=damage_total,
+        killed=killed,
+        result=AttackResult.HIT if hit else AttackResult.MISS,
+        target_pos=(getattr(target_player, "x", 0), getattr(target_player, "y", 0)),
+        poisoned=poisoned,
+        message="".join(f"{p}\n" for p in message_parts).rstrip("\n"),
+    )
+
+
+def resolve_monster_attack(
+    monster: Any,
+    target_player: Any,
+    armor_def: ArmorDef | None = None,
+    is_ranged: bool = False,
+    context_map_id: int | None = None,
+) -> AttackResolution:
+    """Resolve an attack by a monster against a player character."""
+    if is_ranged:
+        return resolve_monster_ranged_attack(
+            monster, target_player, armor_def=armor_def, context_map_id=context_map_id
+        )
+    return resolve_monster_melee_attack(
+        monster, target_player, armor_def=armor_def, context_map_id=context_map_id
     )

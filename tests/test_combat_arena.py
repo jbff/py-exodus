@@ -100,20 +100,20 @@ def test_player_movement_and_terrain_collision(asset_mgr, conflict_map):
         assert arena.player_positions[0] == expected_pos
 
 
-def test_player_flee_off_boundary(asset_mgr, conflict_map):
+def test_player_off_edge_move_blocked(asset_mgr, conflict_map):
+    """Java CombatScreen.preMove (CombatScreen.java:413-446): FLEE is commented
+    out; stepping off the arena plays BLOCKED and consumes the move."""
     party = Party()
     party.add_member(Character("Hero", "M", Race.HUMAN, Profession.FIGHTER))
 
     arena = CombatArena(party, conflict_map, creature_tile="orc", asset_mgr=asset_mgr, monster_count=1)
-    # Position hero on southern edge (y=10)
     arena.player_positions[0] = (5, 10)
 
-    # Step South off map (y=11 is out of bounds)
     res = arena.execute_player_action(0, Action.move(Direction.SOUTH))
-    assert res.fled
-    assert party.members[0].fled
-    assert arena.is_finished
-    assert arena.is_fled
+    assert not res.success
+    assert arena.player_positions[0] == (5, 10)
+    assert not party.members[0].fled
+    assert not arena.is_finished
     assert not arena.is_defeat
     assert not arena.is_victory
 
@@ -235,27 +235,6 @@ def test_monster_ai_advancement_and_melee_attack(asset_mgr, conflict_map):
     assert monster_results_2[0].action_type == "attack"
 
 
-def test_poison_tick_and_succumb(asset_mgr, conflict_map):
-    party = Party()
-    hero = Character("PoisonedHero", "M", Race.HUMAN, Profession.FIGHTER, hp=1, status=Status.POISONED)
-    party.add_member(hero)
-
-    arena = CombatArena(party, conflict_map, creature_tile="orc", asset_mgr=asset_mgr, monster_count=1)
-    # Move monster far away so it doesn't kill hero in melee
-    arena.monsters[0].x = 0
-    arena.monsters[0].y = 0
-    arena.player_positions[0] = (10, 10)
-
-    # Monster turns execute, then poison tick applies
-    arena.execute_monster_turns()
-    # Hero had 1 HP, 2 poison damage drives hp below 0 -> dies (Java
-    # Party.java:565: only newHp < 0 is death; exactly 0 survives)
-    assert hero.hp == 0
-    assert hero.status == Status.DEAD
-    assert arena.is_defeat
-    assert arena.is_finished
-
-
 def test_chest_spawning_rules(asset_mgr, conflict_map):
     # 1. Normal land victory -> Spawns chest
     party1 = Party(transport=Transport.FOOT)
@@ -269,10 +248,12 @@ def test_chest_spawning_rules(asset_mgr, conflict_map):
     assert arena1.is_victory
     assert arena1.chest_spawned
 
-    # 2. Ship combat victory -> No chest spawned
+    # 2. Pirate defeated on unwalkable water -> No chest, boardable frigate
+    #    at the creature's tile (Java GameScreen.java:425-431)
     party2 = Party(transport=Transport.SHIP)
     party2.add_member(Character("Hero", "M", Race.HUMAN, Profession.FIGHTER, dexterity=50, strength=50))
-    arena2 = CombatArena(party2, conflict_map, creature_tile="pirate", asset_mgr=asset_mgr, monster_count=1)
+    arena2 = CombatArena(party2, conflict_map, creature_tile="pirate", asset_mgr=asset_mgr, monster_count=1,
+                         encounter_x=21, encounter_y=7, encounter_tile_walkable=False)
     arena2.monsters[0].hp = 1
     arena2.monsters[0].x = 5
     arena2.monsters[0].y = 4
@@ -334,7 +315,7 @@ def test_combat_resolver_calculations(asset_mgr):
     assert m_dmg >= 1
 
 
-def test_poisonous_monster_fatal_blow_preserves_dead_status(asset_mgr):
+def test_poisonous_monster_fatal_blow_preserves_dead_status(asset_mgr, monkeypatch):
     # Verify that fatal damage from a poisonous monster leaves character DEAD, not POISONED
     m_def = asset_mgr.get_creature("snake")
     if m_def is None:
@@ -346,7 +327,13 @@ def test_poisonous_monster_fatal_blow_preserves_dead_status(asset_mgr):
     monster = CombatMonster(m_def, x=5, y=5)
     char = Character("Hero", "M", Race.HUMAN, Profession.FIGHTER, hp=1, status=Status.GOOD)
 
-    # Over 20 trials, every lethal hit must result in Status.DEAD and never Status.POISONED
+    # Over 20 trials, every lethal hit must result in Status.DEAD and never
+    # Status.POISONED. Java's melee creatureAction has no poison path at all
+    # (CombatScreen.java:720-745); death is newHp < 0 (Party.java:565), so the
+    # blow is made decisively fatal with a patched damage roll.
+    from py_exodus.combat import resolver as resolver_mod
+
+    monkeypatch.setattr(resolver_mod, "calculate_monster_damage", lambda basehp=48: 5)
     for _ in range(20):
         char.hp = 1
         char.status = Status.GOOD

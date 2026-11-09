@@ -21,7 +21,7 @@ from py_exodus.constants import (
     Spell,
     WeaponType,
 )
-from py_exodus.entities.party import PartyMember
+from py_exodus.entities.party import PartyDeathException, PartyMember
 from py_exodus.screens.base import BaseScreen
 from py_exodus.ui.renderer import WorldRenderer
 from py_exodus.ui.stats_panel import StatsPanel
@@ -56,6 +56,10 @@ class CombatScreen(BaseScreen):
         audio: AudioManager | None = None,
         return_screen: BaseScreen | None = None,
         monster_count: int | None = None,
+        context_map_id: int | None = None,
+        encounter_x: int | None = None,
+        encounter_y: int | None = None,
+        encounter_tile_walkable: bool | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(return_screen=return_screen, **kwargs)
@@ -71,6 +75,10 @@ class CombatScreen(BaseScreen):
             creature_tile=creature_tile,
             asset_mgr=asset_mgr,
             monster_count=monster_count,
+            context_map_id=context_map_id,
+            encounter_x=encounter_x,
+            encounter_y=encounter_y,
+            encounter_tile_walkable=encounter_tile_walkable,
         )
 
         self.world_renderer = (
@@ -130,6 +138,15 @@ class CombatScreen(BaseScreen):
         if active_member is None:
             return
 
+        # Java CombatScreen.keyUp (CombatScreen.java:290-362) wraps the whole
+        # key pipeline in its PartyDeathException catch → the return screen
+        # routes partyDeath. In a tile-effect wipe mid-move that matters.
+        try:
+            self._on_combat_key(event)
+        except PartyDeathException:
+            self.check_party_death()
+
+    def _on_combat_key(self, event: pygame.event.Event) -> None:
         # Movement keys (Arrow keys and Keypad)
         if event.key in (pygame.K_UP, pygame.K_KP8):
             self._execute_action(Action.move(Direction.NORTH))
@@ -141,8 +158,6 @@ class CombatScreen(BaseScreen):
             self._execute_action(Action.move(Direction.EAST))
         elif event.key in (pygame.K_SPACE, pygame.K_p):
             self._execute_action(Action.pass_turn())
-        elif event.key == pygame.K_f:
-            self._execute_action(Action(ActionType.FLEE, direction=Direction.SOUTH))
         elif event.key == pygame.K_a:  # Attack command
             self._prompt_attack()
         elif event.key == pygame.K_c:  # Cast command
@@ -440,19 +455,21 @@ class CombatScreen(BaseScreen):
             elif action.type == ActionType.MOVE:
                 self.audio.play_sfx("walk_normal")
 
-        # Check end states
+        # Check end states. Java logs exactly one line via
+        # GameScreen.endCombat (GameScreen.java:421-437): "Victory!" on a win,
+        # "Battle is lost!" when someone fled — there is no is_fled outcome
+        # left (FLEE is commented out of Java's CombatScreen), so the branch
+        # is gone here too. The chest/frigate placement already happened in
+        # CombatArena._handle_victory (GameScreen.java:425-431).
         if self.arena.is_finished:
             if self.arena.is_victory:
-                self.text_log.add_message("VICTORY! All foes slain.")
+                self.text_log.add_message("Victory!")
                 self.text_log.add_message("Press Enter to continue.")
                 if self.audio is not None:
                     self.audio.play_sfx("Fanfare")
             elif self.arena.is_defeat:
                 self.text_log.add_message("DEFEAT! Thy party has fallen.")
                 self.text_log.add_message("Press Enter to continue.")
-            elif self.arena.is_fled:
-                self.text_log.add_message("Escaped from combat!")
-                self.exit_screen()
 
     def _handle_defeat_exit(self) -> None:
         """Handle wipeout defeat: combat ends as a loss → game over.

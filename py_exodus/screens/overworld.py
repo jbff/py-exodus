@@ -15,6 +15,7 @@ from py_exodus.constants import (
     Direction,
     MapType,
     Status,
+    TileAttrib,
     Transport,
 )
 from py_exodus.entities.party import PartyDeathException
@@ -50,8 +51,60 @@ from py_exodus.world import tile_effects
 if TYPE_CHECKING:
     from py_exodus.assets import AssetManager
     from py_exodus.audio import AudioManager
+    from py_exodus.entities.defs import CreatureDef
     from py_exodus.entities.party import Party
     from py_exodus.world.map import GameMap
+
+
+def get_combat_map_id(
+    creature: CreatureDef | str,
+    creature_x: int,
+    creature_y: int,
+    party_x: int,
+    party_y: int,
+    transport: Transport,
+    game_map: GameMap | None,
+) -> int:
+    """Java ``Context.getCombatMap`` (Context.java:303-326) port.
+
+    The base arena is the COMBAT-MAP RULE of the tile the creature stands on
+    (``bm.getTile(creatureX, creatureY).getCombatMap()``). A swimming creature
+    lands on CONFLICT_SHORE and a sailing one on CONFLICT_SHIP_TOP when the
+    party's tile is walkable — so a sea creature met on land never forces
+    BOTH_SHIPS. Sailing overrides everything for the whole encounter."""
+
+    def _tile(x: int, y: int) -> Any:
+        return game_map.get_tile(x, y) if game_map is not None else None
+
+    c_tile = _tile(creature_x, creature_y)
+    combat_map_id = getattr(c_tile, "combat_map_id", None)
+    if combat_map_id is None:
+        combat_map_id = getattr(c_tile, "combat_map", 37)
+    party_tile = _tile(party_x, party_y)
+    party_unwalkable = bool(
+        getattr(party_tile, "attribs", 0) & TileAttrib.UNWALKABLE
+    ) if party_tile is not None else False
+
+    swims = getattr(creature, "swims", False) if not isinstance(creature, str) else False
+    sails = getattr(creature, "sails", False) if not isinstance(creature, str) else False
+    tile_name = getattr(
+        creature, "tile", creature if isinstance(creature, str) else ""
+    ).lower()
+
+    if swims and not party_unwalkable:
+        combat_map_id = 38  # CONFLICT_SHORE
+    elif sails and not party_unwalkable:
+        combat_map_id = 33  # CONFLICT_SHIP_TOP (CONFLICT_SHORE's sail variant)
+
+    if transport == Transport.SHIP:
+        if sails or tile_name == "pirate":
+            combat_map_id = 41  # CONFLICT_BOTH_SHIPS
+        elif swims:
+            combat_map_id = 39  # CONFLICT_SHIP
+        else:
+            combat_map_id = 40  # CONFLICT_SHIP_BOTTOM
+
+    return combat_map_id
 
 
 class OverworldScreen(BaseScreen):
@@ -869,7 +922,9 @@ class OverworldScreen(BaseScreen):
 
             if found_creature is not None:
                 self.creatures.pop(found_idx)
-                self._trigger_combat(found_creature.get("tile_name", "orc"))
+                self._trigger_combat(
+                    found_creature.get("tile_name", "orc"), found_creature
+                )
             else:
                 self.text_log.add_message("You attack the empty air!")
 
@@ -1265,10 +1320,18 @@ class OverworldScreen(BaseScreen):
         self.creatures = survivors
 
         if encounter_creature is not None:
-            self._trigger_combat(encounter_creature.get("tile_name", "orc"))
+            self._trigger_combat(
+                encounter_creature.get("tile_name", "orc"), encounter_creature
+            )
 
-    def _trigger_combat(self, creature_name: str) -> None:
-        """Initiate tactical combat screen with creature."""
+    def _trigger_combat(self, creature_name: str, creature: dict[str, Any] | None = None) -> None:
+        """Initiate tactical combat screen with creature.
+
+        Java truth: the arena map comes from ``Context.getCombatMap``
+        (Context.java:303-326) — the tile-rule combat map of the tile the
+        CREATURE stands on, overridden by the swim/sail variants and the
+        party's transport.
+        """
         if self.asset_mgr is None:
             return
 
@@ -1276,15 +1339,29 @@ class OverworldScreen(BaseScreen):
         if c_tile not in ("orc", "skeleton", "giant", "thief", "daemon", "dragon", "balron", "pirate", "serpent", "squid"):
             c_tile = "orc"
 
-        tile = self.game_map.get_tile(self.party.x, self.party.y) if self.game_map else None
-        tile_name = getattr(tile, "name", "grass").lower()
+        creature_x = int(creature.get("x", self.party.x)) if creature else self.party.x
+        creature_y = int(creature.get("y", self.party.y)) if creature else self.party.y
+        c_def = self.asset_mgr.get_creature(c_tile)
+        if c_def is None:
+            c_def = self.asset_mgr.get_creature("thief" if c_tile == "pirate" else c_tile)
 
-        if c_tile in ("pirate", "serpent", "squid") or "water" in tile_name:
-            conflict_map_id = 41
-        elif "brush" in tile_name or "forest" in tile_name:
-            conflict_map_id = 34
-        else:
-            conflict_map_id = 37
+        conflict_map_id = get_combat_map_id(
+            c_def if c_def is not None else creature_name,
+            creature_x,
+            creature_y,
+            self.party.x,
+            self.party.y,
+            self.party.transport,
+            self.game_map,
+        )
+
+        # Java GameScreen.endCombat (GameScreen.java:416-431) re-reads the
+        # encounter CREATURE's overworld tile at combat end: the chest lands
+        # there when the tile is walkable, a pirate otherwise leaves a frigate.
+        encounter_tile = self.game_map.get_tile(creature_x, creature_y) if self.game_map else None
+        encounter_unwalkable = bool(
+            getattr(encounter_tile, "attribs", 0) & TileAttrib.UNWALKABLE
+        ) if encounter_tile is not None else False
 
         try:
             from py_exodus.screens.combat_screen import CombatScreen
@@ -1300,6 +1377,10 @@ class OverworldScreen(BaseScreen):
                 audio=self.audio,
                 return_screen=self,
                 manager=self.manager,
+                context_map_id=self.game_map.id if self.game_map else None,
+                encounter_x=creature_x,
+                encounter_y=creature_y,
+                encounter_tile_walkable=not encounter_unwalkable,
             )
             if self.manager is not None:
                 self.manager.push_screen(combat_scr)

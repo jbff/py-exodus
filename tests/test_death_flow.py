@@ -120,73 +120,13 @@ def test_apply_damage_is_noop_on_dead_member():
     assert hero.hp == 0
 
 
-# --- Combat poison tick routes through the death flow's combat loss ---
-
-
-def test_combat_poison_tick_uses_apply_damage_zerohp_survival(sm, asset_mgr):
-    """The round poison tick applies damage via PartyMember.apply_damage
-    (Party.java:612-618 damage lands on the member, not raw hp), so the tick
-    obeys Java's newHp < 0 death rule: exactly 0 hp after the tick stays
-    alive at the member level."""
-    from py_exodus.world.loader import MapLoader
-
-    loader = MapLoader(asset_mgr)
-    c_map = loader.load_conflict_map("CNFLCT_B.ULT")
-
-    party = single_member_party(hp=2)
-    hero = party.get_member(0)
-    hero.status = Status.POISONED
-
-    combat = CombatScreen(
-        party=party,
-        combat_map=c_map,
-        creature_tile="orc",
-        asset_mgr=asset_mgr,
-        manager=sm,
-    )
-    sm.push_screen(combat)
-
-    combat.arena._apply_poison_tick()
-    assert hero.hp == 0
-    assert hero.status != Status.DEAD  # Java Party.java:565 — only < 0 dies
-    assert not party.is_party_dead()
-
-
-def test_combat_poison_tick_death_routes_to_game_over(sm, asset_mgr):
-    """Tick damage pushing the last member below 0 kills them and the
-    existing combat-loss routing (unchanged) ends combat as a loss and
-    routes game over."""
-    from py_exodus.world.loader import MapLoader
-
-    loader = MapLoader(asset_mgr)
-    c_map = loader.load_conflict_map("CNFLCT_B.ULT")
-
-    party = single_member_party(hp=1)
-    hero = party.get_member(0)
-    hero.status = Status.POISONED
-
-    combat = CombatScreen(
-        party=party,
-        combat_map=c_map,
-        creature_tile="orc",
-        asset_mgr=asset_mgr,
-        manager=sm,
-    )
-    sm.push_screen(combat)
-
-    combat.arena._apply_poison_tick()
-    assert hero.status == Status.DEAD
-    assert hero.hp == 0
-
-    combat.arena._evaluate_party_status()
-    assert combat.arena.is_defeat
-
-    combat.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RETURN))
-
-    from py_exodus.screens.start import StartScreen
-
-    assert isinstance(sm.current_screen, StartScreen)
-    assert sm.current_screen.game_over is True
+# --- Combat poison tick (removed, Task 12) --------------------------------
+#
+# Java's CombatScreen.round has no per-round poison tick (the ROUND-ENDED
+# poison damage belongs to Party.endTurn, out of the arena). Task 12 deleted
+# arena._apply_poison_tick; the combat-loss → game-over routing it fed is
+# still locked by tests/test_game_loop.py's defeat tests and the ranged-poison
+# mechanics live in tests/test_combat_parity.py.
 
 
 # --- Journey Onward after game over reads the on-disk save, not the dead party ---
