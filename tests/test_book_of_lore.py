@@ -18,6 +18,7 @@ from py_exodus.assets import AssetManager
 from py_exodus.screens.base import BaseScreen
 from py_exodus.screens.book import (
     BookScreen,
+    PAGE_ROWS,
     load_lore_pages,
     load_lore_sections,
     spell_reference_pages,
@@ -96,6 +97,22 @@ class TestLoreLoading:
         # Lore pages come first, verbatim; the spell reference is appended last
         assert scr.pages == lore + ref_pages
 
+    def test_pages_use_the_full_page_height(self, asset_mgr):
+        """Pages carry PAGE_ROWS lines (up from the old 8), filling the area."""
+        for page in load_lore_pages() + spell_reference_pages():
+            assert len(page.splitlines()) <= PAGE_ROWS
+        # Most lore sections break into full pages rather than thin slivers
+        lore = load_lore_pages()
+        full = sum(1 for page in lore if len(page.splitlines()) == PAGE_ROWS)
+        assert full > len(lore) / 2
+
+    def test_page_count_is_plausible_for_the_dense_layout(self, asset_mgr):
+        """Task-density fix: old layout was ~190 turns (8 rows/page); the new
+        54x14 layout turns the whole book in roughly half that."""
+        scr = BookScreen(asset_mgr=asset_mgr)
+        assert scr.page_count < 130
+        assert scr.page_count > 50  # still a real book
+
 
 class TestPaging:
     def test_turn_forward_and_back(self, asset_mgr):
@@ -142,6 +159,15 @@ class TestPaging:
         scr = BookScreen(asset_mgr=asset_mgr)
         surface = pygame.Surface((320, 200))
         for _ in range(scr.page_count):
+            scr.render(surface)
+            scr.turn_forward()
+
+    def test_render_scaled_resolution_fits_between_header_and_footer(self, asset_mgr):
+        """The book fills the 3x viewport: page rows fit between the header
+        divider and the footer rule at 960x600."""
+        scr = BookScreen(asset_mgr=asset_mgr)
+        surface = pygame.Surface((960, 600))
+        for i in range(scr.page_count):
             scr.render(surface)
             scr.turn_forward()
 

@@ -51,6 +51,69 @@ def mark_and_card_rows(pm: object) -> list[str]:
     return rows
 
 
+def _inventory_rows(cells: list[str], prefix: str, per_row: int = 2) -> list[str]:
+    """Rows listing a full weapon/armor inventory, 2 cells per row.
+
+    Java zstats lists every non-zero inventory entry (exodus/Party.java:673-697
+    pairs two ArmorType/WeaponType names per line, then appends the EXOTIC
+    entry), so nothing here is truncated.
+    """
+    rows: list[str] = []
+    if not cells:
+        return rows
+    rows.append(f"{prefix}: " + "  ".join(cells[:per_row]))
+    for i in range(per_row, len(cells), per_row):
+        rows.append("   " + "  ".join(cells[i : i + per_row]))
+    return rows
+
+
+def inspect_rows(pm: object) -> list[str]:
+    """Zstats inspection rows for one member, in Java getZstats order
+    (exodus/Party.java:669-715): the race/sex/class/status identity line,
+    HEALTH/MAXHEALTH, MANA/LV, the STR/DEX/INT/WIS pairs with EXP, the
+    readied weapon and worn armor, torch/gem/key/powder counts, per-member
+    GOLD and FOOD, then the full armor and weapon inventory listings and the
+    mark/card rows. The name header is drawn separately by StatsPanel.
+    """
+    race = getattr(getattr(pm, "race", None), "name", "")
+    sex = getattr(getattr(pm, "sex", None), "value", "")
+    prof = getattr(getattr(pm, "profession", None), "name", "")
+    status = getattr(pm.status, "value", str(pm.status))
+    st = status[0].upper() if status else "?"
+    rows = [
+        f"{race} {sex} {prof} ST:{st}",
+        f"HP:{pm.hp}/{pm.max_hp}",
+        f"MANA:{pm.mp} LV:{pm.level}",
+        f"STR:{pm.str} DEX:{pm.dex}",
+        f"INT:{pm.int} WIS:{pm.wis}",
+        f"EXP:{pm.exp}",
+        f"WPN: {getattr(pm.weapon, 'value', str(pm.weapon))}",
+        f"ARM: {getattr(pm.armor, 'value', str(pm.armor))}",
+        f"TORCH:{pm.torches} GEMS:{pm.gems}",
+        f"KEYS:{pm.keys} POWD:{pm.powder}",
+        f"GOLD:{pm.gold} FOOD:{pm.food}",
+    ]
+    armor_cells = [
+        f"{getattr(at, 'name', at)}({cnt})" for at, cnt in pm.armors.items() if cnt > 0
+    ]
+    rows.extend(_inventory_rows(armor_cells, "A"))
+    weapon_cells = [
+        f"{getattr(wt, 'name', wt)}({cnt})" for wt, cnt in pm.weapons.items() if cnt > 0
+    ]
+    rows.extend(_inventory_rows(weapon_cells, "W"))
+    rows.extend(mark_and_card_rows(pm))
+    return rows
+
+
+def inspect_row_color(row: str) -> tuple[int, int, int]:
+    """Draw color for an inspect row: inventory gray, supplies/mark rows green."""
+    if row.startswith(("W:", "A:", " ")):
+        return EGA_LIGHT_GRAY
+    if row.startswith(("MARK", "CARD", "TORCH", "KEYS")):
+        return EGA_BRIGHT_GREEN
+    return EGA_WHITE
+
+
 class StatsPanel:
     """Renders the party sidebar with member stats, status conditions, active transport,
 
@@ -183,34 +246,12 @@ class StatsPanel:
             if 0 <= eff_inspect < len(party.members):
                 target_pm = party.members[eff_inspect]
                 draw_line(f"-- {target_pm.name.upper()} --", EGA_BRIGHT_CYAN)
-                draw_line(f"STR:{target_pm.str:<3} DEX:{target_pm.dex:<3}", EGA_WHITE)
-                draw_line(f"INT:{target_pm.int:<3} WIS:{target_pm.wis:<3}", EGA_WHITE)
-                draw_line(f"LVL:{target_pm.level:<3} EXP:{target_pm.exp:<5}", EGA_WHITE)
-
-                wpn = getattr(target_pm.weapon, "value", str(target_pm.weapon))
-                arm = getattr(target_pm.armor, "value", str(target_pm.armor))
-                draw_line(f"WPN:{wpn}", EGA_WHITE)
-                draw_line(f"ARM:{arm}", EGA_WHITE)
-
-                # Show owned weapons and armors inventory
-                wpn_inv = [f"{wt.name[:3]}({cnt})" for wt, cnt in target_pm.weapons.items() if cnt > 0]
-                arm_inv = [f"{at.name[:3]}({cnt})" for at, cnt in target_pm.armors.items() if cnt > 0]
-                if wpn_inv:
-                    draw_line(f"W:{' '.join(wpn_inv[:3])}", EGA_LIGHT_GRAY)
-                if arm_inv:
-                    draw_line(f"A:{' '.join(arm_inv[:3])}", EGA_LIGHT_GRAY)
-
-                draw_line(
-                    f"KEYS:{target_pm.keys:<3} GEMS:{target_pm.gems:<3}",
-                    EGA_BRIGHT_GREEN,
-                )
-                draw_line(
-                    f"TORCH:{target_pm.torches:<2} POWD:{target_pm.powder:<2}",
-                    EGA_BRIGHT_GREEN,
-                )
-                # Marks and cards (exodus/Party.java:703-715)
-                for row in mark_and_card_rows(target_pm):
-                    draw_line(row, EGA_BRIGHT_GREEN)
+                # Full zstats inspection (exodus/Party.java:669-715); colors
+                # per row kind via inspect_row_color.
+                for row in inspect_rows(target_pm):
+                    draw_line(row, inspect_row_color(row))
+                    if curr_y > target_rect.bottom:
+                        break
             elif eff_inspect == -1:
                 # Pooled party supplies inspection
                 draw_line("-- SUPPLIES --", EGA_BRIGHT_CYAN)

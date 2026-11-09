@@ -49,8 +49,15 @@ CREATION_MAX_POINTS = 50
 
 
 def get_starter_roster() -> list[Character]:
-    """Return an initial pool of classic adventurer recruits."""
-    return [
+    """Return an initial pool of classic adventurer recruits.
+
+    Starting MP is original-rules parity (user-directed deviation): casters
+    carry spell points equal to the max from the CharacterRecord.getMaxMana
+    formula (SaveGame.java:340-376) — WIZARD/CLERIC whole governing stat,
+    others half — and non-casters 0. Java's roster writer itself never seeds
+    mana, hence the explicit fill-in instead of hardcoded values.
+    """
+    recruits = [
         Character(
             name="Fighter",
             sex=Sex.MALE,
@@ -78,7 +85,6 @@ def get_starter_roster() -> list[Character]:
             wisdom=24,
             hp=100,
             max_hp=100,
-            mp=24,
             weapon=WeaponType.MACE,
             armor=ArmorType.CLOTH,
             food=150,
@@ -95,7 +101,6 @@ def get_starter_roster() -> list[Character]:
             wisdom=11,
             hp=100,
             max_hp=100,
-            mp=25,
             weapon=WeaponType.DAGGER,
             armor=ArmorType.CLOTH,
             food=150,
@@ -128,7 +133,6 @@ def get_starter_roster() -> list[Character]:
             wisdom=15,
             hp=130,
             max_hp=130,
-            mp=15,
             weapon=WeaponType.BOW,
             armor=ArmorType.LEATHER,
             food=150,
@@ -151,6 +155,10 @@ def get_starter_roster() -> list[Character]:
             gold=50,
         ),
     ]
+    for rec in recruits:
+        # Original-rules starting MP (SaveGame.java:340-376 getMaxMana).
+        rec.mp = rec.compute_max_mp()
+    return recruits
 
 
 class RosterScreen(BaseScreen):
@@ -437,6 +445,16 @@ class RosterScreen(BaseScreen):
                 gold=150,
                 portrait_index=self._new_char_data["portrait"],
             )
+            # Starting spell points: original-rules parity (user-directed
+            # deviation). Java's own creator (ManagePartyScreen.java) never
+            # touches mana — created casters ticked up to 1 MP via the first
+            # endTurn meal regeneration instead (SaveGame.java:387 clamps
+            # mana to getMaxMana()). The C64 original starts a caster with
+            # spell points equal to the max computed by the same formula as
+            # CharacterRecord.getMaxMana (SaveGame.java:340-376), so a
+            # casting profession starts full and a non-caster (capability 0)
+            # starts at 0.
+            new_char.mp = new_char.compute_max_mp()
             self.roster.append(new_char)
             self.selected_roster_idx = len(self.roster) - 1
             self.text_log.add_message(f"Created {name} ({prof.name})! Added to roster.")

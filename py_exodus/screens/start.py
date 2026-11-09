@@ -65,7 +65,6 @@ def create_default_starter_party() -> Party:
         wisdom=24,
         hp=100,
         max_hp=100,
-        mp=24,
         exp=0,
         weapon=WeaponType.MACE,
         armor=ArmorType.CLOTH,
@@ -81,7 +80,6 @@ def create_default_starter_party() -> Party:
         wisdom=11,
         hp=100,
         max_hp=100,
-        mp=25,
         exp=0,
         weapon=WeaponType.DAGGER,
         armor=ArmorType.CLOTH,
@@ -101,6 +99,14 @@ def create_default_starter_party() -> Party:
         weapon=WeaponType.SLING,
         armor=ArmorType.LEATHER,
     )
+    for c in (c1, c2, c3, c4):
+        # Starting MP: original-rules parity — casters start with spell
+        # points equal to the max from the CharacterRecord.getMaxMana
+        # formula (Java SaveGame.java:340-376); non-casters stay at 0.
+        # Java's own creator never seeds mana, so this is a deliberate,
+        # user-directed deviation applied consistently to recruited and
+        # quick-started characters alike.
+        c.mp = c.compute_max_mp()
     return Party(
         members=[c1, c2, c3, c4],
         # Default new-game start (Java SaveGame.java:164-169): (45, 19) —

@@ -3,11 +3,11 @@ from __future__ import annotations
 
 import pygame
 
-from py_exodus.constants import Profession, Race, Status, Transport
+from py_exodus.constants import ArmorType, Profession, Race, Status, Transport, WeaponType
 from py_exodus.entities.character import Character
 from py_exodus.entities.party import Party
-from py_exodus.ui.stats_panel import StatsPanel
-from py_exodus.ui.text_log import TextLog
+from py_exodus.ui.stats_panel import StatsPanel, inspect_row_color, inspect_rows
+from py_exodus.ui.text_log import EGA_BRIGHT_GREEN, EGA_LIGHT_GRAY, EGA_WHITE, TextLog
 
 
 def test_text_log_prompt():
@@ -241,6 +241,105 @@ def test_stats_panel_inspect_mode():
 
     # Inspect pooled party resources
     panel.render(surf, party, inspect_index=-1)
+
+
+# --- Zstats inspect rows (exodus/Party.java:669-715 getZstats column set) ---
+# One test per row newly ported from Java getZstats.
+
+
+def _inspect_member() -> Character:
+    """A fully loaded member to exercise every zstats row."""
+    c = Character(
+        "Hero",
+        "M",
+        Race.ELF,
+        Profession.WIZARD,
+        hp=150,
+        mp=25,
+        exp=450,
+        keys=5,
+        gems=8,
+        torches=12,
+        powder=3,
+        food=150,
+        gold=150,
+    )
+    c.weapons[WeaponType.MACE] = 2
+    c.weapons[WeaponType.SWORD] = 1
+    c.weapons[WeaponType.EXOTIC] = 4
+    c.armors[ArmorType.LEATHER] = 2
+    c.armors[ArmorType.CHAIN] = 1
+    c.armors[ArmorType.EXOTIC] = 3
+    return c
+
+
+def test_inspect_row_identity_race_sex_class_status():
+    """Java line 1: name  Race|Profession|Sex STATUS: G."""
+    rows = inspect_rows(_inspect_member())
+    assert "ELF M WIZARD ST:G" in rows
+
+
+def test_inspect_row_health_and_maxhealth():
+    """Java rows: HEALTH and MAXHEALTH."""
+    rows = inspect_rows(_inspect_member())
+    assert "HP:150/150" in rows
+
+
+def test_inspect_row_mana_and_level():
+    """Java rows: MANA and LV."""
+    rows = inspect_rows(_inspect_member())
+    assert "MANA:25 LV:1" in rows
+
+
+def test_inspect_row_gold_and_food_are_per_member():
+    """Java shows GOLD and FOOD from the member record, not party pools."""
+    m = _inspect_member()
+    m.gold = 777
+    rows = inspect_rows(m)
+    assert "GOLD:777 FOOD:150" in rows
+
+
+def test_inspect_row_armor_inventory_lists_every_entry():
+    """Java armor listing pairs every non-zero ArmorType incl. EXOTIC."""
+    rows = inspect_rows(_inspect_member())
+    text = "\n".join(rows)
+    assert "A: LEATHER(2)  CHAIN(1)" in text
+    assert "EXOTIC(3)" in text
+
+
+def test_inspect_row_weapon_inventory_lists_every_entry():
+    """Java weapon listing pairs every non-zero WeaponType incl. EXOTIC."""
+    rows = inspect_rows(_inspect_member())
+    assert "W: MACE(2)  SWORD(1)" in "\n".join(rows)
+    assert "EXOTIC(4)" in "\n".join(rows)
+
+
+def test_inspect_row_inventory_wraps_when_needed():
+    """Inventory rows of two, continued and still complete beyond two entries."""
+    m = _inspect_member()
+    m.armors[ArmorType.PLATE] = 1  # 4 armor entries -> continuation row
+    rows = inspect_rows(m)
+    cont = [r for r in rows if r.startswith("   ") and "PLATE" in r]
+    assert cont == ["   PLATE(1)  EXOTIC(3)"]  # dict order follows ArmorType
+
+
+def test_inspect_row_colors():
+    """Inventory rows render gray; supply and mark/card rows render green."""
+    assert inspect_row_color("A: LEATHER(2)") == EGA_LIGHT_GRAY
+    assert inspect_row_color("   EXOTIC(3)  PLATE(1)") == EGA_LIGHT_GRAY
+    assert inspect_row_color("KEYS:5 POWD:3") == EGA_BRIGHT_GREEN
+    assert inspect_row_color("MARK KINGS: 1") == EGA_BRIGHT_GREEN
+    assert inspect_row_color("HP:150/150") == EGA_WHITE
+
+
+def test_stats_panel_render_inspect_rows_smoke(pygame_setup):
+    """StatsPanel draws the ported zstats rows in inspect mode."""
+    panel = StatsPanel()
+    party = Party()
+    party.add_member(_inspect_member())
+    for size in ((320, 200), (960, 600)):
+        surf = pygame.Surface(size)
+        panel.render(surf, party, inspect_index=0)
 
 
 def test_stats_panel_scaled_resolution():

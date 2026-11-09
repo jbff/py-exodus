@@ -443,3 +443,59 @@ class TestDefaultStartPosition:
         path.write_bytes(bytes(data))
         p = SaveSystem.load_binary_party(path)
         assert (p.x, p.y) == (45, 19)
+
+
+# --------------------------------------------------------------------------- #
+# (i) Starting spell points: original-rules parity (user-directed deviation)
+# --------------------------------------------------------------------------- #
+class TestStartingMana:
+    """Java's creator (ManagePartyScreen.java) never touches mana, so created
+    casters started at 0 MP and the first endTurn meal tick made it look like
+    "starting with 1". The C64 original starts a caster with spell points
+    equal to the max from the CharacterRecord.getMaxMana formula
+    (SaveGame.java:340-376); non-casters (mp capability 0) start at 0."""
+
+    def test_created_wizard_starts_with_computed_max_mp(self, pygame_setup, asset_mgr):
+        scr = RosterScreen(asset_mgr=asset_mgr)
+        _drive_creation_wizard(scr, "Morgan", prof="W", stats=[5, 5, 25, 5])
+        c = scr.roster[-1]
+        assert c.profession == Profession.WIZARD
+        assert c.compute_max_mp() == 25
+        assert c.mp == 25
+        assert c.mp == c.max_mp
+
+    def test_created_cleric_starts_with_max_mp(self, pygame_setup, asset_mgr):
+        scr = RosterScreen(asset_mgr=asset_mgr)
+        _drive_creation_wizard(scr, "Aldwyn", prof="C", stats=[8, 8, 8, 24])
+        c = scr.roster[-1]
+        assert c.profession == Profession.CLERIC
+        assert c.compute_max_mp() == 24
+        assert c.mp == 24
+
+    def test_created_paladin_starts_with_half_wisdom(self, pygame_setup, asset_mgr):
+        scr = RosterScreen(asset_mgr=asset_mgr)
+        _drive_creation_wizard(scr, "Galahad", prof="P", stats=[10, 10, 10, 16])
+        c = scr.roster[-1]
+        assert c.profession == Profession.PALADIN
+        assert c.mp == c.compute_max_mp() == 8
+
+    def test_created_fighter_starts_with_zero_mp(self, pygame_setup, asset_mgr):
+        # Warriors have spell capability 0 and must stay at 0.
+        scr = RosterScreen(asset_mgr=asset_mgr)
+        _drive_creation_wizard(scr, "Lancelot", prof="F", stats=[10, 10, 10, 10])
+        c = scr.roster[-1]
+        assert c.profession == Profession.FIGHTER
+        assert c.compute_max_mp() == 0
+        assert c.mp == 0
+
+    def test_starter_roster_casters_start_at_computed_max(self):
+        from py_exodus.screens.roster_screen import get_starter_roster
+
+        for c in get_starter_roster():
+            assert c.mp == c.compute_max_mp(), c.name
+
+    def test_quick_start_party_starts_at_computed_max(self):
+        from py_exodus.screens.start import create_default_starter_party
+
+        for m in create_default_starter_party().members:
+            assert m.mp == m.compute_max_mp(), m.name

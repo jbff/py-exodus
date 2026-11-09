@@ -30,11 +30,15 @@ from py_exodus.ui.text_log import (
     get_hud_font,
 )
 
-#: Wrapped text columns per page (Java wraps each label at ~450px of 460).
-PAGE_COLS = 46
-#: Text rows per page (Java allows ~600px column height; this port uses a
-#: 12px HUD font with 15px row spacing on a 320x200 surface).
-PAGE_ROWS = 8
+#: Wrapped text columns per page. Java wraps each column Label at ~450px of
+#: 460 with an 18px font (BookScreen.java:150-174); this port wraps to a
+#: similar column count for the HUD font so wide lore lines stay intact.
+PAGE_COLS = 54
+#: Text rows per page. Sized so a full page fills the book viewport at both
+#: 320x200 and 960x600 (3x scaling) using the 12-logical-px HUD font: the
+#: text area runs from y=44*scale to the footer rule, i.e. about 132 logical
+#: px at a 9px logical line height.
+PAGE_ROWS = 14
 
 LORE_TITLE = "THE BOOK OF LORE"
 APPENDIX_HEADER = "APPENDIX: SPELL REFERENCE"
@@ -177,42 +181,80 @@ class BookScreen(BaseScreen):
         """Advance time-based animations if needed."""
 
     def render(self, surface: pygame.Surface) -> None:
-        """Draw the paged lore text, title banner, and navigation footer."""
+        """Draw the paged lore text, title banner, and navigation footer.
+
+        Layout is scale-proportional like the other screens: at 3x the page
+        body font is physically as large as the rest of the HUD, and the page
+        of PAGE_ROWS lines fills the viewport between the headers and footer.
+        """
         width = surface.get_width()
         height = surface.get_height()
+        scale = 3 if width >= 640 else 1
 
         # Background parchment / dark frame
         surface.fill(EGA_BLACK)
-        outer_rect = pygame.Rect(8, 8, width - 16, height - 16)
+        outer_rect = pygame.Rect(
+            8 * scale, 8 * scale, width - 16 * scale, height - 16 * scale
+        )
         pygame.draw.rect(surface, (24, 20, 16), outer_rect)
-        pygame.draw.rect(surface, EGA_BROWN, outer_rect, 2)
+        pygame.draw.rect(surface, EGA_BROWN, outer_rect, 2 * scale)
 
-        font = get_hud_font(16)
-        small_font = get_hud_font(12)
+        title_font = get_hud_font(14 * scale)
+        body_font = get_hud_font(12 * scale)
+        info_font = get_hud_font(8 * scale)
 
-        title_surf = font.render(LORE_TITLE, True, EGA_YELLOW)
-        surface.blit(title_surf, (outer_rect.centerx - title_surf.get_width() // 2, 10))
+        title_surf = title_font.render(LORE_TITLE, True, EGA_YELLOW)
+        surface.blit(
+            title_surf,
+            (
+                outer_rect.centerx - title_surf.get_width() // 2,
+                10 * scale,
+            ),
+        )
 
         page = self.pages[self.page_index] if self.pages else "(The book is empty.)"
         page_info = f"PAGE {self.page_index + 1} OF {self.page_count}"
-        page_surf = small_font.render(page_info, True, EGA_YELLOW)
-        surface.blit(page_surf, (outer_rect.centerx - page_surf.get_width() // 2, 26))
+        page_surf = info_font.render(page_info, True, EGA_YELLOW)
+        surface.blit(
+            page_surf,
+            (
+                outer_rect.centerx - page_surf.get_width() // 2,
+                28 * scale,
+            ),
+        )
 
-        pygame.draw.line(surface, EGA_DARK_GRAY, (16, 38), (width - 16, 38))
+        header_bottom = 38 * scale
+        pygame.draw.line(
+            surface,
+            EGA_DARK_GRAY,
+            (16 * scale, header_bottom),
+            (width - 16 * scale, header_bottom),
+        )
 
-        y = 44
-        spacing = 15
-        for line in page.splitlines():
+        footer_y = height - 20 * scale
+        spacing = body_font.get_linesize()
+        y = header_bottom + 6 * scale
+        for line in page.splitlines()[:PAGE_ROWS]:
             if line == APPENDIX_HEADER or line in ("WIZARD SORCERIES", "CLERICAL PRAYERS"):
                 color = EGA_BRIGHT_GREEN
             else:
                 color = EGA_LIGHT_GRAY
-            line_surf = small_font.render(line, True, color)
-            surface.blit(line_surf, (20, y))
+            line_surf = body_font.render(line, True, color)
+            surface.blit(line_surf, (20 * scale, y))
             y += spacing
 
-        footer_y = height - 20
-        pygame.draw.line(surface, EGA_DARK_GRAY, (16, footer_y - 4), (width - 16, footer_y - 4))
+        pygame.draw.line(
+            surface,
+            EGA_DARK_GRAY,
+            (16 * scale, footer_y - 4 * scale),
+            (width - 16 * scale, footer_y - 4 * scale),
+        )
         footer_text = "[SPACE/RETURN/UP/DOWN] Turn Page   [ESC] Close"
-        foot_surf = small_font.render(footer_text, True, EGA_BRIGHT_GREEN)
-        surface.blit(foot_surf, (outer_rect.centerx - foot_surf.get_width() // 2, footer_y))
+        foot_surf = info_font.render(footer_text, True, EGA_BRIGHT_GREEN)
+        surface.blit(
+            foot_surf,
+            (
+                outer_rect.centerx - foot_surf.get_width() // 2,
+                footer_y,
+            ),
+        )
