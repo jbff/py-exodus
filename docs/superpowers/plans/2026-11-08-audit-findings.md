@@ -34,12 +34,12 @@ Counts at audit time: ~110 raw findings → ~90 after dedupe: **6 game-blocking 
 
 - **CRITICAL:** no party-death→game-over flow anywhere (nothing called the kill/revive helpers); FinalScreen unreachable (win path absent); card indices Love/Death swapped vs Java's `cards[0]=DEATH...cards[3]=LOVE`.
 - **MAJOR:** no per-move endTurn tick (submorsels/poison/heal ticks/mana regen/ship repair); no overworld tile effects; food/gold pooled party-wide vs Java per-member; wrong card insertion mechanics (invented forced order, flat 50 damage vs Java's lethal whole-HP drain at wrong panels); character creation lacked stat allocation (fixed presets, gold 50 vs Java's 50-point budget with 150/150/150 start); removed members discarded instead of returned to the roster.
-- **MINOR:** Mark-of-Kings level gate off by one (level 5 vs Java's level 6); max_mp frozen on load instead of recomputed; shrine gold source; start position (45,19); start screen quick-start party (kept divergence).
+- **MINOR:** Mark-of-Kings level gate off by one (level 5 vs Java's level 6); max_mp frozen on load instead of recomputed; shrine gold source; start position (45,19); start screen quick-start party (removed 2026-11-09 by user ruling — see kept divergences).
 - **Resolution:** Tasks 2/3/4/14/15. Book of Lore now loads `assets/data/ultima3.txt` with an appended spell reference.
 
 ## Kept divergences (documented, deliberate)
 
-Quick-start party; orbs removed entirely (user decision — dead code in Java); peer gem (now a real map view); text-log prompt conventions; FOV edge-wrap; single-column Book of Lore paging; start-screen game-over label (Java shows nothing).
+Orbs removed entirely (user decision — dead code in Java); peer gem (now a real map view); text-log prompt conventions; FOV edge-wrap; single-column Book of Lore paging; start-screen game-over label (Java shows nothing). The starter/quick-start party was REMOVED (2026-11-09 user ruling — "nobody wants a janky default party"): Java ships none, new players create characters in the roster screen, Journey Onward requires a saved party with a named first member.
 
 ## Verified at parity (no changes needed)
 

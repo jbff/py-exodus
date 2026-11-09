@@ -7,15 +7,9 @@ from typing import TYPE_CHECKING, Any
 import pygame
 
 from py_exodus.constants import (
-    BASE_HEIGHT,
-    BASE_WIDTH,
-    ArmorType,
     Profession,
     Race,
     Sex,
-    Status,
-    Transport,
-    WeaponType,
 )
 from py_exodus.entities.character import Character
 from py_exodus.entities.party import Party
@@ -46,119 +40,6 @@ ROSTER_SLOTS = 20
 CREATION_MIN_STAT = 5
 CREATION_MAX_STAT = 25
 CREATION_MAX_POINTS = 50
-
-
-def get_starter_roster() -> list[Character]:
-    """Return an initial pool of classic adventurer recruits.
-
-    Starting MP is original-rules parity (user-directed deviation): casters
-    carry spell points equal to the max from the CharacterRecord.getMaxMana
-    formula (SaveGame.java:340-376) — WIZARD/CLERIC whole governing stat,
-    others half — and non-casters 0. Java's roster writer itself never seeds
-    mana, hence the explicit fill-in instead of hardcoded values.
-    """
-    recruits = [
-        Character(
-            name="Fighter",
-            sex=Sex.MALE,
-            race=Race.HUMAN,
-            profession=Profession.PALADIN,
-            strength=20,
-            dexterity=15,
-            intelligence=10,
-            wisdom=15,
-            hp=150,
-            max_hp=150,
-            weapon=WeaponType.SWORD,
-            armor=ArmorType.LEATHER,
-            food=150,
-            gold=50,
-        ),
-        Character(
-            name="Cleric",
-            sex=Sex.FEMALE,
-            race=Race.BOBIT,
-            profession=Profession.CLERIC,
-            strength=12,
-            dexterity=14,
-            intelligence=10,
-            wisdom=24,
-            hp=100,
-            max_hp=100,
-            weapon=WeaponType.MACE,
-            armor=ArmorType.CLOTH,
-            food=150,
-            gold=50,
-        ),
-        Character(
-            name="Wizard",
-            sex=Sex.MALE,
-            race=Race.ELF,
-            profession=Profession.WIZARD,
-            strength=10,
-            dexterity=14,
-            intelligence=25,
-            wisdom=11,
-            hp=100,
-            max_hp=100,
-            weapon=WeaponType.DAGGER,
-            armor=ArmorType.CLOTH,
-            food=150,
-            gold=50,
-        ),
-        Character(
-            name="Thief",
-            sex=Sex.FEMALE,
-            race=Race.FUZZY,
-            profession=Profession.THIEF,
-            strength=12,
-            dexterity=25,
-            intelligence=12,
-            wisdom=11,
-            hp=120,
-            max_hp=120,
-            weapon=WeaponType.SLING,
-            armor=ArmorType.LEATHER,
-            food=150,
-            gold=50,
-        ),
-        Character(
-            name="Ranger",
-            sex=Sex.MALE,
-            race=Race.ELF,
-            profession=Profession.RANGER,
-            strength=15,
-            dexterity=18,
-            intelligence=12,
-            wisdom=15,
-            hp=130,
-            max_hp=130,
-            weapon=WeaponType.BOW,
-            armor=ArmorType.LEATHER,
-            food=150,
-            gold=50,
-        ),
-        Character(
-            name="Barbarian",
-            sex=Sex.MALE,
-            race=Race.DWARF,
-            profession=Profession.BARBARIAN,
-            strength=25,
-            dexterity=12,
-            intelligence=8,
-            wisdom=8,
-            hp=160,
-            max_hp=160,
-            weapon=WeaponType.AXE,
-            armor=ArmorType.LEATHER,
-            food=150,
-            gold=50,
-        ),
-    ]
-    for rec in recruits:
-        # Original-rules starting MP (SaveGame.java:340-376 getMaxMana).
-        rec.mp = rec.compute_max_mp()
-    return recruits
 
 
 class RosterScreen(BaseScreen):
@@ -198,14 +79,23 @@ class RosterScreen(BaseScreen):
         self.focus_panel: str = "roster"  # "roster" or "party"
 
         self.text_log = TextLog(max_lines=3, wrap_width=45)
-        self.text_log.add_message("Party Formation: [A]dd, [R]emove, [C]reate, [Q]uick, [E]mbark")
+        self.text_log.add_message(
+            "Party Formation: [A]dd, [R]emove, [C]reate, [P] Save, [E]mbark"
+        )
 
         # Creation wizard state
         self._creating_char: bool = False
         self._new_char_data: dict[str, Any] = {}
 
     def _load_initial_roster(self) -> list[Character]:
-        """Load characters from roster file or provide starter pool."""
+        """Load characters from the roster file, else start empty.
+
+        Java truth: ManagePartyScreen.java:85-99 seeds the registry from
+        roster.sav and every record without a name shows <empty> — a fresh
+        install has an EMPTY roster (assets/data/roster.ult is a blank 20-slot
+        file). Java ships no starter pool, so neither does this screen: new
+        players create characters with [C].
+        """
         from py_exodus.save_system import SaveSystem
 
         candidates = [
@@ -223,7 +113,7 @@ class RosterScreen(BaseScreen):
                 except Exception:
                     pass
 
-        return get_starter_roster()
+        return []
 
     def handle_event(self, event: pygame.event.Event) -> None:
         # Mouse wheel scrolls the shared text log back through history
@@ -266,8 +156,8 @@ class RosterScreen(BaseScreen):
             self._add_selected_to_party()
         elif event.key == pygame.K_r:  # Remove from party
             self._remove_from_party()
-        elif event.key == pygame.K_q:  # Quick Start / Classic balanced party
-            self._quick_start_party()
+        elif event.key == pygame.K_p:  # Save party + roster (Java Save button)
+            self._save_party_formations()
         elif event.key == pygame.K_c:  # Create new character
             self._start_create_character()
         elif event.key == pygame.K_d:  # Delete selected character from roster
@@ -342,15 +232,37 @@ class RosterScreen(BaseScreen):
             f"Removed {member.name} from party. ({len(self.party.members)}/4)"
         )
 
-    def _quick_start_party(self) -> None:
-        """Load standard balanced party for immediate embarking."""
-        from py_exodus.screens.start import create_default_starter_party
+    def _write_party_saves(self) -> None:
+        """Write both save records (Java ManagePartyScreen.java:262-293 Save
+        button): the full roster to saves/roster.json (Java's roster.sav,
+        every slot) and the formed party to saves/party.json (Java writes the
+        partyFormation slots into saveGame.players[0..3], counts them into
+        numberInParty, then saveGame.write(party.sav); this party carries only
+        its filled slots, in slot order). Java's loader seeds a fresh record
+        with transport FOOT and the (45,19) start tile (SaveGame.java:164-169),
+        which the Party defaults already carry."""
+        from py_exodus.save_system import SaveSystem
 
-        starter = create_default_starter_party()
-        self.party = starter
+        Path("saves").mkdir(parents=True, exist_ok=True)
+        SaveSystem.save_game(self.party, "saves/party.json")
+        SaveSystem.save_roster(self.roster, "saves/roster.json")
+
+    def _save_party_formations(self) -> None:
+        """Save the formed party and roster, then return to the title screen.
+
+        Java truth: ManagePartyScreen.java:262-293 — the Save button writes
+        BOTH records and returns to the start screen; saving requires no
+        embark, so a formed party survives quitting to the title.
+        """
+        try:
+            self._write_party_saves()
+            self.text_log.add_message("Party and roster saved.")
+        except Exception:
+            self.text_log.add_message("Save failed!")
         if self.audio is not None:
             self.audio.play_sfx("trigger")
-        self.text_log.add_message("Quick Party loaded: Fighter, Cleric, Wizard, Thief!")
+        # Java's Save button returns to returnScreen either way.
+        self.exit_screen()
 
     def _delete_selected_roster(self) -> None:
         """Delete highlighted recruit from roster."""
@@ -535,13 +447,10 @@ class RosterScreen(BaseScreen):
             self.text_log.add_message("Cannot embark! Form a party with at least 1 member.")
             return
 
-        # Save roster and party
+        # Save roster and party (Java ManagePartyScreen.java:262-293 writes
+        # both records; embark persists before the overworld opens)
         try:
-            from py_exodus.save_system import SaveSystem
-
-            Path("saves").mkdir(parents=True, exist_ok=True)
-            SaveSystem.save_game(self.party, "saves/party.json")
-            SaveSystem.save_roster(self.roster, "saves/roster.json")
+            self._write_party_saves()
         except Exception:
             pass
 
@@ -633,7 +542,7 @@ class RosterScreen(BaseScreen):
         # 4. Command Bar
         cmd_y = 146 * scale
         c1 = "[A] Add to Party   [R] Remove from Party"
-        c2 = "[C] Create Hero    [Q] Quick 4-Hero Party"
+        c2 = "[C] Create Hero    [P] Save Party"
         c3 = "[E/ENTER] Embark!  [ESC] Back to Title"
         surface.blit(f_small.render(c1, False, EGA_BRIGHT_GREEN), (10 * scale, cmd_y))
         surface.blit(f_small.render(c2, False, EGA_BRIGHT_CYAN), (10 * scale, cmd_y + 11 * scale))

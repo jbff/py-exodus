@@ -423,10 +423,10 @@ class TestBinaryMarksOrder:
 # (h) Default new-game start position (45, 19)
 # --------------------------------------------------------------------------- #
 class TestDefaultStartPosition:
-    def test_default_starter_party_starts_at_45_19(self):
-        from py_exodus.screens.start import create_default_starter_party
+    def test_default_party_starts_at_45_19(self):
+        from py_exodus.entities.party import Party
 
-        party = create_default_starter_party()
+        party = Party()
         assert (party.x, party.y) == (45, 19)
 
     def test_roster_screen_default_party_starts_at_45_19(self, pygame_setup):
@@ -488,14 +488,11 @@ class TestStartingMana:
         assert c.compute_max_mp() == 0
         assert c.mp == 0
 
-    def test_starter_roster_casters_start_at_computed_max(self):
-        from py_exodus.screens.roster_screen import get_starter_roster
+    def test_no_default_starter_party_exists(self):
+        """User ruling (2026-11-09): the default/starter party is removed —
+        Java ships none, so Python must not keep helper factories for one."""
+        import py_exodus.screens.roster_screen as roster_mod
+        import py_exodus.screens.start as start_mod
 
-        for c in get_starter_roster():
-            assert c.mp == c.compute_max_mp(), c.name
-
-    def test_quick_start_party_starts_at_computed_max(self):
-        from py_exodus.screens.start import create_default_starter_party
-
-        for m in create_default_starter_party().members:
-            assert m.mp == m.compute_max_mp(), m.name
+        assert not hasattr(start_mod, "create_default_starter_party")
+        assert not hasattr(roster_mod, "get_starter_roster")

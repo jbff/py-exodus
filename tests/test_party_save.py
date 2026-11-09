@@ -4,12 +4,15 @@ from __future__ import annotations
 import os
 import struct
 import tempfile
+
+import pygame
 import pytest
 
 from py_exodus.constants import Direction, Profession, Race, Sex, Status, Transport
 from py_exodus.entities.character import Character
 from py_exodus.entities.party import Party, PartyMember
 from py_exodus.save_system import SaveSystem
+from py_exodus.state_machine import StateMachine
 
 
 def test_party_save_load():
@@ -642,3 +645,194 @@ def test_inventory_weapons_armors_serialization():
     finally:
         if os.path.exists(tmp_name):
             os.remove(tmp_name)
+
+
+# --------------------------------------------------------------------------- #
+# Party formation persistence (Java ManagePartyScreen.java:262-293)
+# --------------------------------------------------------------------------- #
+# Java's Save button writes BOTH records: the full roster to roster.sav and
+# the formed party slots into saveGame.players[0..3] + numberInParty via
+# saveGame.write(party.sav). A fresh party.sav carries only the loader
+# defaults (FOOT transport, (45,19) start, Party defaults here), so the JSON
+# written by SaveSystem.save_game matches what StartScreen's Journey Onward
+# path reads back (start.py).
+
+
+def _roster_char(name: str) -> Character:
+    return Character(
+        name=name,
+        sex=Sex.MALE,
+        race=Race.HUMAN,
+        profession=Profession.FIGHTER,
+        strength=10,
+        dexterity=10,
+        intelligence=10,
+        wisdom=10,
+        hp=150,
+        max_hp=150,
+        food=150,
+        gold=150,
+    )
+
+
+def _form_party(scr) -> None:
+    """Drive the roster screen: add the first two roster recruits to the party."""
+    scr._add_selected_to_party()
+    scr.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_DOWN))
+    scr._add_selected_to_party()
+
+
+def test_formed_party_save_writes_party_and_roster_json(pygame_setup, asset_mgr, monkeypatch, tmp_path):
+    """The roster screen's Save action commits BOTH records (Java
+    ManagePartyScreen.java:262-293): saves/party.json (formed party, first
+    member = slot 0) and saves/roster.json."""
+    monkeypatch.chdir(tmp_path)
+
+    from py_exodus.screens.roster_screen import RosterScreen
+
+    roster = [_roster_char("Ariel"), _roster_char("Bors"), _roster_char("Cymric")]
+    scr = RosterScreen(asset_mgr=asset_mgr, roster=roster)
+    _form_party(scr)
+
+    scr._save_party_formations()
+
+    party_path = tmp_path / "saves" / "party.json"
+    roster_path = tmp_path / "saves" / "roster.json"
+    assert party_path.exists()
+    assert roster_path.exists()
+
+    loaded = SaveSystem.load_game(party_path)
+    assert len(loaded.members) == 2
+    assert loaded.members[0].name == "Ariel"
+    assert loaded.members[1].name == "Bors"
+    # Fresh-party defaults: FOOT transport and the (45,19) start tile
+    # (Java SaveGame.java:164-169 loader fixup).
+    assert loaded.transport == Transport.FOOT
+    assert (loaded.x, loaded.y) == (45, 19)
+
+    saved_roster = SaveSystem.load_roster(roster_path)
+    assert [c.name for c in saved_roster] == ["Ariel", "Bors", "Cymric"]
+
+    # Java's Save button returns to the start screen after writing.
+    assert scr.is_finished
+
+
+def test_embark_saves_party_and_roster_json(pygame_setup, asset_mgr, monkeypatch, tmp_path):
+    """Embarking also commits both records before the overworld opens."""
+    monkeypatch.chdir(tmp_path)
+
+    from py_exodus.screens.roster_screen import RosterScreen
+
+    sm = StateMachine(asset_mgr)
+    roster = [_roster_char("Ariel"), _roster_char("Bors")]
+    scr = RosterScreen(asset_mgr=asset_mgr, roster=roster, manager=sm)
+    sm.push_screen(scr)
+    _form_party(scr)
+    scr._embark()
+
+    from py_exodus.screens.overworld import OverworldScreen
+
+    assert isinstance(sm.current_screen, OverworldScreen)
+
+    loaded = SaveSystem.load_game(tmp_path / "saves" / "party.json")
+    assert loaded.members[0].name == "Ariel"
+    saved_roster = SaveSystem.load_roster(tmp_path / "saves" / "roster.json")
+    assert [c.name for c in saved_roster] == ["Ariel", "Bors"]
+
+
+# --------------------------------------------------------------------------- #
+# Journey Onward flow (Java StartScreen.java:100-117)
+# --------------------------------------------------------------------------- #
+# Java reads party.sav from disk; party.sav missing OR players[0] name empty
+# → ManagePartyScreen. There is NO default party in Java.
+
+
+def test_journey_onward_without_save_opens_roster(pygame_setup, asset_mgr, monkeypatch, tmp_path):
+    """party.sav missing → ManagePartyScreen (Java StartScreen.java:101-102)."""
+    monkeypatch.chdir(tmp_path)
+
+    from py_exodus.screens.roster_screen import RosterScreen
+    from py_exodus.screens.start import StartScreen
+
+    start = StartScreen(asset_mgr=asset_mgr)
+    start._start_journey()
+
+    assert isinstance(start.next_screen, RosterScreen)
+    # No default party anywhere on this path, and the roster starts empty
+    # (Java's fresh ManagePartyScreen registry is all <empty> records).
+    assert start.next_screen.roster == []
+    assert len(start.next_screen.party.members) == 0
+
+
+def test_journey_onward_with_valid_save_opens_overworld(pygame_setup, asset_mgr, monkeypatch, tmp_path):
+    """A valid party save → GameScreen (Java StartScreen.java:114-116)."""
+    monkeypatch.chdir(tmp_path)
+
+    from py_exodus.screens.overworld import OverworldScreen
+    from py_exodus.screens.start import StartScreen
+
+    party = Party()
+    party.add_member(_roster_char("Ariel"))
+    SaveSystem.save_game(party, tmp_path / "saves" / "party.json")
+
+    start = StartScreen(asset_mgr=asset_mgr)
+    start._start_journey()
+
+    assert isinstance(start.next_screen, OverworldScreen)
+    loaded = start.next_screen.party
+    assert loaded.members[0].name == "Ariel"
+
+
+def test_journey_onward_with_empty_first_member_name_opens_roster(
+    pygame_setup, asset_mgr, monkeypatch, tmp_path
+):
+    """players[0] name empty → ManagePartyScreen (Java StartScreen.java:108-113),
+    even when later slots carry named members."""
+    monkeypatch.chdir(tmp_path)
+
+    from py_exodus.screens.roster_screen import RosterScreen
+    from py_exodus.screens.start import StartScreen
+
+    party = Party()
+    party.members = [PartyMember(Character(name=""))]
+    party.add_member(_roster_char("Bors"))
+    SaveSystem.save_game(party, tmp_path / "saves" / "party.json")
+
+    start = StartScreen(asset_mgr=asset_mgr)
+    start._start_journey()
+
+    assert isinstance(start.next_screen, RosterScreen)
+
+
+def test_journey_onward_with_corrupt_save_opens_roster(pygame_setup, asset_mgr, monkeypatch, tmp_path):
+    """An unreadable party save behaves like a missing one → roster."""
+    monkeypatch.chdir(tmp_path)
+
+    from py_exodus.screens.roster_screen import RosterScreen
+    from py_exodus.screens.start import StartScreen
+
+    save_dir = tmp_path / "saves"
+    save_dir.mkdir()
+    (save_dir / "party.json").write_text("{not valid json", encoding="utf-8")
+
+    start = StartScreen(asset_mgr=asset_mgr)
+    start._start_journey()
+
+    assert isinstance(start.next_screen, RosterScreen)
+
+
+def test_journey_onward_ignores_screen_attached_party(pygame_setup, asset_mgr, monkeypatch, tmp_path):
+    """Java StartScreen.java:100-117 — Journey Onward reads party.sav, never
+    screen-attached state: with no save on disk, an attached party does not
+    launch the overworld."""
+    monkeypatch.chdir(tmp_path)
+
+    from py_exodus.screens.roster_screen import RosterScreen
+    from py_exodus.screens.start import StartScreen
+
+    party = Party()
+    party.add_member(_roster_char("Ariel"))
+    start = StartScreen(asset_mgr=asset_mgr, party=party)
+    start._start_journey()
+
+    assert isinstance(start.next_screen, RosterScreen)

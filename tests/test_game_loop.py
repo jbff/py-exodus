@@ -28,11 +28,12 @@ from py_exodus.constants import (
 )
 from py_exodus.entities.character import Character
 from py_exodus.entities.party import Party, PartyMember
+from py_exodus.save_system import SaveSystem
 from py_exodus.screens.base import BaseScreen
 from py_exodus.screens.combat_screen import CombatScreen
 from py_exodus.screens.dungeon_screen import DungeonScreen
 from py_exodus.screens.overworld import OverworldScreen
-from py_exodus.screens.start import StartScreen, create_default_starter_party
+from py_exodus.screens.start import StartScreen
 from py_exodus.screens.town import TownScreen
 from py_exodus.state_machine import StateMachine
 
@@ -56,10 +57,56 @@ def asset_mgr():
     return am
 
 
+def _build_test_party() -> Party:
+    """Explicit 4-member party assembled from roster-created-style records.
+
+    The default/starter party was removed by user ruling (2026-11-09) —
+    Java ships none — so tests build parties explicitly. Members carry the
+    user-directed original-rules starting MP (compute_max_mp; SaveGame.java:
+    340-376 formula) and per-member gold/food totalling the classic 200/400.
+    """
+    specs = [
+        ("Fighter", Sex.MALE, Race.HUMAN, Profession.PALADIN, 20, 15, 10, 15, 150,
+         WeaponType.SWORD, ArmorType.LEATHER, 50, 100),
+        ("Cleric", Sex.FEMALE, Race.BOBIT, Profession.CLERIC, 12, 14, 10, 24, 100,
+         WeaponType.MACE, ArmorType.CLOTH, 50, 100),
+        ("Wizard", Sex.MALE, Race.ELF, Profession.WIZARD, 10, 14, 25, 11, 100,
+         WeaponType.DAGGER, ArmorType.CLOTH, 50, 100),
+        ("Thief", Sex.FEMALE, Race.FUZZY, Profession.THIEF, 12, 25, 12, 11, 120,
+         WeaponType.SLING, ArmorType.LEATHER, 50, 100),
+    ]
+    members = []
+    for name, sex, race, prof, st, dx, in_, wi, hp, weapon, armor, gold, food in specs:
+        c = Character(
+            name=name,
+            sex=sex,
+            race=race,
+            profession=prof,
+            strength=st,
+            dexterity=dx,
+            intelligence=in_,
+            wisdom=wi,
+            hp=hp,
+            max_hp=hp,
+            weapon=weapon,
+            armor=armor,
+            gold=gold,
+            food=food,
+        )
+        c.mp = c.compute_max_mp()
+        members.append(c)
+    return Party(
+        members=members,
+        # Default new-game start (Java SaveGame.java:164-169): (45, 19).
+        x=45,
+        y=19,
+    )
+
+
 @pytest.fixture
 def sample_party():
     """Create a sample 4-character party."""
-    return create_default_starter_party()
+    return _build_test_party()
 
 
 class MockScreen(BaseScreen):
@@ -274,15 +321,22 @@ def test_start_screen_navigation(pygame_setup, asset_mgr):
     assert scr.selected_idx == 2
 
 
-def test_start_screen_journey_onward(pygame_setup, asset_mgr, sample_party):
+def test_start_screen_journey_onward(pygame_setup, asset_mgr, sample_party, monkeypatch, tmp_path):
+    """Java StartScreen.java:100-117 — Journey Onward reads the on-disk party
+    save; a valid save launches the overworld."""
+    monkeypatch.chdir(tmp_path)
+    SaveSystem.save_game(sample_party, tmp_path / "saves" / "party.json")
+
     sm = StateMachine(asset_mgr)
-    scr = StartScreen(asset_mgr=asset_mgr, party=sample_party, manager=sm)
+    scr = StartScreen(asset_mgr=asset_mgr, manager=sm)
     sm.set_screen(scr)
 
     # Press Enter on Journey Onward
     scr.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RETURN))
     assert isinstance(sm.current_screen, OverworldScreen)
-    assert sm.current_screen.party is sample_party
+    assert [m.name for m in sm.current_screen.party.members] == [
+        m.name for m in sample_party.members
+    ]
 
 
 # --- OverworldScreen Tests ---
@@ -1293,10 +1347,10 @@ def test_zstats_displays_inventory(pygame_setup, asset_mgr, sample_party):
     assert any("CHAIN:1" in msg for msg in ow.text_log.history)
 
 
-def test_new_game_starter_party_spawn_location(pygame_setup, asset_mgr):
+def test_new_game_party_spawn_location(pygame_setup, asset_mgr):
     """Verify new game party starts at (45, 19) — Java SaveGame.java:164-169
     seeds the default position to (45, 19), just south of the castle portal."""
-    party = create_default_starter_party()
+    party = _build_test_party()
     assert party.x == 45
     assert party.y == 19
 

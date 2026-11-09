@@ -175,19 +175,25 @@ def test_game_over_journey_onward_without_save_falls_back_to_roster(pygame_setup
     assert isinstance(start.next_screen, RosterScreen)
 
 
-def test_journey_onward_without_game_over_keeps_in_memory_party(pygame_setup, monkeypatch, tmp_path):
-    """Without game_over the StartScreen still prefers screen-attached party state."""
+def test_journey_onward_without_game_over_reads_disk_save(pygame_setup, monkeypatch, tmp_path):
+    """Java StartScreen.java:100-117: Journey Onward reads the party save from
+    disk in every case (never the screen-attached party state)."""
     monkeypatch.chdir(tmp_path)
 
     from py_exodus.screens.overworld import OverworldScreen
     from py_exodus.screens.start import StartScreen
 
-    party = single_member_party(hp=64)
-    start = StartScreen(party=party, game_over=False)
+    attached = single_member_party(hp=64)
+    on_disk = single_member_party(hp=91)
+    on_disk.get_member(0).name = "Diskhero"
+    SaveSystem.save_game(on_disk, tmp_path / "saves" / "party.json")
+
+    start = StartScreen(party=attached, game_over=False)
     start._start_journey()
 
     assert isinstance(start.next_screen, OverworldScreen)
-    assert start.next_screen.party is party
+    assert start.next_screen.party.get_member(0).name == "Diskhero"
+    assert start.next_screen.party.get_member(0).hp == 91
 
 
 # --- Screen-level game-over routing ---

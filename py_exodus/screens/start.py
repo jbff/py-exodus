@@ -6,18 +6,6 @@ from typing import TYPE_CHECKING, Any
 
 import pygame
 
-from py_exodus.constants import (
-    BASE_HEIGHT,
-    BASE_WIDTH,
-    ArmorType,
-    Profession,
-    Race,
-    Sex,
-    Status,
-    Transport,
-    WeaponType,
-)
-from py_exodus.entities.character import Character
 from py_exodus.entities.party import Party
 from py_exodus.screens.base import BaseScreen
 from py_exodus.ui.text_log import (
@@ -35,88 +23,6 @@ from py_exodus.ui.text_log import (
 if TYPE_CHECKING:
     from py_exodus.assets import AssetManager
     from py_exodus.audio import AudioManager
-
-
-def create_default_starter_party() -> Party:
-    """Create a balanced classic 4-member party for immediate play."""
-    c1 = Character(
-        name="Fighter",
-        sex=Sex.MALE,
-        race=Race.HUMAN,
-        profession=Profession.PALADIN,
-        strength=20,
-        dexterity=15,
-        intelligence=10,
-        wisdom=15,
-        hp=150,
-        max_hp=150,
-        exp=0,
-        weapon=WeaponType.SWORD,
-        armor=ArmorType.LEATHER,
-    )
-    c2 = Character(
-        name="Cleric",
-        sex=Sex.FEMALE,
-        race=Race.BOBIT,
-        profession=Profession.CLERIC,
-        strength=12,
-        dexterity=14,
-        intelligence=10,
-        wisdom=24,
-        hp=100,
-        max_hp=100,
-        exp=0,
-        weapon=WeaponType.MACE,
-        armor=ArmorType.CLOTH,
-    )
-    c3 = Character(
-        name="Wizard",
-        sex=Sex.MALE,
-        race=Race.ELF,
-        profession=Profession.WIZARD,
-        strength=10,
-        dexterity=14,
-        intelligence=25,
-        wisdom=11,
-        hp=100,
-        max_hp=100,
-        exp=0,
-        weapon=WeaponType.DAGGER,
-        armor=ArmorType.CLOTH,
-    )
-    c4 = Character(
-        name="Thief",
-        sex=Sex.FEMALE,
-        race=Race.FUZZY,
-        profession=Profession.THIEF,
-        strength=12,
-        dexterity=25,
-        intelligence=12,
-        wisdom=11,
-        hp=120,
-        max_hp=120,
-        exp=0,
-        weapon=WeaponType.SLING,
-        armor=ArmorType.LEATHER,
-    )
-    for c in (c1, c2, c3, c4):
-        # Starting MP: original-rules parity — casters start with spell
-        # points equal to the max from the CharacterRecord.getMaxMana
-        # formula (Java SaveGame.java:340-376); non-casters stay at 0.
-        # Java's own creator never seeds mana, so this is a deliberate,
-        # user-directed deviation applied consistently to recruited and
-        # quick-started characters alike.
-        c.mp = c.compute_max_mp()
-    return Party(
-        members=[c1, c2, c3, c4],
-        # Default new-game start (Java SaveGame.java:164-169): (45, 19) —
-        # one tile south of the Castle British entrance portal at (45, 18).
-        x=45,
-        y=19,
-        gold=200,
-        food=400,
-        torch_duration=100,
-    )
 
 
 class StartScreen(BaseScreen):
@@ -252,36 +158,27 @@ class StartScreen(BaseScreen):
     def _start_journey(self) -> None:
         """Begin or resume the adventure in the overworld.
 
-        Java truth: ``exodus/StartScreen.java:100-117`` — Journey Onward always
-        reads the on-disk party save, never screen-attached state (after
-        ``partyDeath`` that would be a dead party); no valid party record
-        falls back to the party-management (roster) screen.
+        Java truth: ``exodus/StartScreen.java:100-117`` — Journey Onward
+        ALWAYS reads the on-disk party save (Java party.sav; here
+        saves/party.json), never screen-attached state (after ``partyDeath``
+        that would be a dead party). party.sav missing, unreadable, or
+        players[0] name empty → ManagePartyScreen (the roster screen). Java
+        has no default party anywhere on this path.
         """
-        party = self.party
-        if self.game_over:
-            # Never reuse the in-memory party after game over (start.py port
-            # of StartScreen.java:100-117): read the save file instead.
+        party = None
+        try:
+            from py_exodus.save_system import SaveSystem
+
+            json_p = Path("saves/party.json")
+            if json_p.exists():
+                party = SaveSystem.load_game(json_p)
+        except Exception:
             party = None
-        if party is None:
-            # Check JSON save first, then binary save
-            try:
-                from py_exodus.save_system import SaveSystem
 
-                json_p = Path("saves/party.json")
-                if json_p.exists():
-                    party = SaveSystem.load_game(json_p)
-                else:
-                    save_p = Path("assets/data/party.ult")
-                    if not save_p.exists():
-                        save_p = Path("src/main/resources/assets/data/party.ult")
-                    if save_p.exists():
-                        party = SaveSystem.load_binary_party(save_p)
-            except Exception:
-                party = None
-
-        if party is None or not party.members:
-            # No viable party record (Java StartScreen.java:109-111 only
-            # checks record validity): roster fallback
+        # Java StartScreen.java:108-113: the record must exist and
+        # players[0].name must be non-empty, else the party-management
+        # (roster) screen opens.
+        if party is None or not party.members or not party.members[0].name.strip():
             self._new_game()
             return
 

@@ -6,23 +6,51 @@ from py_exodus.constants import ArmorType, Profession, Race, Sex, WeaponType
 from py_exodus.entities.character import Character
 from py_exodus.entities.party import Party
 from py_exodus.screens.base import BaseScreen
-from py_exodus.screens.roster_screen import RosterScreen, get_starter_roster
+from py_exodus.screens.roster_screen import RosterScreen
 from py_exodus.state_machine import StateMachine
 
 
-def test_roster_screen_initialization(pygame_setup, asset_mgr):
-    """Verify RosterScreen initializes with default roster recruits."""
+def _roster_char(name: str) -> Character:
+    """Build a roster recruit the way the creation wizard does.
+
+    Java ManagePartyScreen.java:185-192: creation starts with health/food/gold
+    = 150, NO weapon or armor, and MP from the getMaxMana formula.
+    """
+    c = Character(
+        name=name,
+        sex=Sex.MALE,
+        race=Race.HUMAN,
+        profession=Profession.FIGHTER,
+        strength=10,
+        dexterity=10,
+        intelligence=10,
+        wisdom=10,
+        hp=150,
+        max_hp=150,
+        food=150,
+        gold=150,
+    )
+    c.mp = c.compute_max_mp()
+    return c
+
+
+def test_roster_screen_initialization(pygame_setup, asset_mgr, monkeypatch, tmp_path):
+    """Verify RosterScreen starts empty — Java ships no default party or
+    starter roster; new players create characters in the roster screen."""
+    monkeypatch.chdir(tmp_path)
     scr = RosterScreen(asset_mgr=asset_mgr)
-    assert len(scr.roster) >= 4
+    assert scr.roster == []
     assert len(scr.party.members) == 0
 
 
 def test_roster_screen_add_and_remove_member(pygame_setup, asset_mgr):
     """Verify [A]dd and [R]emove keyboard commands manage party slots."""
     party = Party()
-    scr = RosterScreen(party=party, asset_mgr=asset_mgr)
+    scr = RosterScreen(
+        party=party, asset_mgr=asset_mgr, roster=[_roster_char("Ariel"), _roster_char("Bors")]
+    )
 
-    # Press 'A' to add highlighted member (Fighter)
+    # Press 'A' to add highlighted member (Ariel)
     scr.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_a))
     assert len(scr.party.members) == 1
     assert scr.party.members[0].name == scr.roster[0].name
@@ -37,18 +65,13 @@ def test_roster_screen_add_and_remove_member(pygame_setup, asset_mgr):
     assert len(scr.party.members) == 1
 
 
-def test_roster_screen_quick_party(pygame_setup, asset_mgr):
-    """Verify pressing 'Q' loads a full 4-member classic party."""
+def test_roster_screen_no_quick_start_party(pygame_setup, asset_mgr):
+    """The quick-start party was removed by user ruling: [Q] forms nothing."""
     party = Party()
-    scr = RosterScreen(party=party, asset_mgr=asset_mgr)
+    scr = RosterScreen(party=party, asset_mgr=asset_mgr, roster=[_roster_char("Ariel")])
 
     scr.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_q))
-    assert len(scr.party.members) == 4
-    names = [m.name for m in scr.party.members]
-    assert "Fighter" in names
-    assert "Cleric" in names
-    assert "Wizard" in names
-    assert "Thief" in names
+    assert len(scr.party.members) == 0
 
 
 def test_roster_screen_character_creation(pygame_setup, asset_mgr):
@@ -109,23 +132,36 @@ def test_roster_screen_character_creation(pygame_setup, asset_mgr):
     assert created.portrait_index == 5
 
 
-def test_roster_screen_embark_validation(pygame_setup, asset_mgr):
-    """Verify cannot embark with empty party, but transitions when party is formed."""
+def test_roster_screen_embark_validation(pygame_setup, asset_mgr, monkeypatch, tmp_path):
+    """Verify cannot embark with empty party, but transitions and writes both
+    save records when the party is formed."""
+    monkeypatch.chdir(tmp_path)
     sm = StateMachine(asset_mgr)
-    scr = RosterScreen(asset_mgr=asset_mgr, manager=sm)
+    scr = RosterScreen(
+        asset_mgr=asset_mgr, manager=sm, roster=[_roster_char("Ariel"), _roster_char("Bors")]
+    )
     sm.push_screen(scr)
 
     # Empty party embark fails
     scr.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_e))
     assert any("Cannot embark" in msg for msg in scr.text_log.history)
 
-    # Add quick party and embark
-    scr.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_q))
-    assert len(scr.party.members) == 4
+    # Form a party from roster-created characters and embark
+    scr.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_a))
+    scr.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_DOWN))
+    scr.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_a))
+    assert len(scr.party.members) == 2
     scr.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_e))
 
     from py_exodus.screens.overworld import OverworldScreen
+    from py_exodus.save_system import SaveSystem
+
     assert isinstance(sm.current_screen, OverworldScreen)
+
+    loaded = SaveSystem.load_game(tmp_path / "saves" / "party.json")
+    assert loaded.members[0].name == "Ariel"
+    saved_roster = SaveSystem.load_roster(tmp_path / "saves" / "roster.json")
+    assert [c.name for c in saved_roster] == ["Ariel", "Bors"]
 
 
 def test_roster_screen_rendering(pygame_setup, asset_mgr):
