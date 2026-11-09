@@ -70,18 +70,22 @@ def test_monster_spawn_crslots_and_guards(asset_mgr, conflict_map):
 
 
 def test_player_placement(asset_mgr, conflict_map):
+    """Java CombatScreen.java:125-147 — every member gets combat coordinates by
+    roster index, DEAD members included (their corpses occupy a tile and block
+    creatures: hasBlockingCombatPlayerAt skips only fled members)."""
     party = Party()
     party.add_member(Character("Alive1", "M", Race.HUMAN, Profession.FIGHTER, hp=100))
     party.add_member(Character("Dead1", "F", Race.ELF, Profession.CLERIC, hp=0, status=Status.DEAD))
     party.add_member(Character("Alive2", "M", Race.DWARF, Profession.PALADIN, hp=100))
 
     arena = CombatArena(party, conflict_map, creature_tile="orc", asset_mgr=asset_mgr)
-    # Alive1 at player_starts[0], Alive2 at player_starts[2]
+    # Alive1 at player_starts[0], Dead1's corpse at [1], Alive2 at [2]
     assert 0 in arena.player_positions
-    assert 1 not in arena.player_positions
+    assert 1 in arena.player_positions
     assert 2 in arena.player_positions
 
     assert arena.player_positions[0] == conflict_map.player_starts[0]
+    assert arena.player_positions[1] == conflict_map.player_starts[1]
     assert arena.player_positions[2] == conflict_map.player_starts[2]
 
 

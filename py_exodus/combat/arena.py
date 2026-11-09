@@ -318,6 +318,10 @@ class CombatArena:
         return monsters
 
     def _place_players(self) -> None:
+        """Java CombatScreen ctor (CombatScreen.java:125-147): EVERY member
+        gets combat coordinates by roster index — dead members included, so
+        their corpses occupy a start tile and block creature movement
+        (hasBlockingCombatPlayerAt skips only ``fled`` members)."""
         starts = self.combat_map.player_starts or [(5, 9), (4, 8), (6, 8), (5, 10)]
         for i, member in enumerate(self.party.members):
             member.fled = False
@@ -325,13 +329,12 @@ class CombatArena:
             member.used_free_spell_in_combat = False
             if hasattr(member, "character") and hasattr(member.character, "used_free_spell_in_combat"):
                 member.character.used_free_spell_in_combat = False
-            if not member.is_dead() and member.hp > 0:
-                sx, sy = starts[i % len(starts)]
-                self.player_positions[i] = (sx, sy)
-                member.combat_x = sx
-                member.combat_y = sy
-                member.x = sx
-                member.y = sy
+            sx, sy = starts[i % len(starts)]
+            self.player_positions[i] = (sx, sy)
+            member.combat_x = sx
+            member.combat_y = sy
+            member.x = sx
+            member.y = sy
 
     def _get_living_party_members(self) -> list[PartyMember]:
         if hasattr(self.party, "living_members"):
@@ -988,7 +991,10 @@ class CombatArena:
     def _advance_direction(self, fx: int, fy: int, tx: int, ty: int) -> Direction | None:
         """``Utils.getPath`` + ``Direction.getRandomValidDirection``
         (Utils.java:299-312, Constants.java:319-333): the toward-directions
-        filtered to passable tiles, randomized uniformly; none → None."""
+        filtered to passable — and OCCUPIED-FREE — tiles (Java
+        getValidMovesMask's hasBlockingCreatureAt / hasBlockingCombatPlayerAt
+        block the creature and combat-player tiles, corpses included),
+        randomized uniformly; none → None."""
         toward_mask = get_relative_direction_mask(
             self.combat_map.width, self.combat_map.height, tx, ty, fx, fy
         )

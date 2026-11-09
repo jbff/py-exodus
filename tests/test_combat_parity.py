@@ -769,3 +769,76 @@ def test_combat_tile_effect_wipe_raises_death_exception(asset_mgr, conflict_map,
     with pytest.raises(PartyDeathException):
         arena.execute_player_action(0, Action.move(Direction.NORTH))
     assert hero.status == Status.DEAD
+
+
+# --- fix round 1 (row k): occupancy blocking --------------------------------
+
+
+def test_monsters_converging_cannot_share_a_tile(asset_mgr, monkeypatch):
+    """Java hasBlockingCreatureAt (BaseMap.java:762-769) blocks any creature
+    tile in the movement mask — two converging monsters never stack."""
+    monkeypatch.setattr(arena_mod.random, "randrange", lambda n: 99)  # force ADVANCE
+    party = build_party()
+    arena = CombatArena(
+        party, load_combat_map(asset_mgr, "CNFLCT_G.ULT"),
+        asset_mgr=asset_mgr, monster_count=2,
+    )
+    arena.player_positions[0] = (5, 5)
+    arena.monsters[0].x, arena.monsters[0].y = 3, 5
+    arena.monsters[1].x, arena.monsters[1].y = 7, 5
+    for m in arena.monsters:
+        m.basehp = 4  # 0 damage: the hero stays alive on the same tile
+
+    for _ in range(4):
+        for monster in list(arena.monsters):
+            arena._execute_single_monster_ai(monster)
+        tiles = [(m.x, m.y) for m in arena.monsters]
+        assert len(set(tiles)) == len(tiles)
+
+
+def test_monster_cannot_step_onto_dead_member_tile(asset_mgr, monkeypatch):
+    """A dead party member still occupies their start tile (CombatScreen.java:
+    125-147 combatCr assignment, hasBlockingCombatPlayerAt skips only fled) and
+    blocks the advance like any other occupied tile."""
+    monkeypatch.setattr(arena_mod.random, "randrange", lambda n: 99)  # force ADVANCE
+    party = Party()
+    party.add_member(Character("Hero", "M", hp=500, max_hp=500))
+    dead = Character("Corpse", "M", hp=0, max_hp=100, status=Status.DEAD)
+    party.add_member(dead)
+
+    arena = CombatArena(party, load_combat_map(asset_mgr, "CNFLCT_G.ULT"),
+                        asset_mgr=asset_mgr, monster_count=1)
+    corpse_pos = arena.player_positions[1]
+    # Hero stands just beyond the corpse along the monster's line of approach.
+    mdx = corpse_pos[0] - arena.monsters[0].x
+    mdy = corpse_pos[1] - arena.monsters[0].y
+    hero_x = corpse_pos[0] + (1 if mdx > 0 else -1 if mdx < 0 else 0)
+    hero_y = corpse_pos[1] + (1 if mdy > 0 else -1 if mdy < 0 else 0)
+    arena.player_positions[0] = (hero_x, hero_y)
+    arena.party.members[0].x, arena.party.members[0].y = hero_x, hero_y
+    arena.monsters[0].basehp = 4
+
+    res = arena._execute_single_monster_ai(arena.monsters[0])
+    assert (arena.monsters[0].x, arena.monsters[0].y) != corpse_pos  # never steps on
+    if res is not None:
+        assert res.action_type != "flee"
+
+
+def test_teleport_step_never_lands_on_occupied_tile(asset_mgr, monkeypatch):
+    """Java case TELEPORT (CombatScreen.java:748-768) places no occupancy
+    condition on the random guide tile; the actual displacement is the
+    moveCreature masked step toward it, and THAT step is subject to
+    hasBlockingCombatPlayerAt / hasBlockingCreatureAt — so the monster can
+    never end up sharing a member's or another creature's tile."""
+    monkeypatch.setattr(arena_mod.random, "randrange", lambda n: 0)  # force TELEPORT
+    party = build_party()
+    arena = CombatArena(party, load_combat_map(asset_mgr, "CNFLCT_G.ULT"),
+                        asset_mgr=asset_mgr, monster_count=2)
+    arena.player_positions[0] = (5, 5)
+    arena.monsters[0].x, arena.monsters[0].y = 5, 8
+    arena.monsters[1].x, arena.monsters[1].y = 5, 7  # the north step is occupied
+
+    for _ in range(50):
+        arena._execute_single_monster_ai(arena.monsters[0])
+        tiles = [arena.player_positions[0]] + [(m.x, m.y) for m in arena.monsters]
+        assert len(set(tiles)) == len(tiles)
