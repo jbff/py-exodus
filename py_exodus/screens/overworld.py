@@ -165,7 +165,10 @@ def draw_moon_glyph(
     mag = (0, radius // 2, radius, 2 * radius - 1, 0, 2 * radius - 1, radius, radius // 2)[
         phase % 8
     ]
-    if phase % 8 != 4 and mag > 0:
+    if phase % 8 != 4:
+        # Phase 4 (full) skips the shadow entirely; phase 0 keeps its
+        # centered shadow (mag 0) so the new moon is an eclipsed dark disc,
+        # visually distinct from the fully lit full moon.
         from_left = phase % 8 < 4
         sx = center[0] - mag if from_left else center[0] + mag
         pygame.draw.circle(glyph, _rgba(dark_color), (sx, center[1]), radius)

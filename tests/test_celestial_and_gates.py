@@ -172,6 +172,7 @@ class TestSkyStrip:
         import pygame as pg
 
         from py_exodus.screens.overworld import draw_moon_glyph
+        from py_exodus.ui.text_log import EGA_DARK_GRAY, EGA_WHITE
 
         r = 5
         glyphs = []
@@ -179,8 +180,19 @@ class TestSkyStrip:
             surf = pg.Surface((2 * r + 2, 2 * r + 2), pg.SRCALPHA)
             draw_moon_glyph(surf, surf.get_width() // 2, surf.get_height() // 2, r, phase)
             glyphs.append(surf)
-        # 8 distinct renderings, two per moon on the strip.
-        assert len({tuple(s.get_at((r + 1, r + 1))) for s in glyphs}) >= 2
+        # All 8 phases are visually distinct whole-glyph renderings.
+        dumps = {
+            tuple(tuple(surf.get_at((x, y))[:3]) for x in range(surf.get_width()) for y in range(surf.get_height()))
+            for surf in glyphs
+        }
+        assert len(dumps) == 8
+
+        # Phase 0 is the eclipsed/new disc: dark, not lit, at center.
+        center = (r + 1, r + 1)
+        assert glyphs[0].get_at(center)[:3] == EGA_DARK_GRAY
+        assert glyphs[0].get_at(center)[:3] != EGA_WHITE
+        # Phase 4 is the full moon: lit at center, and different from phase 0.
+        assert glyphs[4].get_at(center)[:3] == EGA_WHITE
 
     def test_render_draws_strip_on_map0(self, asset_mgr, party, monkeypatch):
         import py_exodus.screens.overworld as ow_module
