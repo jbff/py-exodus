@@ -1,4 +1,35 @@
-"""HUD Scrolling Text Log and Interactive Command/Dialogue Stream."""
+"""HUD Scrolling Text Log and Interactive Command/Dialogue Stream.
+
+Scroll-back ruling (user bug 2026-11-09, reviewed against Java
+``util/LogScrollPane`` — the original renders its log inside a vertical
+ScrollPane). The port implements the equivalent affordance in the shared
+``TextLog`` used by the overworld, town, dungeon and combat screens:
+
+- PRIMARY: a viewport offset (``scroll_offset``) lets the player scroll UP
+  through the full message history. The mouse wheel scrolls at any time;
+  PageUp/PageDown always work; arrow keys scroll ONLY while the log is
+  waiting on a prompt that cannot consume them (e.g. the single-letter
+  vendor "Buy what?" prompt) — during a direction prompt the arrows are
+  answers, not scroll keys, and while no prompt is waiting they remain
+  avatar-command keys.
+- While scrolled up (offset > 0), new arriving lines never yank the view
+  back to the bottom (the offset pins the view in place); at offset 0 the
+  view sticks to the bottom as messages arrive.
+- Any key OTHER than a scroll key that gets consumed by an active prompt
+  returns the view to the bottom FIRST, so an answer is never given
+  against a scrolled-away view.
+- No pagination pauses inside vendor prompts or dialogue streams: they
+  would conflict with the letter-input prompt state. Scroll-back covers
+  review instead.
+- A small "▲ N" indicator is drawn in the log corner while the view is
+  scrolled away from the bottom.
+
+SECONDARY: when no font is supplied, the log picks its font size by
+measured font metrics — the largest size that does not reduce the row
+budget of the readable floor (size 10 / linesize 12). At the real scale-3
+log strip (528x72 native) this is 5 readable rows where the old ladder
+showed 3.
+"""
 from __future__ import annotations
 
 import re
@@ -106,7 +137,16 @@ class TextLog:
         self.input_buffer: str = ""
         self.single_char: bool = False
         self._callback: Callable[[str], None] | None = None
+        # Scroll-back viewport: 0 = stuck to the newest line; N = the window
+        # ends N history lines above the newest (N grows as lines arrive so
+        # a scrolled-up view stays pinned). See module docstring for the
+        # scroll-back ruling.
         self.scroll_offset: int = 0
+        # History row budget, refreshed by render(); scroll/page helpers use
+        # it when no explicit row count is passed.
+        self.visible_rows: int = 1
+        # Font size chosen by the last render() (readable floor is 10).
+        self.font_size: int = 13
 
     def add_message(self, msg: str) -> None:
         """Add a message to the scrolling log, wrapping text if wrap_width is set."""
@@ -132,6 +172,76 @@ class TextLog:
         self.lines.append(line)
         if len(self.lines) > self.max_lines:
             self.lines.pop(0)
+        if self.scroll_offset:
+            # A scrolled-up view stays pinned to the same history content;
+            # only a bottom-stuck view (offset 0) rides along with arrivals.
+            self.scroll_offset += 1
+
+    # --- Scroll-back (Java LogScrollPane affordance; module docstring rules) ---
+
+    def _snap_to_bottom(self) -> None:
+        """Return the viewport to the newest line (offset 0)."""
+        self.scroll_offset = 0
+
+    def _window_offset(self, rows: int) -> int:
+        """Effective offset for a window of `rows` history lines."""
+        return min(self.scroll_offset, max(0, len(self.history) - rows))
+
+    def visible_line_texts(self, rows: int | None = None) -> list[str]:
+        """The history lines the current viewport shows for `rows` rows."""
+        budget = self.visible_rows if rows is None else max(1, rows)
+        end = len(self.history) - self._window_offset(budget)
+        return list(self.history[max(0, end - budget):end])
+
+    def scroll_up(self, lines: int = 1) -> bool:
+        """Show older history lines. True when the viewport moved."""
+        cap = max(0, len(self.history) - max(1, self.visible_rows))
+        target = min(self.scroll_offset + max(1, lines), cap)
+        if target == self.scroll_offset:
+            return False
+        self.scroll_offset = target
+        return True
+
+    def scroll_down(self, lines: int = 1) -> bool:
+        """Move toward the newest lines. True when the viewport moved."""
+        target = max(0, self.scroll_offset - max(1, lines))
+        if target == self.scroll_offset:
+            return False
+        self.scroll_offset = target
+        return True
+
+    def page_up(self) -> bool:
+        """Scroll back a full viewport of rows."""
+        return self.scroll_up(max(1, self.visible_rows))
+
+    def page_down(self) -> bool:
+        """Scroll forward a full viewport of rows."""
+        return self.scroll_down(max(1, self.visible_rows))
+
+    def handle_wheel(self, event: pygame.event.Event) -> bool:
+        """Process a MOUSEWHEEL event (mouse wheel scrolls at any time)."""
+        if event.type != pygame.MOUSEWHEEL:
+            return False
+        delta = int(getattr(event, "y", 0))
+        if delta > 0:
+            return self.scroll_up(delta)
+        if delta < 0:
+            return self.scroll_down(-delta)
+        return False
+
+    def handle_scroll_key(self, key: int) -> bool:
+        """PageUp/PageDown scroll-back in every state; True = key consumed."""
+        if key == pygame.K_PAGEUP:
+            self.page_up()
+            return True
+        if key == pygame.K_PAGEDOWN:
+            self.page_down()
+            return True
+        return False
+
+    def scroll_indicator_text(self) -> str:
+        """Corner indicator while the viewport is scrolled off the bottom."""
+        return f"▲ {self.scroll_offset}" if self.scroll_offset > 0 else ""
 
     def prompt(
         self,
@@ -187,6 +297,8 @@ class TextLog:
             return True
 
         if char.isprintable():
+            # Consumed prompt keys always answer against the bottom-most view
+            self._snap_to_bottom()
             self.input_buffer += char
             if self.single_char:
                 self.handle_enter()
@@ -200,6 +312,7 @@ class TextLog:
             return False
 
         if self.input_buffer:
+            self._snap_to_bottom()
             self.input_buffer = self.input_buffer[:-1]
             return True
         return False
@@ -219,6 +332,7 @@ class TextLog:
         self.input_buffer = ""
         self.single_char = False
         self._callback = None
+        self._snap_to_bottom()
 
         # Add the completed prompt + input line to message log
         if prompt_str:
@@ -241,6 +355,7 @@ class TextLog:
         self.input_buffer = ""
         self.single_char = False
         self._callback = None
+        self._snap_to_bottom()
 
     def cancel_prompt(self) -> None:
         """Alias for handle_escape."""
@@ -252,41 +367,67 @@ class TextLog:
         self.handle_enter()
 
     def handle_event(self, event: pygame.event.Event) -> bool:
-        """Process a Pygame KEYDOWN event if waiting for prompt input."""
+        """Process a Pygame KEYDOWN/MOUSEWHEEL event for prompt input.
+
+        Scroll keys (mouse wheel, PageUp/PageDown) work in every state; arrow
+        keys scroll only while the waiting prompt cannot consume them. Any
+        key consumed by the prompt returns the view to the bottom first.
+        """
+        # Mouse wheel scrolls history in any state (module docstring ruling)
+        if self.handle_wheel(event):
+            return True
+
+        if event.type != pygame.KEYDOWN:
+            return False
+
+        # PageUp/PageDown always scroll-back, with or without an active prompt
+        if event.key in (pygame.K_PAGEUP, pygame.K_PAGEDOWN):
+            return self.handle_scroll_key(event.key)
+
         if not self.is_waiting_for_input:
             return False
 
-        if event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_ESCAPE:
-                self.handle_escape()
+        # Direction prompt shortcut: arrow keys and keypad auto-commit direction
+        is_direction_prompt = any(
+            k in self.current_prompt.lower() for k in ("dir", "n,s,e,w", "where")
+        )
+        if is_direction_prompt:
+            if event.key in (pygame.K_UP, pygame.K_KP8):
+                self.submit_input("NORTH")
                 return True
+            if event.key in (pygame.K_DOWN, pygame.K_KP2):
+                self.submit_input("SOUTH")
+                return True
+            if event.key in (pygame.K_LEFT, pygame.K_KP4):
+                self.submit_input("WEST")
+                return True
+            if event.key in (pygame.K_RIGHT, pygame.K_KP6):
+                self.submit_input("EAST")
+                return True
+        elif event.key in (pygame.K_UP, pygame.K_DOWN):
+            # The waiting prompt cannot consume the up/down arrows (it is a
+            # single-letter/phrase vendor-style prompt), so they scroll.
+            return self.scroll_up(1) if event.key == pygame.K_UP else self.scroll_down(1)
 
-            # Direction prompt shortcut: arrow keys and keypad auto-commit direction
-            if any(k in self.current_prompt.lower() for k in ("dir", "n,s,e,w", "where")):
-                if event.key in (pygame.K_UP, pygame.K_KP8):
-                    self.submit_input("NORTH")
-                    return True
-                if event.key in (pygame.K_DOWN, pygame.K_KP2):
-                    self.submit_input("SOUTH")
-                    return True
-                if event.key in (pygame.K_LEFT, pygame.K_KP4):
-                    self.submit_input("WEST")
-                    return True
-                if event.key in (pygame.K_RIGHT, pygame.K_KP6):
-                    self.submit_input("EAST")
-                    return True
+        # Consumed prompt keys (escape/enter/backspace/characters) each return
+        # the viewport to the bottom inside their own handlers below, so an
+        # answer is never given against a scrolled-away view.
 
-            if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
-                self.handle_enter()
-                return True
-            if event.key == pygame.K_BACKSPACE:
-                self.handle_backspace()
-                return True
+        if event.key == pygame.K_ESCAPE:
+            self.handle_escape()
+            return True
 
-            u = getattr(event, "unicode", "")
-            if u and u.isprintable():
-                self.handle_char(u)
-                return True
+        if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+            self.handle_enter()
+            return True
+        if event.key == pygame.K_BACKSPACE:
+            self.handle_backspace()
+            return True
+
+        u = getattr(event, "unicode", "")
+        if u and u.isprintable():
+            self.handle_char(u)
+            return True
 
         return False
 
@@ -294,6 +435,7 @@ class TextLog:
         """Clear visible lines and active prompt."""
         self.lines.clear()
         self.history.clear()
+        self._snap_to_bottom()
         self.handle_escape()
 
     def render(
@@ -331,27 +473,65 @@ class TextLog:
 
         f = font or self._font
         if f is None:
-            font_size = 18 if target_rect.height >= 60 else (14 if target_rect.height >= 36 else 13)
-            f = get_hud_font(size=font_size)
+            self.font_size = self._pick_font_size(target_rect.height)
+            f = get_hud_font(size=self.font_size)
 
         line_height = max(8, f.get_linesize())
         max_renderable = max(1, (target_rect.height - 4) // line_height)
+        self.visible_rows = max_renderable
 
-        lines_to_draw: list[tuple[str, tuple[int, int, int]]] = []
+        # Viewport window over the full history (scroll-back ruling: offset 0
+        # shows the newest lines; offset N ends N lines above the newest;
+        # while waiting the prompt keeps the last row pinned).
+        rows_hist = max_renderable - 1 if self.is_waiting_for_input else max_renderable
+        visible_history = self.visible_line_texts(rows_hist)
+
+        lines_to_draw: list[tuple[str, tuple[int, int, int]]] = [
+            (line, text_color) for line in visible_history
+        ]
         if self.is_waiting_for_input:
             cursor = "_" if cursor_visible else ""
             prompt_line = f"{self.current_prompt} {self.input_buffer}{cursor}"
-            hist_count = max_renderable - 1
-            visible_history = self.lines[-hist_count:] if hist_count > 0 else []
-            lines_to_draw = [(line, text_color) for line in visible_history] + [
-                (prompt_line, prompt_color)
-            ]
-        else:
-            visible_history = self.lines[-max_renderable:]
-            lines_to_draw = [(line, text_color) for line in visible_history]
+            lines_to_draw.append((prompt_line, prompt_color))
 
         draw_x = target_rect.x + 4
         draw_y = target_rect.y + 2
         for idx, (text, col) in enumerate(lines_to_draw):
             line_surf = f.render(text, False, col)
             surface.blit(line_surf, (draw_x, draw_y + idx * line_height))
+
+        indicator = self.scroll_indicator_text()
+        if indicator:
+            ind_surf = f.render(indicator, False, EGA_YELLOW)
+            surface.blit(
+                ind_surf,
+                (target_rect.right - ind_surf.get_width() - 3, target_rect.y + 2),
+            )
+
+    # Readable floor: size 10 / linesize 12 (the dungeon status font). Any
+    # larger candidate font must not cost a single row of that budget.
+    _MIN_FONT_SIZE = 10
+    _FONT_SIZE_LADDER = (20, 18, 16, 14, 12, 10)
+
+    @classmethod
+    def _pick_font_size(cls, height: int) -> int:
+        """Largest font size that leaves no readable row unused.
+
+        Rows are measured with each candidate's real ``get_linesize()``
+        against the usable height (rect minus the 2px frame padding on each
+        edge). The size-10 floor fixes the row budget; a bigger font is only
+        chosen when it still fits that same number of rows.
+        """
+        usable = max(1, height - 4)
+
+        def rows_for(size: int) -> int:
+            line_height = get_hud_font(size=size).get_linesize()
+            return usable // max(1, line_height)
+
+        budget = rows_for(cls._MIN_FONT_SIZE)
+        for size in cls._FONT_SIZE_LADDER:
+            if size < cls._MIN_FONT_SIZE:
+                break
+            if rows_for(size) >= budget:
+                return size
+        return cls._MIN_FONT_SIZE

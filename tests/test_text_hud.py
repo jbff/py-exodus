@@ -5,9 +5,15 @@ import pygame
 
 from py_exodus.constants import ArmorType, Profession, Race, Status, Transport, WeaponType
 from py_exodus.entities.character import Character
-from py_exodus.entities.party import Party
+from py_exodus.entities.party import Party, PartyMember
 from py_exodus.ui.stats_panel import StatsPanel, inspect_row_color, inspect_rows
-from py_exodus.ui.text_log import EGA_BRIGHT_GREEN, EGA_LIGHT_GRAY, EGA_WHITE, TextLog
+from py_exodus.ui.text_log import (
+    EGA_BRIGHT_GREEN,
+    EGA_LIGHT_GRAY,
+    EGA_WHITE,
+    EGA_YELLOW,
+    TextLog,
+)
 
 
 def test_text_log_prompt():
@@ -132,6 +138,208 @@ def test_text_log_single_char_and_arrow_keys():
     assert dir_received == ["NORTH", "EAST"]
     assert not log.is_waiting_for_input
 
+
+
+# --- Text log scroll-back (user bug 2026-11-09; Java LogScrollPane affordance) ---
+# Controller ruling: the mouse wheel always scrolls; PageUp/PageDown always
+# work; arrow keys scroll only while the waiting prompt cannot consume them
+# (a direction prompt auto-commits them as answers); any key consumed by an
+# active prompt returns the view to the bottom first; new lines while scrolled
+# up do not yank the view; and there are no pagination pauses inside vendor
+# prompts — scroll-back covers review instead.
+
+
+def _flooded_log(n: int = 12, max_lines: int = 5) -> TextLog:
+    """A log whose menu-style history overflows the visible line buffer."""
+    log = TextLog(max_lines=max_lines, wrap_width=28)
+    for i in range(n):
+        log.add_message(f"A - Item {i}: {i}gp")
+    return log
+
+
+def test_scroll_back_reaches_history_beyond_visible_lines():
+    """Wheel/offset reveals menu history older than the max_lines buffer."""
+    log = _flooded_log()
+    assert len(log.lines) == 5  # visible buffer still capped as before
+    assert log.scroll_offset == 0
+
+    log.visible_rows = 4
+    assert log.scroll_up(2) is True
+    assert log.scroll_offset == 2
+    assert log.visible_line_texts(4) == [
+        "A - Item 6: 6gp",
+        "A - Item 7: 7gp",
+        "A - Item 8: 8gp",
+        "A - Item 9: 9gp",
+    ]
+
+    # Clamped at the top of history
+    assert log.scroll_up(50) is True
+    assert log.scroll_offset == 8  # len(history) - 4 rows
+    assert log.visible_line_texts(4)[0] == "A - Item 0: 0gp"
+    assert log.scroll_up(1) is False  # already at the top
+
+
+def test_mouse_wheel_scrolls_history_and_back():
+    log = _flooded_log()
+    log.visible_rows = 3
+    assert log.handle_wheel(pygame.event.Event(pygame.MOUSEWHEEL, y=2)) is True
+    assert log.scroll_offset == 2
+    assert log.handle_wheel(pygame.event.Event(pygame.MOUSEWHEEL, y=-5)) is True
+    assert log.scroll_offset == 0
+
+
+def test_new_lines_do_not_yank_scrolled_view():
+    """While scrolled up, arriving lines keep the view pinned in place."""
+    log = _flooded_log(10)
+    log.visible_rows = 3
+    log.scroll_up(2)
+    before = log.visible_line_texts(3)
+
+    log.add_message("New line")
+    assert log.scroll_offset == 3  # pinned to the same history content
+    assert log.visible_line_texts(3) == before
+
+    # At the bottom the view stays stuck to the newest line
+    fresh = _flooded_log(10)
+    fresh.visible_rows = 3
+    fresh.add_message("Newest")
+    assert fresh.scroll_offset == 0
+    assert fresh.visible_line_texts(3)[-1] == "Newest"
+
+
+def test_prompt_answer_snaps_view_to_bottom():
+    """Answering a scrolled-away prompt consumes the letter and snaps back."""
+    log = _flooded_log(10)
+    log.visible_rows = 3
+    log.scroll_up(2)
+    received: list[str] = []
+    log.prompt("Buy what? (A-D):", received.append, single_char=True)
+    log.handle_char("A")
+    assert received == ["A"]
+    assert log.scroll_offset == 0
+
+
+def test_any_consumed_prompt_key_snaps_view_to_bottom():
+    log = _flooded_log(10)
+    log.visible_rows = 3
+    log.prompt("Other Command? ")
+    log.scroll_up(3)
+
+    log.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_x, unicode="x"))
+    assert log.scroll_offset == 0
+
+    # Backspace editing is a consumed key too
+    log.scroll_up(3)
+    log.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_BACKSPACE, unicode="\b"))
+    assert log.scroll_offset == 0
+
+
+def test_pageup_pagedown_work_without_any_prompt():
+    log = _flooded_log()
+    log.visible_rows = 4
+    assert log.handle_scroll_key(pygame.K_PAGEUP) is True
+    assert log.scroll_offset == 4
+    assert log.handle_scroll_key(pygame.K_PAGEUP) is True
+    assert log.scroll_offset == 8
+    assert log.handle_scroll_key(pygame.K_PAGEDOWN) is True
+    assert log.scroll_offset == 4
+    assert log.handle_scroll_key(pygame.K_PAGEDOWN) is True
+    assert log.scroll_offset == 0
+
+
+def test_pageup_pagedown_work_during_direction_prompt():
+    log = _flooded_log()
+    log.visible_rows = 4
+    received: list[str] = []
+    log.prompt("Direction? (N,S,E,W):", received.append)
+
+    log.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_PAGEUP, unicode=""))
+    assert log.scroll_offset == 4
+    assert log.is_waiting_for_input
+
+    # In a direction prompt arrows answer (and snap the view back),
+    # they never scroll the viewport.
+    log.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_UP, unicode=""))
+    assert received == ["NORTH"]
+    assert log.scroll_offset == 0
+
+
+def test_arrow_keys_scroll_when_prompt_cannot_use_them():
+    """Vendor letter prompts leave arrows free for scroll-back."""
+    log = _flooded_log()
+    log.visible_rows = 4
+    received: list[str] = []
+    log.prompt("Buy what? (A-D):", received.append, single_char=True)
+
+    log.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_UP, unicode=""))
+    assert log.scroll_offset == 1
+    log.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_DOWN, unicode=""))
+    assert log.scroll_offset == 0
+
+    # The arrows never answered the prompt
+    assert received == []
+    assert log.is_waiting_for_input
+
+
+def test_scroll_indicator_text_shows_offset_while_scrolled():
+    log = _flooded_log(10)
+    assert log.scroll_indicator_text() == ""
+    log.visible_rows = 3
+    log.scroll_up(2)
+    assert log.scroll_indicator_text() == "▲ 2"
+    log.scroll_down(2)
+    assert log.scroll_indicator_text() == ""
+
+
+def test_scrolled_render_draws_indicator():
+    pygame.font.init()
+    surf = pygame.Surface((320, 200))
+    surf.fill((0, 0, 0))
+    log = _flooded_log(10)
+    log.visible_rows = 2
+    log.scroll_up(3)
+    log.render(surf, rect=(0, 160, 320, 40))
+    yellow = tuple(EGA_YELLOW)
+    has_indicator = any(
+        surf.get_at((x, y))[:3] == yellow
+        for x in range(0, 320)
+        for y in range(160, 178)
+    )
+    assert has_indicator
+
+
+def test_clear_resets_scroll_offset():
+    log = _flooded_log()
+    log.visible_rows = 3
+    log.scroll_up(2)
+    log.clear()
+    assert log.scroll_offset == 0
+    assert not log.history
+
+
+def test_log_font_uses_measured_row_budget():
+    """Secondary ruling: measured font metrics leave no readable row unused
+    (floor: size 10 / linesize 12 — the port never goes below readable)."""
+    pygame.font.init()
+    log = TextLog(max_lines=5)
+    for i in range(12):
+        log.add_message(f"row {i}")
+    # The real scale-3 log strip: 528x72 native
+    big = pygame.Surface((960, 600))
+    log.render(big, rect=(0, 528, 528, 72))
+    assert log.visible_rows >= 4
+    assert log.font_size >= 10
+    assert log.visible_line_texts(log.visible_rows)[-1] == "row 11"
+
+    # The 320x200 log strip keeps at least one readable row
+    small = pygame.Surface((320, 200))
+    log2 = TextLog(max_lines=5)
+    for i in range(6):
+        log2.add_message(f"row {i}")
+    log2.render(small, rect=(0, 176, 176, 24))
+    assert log2.visible_rows >= 1
+    assert log2.font_size >= 10
 
 
 def test_text_log_render():
@@ -379,3 +587,89 @@ def test_stats_panel_scaled_resolution():
         if surf.get_at((x, y))[:3] != (0, 0, 0)
     )
     assert drawn_pixels > 0
+
+
+# --- Screen-level scroll-back routing (overworld/town share the same paths) ---
+
+
+def _screen_party() -> Party:
+    return Party(
+        [
+            PartyMember(
+                Character("Hero", "M", Race.HUMAN, Profession.FIGHTER, hp=100)
+            )
+        ],
+        x=10,
+        y=10,
+    )
+
+
+def _fill_screen_log(screen) -> None:
+    for i in range(12):
+        screen.text_log.add_message(f"L{i}")
+    screen.text_log.visible_rows = 3
+
+
+def test_town_screen_routes_wheel_and_page_keys_to_log():
+    from py_exodus.screens.town import TownScreen
+
+    town = TownScreen(party=_screen_party(), map_id=1)
+    _fill_screen_log(town)
+
+    town.handle_event(pygame.event.Event(pygame.MOUSEWHEEL, y=2))
+    assert town.text_log.scroll_offset == 2
+
+    town.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_PAGEUP))
+    assert town.text_log.scroll_offset == 5
+
+    town.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_PAGEDOWN))
+    assert town.text_log.scroll_offset == 2
+
+
+def test_town_wheel_scrolls_during_vendor_letter_prompt():
+    """The wheel works while a single-letter vendor prompt is waiting."""
+    from py_exodus.screens.town import TownScreen
+
+    town = TownScreen(party=_screen_party(), map_id=1)
+    _fill_screen_log(town)
+    received: list[str] = []
+    town.text_log.prompt("Buy what? (A-D):", received.append, single_char=True)
+
+    town.handle_event(pygame.event.Event(pygame.MOUSEWHEEL, y=1))
+    assert town.text_log.scroll_offset == 1
+    assert received == []
+
+    # Answering the letter still works against the bottom-most view
+    town.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_a, unicode="a"))
+    assert received == ["a"]
+    assert town.text_log.scroll_offset == 0
+
+
+def test_town_arrows_do_not_scroll_log_when_free():
+    """With no prompt the arrows stay avatar-command keys (never scroll)."""
+    from py_exodus.screens.town import TownScreen
+
+    town = TownScreen(party=_screen_party(), map_id=1)
+    _fill_screen_log(town)
+    offset_before = town.text_log.scroll_offset
+    town.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_UP))
+    assert town.text_log.scroll_offset == offset_before
+
+
+def test_overworld_wheel_blocked_while_gem_view_active():
+    """Peer-gem view owns all input: wheel neither scrolls nor closes it."""
+    from py_exodus.screens.overworld import OverworldScreen
+
+    ow = OverworldScreen(
+        party=_screen_party(), map_id=0, asset_mgr=None, random_encounters=False
+    )
+    _fill_screen_log(ow)
+    ow.gem_view_active = True
+
+    ow.handle_event(pygame.event.Event(pygame.MOUSEWHEEL, y=2))
+    assert ow.text_log.scroll_offset == 0
+    assert ow.gem_view_active is True
+
+    # Any key still closes the gem view as before
+    ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_SPACE))
+    assert ow.gem_view_active is False

@@ -226,12 +226,23 @@ class RosterScreen(BaseScreen):
         return get_starter_roster()
 
     def handle_event(self, event: pygame.event.Event) -> None:
+        # Mouse wheel scrolls the shared text log back through history
+        # (Java LogScrollPane affordance).
+        if event.type == pygame.MOUSEWHEEL:
+            self.text_log.handle_wheel(event)
+            return
+
         if event.type != pygame.KEYDOWN:
             return
 
         # If text_log prompt is active (e.g. during character creation)
         if self.text_log.is_waiting_for_input:
             self.text_log.handle_event(event)
+            return
+
+        # PageUp/PageDown always scroll the text log back (arrow keys stay
+        # roster navigation keys).
+        if self.text_log.handle_scroll_key(event.key):
             return
 
         # Navigation

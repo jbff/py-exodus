@@ -122,11 +122,23 @@ class DungeonScreen(BaseScreen):
             self.audio.play_music("dungeon")
 
     def handle_event(self, event: pygame.event.Event) -> None:
+        # Mouse wheel scrolls the shared text log back through history
+        # (Java LogScrollPane affordance; wheel is never a dungeon command).
+        if event.type == pygame.MOUSEWHEEL:
+            self.text_log.handle_wheel(event)
+            return
+
         if event.type != pygame.KEYDOWN:
             return
 
         if self.text_log.is_waiting_for_input:
             self.text_log.handle_event(event)
+            return
+
+        # PageUp/PageDown always scroll the text log back (arrow keys scroll
+        # only inside the log's own prompt handling, when they cannot act as
+        # direction/command answers).
+        if self.text_log.handle_scroll_key(event.key):
             return
 
         # Movement and navigation keys: Arrow keys and Keypad ONLY (no WASD)

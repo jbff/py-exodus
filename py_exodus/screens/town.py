@@ -165,6 +165,14 @@ class TownScreen(BaseScreen):
         self.text_log.add_message("Board What?")
 
     def handle_event(self, event: pygame.event.Event) -> None:
+        # Mouse wheel scrolls the shared text log back through history
+        # (Java LogScrollPane affordance). The peer-gem view owns all input,
+        # so the wheel neither scrolls nor closes it (GameScreen.java:1146-1152).
+        if event.type == pygame.MOUSEWHEEL:
+            if not self.gem_view_active:
+                self.text_log.handle_wheel(event)
+            return
+
         if event.type != pygame.KEYDOWN:
             return
 
@@ -177,6 +185,12 @@ class TownScreen(BaseScreen):
 
         if self.text_log.is_waiting_for_input:
             self.text_log.handle_event(event)
+            return
+
+        # PageUp/PageDown always scroll the text log back (arrow keys scroll
+        # only inside the log's own prompt handling, when they cannot act as
+        # direction/command answers).
+        if self.text_log.handle_scroll_key(event.key):
             return
 
         # Movement: Arrow keys and Keypad ONLY (no WASD)

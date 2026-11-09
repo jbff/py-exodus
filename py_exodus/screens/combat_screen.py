@@ -117,6 +117,12 @@ class CombatScreen(BaseScreen):
             self.audio.stop_music()
 
     def handle_event(self, event: pygame.event.Event) -> None:
+        # Mouse wheel scrolls the shared text log back through history
+        # (Java LogScrollPane affordance; wheel is never a combat command).
+        if event.type == pygame.MOUSEWHEEL:
+            self.text_log.handle_wheel(event)
+            return
+
         if event.type != pygame.KEYDOWN:
             return
 
@@ -133,6 +139,12 @@ class CombatScreen(BaseScreen):
                     self._handle_defeat_exit()
                 else:
                     self.exit_screen()
+            return
+
+        # PageUp/PageDown always scroll the text log back (arrow keys scroll
+        # only inside the log's own prompt handling, when they cannot act as
+        # direction/command answers).
+        if self.text_log.handle_scroll_key(event.key):
             return
 
         # Standard combat keys
