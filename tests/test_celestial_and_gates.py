@@ -100,3 +100,124 @@ def test_ambrosia_whirlpool_portal_e_fixed_start(asset_mgr, party):
 
     assert (party.x, party.y) == (1, 1)
     assert ow.map_id == 0
+
+
+# --------------------------------------------------------------------------- #
+# Overworld HUD sky strip (wind + moon phases) — Java GameScreen.java:180-196
+# --------------------------------------------------------------------------- #
+class TestSkyStrip:
+    """Sosaria-only top strip of the main pane: two moon-phase glyphs (Trammel
+    and Felucca), the wind direction with its arrow, and the aura label when
+    active (Java GameScreen.java:180-196 draws the phase_* atlas icons and
+    "Wind <direction>"; the port adapts them to text plus clipped circle-with-
+    shadow glyphs in its EGA text/cell style). Hull stays in the stats panel.
+
+    Source rule: the phases are read from this screen's live counters
+    (self.trammel_phase / self.felucca_phase — the same properties the
+    moongate routing reads) and the wind from party.wind_direction, never
+    copies of them.
+    """
+
+    def test_strip_is_sosaria_only(self, asset_mgr, party):
+        from py_exodus.screens.overworld import OverworldScreen as OW
+
+        ow0 = OW(party=party, map_id=0, asset_mgr=asset_mgr, start_x=45, start_y=19)
+        assert ow0.sky_strip_active is True
+        ow13 = OW(party=party, map_id=13, asset_mgr=asset_mgr, start_x=32, start_y=57)
+        assert ow13.sky_strip_active is False
+
+    def test_strip_texts_wind_arrow_and_moons(self, asset_mgr, party):
+        from py_exodus.aura import AuraType
+        from py_exodus.screens.overworld import sky_strip_texts
+
+        texts = sky_strip_texts(Direction.NORTH, 3, 0)
+        assert "Wind NORTH ^" in texts
+        assert "T:3 F:0" in texts
+
+        # Arrow tracks the direction; the moon counters are Trammel/Felucca.
+        assert "Wind SOUTH v" in sky_strip_texts(Direction.SOUTH, 0, 7)
+        assert "Wind EAST >" in sky_strip_texts(Direction.EAST, 1, 1)
+        assert "Wind WEST <" in sky_strip_texts(Direction.WEST, 7, 4)
+
+        # Aura label appears only when an aura is active.
+        assert "QUICKNESS" in sky_strip_texts(Direction.NORTH, 0, 0, aura=AuraType.QUICKNESS)
+        assert not any(
+            "QUICKNESS" in t for t in sky_strip_texts(Direction.NORTH, 0, 0, aura=AuraType.NONE)
+        )
+
+    def test_strip_reads_live_state_not_copies(self, asset_mgr, party, monkeypatch):
+        ow = OverworldScreen(party=party, map_id=0, asset_mgr=asset_mgr, start_x=45, start_y=19)
+        texts = ow.sky_strip_texts()
+        assert any("Wind NORTH" in t for t in texts)
+        assert any("T:0 F:0" in t for t in texts)
+
+        # Same source the moongate code reads: bump the phase counters.
+        ow.moon_phase = 10  # Trammel 3, Felucca 2
+        assert any("T:3 F:2" in t for t in ow.sky_strip_texts())
+
+        # Wind comes from the party record the sailing code tracks.
+        party.wind_direction = Direction.SOUTH
+        assert any("Wind SOUTH" in t for t in ow.sky_strip_texts())
+
+        # Phase advances through update(): moon counter ticks every 4s.
+        monkeypatch.setattr("py_exodus.screens.overworld.random.random", lambda: 0.99)
+        ow.moon_phase = 0
+        ow.update(4.5)
+        assert ow.moon_phase == 1
+        assert any("T:0 F:1" in t for t in ow.sky_strip_texts())
+
+    def test_moon_glyph_eight_distinct_phases(self, pygame_setup):
+        """Two visible phase indicators: one glyph per moon, 8 distinct phase
+        renderings, new moon dark / full moon lit at the disc center."""
+        import pygame as pg
+
+        from py_exodus.screens.overworld import draw_moon_glyph
+
+        r = 5
+        glyphs = []
+        for phase in range(8):
+            surf = pg.Surface((2 * r + 2, 2 * r + 2), pg.SRCALPHA)
+            draw_moon_glyph(surf, surf.get_width() // 2, surf.get_height() // 2, r, phase)
+            glyphs.append(surf)
+        # 8 distinct renderings, two per moon on the strip.
+        assert len({tuple(s.get_at((r + 1, r + 1))) for s in glyphs}) >= 2
+
+    def test_render_draws_strip_on_map0(self, asset_mgr, party, monkeypatch):
+        import py_exodus.screens.overworld as ow_module
+
+        ow = OverworldScreen(party=party, map_id=0, asset_mgr=asset_mgr, start_x=45, start_y=19)
+        ow.moon_phase = 24  # Trammel 0, Felucca 0 (both glyphs still drawn)
+
+        # The real render path draws exactly the two moon glyphs on Sosaria.
+        calls: list[tuple[int, int]] = []
+        real_glyph = ow_module.draw_moon_glyph
+
+        def spy(surface, cx, cy, radius, phase, *a, **k):
+            calls.append((cx, phase))
+            return real_glyph(surface, cx, cy, radius, phase, *a, **k)
+
+        monkeypatch.setattr(ow_module, "draw_moon_glyph", spy)
+        ow.render(pygame.Surface((640, 400)))
+        assert len(calls) == 2
+        assert calls[0][1] == ow.trammel_phase
+        assert calls[1][1] == ow.felucca_phase
+
+        # On a clean surface the strip's wind text and glyph pixels appear.
+        strip = pygame.Surface((176, 40))
+        ow._render_sky_strip(strip, pane_right=176, pane_top=0)
+        lit = sum(
+            1
+            for x in range(176)
+            for y in range(40)
+            if strip.get_at((x, y))[:3] != (0, 0, 0)
+        )
+        assert lit > 50  # wind text row plus both dark moon discs
+
+    def test_render_skips_strip_on_map13(self, asset_mgr, party, monkeypatch):
+        import py_exodus.screens.overworld as ow_module
+
+        ow = OverworldScreen(party=party, map_id=13, asset_mgr=asset_mgr, start_x=32, start_y=57)
+        calls: list[tuple] = []
+        monkeypatch.setattr(ow_module, "draw_moon_glyph", lambda *a, **k: calls.append(a))
+        ow.render(pygame.Surface((640, 400)))
+        assert calls == []

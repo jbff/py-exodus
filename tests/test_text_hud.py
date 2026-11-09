@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pygame
 
-from py_exodus.constants import ArmorType, Profession, Race, Status, Transport, WeaponType
+from py_exodus.constants import ArmorType, Profession, Race, Sex, Status, Transport, WeaponType
 from py_exodus.entities.character import Character
 from py_exodus.entities.party import Party, PartyMember
 from py_exodus.ui.stats_panel import StatsPanel, inspect_row_color, inspect_rows
@@ -528,6 +528,17 @@ def test_inspect_row_identity_name_race_sex_class_status():
     identity row (no separate title row)."""
     rows = inspect_rows(_inspect_member())
     assert "HERO ELF M WIZARD ST:G" in rows
+
+
+def test_inspect_row_identity_sex_other():
+    """Sex = Other (original-rules deviation): the compact identity row keeps
+    its initial-letter style, so Other shows as "O" (Java's full zstats prints
+    "Male"/"Female" proper-case; the compact-label ruling applies, and the
+    third initial is "O")."""
+    m = _inspect_member()
+    m.sex = Sex.OTHER
+    rows = inspect_rows(m)
+    assert "HERO ELF O WIZARD ST:G" in rows
 
 
 def test_inspect_row_health_and_maxhealth():

@@ -56,12 +56,20 @@ class Character(metaclass=CharacterMeta):
     ) -> None:
         self.name = name
 
-        # Sex resolution
+        # Sex resolution. "O" -> Sex.OTHER is the user-directed original-rules
+        # deviation (Sex.OTHER does not exist in Java's SexType; see
+        # constants.Sex). Unknown strings keep the historic fallback of
+        # FEMALE to avoid changing behavior of old saves.
         if isinstance(sex, Sex):
             self.sex = sex
         else:
             s = _builtin_str(sex).strip().upper()
-            self.sex = Sex.MALE if s.startswith("M") else Sex.FEMALE
+            if s.startswith("M"):
+                self.sex = Sex.MALE
+            elif s.startswith("O"):
+                self.sex = Sex.OTHER
+            else:
+                self.sex = Sex.FEMALE
 
         # Race resolution
         if isinstance(race, Race):

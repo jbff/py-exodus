@@ -107,6 +107,75 @@ def get_combat_map_id(
     return combat_map_id
 
 
+# --- Overworld HUD sky strip (Java GameScreen.java:180-196) ------------------ #
+# On Sosaria (map id 0) Java draws two moon-phase icons (Trammel and Felucca),
+# the "Wind <direction>" text, the aura label while active, and "Hull: N" when
+# on a ship. Port adaptation (documented per the strip ruling): the phase atlas
+# icons become clipped circle-with-shadow EGA glyphs and the wind/aura text
+# keeps the port's font-drawn text style. Hull is NOT duplicated here — the
+# stats panel transport row already carries "SHIP (HULL:n)".
+WIND_ARROWS: dict[Direction, str] = {
+    Direction.NORTH: "^",
+    Direction.SOUTH: "v",
+    Direction.EAST: ">",
+    Direction.WEST: "<",
+}
+
+
+def sky_strip_texts(
+    wind_direction: Direction,
+    trammel_phase: int,
+    felucca_phase: int,
+    aura: "AuraType | None" = None,
+) -> list[str]:
+    """Text lines of the sky strip (wind + moons, plus the aura label first
+    when active — Java GameScreen.java:184,188-189)."""
+    texts: list[str] = []
+    if aura is not None and aura != AuraType.NONE:
+        texts.append(aura.name)
+    texts.append(f"Wind {wind_direction.name} {WIND_ARROWS[wind_direction]}")
+    texts.append(f"T:{trammel_phase} F:{felucca_phase}")
+    return texts
+
+
+def draw_moon_glyph(
+    surface: pygame.Surface,
+    cx: int,
+    cy: int,
+    radius: int,
+    phase: int,
+    lit_color: tuple[int, int, int] = EGA_WHITE,
+    dark_color: tuple[int, int, int] = EGA_DARK_GRAY,
+) -> None:
+    """One 8-phase moon glyph clipped to its disc (Java draws the phase_0..7
+    atlas icons; the port renders a circle-with-shadow glyph from EGA colors).
+    Phase 0 is new moon (fully dark disc), 4 is full — the same counting the
+    Dawn double-new-moon gate restriction uses."""
+
+    def _rgba(c: tuple[int, int, int]) -> tuple[int, int, int, int]:
+        return (c[0], c[1], c[2], 255)
+
+    size = 2 * radius + 3
+    glyph = pygame.Surface((size, size), pygame.SRCALPHA)
+    center = (size // 2, size // 2)
+    pygame.draw.circle(glyph, _rgba(lit_color), center, radius)
+    # Dark shadow disc slides across: offset 0 = eclipsed (new moon), 2r =
+    # fully clear (full moon); waxing phases shadow from the left, waning
+    # from the right.
+    mag = (0, radius // 2, radius, 2 * radius - 1, 0, 2 * radius - 1, radius, radius // 2)[
+        phase % 8
+    ]
+    if phase % 8 != 4 and mag > 0:
+        from_left = phase % 8 < 4
+        sx = center[0] - mag if from_left else center[0] + mag
+        pygame.draw.circle(glyph, _rgba(dark_color), (sx, center[1]), radius)
+    # Circular clip: everything outside the moon disc is removed.
+    mask = pygame.Surface((size, size), pygame.SRCALPHA)
+    pygame.draw.circle(mask, (255, 255, 255, 255), center, radius)
+    glyph.blit(mask, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+    surface.blit(glyph, (cx - size // 2, cy - size // 2))
+
+
 class OverworldScreen(BaseScreen):
     """Exploration screen for the Sosaria world map and Ambrosia continent."""
 
@@ -168,6 +237,62 @@ class OverworldScreen(BaseScreen):
     @property
     def moons(self) -> tuple[int, int]:
         return (self.trammel_phase, self.felucca_phase)
+
+    @property
+    def sky_strip_active(self) -> bool:
+        """Sosaria only (Java GameScreen.java:186 gates the moon/wind HUD on
+        Maps.SOSARIA.getId()); Ambrosia and other overworld maps get nothing."""
+        return str(self.map_id) == "0"
+
+    def sky_strip_texts(self) -> list[str]:
+        """The strip's text lines from the LIVE state: the phases come from
+        self.trammel_phase / self.felucca_phase (the same properties the
+        moongate routing reads) and the wind from party.wind_direction —
+        never copies. Empty when the strip is not active."""
+        if not self.sky_strip_active:
+            return []
+        return sky_strip_texts(
+            self.party.wind_direction,
+            self.trammel_phase,
+            self.felucca_phase,
+            aura=self.party.aura.get_type(),
+        )
+
+    def _render_sky_strip(self, surface: pygame.Surface, pane_right: int, pane_top: int) -> None:
+        """Draw the top strip of the main pane: the aura label while active,
+        the wind text with its direction arrow, and the two moon-phase glyphs
+        (Trammel and Felucca) right-aligned (Java GameScreen.java:180-196).
+        Hull is not duplicated here — the stats panel transport row already
+        shows "SHIP (HULL:n)" while sailing."""
+        if not self.sky_strip_active:
+            return
+
+        scale = 3 if surface.get_width() >= 640 else 1
+        margin = 2 * scale
+        radius = max(2, 4 * scale)
+        f = get_hud_font(size=8 * scale if scale > 1 else 8)
+
+        y = pane_top + margin
+        aura = self.party.aura.get_type()
+        if aura != AuraType.NONE:
+            surface.blit(f.render(aura.name, False, EGA_YELLOW), (margin, y))
+            y += f.get_linesize()
+
+        wind = self.party.wind_direction
+        wind_txt = f"Wind {wind.name} {WIND_ARROWS[wind]}"
+        surface.blit(f.render(wind_txt, False, EGA_LIGHT_GRAY), (margin, y))
+        moon_txt = f"T:{self.trammel_phase} F:{self.felucca_phase}"
+        surface.blit(
+            f.render(moon_txt, False, EGA_WHITE),
+            (margin + f.size(wind_txt)[0] + 3 * scale, y),
+        )
+
+        size = 2 * radius + 3
+        gx2 = pane_right - margin - radius - 2
+        gx1 = gx2 - radius - 1 - size
+        cy = y + f.get_linesize() // 2
+        draw_moon_glyph(surface, gx1, cy, radius, self.trammel_phase)
+        draw_moon_glyph(surface, gx2, cy, radius, self.felucca_phase)
 
     def _load_world_map(self) -> None:
         # A map switch drops every standing creature (wanderer or whirlpool
@@ -1507,6 +1632,7 @@ class OverworldScreen(BaseScreen):
                 )
             scaled_v = pygame.transform.scale(temp_v, (v_size, v_size))
             surface.blit(scaled_v, (0, 0))
+            self._render_sky_strip(surface, pane_right=v_size, pane_top=0)
 
             # Right Sidebar (Party Stats) at native high resolution
             self.stats_panel.render(
@@ -1533,6 +1659,7 @@ class OverworldScreen(BaseScreen):
                     dest_pos=(0, 0),
                     monsters=self.creatures,
                 )
+            self._render_sky_strip(surface, pane_right=176, pane_top=0)
             self.stats_panel.render(
                 surface,
                 self.party,

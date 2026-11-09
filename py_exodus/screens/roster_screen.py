@@ -350,9 +350,9 @@ class RosterScreen(BaseScreen):
                 self.text_log.add_message("The roster is full (20 adventurers)!")
                 return
 
-            # Starting record: health/food/gold = 150, portrait index, and
-            # NO weapon or armor (ManagePartyScreen.java:185-192). Max MP is
-            # derived from profession/stats, not chosen here.
+            # Starting record: health/food/gold = 150 and NO weapon or armor
+            # (ManagePartyScreen.java:185-192). Max MP is derived from
+            # profession/stats, not chosen here.
             new_char = Character(
                 name=name,
                 sex=sex,
@@ -366,7 +366,9 @@ class RosterScreen(BaseScreen):
                 max_hp=150,
                 food=150,
                 gold=150,
-                portrait_index=self._new_char_data["portrait"],
+                # portrait_index keeps its default (43): the field survives for
+                # save compatibility but the creation wizard never asks for it
+                # and no UI renders it (user ruling, see _step_profession).
             )
             # Starting spell points: original-rules parity (user-directed
             # deviation). Java's own creator (ManagePartyScreen.java) never
@@ -381,19 +383,6 @@ class RosterScreen(BaseScreen):
             self.roster.append(new_char)
             self.selected_roster_idx = len(self.roster) - 1
             self.text_log.add_message(f"Created {name} ({prof.name})! Added to roster.")
-
-        def _step_portrait(raw: str) -> None:
-            raw = raw.strip()
-            if not raw:
-                idx = 43
-            else:
-                try:
-                    idx = int(raw)
-                except ValueError:
-                    idx = 43
-            idx = max(0, min(43, idx))
-            self._new_char_data["portrait"] = idx
-            _start_stat_allocation()
 
         def _step_profession(prof_str: str) -> None:
             prof_map = {
@@ -411,7 +400,11 @@ class RosterScreen(BaseScreen):
             }
             code = prof_str.strip().upper()[:1]
             self._new_char_data["prof"] = prof_map.get(code, Profession.FIGHTER)
-            self.text_log.prompt("Portrait (0-43, ENTER for 43):", _step_portrait, single_char=False)
+            # Note: the old portrait-number prompt step was removed (user
+            # ruling: "dump the faces/images for characters" — the original
+            # game had no character portraits). The wizard goes straight from
+            # Class to stat allocation; portrait_index stays a save-only field.
+            _start_stat_allocation()
 
         def _step_race(race_str: str) -> None:
             race_map = {
@@ -425,9 +418,25 @@ class RosterScreen(BaseScreen):
             self._new_char_data["race"] = race_map.get(code, Race.HUMAN)
             self.text_log.prompt("Class: [F]ight [C]leric [W]iz [T]hief [P]al [R]ang [B]arb:", _step_profession, single_char=True)
 
+        def _sex_prompt() -> None:
+            # Sex: [M]ale [F]emale [O]ther — "Other" reinstated per original
+            # rules (user-directed deviation from Java's SexType, which has
+            # only Male/Female; see Sex.OTHER in constants.py). Invalid input
+            # re-prompts, matching the wizard's stat re-prompt behavior.
+            self.text_log.prompt("Sex: [M]ale [F]emale [O]ther:", _step_sex, single_char=True)
+
         def _step_sex(sex_str: str) -> None:
-            sex = Sex.FEMALE if sex_str.strip().upper().startswith("F") else Sex.MALE
-            self._new_char_data["sex"] = sex
+            code = sex_str.strip().upper()[:1]
+            if code == "M":
+                self._new_char_data["sex"] = Sex.MALE
+            elif code == "F":
+                self._new_char_data["sex"] = Sex.FEMALE
+            elif code == "O":
+                self._new_char_data["sex"] = Sex.OTHER
+            else:
+                self.text_log.add_message("Enter M, F, or O.")
+                _sex_prompt()
+                return
             self.text_log.prompt("Race: [H]uman [E]lf [D]warf [B]obit [F]uzzy:", _step_race, single_char=True)
 
         def _step_name(name_str: str) -> None:
@@ -437,7 +446,7 @@ class RosterScreen(BaseScreen):
             if not name:
                 name = f"Hero{len(self.roster) + 1}"
             self._new_char_data["name"] = name
-            self.text_log.prompt("Sex: [M]ale or [F]emale:", _step_sex, single_char=True)
+            _sex_prompt()
 
         self.text_log.prompt("Character Name (up to 16 chars):", _step_name)
 

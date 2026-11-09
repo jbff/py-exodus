@@ -15,7 +15,7 @@ import struct
 
 import pygame
 
-from py_exodus.constants import ArmorType, Profession, Race, Status, WeaponType
+from py_exodus.constants import ArmorType, Profession, Race, Sex, Status, WeaponType
 from py_exodus.entities.character import Character
 from py_exodus.entities.party import Party
 from py_exodus.save_system import SaveSystem
@@ -33,7 +33,6 @@ def _drive_creation_wizard(
     race: str = "H",
     prof: str = "F",
     stats: list[int] | None = None,
-    portrait: str = "43",
 ) -> None:
     """Drive the text-prompt creation wizard of RosterScreen to completion."""
     if stats is None:
@@ -44,13 +43,12 @@ def _drive_creation_wizard(
         "sex": sex,
         "race": race,
         "class": prof,
-        "portrait": portrait + "\r",
         "strength": f"{stats[0]}\r",
         "dexterity": f"{stats[1]}\r",
         "intelligence": f"{stats[2]}\r",
         "wisdom": f"{stats[3]}\r",
     }
-    keys = ["name", "sex", "race", "class", "portrait", "strength", "dexterity", "intelligence", "wisdom"]
+    keys = ["name", "sex", "race", "class", "strength", "dexterity", "intelligence", "wisdom"]
 
     scr.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_c))
     step = 0
@@ -125,10 +123,16 @@ class TestCreationParity:
         _drive_creation_wizard(scr2, "B" * 20, stats=[5, 5, 5, 5])
         assert scr2.roster[-1].name == "B" * 16
 
-    def test_portrait_index_recorded(self, pygame_setup, asset_mgr):
+    def test_portrait_field_preserved_but_invisible(self, pygame_setup, asset_mgr):
+        """User ruling: "dump the faces/images for characters" — the wizard
+        never asks for a portrait and no portrait image is rendered anywhere;
+        the portrait_index data field survives for save compatibility."""
         scr = RosterScreen(asset_mgr=asset_mgr)
-        _drive_creation_wizard(scr, "Visage", stats=[5, 5, 5, 5], portrait="7")
-        assert scr.roster[-1].portrait_index == 7
+        _drive_creation_wizard(scr, "Visage", stats=[5, 5, 5, 5])
+        created = scr.roster[-1]
+        assert created.portrait_index == 43  # default, never prompted
+        # No step of the wizard mentioned a portrait.
+        assert not any("portrait" in m.lower() for m in scr.text_log.history)
 
     def test_over_budget_allocation_rejected(self, pygame_setup, asset_mgr):
         """Total > 50 is rejected: nothing is committed and the wizard
@@ -179,9 +183,6 @@ class TestCreationParity:
         scr.text_log.handle_char("M")
         scr.text_log.handle_char("H")
         scr.text_log.handle_char("F")
-        # Skip portrait
-        for ch in "43\r":
-            scr.text_log.handle_char(ch)
         assert "Strength" in scr.text_log.current_prompt
         # Out-of-range: 30 must be rejected, wizard re-prompts the same stat
         for ch in "30\r":
@@ -198,6 +199,64 @@ class TestCreationParity:
 
 
 # --------------------------------------------------------------------------- #
+# (a2) Sex = Other (original-rules deviation, user-directed)
+# --------------------------------------------------------------------------- #
+class TestSexOther:
+    """Sex = Other reinstated (original game rule; Java's SexType only has
+    Male/Female — this is a user-directed original-rules deviation, kept
+    behind a document-in-code marker at the Sex enum and creation prompt)."""
+
+    def test_wizard_sex_prompt_offers_other(self, pygame_setup, asset_mgr):
+        scr = RosterScreen(asset_mgr=asset_mgr)
+        scr.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_c))
+        for ch in "Zed\r":
+            scr.text_log.handle_char(ch)
+        assert scr.text_log.is_waiting_for_input
+        prompt = scr.text_log.current_prompt
+        assert "[M]" in prompt and "[F]" in prompt and "[O]ther" in prompt
+
+    def test_wizard_accepts_other(self, pygame_setup, asset_mgr):
+        scr = RosterScreen(asset_mgr=asset_mgr)
+        _drive_creation_wizard(scr, "Quixote", sex="O", stats=[10, 10, 10, 10])
+        assert scr.roster[-1].sex == Sex.OTHER
+
+    def test_wizard_reprompts_on_invalid_sex(self, pygame_setup, asset_mgr):
+        """Invalid sex input re-prompts the same question instead of silently
+        defaulting (consistent with the wizard's stat re-prompt behavior)."""
+        scr = RosterScreen(asset_mgr=asset_mgr)
+        scr.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_c))
+        for ch in "Zed\r":
+            scr.text_log.handle_char(ch)
+        scr.text_log.handle_char("X")  # invalid
+        assert scr.text_log.is_waiting_for_input
+        assert "Sex" in scr.text_log.current_prompt
+        assert len([c for c in scr.roster if c.name == "Zed"]) == 0
+        scr.text_log.handle_char("O")  # now valid
+        assert "Race" in scr.text_log.current_prompt
+
+    def test_other_round_trip(self):
+        c = Character("Mix", sex=Sex.OTHER, race=Race.HUMAN, profession=Profession.FIGHTER)
+        data = c.to_dict()
+        assert data["sex"] == "O"
+        again = Character.from_dict(data)
+        assert again.sex == Sex.OTHER
+        # String constructor path resolves "O" too.
+        assert Character(sex="O").sex == Sex.OTHER
+
+    def test_binary_record_sex_other(self):
+        """The binary parser must not break on the new value: 0x18='O' decodes
+        to OTHER instead of falling back to the M/F default."""
+        from py_exodus.save_system import SaveSystem
+
+        rec = bytearray(_binary_record())
+        rec[0x18] = ord("O")
+        char = SaveSystem.parse_binary_character_record(bytes(rec))
+        assert char.sex == Sex.OTHER
+        # Unchanged fallbacks preserved.
+        rec[0x18] = ord("F")
+        assert SaveSystem.parse_binary_character_record(bytes(rec)).sex == Sex.FEMALE
+        rec[0x18] = ord("M")
+        assert SaveSystem.parse_binary_character_record(bytes(rec)).sex == Sex.MALE
 # (b) Lord British: no resurrection, talking member only
 # --------------------------------------------------------------------------- #
 class TestLordBritish:

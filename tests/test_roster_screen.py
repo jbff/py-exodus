@@ -103,13 +103,12 @@ def test_roster_screen_character_creation(pygame_setup, asset_mgr):
     assert "Class" in scr.text_log.current_prompt
     scr.text_log.handle_char("P")
 
-    # Step 5: Portrait index (number + Enter)
-    assert scr.text_log.is_waiting_for_input
-    assert "Portrait" in scr.text_log.current_prompt
-    for ch in "5\r":
-        scr.text_log.handle_char(ch)
+    # The portrait-number prompt step was removed by user ruling (user:
+    # "dump the faces/images for characters"); the wizard goes straight
+    # from Class to stat allocation. No "Portrait" prompt may ever appear.
+    assert "Portrait" not in scr.text_log.current_prompt
 
-    # Step 6-9: stat allocation, each 5-25, total <= 50
+    # Step 5-8: stat allocation, each 5-25, total <= 50
     for word, value in [("Strength", 10), ("Dexterity", 10), ("Intelligence", 10), ("Wisdom", 10)]:
         assert scr.text_log.is_waiting_for_input
         assert word in scr.text_log.current_prompt, scr.text_log.current_prompt
@@ -129,7 +128,9 @@ def test_roster_screen_character_creation(pygame_setup, asset_mgr):
     assert created.food == 150 and created.gold == 150
     assert created.weapon == WeaponType.NONE
     assert created.armor == ArmorType.NONE
-    assert created.portrait_index == 5
+    # Portrait field preserved for save compatibility but invisible: the
+    # wizard no longer asks, the value stays at its default.
+    assert created.portrait_index == 43
 
 
 def test_roster_screen_embark_validation(pygame_setup, asset_mgr, monkeypatch, tmp_path):

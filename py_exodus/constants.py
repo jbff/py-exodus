@@ -383,10 +383,18 @@ StatusType = Status
 
 
 class Sex(str, Enum):
-    """Character sex."""
+    """Character sex.
+
+    Sex = Other is a user-directed original-rules deviation: the original
+    game's character creation offered Male / Female / Other ("O"), while the
+    Java source (SexType) carries only MALE/FEMALE. Java remains truth
+    elsewhere; this third value is kept explicit here so every consumer
+    (creation prompt, zstats identity row, save/load) handles it.
+    """
 
     MALE = "M"
     FEMALE = "F"
+    OTHER = "O"
 
 
 SexType = Sex

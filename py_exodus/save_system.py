@@ -186,9 +186,17 @@ class SaveSystem:
         }
         profession = prof_map.get(b_prof, Profession.FIGHTER)
 
-        # 0x18: Sex
+        # 0x18: Sex. "O" -> OTHER is the user-directed original-rules deviation
+        # (constants.Sex documents it); unknown bytes keep the historic
+        # MALE/FEMALE fallback, and the new value must not break the binary
+        # decode path.
         b_sex = data[0x18]
-        sex = Sex.FEMALE if (b_sex == ord("F") or b_sex == 1) else Sex.MALE
+        if b_sex == ord("F") or b_sex == 1:
+            sex = Sex.FEMALE
+        elif b_sex == ord("O"):
+            sex = Sex.OTHER
+        else:
+            sex = Sex.MALE
 
         # 0x19..0x24: 16-bit numeric fields
         mp = struct.unpack_from("<H", data, 0x19)[0] if len(data) >= 0x1B else 0
