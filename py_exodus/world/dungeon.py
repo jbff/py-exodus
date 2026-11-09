@@ -1016,13 +1016,16 @@ class DungeonState:
 
         Java runs checkTileAffects and then finishTurn inside one move, so a
         creature reaching the avatar raises the battle in the same turn as
-        the tile effect. The tile message is kept and the event becomes the
-        combat trigger.
+        the tile effect. The tile message is kept while the event becomes
+        the combat trigger — type, creature AND the wandering instance
+        (DungeonScreen.battleWandering's cr) are carried through, since
+        endCombat needs it to remove the encounter and drop any chest.
         """
         if combat_evt is None:
             return evt
         evt.type = combat_evt.type
         evt.creature = combat_evt.creature
+        evt.wandering = combat_evt.wandering
         return evt
 
     # --- Turn & Resource Management ---

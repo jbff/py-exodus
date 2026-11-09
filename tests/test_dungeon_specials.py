@@ -603,15 +603,14 @@ def test_blocked_move_can_trigger_battle(open_dmap, test_party):
         rng=ZeroRNG(),
         random_encounters=False,
     )
+    # Creature adjacent east of the avatar (north is walled).
     cr = CreatureDef(id=10, name="Orc", tile="orc", basehp=30, level=1)
-    state.wandering_creatures.append(WanderingCreature(cr, 5, 4 - 0, 0))
-    # Creature adjacent at (5,4)?? that tile is a WALL — park it east instead.
-    state.wandering_creatures.clear()
     state.wandering_creatures.append(WanderingCreature(cr, 4, 5, 0))
 
     ev = state.move_forward()
     assert ev.type == DungeonEventType.COMBAT
     assert ev.creature is cr
+    assert ev.wandering is state.wandering_creatures[0]
 
 
 # --- Minor: no toward-direction means no battle check (Utils.getPath null) ---
@@ -637,3 +636,35 @@ def test_creature_with_no_toward_direction_skips_battle(open_dmap, test_party):
     for _ in range(3):
         assert state._tick_turn() is None
     assert (wc.x, wc.y) == (5, 5)
+
+
+# --- Fix round 2: merged (blocked-move) battle path carries the wanderer ---
+
+
+def test_blocked_move_battle_keeps_encounter_and_ends_cleanly(
+    open_dmap, test_party, asset_mgr
+):
+    """r1 hole: `_with_combat` dropped the `wandering` field on the six merged
+    paths, so blocked-move battles raised with encounter=None and end_combat
+    removed nothing. Java battleWandering always keeps the creature until
+    endCombat removes it (DungeonScreen.java:724-737, 767-769)."""
+    screen = _dungeon_screen(open_dmap, test_party, asset_mgr)
+    open_dmap.set_tile(5, 4, 0, DungeonTile.WALL)  # the forward move blocks
+    open_dmap.set_tile(5, 5, 0, DungeonTile.NOTHING)  # chest-eligible tile
+    cr = CreatureDef(id=10, name="Orc", tile="orc", basehp=30, level=1)
+    screen.state.wandering_creatures.append(WanderingCreature(cr, 4, 5, 0))
+
+    ev = screen.state.move_forward()
+    assert ev.type == DungeonEventType.COMBAT
+    assert ev.wandering is not None  # the merged event carries the wanderer
+
+    screen._process_event(ev)
+    assert screen.current_encounter is ev.wandering
+
+    screen.end_combat(True)
+    assert screen.state.wandering_creatures == []
+    assert open_dmap.get_tile(5, 5, 0) == DungeonTile.CHEST
+
+    # No re-trigger on following ticks (the soft-lock stays dead).
+    for _ in range(3):
+        assert screen.state.move_forward().type != DungeonEventType.COMBAT
