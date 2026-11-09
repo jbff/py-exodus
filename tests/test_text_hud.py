@@ -282,6 +282,48 @@ def test_arrow_keys_scroll_when_prompt_cannot_use_them():
     assert log.is_waiting_for_input
 
 
+def test_oldest_line_reachable_while_prompt_open():
+    """The scroll cap counts the prompt row: no line is lost while waiting.
+
+    Fix round: with a prompt open the window shows visible_rows - 1 history
+    rows, so the cap must clamp against that count — otherwise the oldest
+    line is unreachable exactly in the vendor-menu scenario.
+    """
+    log = _flooded_log(12)
+    log.visible_rows = 5
+    received: list[str] = []
+    log.prompt("Buy what? (A-D):", received.append, single_char=True)
+
+    assert log.scroll_up(100) is True
+    assert log.scroll_offset == 8  # 12 history - (5 rows - 1 prompt row)
+    assert log.visible_line_texts(4) == [
+        "A - Item 0: 0gp",
+        "A - Item 1: 1gp",
+        "A - Item 2: 2gp",
+        "A - Item 3: 3gp",
+    ]
+    assert log.scroll_up(1) is False  # oldest line reached
+
+    # Without an open prompt the old cap (visible_rows) still applies
+    fresh = _flooded_log(12)
+    fresh.visible_rows = 5
+    fresh.scroll_up(100)
+    assert fresh.scroll_offset == 7  # 12 - 5
+
+
+def test_opened_prompt_snaps_view_to_bottom():
+    """A prompt opening always starts from the bottom-most view."""
+    log = _flooded_log(10)
+    log.visible_rows = 3
+    log.scroll_up(2)
+    assert log.scroll_offset == 2
+
+    received: list[str] = []
+    log.prompt("Buy what? (A-D):", received.append, single_char=True)
+    assert log.scroll_offset == 0
+    assert log.visible_line_texts(2)[-1] == "A - Item 9: 9gp"
+
+
 def test_scroll_indicator_text_shows_offset_while_scrolled():
     log = _flooded_log(10)
     assert log.scroll_indicator_text() == ""

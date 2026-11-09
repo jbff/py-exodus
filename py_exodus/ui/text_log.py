@@ -183,6 +183,10 @@ class TextLog:
         """Return the viewport to the newest line (offset 0)."""
         self.scroll_offset = 0
 
+    def _history_rows(self) -> int:
+        """History rows the viewport shows: one is the prompt row while waiting."""
+        return max(1, self.visible_rows - 1) if self.is_waiting_for_input else max(1, self.visible_rows)
+
     def _window_offset(self, rows: int) -> int:
         """Effective offset for a window of `rows` history lines."""
         return min(self.scroll_offset, max(0, len(self.history) - rows))
@@ -194,8 +198,13 @@ class TextLog:
         return list(self.history[max(0, end - budget):end])
 
     def scroll_up(self, lines: int = 1) -> bool:
-        """Show older history lines. True when the viewport moved."""
-        cap = max(0, len(self.history) - max(1, self.visible_rows))
+        """Show older history lines. True when the viewport moved.
+
+        The cap counts the effective history rows shown while a prompt is
+        waiting (visible_rows - 1: the last row is the prompt line) so the
+        single oldest line stays reachable in the vendor-menu scenario.
+        """
+        cap = max(0, len(self.history) - self._history_rows())
         target = min(self.scroll_offset + max(1, lines), cap)
         if target == self.scroll_offset:
             return False
@@ -254,6 +263,9 @@ class TextLog:
         self.current_prompt = query
         self.input_buffer = ""
         self._callback = callback
+        # A newly opened prompt is always answered from the bottom-most view
+        # (arrival pinning above stays unchanged).
+        self._snap_to_bottom()
 
         if single_char is not None:
             self.single_char = single_char
