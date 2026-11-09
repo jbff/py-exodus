@@ -96,6 +96,7 @@ class CombatScreen(BaseScreen):
 
         self._pending_action_type: ActionType | None = None
         self.awaiting_exit_ack = False
+        self._end_combat_notified = False
         self.flash_timer: float = 0.0
         self.combat_fx: list[dict[str, Any]] = []
         self.dying_monsters: list[dict[str, Any]] = []
@@ -126,6 +127,7 @@ class CombatScreen(BaseScreen):
 
         # If combat is finished, any key acknowledges and exits
         if self.arena.is_finished:
+            self._notify_end_combat()
             if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE, pygame.K_ESCAPE):
                 if self.arena.is_defeat:
                     self._handle_defeat_exit()
@@ -470,6 +472,20 @@ class CombatScreen(BaseScreen):
             elif self.arena.is_defeat:
                 self.text_log.add_message("DEFEAT! Thy party has fallen.")
                 self.text_log.add_message("Press Enter to continue.")
+
+    def _notify_end_combat(self) -> None:
+        """Java CombatScreen.end (CombatScreen.java:579-587): at battle end
+        the returning screen receives ``endCombat(isWon, combatMap, wounded)``
+        — its post-battle bookkeeping runs exactly once. Only screens that
+        implement the hook (DungeonScreen) react, matching Java's override
+        split between GameScreen and DungeonScreen.endCombat.
+        """
+        if self._end_combat_notified:
+            return
+        self._end_combat_notified = True
+        hook = getattr(self.return_screen, "end_combat", None)
+        if callable(hook):
+            hook(self.arena.is_victory)
 
     def _handle_defeat_exit(self) -> None:
         """Handle wipeout defeat: combat ends as a loss → game over.

@@ -97,6 +97,11 @@ class DungeonScreen(BaseScreen):
         # toggles it.
         self.show_minimap = True
 
+        # Java DungeonScreen.currentEncounter (DungeonScreen.java:737): the
+        # wandering creature that raised the current battle, cleared by
+        # endCombat.
+        self.current_encounter = None
+
         self.text_log.add_message(f"Entering {self.dungeon_map.name}...")
         self.text_log.add_message("Level 1. Darkness surrounds thee.")
 
@@ -259,7 +264,7 @@ class DungeonScreen(BaseScreen):
                     c_name = evt.creature.tile
                 elif hasattr(evt.creature, "name"):
                     c_name = evt.creature.name.lower()
-            self._trigger_combat(c_name)
+            self._trigger_combat(c_name, encounter=evt.wandering)
 
     def _search(self) -> None:
         """Search dungeon tile for fountains, marks, or chests."""
@@ -368,8 +373,14 @@ class DungeonScreen(BaseScreen):
         except PartyDeathException:
             pass
 
-    def _trigger_combat(self, creature_name: str) -> None:
-        """Launch combat screen from dungeon encounter."""
+    def _trigger_combat(self, creature_name: str, encounter=None) -> None:
+        """Launch combat screen from dungeon encounter.
+
+        ``encounter`` is the wandering creature instance that raised the
+        battle (Java DungeonScreen.battleWandering keeps it in
+        ``currentEncounter`` until endCombat removes it and drops any chest).
+        """
+        self.current_encounter = encounter
         if self.asset_mgr is None:
             return
 
@@ -396,6 +407,33 @@ class DungeonScreen(BaseScreen):
                 self.is_finished = True
         except Exception:
             pass
+
+    def end_combat(self, is_won: bool) -> None:
+        """Java DungeonScreen.endCombat (DungeonScreen.java:740-769).
+
+        A victory leaves the encounter creature's chest on the avatar's tile
+        — only onto a NOTHING tile, and only when the creature is not
+        `nochest`. The encounter creature is then removed from the dungeon
+        level unconditionally, win or loss (dngMap.removeCreature), so the
+        battle cannot re-trigger on every following tick.
+        """
+        from py_exodus.world.map import DungeonTile
+
+        encounter = self.current_encounter
+        if encounter is not None:
+            if (
+                is_won
+                and not encounter.creature.no_chest
+                and self.dungeon_map.get_tile(self.state.x, self.state.y, self.state.z)
+                == DungeonTile.NOTHING
+            ):
+                self.dungeon_map.set_tile(
+                    self.state.x, self.state.y, self.state.z, DungeonTile.CHEST
+                )
+            self.state.wandering_creatures = [
+                wc for wc in self.state.wandering_creatures if wc is not encounter
+            ]
+            self.current_encounter = None
 
     def _use_torch(self) -> None:
         """Toggle the torch (Java DungeonScreen.java:988-1004 Keys.I).

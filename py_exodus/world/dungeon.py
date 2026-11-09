@@ -70,6 +70,9 @@ class DungeonEvent:
     tile: DungeonTile | None = None
     success: bool = True
     moved: bool = False
+    #: The wandering creature instance that raised this battle, when one did
+    #: (DungeonScreen.battleWandering / endCombat's currentEncounter).
+    wandering: WanderingCreature | None = None
 
 
 #: Java ``Constants.MAX_WANDERING_CREATURES_IN_DUNGEON`` (Constants.java:43).
@@ -839,14 +842,21 @@ class DungeonState:
         target_tile = self.dmap.get_tile(target_x, target_y, self.z)
 
         if target_tile in (DungeonTile.WALL, DungeonTile.FIELD_ENERGY):
-            return DungeonEvent(
-                type=DungeonEventType.BLOCKED,
-                message="Blocked! You bump into a wall.",
-                x=self.x,
-                y=self.y,
-                z=self.z,
-                tile=target_tile,
-                success=False,
+            # Java move() (DungeonScreen.java:1052-1076) runs finishTurn even
+            # for a blocked move — the party tick and the wandering-creature
+            # upkeep (and possibly a contact battle) still apply.
+            combat_evt = self._tick_turn()
+            return self._with_combat(
+                DungeonEvent(
+                    type=DungeonEventType.BLOCKED,
+                    message="Blocked! You bump into a wall.",
+                    x=self.x,
+                    y=self.y,
+                    z=self.z,
+                    tile=target_tile,
+                    success=False,
+                ),
+                combat_evt,
             )
 
         # Move coordinates
@@ -1070,15 +1080,19 @@ class DungeonState:
                 wc.x = (wc.x + d.dx) % self.dmap.width
                 wc.y = (wc.y + d.dy) % self.dmap.height
 
-            if wc.x == self.x and wc.y == self.y and combat_evt is None:
-                combat_evt = DungeonEvent(
-                    type=DungeonEventType.COMBAT,
-                    x=self.x,
-                    y=self.y,
-                    z=self.z,
-                    creature=wc.creature,
-                    tile=self.current_tile,
-                )
+                # Java moveDungeonCreatures (DungeonScreen.java:1300-1302):
+                # when getPath returns null the creature is `continue`d past —
+                # the contact-battle check only runs on an actual step.
+                if wc.x == self.x and wc.y == self.y and combat_evt is None:
+                    combat_evt = DungeonEvent(
+                        type=DungeonEventType.COMBAT,
+                        x=self.x,
+                        y=self.y,
+                        z=self.z,
+                        creature=wc.creature,
+                        wandering=wc,
+                        tile=self.current_tile,
+                    )
         return combat_evt
 
     def _wandering_moves_mask(self, wc: WanderingCreature) -> int:

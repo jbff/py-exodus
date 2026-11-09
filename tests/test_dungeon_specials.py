@@ -435,3 +435,205 @@ def test_dungeon_chest_disarm_skips_trap(open_dmap, test_party, monkeypatch):
     assert m0.hp == m0.max_hp  # untouched: the trap roll was skipped
     assert ev.gold == 10
     assert m0.gold == 150 + 10  # Character default purse + chest gold
+
+
+# --- Combat exit: endCombat port (DungeonScreen.java:740-769) ---
+
+def _dungeon_screen(open_dmap, test_party, asset_mgr):
+    from py_exodus.screens.dungeon_screen import DungeonScreen
+
+    pygame.init()
+    # Avatar parked at (5,5) on level 0, matching the fixture coordinates.
+    return DungeonScreen(
+        party=test_party,
+        dungeon_map=open_dmap,
+        asset_mgr=asset_mgr,
+        start_x=5,
+        start_y=5,
+        start_z=0,
+    )
+
+
+def test_combat_event_carries_the_wanderer(open_dmap, test_party):
+    state = DungeonState(
+        open_dmap,
+        start_x=5,
+        start_y=5,
+        start_z=0,
+        party=test_party,
+        rng=ZeroRNG(),
+        random_encounters=False,
+    )
+    cr = CreatureDef(id=10, name="Orc", tile="orc", basehp=30, level=1)
+    state.wandering_creatures.append(WanderingCreature(cr, 5, 4, 0))
+    evt = state._tick_turn()
+    assert evt.type == DungeonEventType.COMBAT
+    assert evt.wandering is state.wandering_creatures[0]
+
+
+def test_end_combat_removes_encounter_creature(open_dmap, test_party, asset_mgr):
+    screen = _dungeon_screen(open_dmap, test_party, asset_mgr)
+    cr = CreatureDef(id=10, name="Orc", tile="orc", basehp=30, level=1)
+    wc = WanderingCreature(cr, 6, 5, 0)
+    screen.state.wandering_creatures.append(wc)
+    screen._trigger_combat("orc", encounter=wc)
+
+    screen.end_combat(True)
+    assert wc not in screen.state.wandering_creatures
+    assert screen.current_encounter is None
+
+    # Losing/fleeing removes the encounter too (Java removes unconditionally).
+    screen.state.wandering_creatures.append(wc)
+    screen._trigger_combat("orc", encounter=wc)
+    screen.end_combat(False)
+    assert wc not in screen.state.wandering_creatures
+
+
+def test_end_combat_releases_wandering_softlock(open_dmap, test_party, asset_mgr):
+    screen = _dungeon_screen(open_dmap, test_party, asset_mgr)
+    cr = CreatureDef(id=10, name="Orc", tile="orc", basehp=30, level=1)
+    wc = WanderingCreature(cr, 5, 4, 0)  # adjacent: would re-battle forever
+    screen.state.wandering_creatures.append(wc)
+    screen._trigger_combat("orc", encounter=wc)
+
+    screen.end_combat(True)
+    # Ticks no longer re-trigger: the creature is gone from the level.
+    assert screen.state._tick_turn() is None
+
+
+def test_end_combat_win_drops_chest_on_avatar_tile(open_dmap, test_party, asset_mgr):
+    screen = _dungeon_screen(open_dmap, test_party, asset_mgr)
+    assert open_dmap.get_tile(5, 5, 0) == DungeonTile.FLOOR
+    # Java drops the chest only onto a NOTHING tile.
+    open_dmap.set_tile(5, 5, 0, DungeonTile.NOTHING)
+    cr = CreatureDef(id=10, name="Orc", tile="orc", basehp=30, level=1)
+    wc = WanderingCreature(cr, 6, 5, 0)
+    screen.state.wandering_creatures.append(wc)
+    screen._trigger_combat("orc", encounter=wc)
+
+    screen.end_combat(True)
+    assert open_dmap.get_tile(5, 5, 0) == DungeonTile.CHEST
+
+    # A creature with nochest leaves no chest.
+    open_dmap.set_tile(5, 5, 0, DungeonTile.NOTHING)
+    cr2 = CreatureDef(id=12, name="Thief", tile="thief", basehp=80, level=3, no_chest=True)
+    wc2 = WanderingCreature(cr2, 6, 5, 0)
+    screen.state.wandering_creatures.append(wc2)
+    screen._trigger_combat("thief", encounter=wc2)
+    screen.end_combat(True)
+    assert open_dmap.get_tile(5, 5, 0) == DungeonTile.NOTHING
+
+
+def test_end_combat_loss_drops_no_chest(open_dmap, test_party, asset_mgr):
+    screen = _dungeon_screen(open_dmap, test_party, asset_mgr)
+    open_dmap.set_tile(5, 5, 0, DungeonTile.NOTHING)
+    cr = CreatureDef(id=10, name="Orc", tile="orc", basehp=30, level=1)
+    wc = WanderingCreature(cr, 6, 5, 0)
+    screen.state.wandering_creatures.append(wc)
+    screen._trigger_combat("orc", encounter=wc)
+
+    screen.end_combat(False)
+    assert open_dmap.get_tile(5, 5, 0) == DungeonTile.NOTHING
+
+
+def test_combat_screen_notifies_return_screen(asset_mgr, open_dmap, test_party):
+    """Java CombatScreen.end (CombatScreen.java:579-587): returnScreen.endCombat
+    runs once when the battle is acknowledged as over."""
+    from py_exodus.screens.combat_screen import CombatScreen
+    from py_exodus.world.loader import MapLoader
+
+    loader = MapLoader(asset_mgr)
+    c_map = loader.load_conflict_map("CNFLCT_B.ULT")
+    calls = []
+
+    class Recorder:
+        def end_combat(self, is_won):
+            calls.append(is_won)
+
+    pygame.init()
+    scr = CombatScreen(
+        party=test_party,
+        combat_map=c_map,
+        creature_tile="orc",
+        asset_mgr=asset_mgr,
+        return_screen=Recorder(),
+    )
+    scr.arena.is_finished = True
+    scr.arena.is_victory = True
+    scr.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RETURN))
+    assert calls == [True]
+
+
+# --- Minor: blocked dungeon moves still finishTurn (DungeonScreen.java:1052-1076) ---
+
+
+def test_blocked_move_still_ticks(open_dmap, test_party):
+    open_dmap.set_tile(5, 4, 0, DungeonTile.WALL)
+    state = DungeonState(
+        open_dmap,
+        start_x=5,
+        start_y=5,
+        start_z=0,
+        start_dir=Direction.NORTH,
+        party=test_party,
+        rng=ZeroRNG(),
+        random_encounters=False,
+    )
+    cr = CreatureDef(id=10, name="Orc", tile="orc", basehp=30, level=1)
+    state.wandering_creatures.append(WanderingCreature(cr, 3, 5, 0))
+    moves_before = test_party.moves
+
+    ev = state.move_forward()
+
+    assert ev.type == DungeonEventType.BLOCKED
+    assert test_party.moves == moves_before + 1
+    # finishTurn ran on the blocked move: the wanderer advanced toward the avatar.
+    assert (state.wandering_creatures[0].x, state.wandering_creatures[0].y) == (4, 5)
+
+
+def test_blocked_move_can_trigger_battle(open_dmap, test_party):
+    open_dmap.set_tile(5, 4, 0, DungeonTile.WALL)
+    state = DungeonState(
+        open_dmap,
+        start_x=5,
+        start_y=5,
+        start_z=0,
+        start_dir=Direction.NORTH,
+        party=test_party,
+        rng=ZeroRNG(),
+        random_encounters=False,
+    )
+    cr = CreatureDef(id=10, name="Orc", tile="orc", basehp=30, level=1)
+    state.wandering_creatures.append(WanderingCreature(cr, 5, 4 - 0, 0))
+    # Creature adjacent at (5,4)?? that tile is a WALL — park it east instead.
+    state.wandering_creatures.clear()
+    state.wandering_creatures.append(WanderingCreature(cr, 4, 5, 0))
+
+    ev = state.move_forward()
+    assert ev.type == DungeonEventType.COMBAT
+    assert ev.creature is cr
+
+
+# --- Minor: no toward-direction means no battle check (Utils.getPath null) ---
+
+
+def test_creature_with_no_toward_direction_skips_battle(open_dmap, test_party):
+    """Creature spawned on the avatar's tile: getPath returns null (it is
+    already there) and Java skips the contact check — no battle, the creature
+    stays put (DungeonScreen.java:1300-1302 continue)."""
+    state = DungeonState(
+        open_dmap,
+        start_x=5,
+        start_y=5,
+        start_z=0,
+        party=test_party,
+        rng=ZeroRNG(),
+        random_encounters=False,
+    )
+    cr = CreatureDef(id=10, name="Orc", tile="orc", basehp=30, level=1)
+    wc = WanderingCreature(cr, 5, 5, 0)
+    state.wandering_creatures.append(wc)
+
+    for _ in range(3):
+        assert state._tick_turn() is None
+    assert (wc.x, wc.y) == (5, 5)
