@@ -87,6 +87,16 @@ class StateMachine:
         if cur is None:
             return
 
+        # Java truth: exodus/BaseScreen.java:86-97 — every screen mounts a
+        # Book button; the port binds F1 globally so the Book of Lore can be
+        # opened from the title screen and each game screen.
+        if event.type == pygame.KEYDOWN and event.key == pygame.K_F1:
+            from py_exodus.screens.book import BookScreen
+
+            if not isinstance(cur, BookScreen):
+                cur.open_book()
+                return
+
         cur.handle_event(event)
         self._check_screen_transition(cur)
 

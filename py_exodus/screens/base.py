@@ -80,3 +80,25 @@ class BaseScreen(ABC):
     def on_exit(self) -> None:
         """Hook called when screen transitions away."""
         self.is_active = False
+
+    def open_book(self) -> Any:
+        """Open the Book of Lore over this screen.
+
+        Java truth: ``exodus/BaseScreen.java:86-97`` — ``addButtons()`` mounts
+        a Book button on every screen; ``exodus/StartScreen.java:74`` does the
+        same on the title screen. The port reuses the shared spell-button
+        screen-mounting pattern (F1 anywhere plus the title menu entry).
+        """
+        from py_exodus.screens.book import BookScreen
+
+        book = BookScreen(
+            return_screen=self,
+            manager=self.manager,
+            asset_mgr=getattr(self, "asset_mgr", None),
+        )
+        if self.manager is not None:
+            self.manager.push_screen(book)
+        else:
+            self.next_screen = book
+            self.is_finished = True
+        return book

@@ -1,4 +1,4 @@
-"""Tests for Special Screens: Shrines, Spellbook, and Final Epilogue."""
+"""Tests for Special Screens: Shrines, Book of Lore, and Final Epilogue."""
 import pygame
 import pytest
 
@@ -120,45 +120,28 @@ def test_shrine_event_handling_and_rendering():
     assert scr.next_screen == dummy_return or scr.is_finished
 
 
-def test_book_screen_pages_and_spells():
-    """Verify BookScreen displays spells A-P with costs and descriptions."""
+def test_book_screen_loads_lore_and_spell_appendix():
+    """Book of Lore: ultima3.txt pages plus the Python-only spell appendix."""
     scr = BookScreen(return_screen=None)
-    assert scr.current_book in ("wizard", "cleric")
-
-    # Check wizard spells
-    scr.switch_book("wizard")
-    wizard_spells = scr.get_spells()
-    assert len(wizard_spells) == 16
-    assert wizard_spells[0].code == "A"
-    assert wizard_spells[0].name == "REPOND"
-    assert wizard_spells[0].mp_cost == 0
-    assert "Destroy" in wizard_spells[0].desc
-
-    # Check clerical prayers
-    scr.switch_book("cleric")
-    cleric_spells = scr.get_spells()
-    assert len(cleric_spells) == 16
-    assert cleric_spells[0].code == "A"
-    assert cleric_spells[0].name == "PONTORI"
-    assert cleric_spells[0].mp_cost == 0
-    assert "undead" in cleric_spells[0].desc.lower()
+    assert scr.page_count > 1
+    full_text = "\n".join(scr.pages)
+    # Lore from Java BookScreen.java:53 (/assets/data/ultima3.txt)
+    assert "EXODUS ULTIMA III COMMANDS" in full_text
+    # Spell reference kept, appended last (Python-only invention)
+    assert "REPOND" in full_text
+    assert "PONTORI" in full_text
 
 
 def test_book_screen_navigation_and_rendering():
-    """Verify BookScreen tab switching, page scrolling, and rendering."""
+    """Verify BookScreen paging, rendering, and exit."""
     dummy_return = BaseScreen()
     scr = BookScreen(return_screen=dummy_return)
 
-    initial_book = scr.current_book
-    # TAB switches book
-    tab_event = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_TAB)
-    scr.handle_event(tab_event)
-    assert scr.current_book != initial_book
-
-    # Scrolling or paging
+    # Page forward and back
     down_event = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_DOWN)
     scr.handle_event(down_event)
     scr.update(0.016)
+    assert scr.page_index == 1
 
     # Render surface
     surface = pygame.Surface((320, 200))
@@ -277,24 +260,29 @@ def test_shrine_render_with_asset_manager():
 
 
 def test_book_screen_pagination():
-    """Verify BookScreen paginates 8 spells per page without overlap."""
+    """Verify BookScreen paginates forward and back without overlap."""
     scr = BookScreen(return_screen=None)
     surface = pygame.Surface((320, 200))
 
-    # Page 1 (spells A-H)
-    assert scr.scroll_index == 0
+    # First lore page
+    assert scr.page_index == 0
     scr.render(surface)
 
-    # Turn to page 2 (spells I-P)
+    # Turn forward through at least two pages
     event_down = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_DOWN)
     scr.handle_event(event_down)
-    assert scr.scroll_index == 8
+    assert scr.page_index == 1
     scr.render(surface)
+    scr.handle_event(event_down)
+    assert scr.page_index == 2
 
-    # Space toggles back to page 1
+    # Space steps forward; LEFT steps back
     event_space = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_SPACE)
     scr.handle_event(event_space)
-    assert scr.scroll_index == 0
+    assert scr.page_index == 3
+    event_left = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_LEFT)
+    scr.handle_event(event_left)
+    assert scr.page_index == 2
 
 
 def test_final_screen_card_from_any_party_member():

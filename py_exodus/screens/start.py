@@ -135,7 +135,7 @@ class StartScreen(BaseScreen):
         self.options = [
             ("Journey Onward", self._start_journey),
             ("New Game / Roster", self._new_game),
-            ("Spellbook Manual", self._open_book),
+            ("Book of Lore", self._open_book),
         ]
         self.selected_idx = 0
         self.anim_time: float = 0.0
@@ -314,12 +314,5 @@ class StartScreen(BaseScreen):
             self.is_finished = True
 
     def _open_book(self) -> None:
-        """Open spellbook reference manual screen."""
-        from py_exodus.screens.book import BookScreen
-
-        book = BookScreen(return_screen=self, manager=self.manager)
-        if self.manager is not None:
-            self.manager.push_screen(book)
-        else:
-            self.next_screen = book
-            self.is_finished = True
+        """Open the Book of Lore (Java StartScreen.java:74)."""
+        self.open_book()

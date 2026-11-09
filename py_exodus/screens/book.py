@@ -1,99 +1,188 @@
-"""Spellbook reference manual browser for py-exodus."""
+"""Book of Lore browser for py-exodus.
+
+Java truth: ``exodus/BookScreen.java:53`` loads ``/assets/data/ultima3.txt``
+and ``BookScreen.java:150-174`` splits it into pages on ``*break`` lines and
+on per-column text overflow. ``exodus/BaseScreen.java:86-97`` mounts a Book
+button on every screen, so this book is reachable from the title screen and
+from each game screen (F1 here, plus the title-screen menu entry).
+
+The spell reference (Clerical Prayers / Wizard Sorceries) is a Python-only
+invention kept as an appendix, rendered after the lore text as pages of the
+same book.
+"""
 from __future__ import annotations
 
+import textwrap
 from typing import Any
 
 import pygame
 
+from py_exodus.assets import AssetManager
 from py_exodus.constants import Spell
 from py_exodus.screens.base import BaseScreen
 from py_exodus.ui.text_log import (
     EGA_BLACK,
-    EGA_BRIGHT_CYAN,
     EGA_BRIGHT_GREEN,
     EGA_BROWN,
     EGA_DARK_GRAY,
     EGA_LIGHT_GRAY,
-    EGA_WHITE,
     EGA_YELLOW,
     get_hud_font,
 )
 
+#: Wrapped text columns per page (Java wraps each label at ~450px of 460).
+PAGE_COLS = 46
+#: Text rows per page (Java allows ~600px column height; this port uses a
+#: 12px HUD font with 15px row spacing on a 320x200 surface).
+PAGE_ROWS = 8
+
+LORE_TITLE = "THE BOOK OF LORE"
+APPENDIX_HEADER = "APPENDIX: SPELL REFERENCE"
+
+
+def _wrap_lines(text: str) -> list[str]:
+    """Wrap every raw line of a section to PAGE_COLS, preserving blanks."""
+    lines: list[str] = []
+    for raw in text.splitlines():
+        if not raw.strip():
+            lines.append("")
+        else:
+            lines.extend(textwrap.wrap(raw, PAGE_COLS) or [""])
+    return lines
+
+
+def _split_into_pages(lines: list[str]) -> list[str]:
+    """Chunk wrapped lines into fixed-height page texts (Java overflow rule)."""
+    return [
+        "\n".join(lines[i : i + PAGE_ROWS]).rstrip("\n")
+        for i in range(0, len(lines), PAGE_ROWS)
+    ]
+
+
+def _resolve_lore_path(asset_mgr: AssetManager | None) -> Any:
+    """Locate data/ultima3.txt, Java BookScreen.java:53 classpath resource."""
+    mgr = asset_mgr if asset_mgr is not None else AssetManager()
+    return mgr.resolve_path("data", "ultima3.txt")
+
+
+def load_lore_text(asset_mgr: AssetManager | None = None) -> str:
+    """Return the raw Book of Lore text, or an empty string when missing."""
+    try:
+        return _resolve_lore_path(asset_mgr).read_text(encoding="utf-8")
+    except OSError:
+        # BookScreen.java prints the stack trace and shows an empty book
+        return ""
+
+
+def load_lore_sections(asset_mgr: AssetManager | None = None) -> list[str]:
+    """Split the lore text into section texts on '*break' lines.
+
+    Java BookScreen.java:158-162: a line starting with ``*break`` ends the
+    current page/section; text otherwise accumulates until it overflows the
+    column. Pages are wrapped and height-clamped by :func:`load_lore_pages`.
+    """
+    text = load_lore_text(asset_mgr)
+    sections: list[str] = []
+    chunk: list[str] = []
+    for line in text.splitlines():
+        if line.startswith("*break"):
+            sections.append("\n".join(chunk))
+            chunk = []
+            continue
+        chunk.append(line)
+    if chunk:
+        sections.append("\n".join(chunk))
+    return [s for s in sections if s.strip()]
+
+
+def load_lore_pages(asset_mgr: AssetManager | None = None) -> list[str]:
+    """Split lore sections into fixed-height page texts."""
+    pages: list[str] = []
+    for section in load_lore_sections(asset_mgr):
+        pages.extend(_split_into_pages(_wrap_lines(section)))
+    return pages
+
+
+def spell_reference_pages() -> list[str]:
+    """Build the Python-only spell reference appendix page texts.
+
+    Kept from the former spellbook browser: all 16 spells per discipline with
+    letter codes, MP costs, and descriptions, appended after the lore text.
+    """
+    lines: list[str] = [APPENDIX_HEADER, ""]
+    for discipline, label in (("wizard", "WIZARD SORCERIES"), ("cleric", "CLERICAL PRAYERS")):
+        spells = sorted(
+            (s for s in Spell if s.spell_type == discipline),
+            key=lambda s: s.code,
+        )
+        lines.append(f"{label}")
+        lines.append("")
+        for s in spells:
+            lines.append(f"{s.code}: {s.name} ({s.mp_cost:>2} MP)")
+        lines.append("")
+        for s in spells:
+            lines.append(f"{s.code}: {s.desc}")
+        lines.append("")
+    return _split_into_pages(_wrap_lines("\n".join(lines)))
+
 
 class BookScreen(BaseScreen):
-    """Spellbook reference browser displaying Clerical Prayers and Wizard Sorceries.
+    """Paged Book of Lore browser.
 
-    Lists all 16 spells per discipline with letter codes (A-P), spell names,
-    MP costs, and full descriptions. Allows switching books and scrolling.
+    Loads ``data/ultima3.txt`` (Java BookScreen.java:53), splits pages on
+    ``*break`` markers and text overflow (Java BookScreen.java:150-174), and
+    appends the Python-only spell reference as the last pages.
     """
 
     def __init__(
         self,
         return_screen: BaseScreen | None = None,
-        book_type: str = "wizard",
+        asset_mgr: AssetManager | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(return_screen=return_screen, **kwargs)
-        self.current_book: str = book_type.lower()
-        self.scroll_index: int = 0
-        self.items_per_page: int = 8  # Show 8 spells at a time or 16 split into two columns
+        self.asset_mgr = asset_mgr
+        self._appendix_pages: list[str] = spell_reference_pages()
+        self.pages: list[str] = load_lore_pages(asset_mgr) + self._appendix_pages
+        self.page_index: int = 0
 
-        # Cache spells by discipline
-        self._wizard_spells = sorted(
-            [s for s in Spell if s.spell_type == "wizard"],
-            key=lambda s: s.code,
-        )
-        self._cleric_spells = sorted(
-            [s for s in Spell if s.spell_type == "cleric"],
-            key=lambda s: s.code,
-        )
+    @property
+    def page_count(self) -> int:
+        """Total number of lore pages (deterministic given ultima3.txt)."""
+        return len(self.pages)
 
-    def switch_book(self, book_type: str | None = None) -> None:
-        """Switch between Wizard Sorceries and Clerical Prayers."""
-        if book_type is not None:
-            self.current_book = book_type.lower()
-        else:
-            self.current_book = "cleric" if self.current_book == "wizard" else "wizard"
-        self.scroll_index = 0
+    def turn_forward(self) -> None:
+        """Advance one page, clamped at the last page."""
+        if self.page_count:
+            self.page_index = min(self.page_index + 1, self.page_count - 1)
 
-    def get_spells(self) -> list[Spell]:
-        """Return the list of 16 spells for the currently active book."""
-        if self.current_book == "cleric":
-            return self._cleric_spells
-        return self._wizard_spells
+    def turn_back(self) -> None:
+        """Go back one page, clamped at the first page."""
+        if self.page_count:
+            self.page_index = max(self.page_index - 1, 0)
 
     def handle_event(self, event: pygame.event.Event) -> None:
-        """Handle book switching, page navigation, and exit."""
+        """Handle page navigation and exit."""
         if event.type != pygame.KEYDOWN:
             return
 
         if event.key in (pygame.K_ESCAPE, pygame.K_q):
             self.exit_screen()
-        elif event.key == pygame.K_TAB:
-            self.switch_book()
-        elif event.key == pygame.K_w:
-            self.switch_book("wizard")
-        elif event.key == pygame.K_c:
-            self.switch_book("cleric")
-        elif event.key in (pygame.K_DOWN, pygame.K_PAGEDOWN, pygame.K_RIGHT):
-            self.scroll_index = 8
-        elif event.key in (pygame.K_UP, pygame.K_PAGEUP, pygame.K_LEFT):
-            self.scroll_index = 0
-        elif event.key in (pygame.K_SPACE, pygame.K_RETURN):
-            # Toggle between page 1 (A-H) and page 2 (I-P)
-            self.scroll_index = 8 if self.scroll_index < 8 else 0
+        elif event.key in (pygame.K_SPACE, pygame.K_RETURN, pygame.K_RIGHT, pygame.K_DOWN, pygame.K_PAGEDOWN):
+            self.turn_forward()
+        elif event.key in (pygame.K_LEFT, pygame.K_UP, pygame.K_PAGEUP):
+            self.turn_back()
 
     def update(self, dt: float) -> None:
         """Advance time-based animations if needed."""
 
     def render(self, surface: pygame.Surface) -> None:
-        """Draw paginated spellbook, title banner, spell entries, and navigation footer."""
+        """Draw the paged lore text, title banner, and navigation footer."""
         width = surface.get_width()
         height = surface.get_height()
 
         # Background parchment / dark frame
         surface.fill(EGA_BLACK)
-
         outer_rect = pygame.Rect(8, 8, width - 16, height - 16)
         pygame.draw.rect(surface, (24, 20, 16), outer_rect)
         pygame.draw.rect(surface, EGA_BROWN, outer_rect, 2)
@@ -101,51 +190,29 @@ class BookScreen(BaseScreen):
         font = get_hud_font(16)
         small_font = get_hud_font(12)
 
-        # Title
-        if self.current_book == "cleric":
-            title = "THE BOOK OF CLERICAL PRAYERS"
-            tab_prompt = "[TAB] Switch to Wizard Sorceries"
-            title_color = EGA_BRIGHT_CYAN
-        else:
-            title = "THE BOOK OF WIZARD SORCERIES"
-            tab_prompt = "[TAB] Switch to Clerical Prayers"
-            title_color = EGA_YELLOW
-
-        title_surf = font.render(title, True, title_color)
+        title_surf = font.render(LORE_TITLE, True, EGA_YELLOW)
         surface.blit(title_surf, (outer_rect.centerx - title_surf.get_width() // 2, 10))
 
-        prompt_surf = small_font.render(tab_prompt, True, EGA_LIGHT_GRAY)
-        surface.blit(prompt_surf, (outer_rect.centerx - prompt_surf.get_width() // 2, 26))
-
-        # Paginated spells (items_per_page = 8: Page 1 for A-H, Page 2 for I-P)
-        spells = self.get_spells()
-        page = 0 if self.scroll_index < 8 else 1
-        start_idx = page * self.items_per_page
-        page_spells = spells[start_idx : start_idx + self.items_per_page]
-
-        page_info = f"PAGE {page + 1} OF 2  (Spells {page_spells[0].code} - {page_spells[-1].code})"
+        page = self.pages[self.page_index] if self.pages else "(The book is empty.)"
+        page_info = f"PAGE {self.page_index + 1} OF {self.page_count}"
         page_surf = small_font.render(page_info, True, EGA_YELLOW)
-        surface.blit(page_surf, (outer_rect.centerx - page_surf.get_width() // 2, 38))
+        surface.blit(page_surf, (outer_rect.centerx - page_surf.get_width() // 2, 26))
 
-        pygame.draw.line(surface, EGA_DARK_GRAY, (16, 50), (width - 16, 50))
+        pygame.draw.line(surface, EGA_DARK_GRAY, (16, 38), (width - 16, 38))
 
-        # Render 8 spells for current page with comfortable vertical spacing
-        y_start = 54
-        spacing = max(15, (height - 84) // self.items_per_page)
+        y = 44
+        spacing = 15
+        for line in page.splitlines():
+            if line == APPENDIX_HEADER or line in ("WIZARD SORCERIES", "CLERICAL PRAYERS"):
+                color = EGA_BRIGHT_GREEN
+            else:
+                color = EGA_LIGHT_GRAY
+            line_surf = small_font.render(line, True, color)
+            surface.blit(line_surf, (20, y))
+            y += spacing
 
-        for i, s in enumerate(page_spells):
-            y = y_start + i * spacing
-            code_text = f"{s.code}: {s.name:<11} ({s.mp_cost:>2} MP)"
-            s_surf = small_font.render(code_text, True, EGA_WHITE)
-            surface.blit(s_surf, (20, y))
-
-            desc_text = f"- {s.desc}"
-            desc_surf = small_font.render(desc_text, True, EGA_LIGHT_GRAY)
-            surface.blit(desc_surf, (140, y))
-
-        # Footer
         footer_y = height - 20
         pygame.draw.line(surface, EGA_DARK_GRAY, (16, footer_y - 4), (width - 16, footer_y - 4))
-        footer_text = "[UP/DOWN/SPACE] Turn Page   [TAB] Switch Book   [ESC] Close"
+        footer_text = "[SPACE/RETURN/UP/DOWN] Turn Page   [ESC] Close"
         foot_surf = small_font.render(footer_text, True, EGA_BRIGHT_GREEN)
         surface.blit(foot_surf, (outer_rect.centerx - foot_surf.get_width() // 2, footer_y))
