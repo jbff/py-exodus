@@ -77,7 +77,7 @@ class TownScreen(BaseScreen):
         self.world_renderer = (
             WorldRenderer(asset_mgr) if asset_mgr is not None else None
         )
-        self.stats_panel = StatsPanel()
+        self.stats_panel = StatsPanel(asset_mgr=self.asset_mgr)
         self.text_log = TextLog(max_lines=5, wrap_width=28)
 
         # Town-local creature objects (e.g. horses spawned by the horse

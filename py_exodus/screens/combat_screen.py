@@ -84,7 +84,7 @@ class CombatScreen(BaseScreen):
         self.world_renderer = (
             WorldRenderer(asset_mgr) if asset_mgr is not None else None
         )
-        self.stats_panel = StatsPanel()
+        self.stats_panel = StatsPanel(asset_mgr=self.asset_mgr)
         self.text_log = TextLog(max_lines=5, wrap_width=28)
 
         # Seed initial combat message

@@ -17,13 +17,18 @@ import pytest
 from py_exodus.assets import AssetManager
 from py_exodus.screens.base import BaseScreen
 from py_exodus.screens.book import (
-    BookScreen,
+    BOOK_FONT_SIZE,
+    FOOTER_INSET,
+    FOOTER_RULE_GAP,
     PAGE_ROWS,
+    TEXT_TOP,
+    BookScreen,
     load_lore_pages,
     load_lore_sections,
     spell_reference_pages,
 )
 from py_exodus.state_machine import StateMachine
+from py_exodus.ui.text_log import get_hud_font
 
 
 @pytest.fixture(autouse=True)
@@ -98,7 +103,9 @@ class TestLoreLoading:
         assert scr.pages == lore + ref_pages
 
     def test_pages_use_the_full_page_height(self, asset_mgr):
-        """Pages carry PAGE_ROWS lines (up from the old 8), filling the area."""
+        """Pages carry PAGE_ROWS lines, filling the area between the header
+        rule and the footer at both 320x200 and 960x600 (see book.py for the
+        measured linesize math)."""
         for page in load_lore_pages() + spell_reference_pages():
             assert len(page.splitlines()) <= PAGE_ROWS
         # Most lore sections break into full pages rather than thin slivers
@@ -107,11 +114,12 @@ class TestLoreLoading:
         assert full > len(lore) / 2
 
     def test_page_count_is_plausible_for_the_dense_layout(self, asset_mgr):
-        """Task-density fix: old layout was ~190 turns (8 rows/page); the new
-        54x14 layout turns the whole book in roughly half that."""
+        """Task-density fix: old layout was 193 turns (46x8 pages at a fixed
+        tiny font); the 60-column layout turns the whole book in about
+        two-thirds of that at HUD-scale font size."""
         scr = BookScreen(asset_mgr=asset_mgr)
-        assert scr.page_count < 130
-        assert scr.page_count > 50  # still a real book
+        assert scr.page_count < 170
+        assert 100 < scr.page_count  # still a real book
 
 
 class TestPaging:
@@ -163,13 +171,37 @@ class TestPaging:
             scr.turn_forward()
 
     def test_render_scaled_resolution_fits_between_header_and_footer(self, asset_mgr):
-        """The book fills the 3x viewport: page rows fit between the header
-        divider and the footer rule at 960x600."""
+        """Geometry, not just "no errors": with the real font metrics, all
+        PAGE_ROWS page rows must be visible between the header rule and the
+        footer rule at both 320x200 and 960x600 (3x)."""
+        full_page = next(
+            p
+            for p in load_lore_pages()
+            if len(p.splitlines()) == PAGE_ROWS and all(p.splitlines())
+        )
         scr = BookScreen(asset_mgr=asset_mgr)
-        surface = pygame.Surface((960, 600))
-        for i in range(scr.page_count):
+        scr.pages = [full_page]  # pin one full page; page_count == 1
+
+        for w, h, s in ((320, 200, 1), (960, 600, 3)):
+            surface = pygame.Surface((w, h))
             scr.render(surface)
-            scr.turn_forward()
+
+            linesize = get_hud_font(BOOK_FONT_SIZE * s).get_linesize()
+            text_top = TEXT_TOP * s
+            footer_rule_top = h - (FOOTER_INSET + FOOTER_RULE_GAP) * s
+            # Metric assertion: the last row's bottom stays above the footer rule
+            assert text_top + PAGE_ROWS * linesize <= footer_rule_top
+            # Pixel assertion: every page row actually has ink on screen
+            # within its band (gnuo glyphs start a few px below the blit y).
+            bg = (24, 20, 16)  # the parchment fill, not ink
+            for i in range(PAGE_ROWS):
+                band_top = text_top + i * linesize
+                row_has_ink = any(
+                    surface.get_at((x, y))[:3] not in ((0, 0, 0), bg)
+                    for y in range(band_top, band_top + linesize)
+                    for x in range(20 * s, min(w - 20 * s, 200 * s))
+                )
+                assert row_has_ink, f"page row {i} not visible at {w}x{h}"
 
 
 class TestReachability:

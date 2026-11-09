@@ -33,12 +33,27 @@ from py_exodus.ui.text_log import (
 #: Wrapped text columns per page. Java wraps each column Label at ~450px of
 #: 460 with an 18px font (BookScreen.java:150-174); this port wraps to a
 #: similar column count for the HUD font so wide lore lines stay intact.
-PAGE_COLS = 54
-#: Text rows per page. Sized so a full page fills the book viewport at both
-#: 320x200 and 960x600 (3x scaling) using the 12-logical-px HUD font: the
-#: text area runs from y=44*scale to the footer rule, i.e. about 132 logical
-#: px at a 9px logical line height.
-PAGE_ROWS = 14
+PAGE_COLS = 60
+#: Text rows per page, derived from the real measured font metrics of the
+#: repo gnuolane.ttf (linesize ~= 1.2x the point size: 12px at size 10 on a
+#: 320x200 surface, 36px at size 30 at the 3x game resolution):
+#:   page text starts at y = TEXT_TOP * scale,
+#:   footer rule top is at height - (FOOTER_INSET + FOOTER_RULE_GAP) * scale,
+#:   rows that fit = floor(page_height / linesize):
+#:     320x200: floor((176 - 44) / 12) = 11  ->  10 with a one-row safety
+#:     960x600: floor((528 - 132) / 36) = 11 ->  10 with a one-row safety
+#: so 10 lines fill the viewport between the header rule and the footer at
+#: BOTH resolutions (at 3x each row is ~36px of HUD-scale text).
+PAGE_ROWS = 10
+#: Body font logical size (30px at the 3x game resolution, 10px on a raw
+#: 320x200 surface). Measured linesize: 12 at 1x, 36 at 3x (gnuolane.ttf).
+BOOK_FONT_SIZE = 10
+#: Logical y of the first page text row (header rule 38 + 6 gap).
+TEXT_TOP = 44
+#: Logical footer inset (footer text y = height - FOOTER_INSET * scale).
+FOOTER_INSET = 20
+#: Logical gap between the footer rule and the footer text.
+FOOTER_RULE_GAP = 4
 
 LORE_TITLE = "THE BOOK OF LORE"
 APPENDIX_HEADER = "APPENDIX: SPELL REFERENCE"
@@ -184,8 +199,10 @@ class BookScreen(BaseScreen):
         """Draw the paged lore text, title banner, and navigation footer.
 
         Layout is scale-proportional like the other screens: at 3x the page
-        body font is physically as large as the rest of the HUD, and the page
-        of PAGE_ROWS lines fills the viewport between the headers and footer.
+        body font is physically as large as the rest of the HUD (BOOK_FONT_SIZE
+        * 3 = 30px, linesize 36) and the PAGE_ROWS-page block fills the
+        viewport between the header rule and the footer (see PAGE_ROWS for the
+        measured fit math).
         """
         width = surface.get_width()
         height = surface.get_height()
@@ -200,7 +217,7 @@ class BookScreen(BaseScreen):
         pygame.draw.rect(surface, EGA_BROWN, outer_rect, 2 * scale)
 
         title_font = get_hud_font(14 * scale)
-        body_font = get_hud_font(12 * scale)
+        body_font = get_hud_font(BOOK_FONT_SIZE * scale)
         info_font = get_hud_font(8 * scale)
 
         title_surf = title_font.render(LORE_TITLE, True, EGA_YELLOW)
@@ -223,7 +240,7 @@ class BookScreen(BaseScreen):
             ),
         )
 
-        header_bottom = 38 * scale
+        header_bottom = TEXT_TOP * scale - 6 * scale
         pygame.draw.line(
             surface,
             EGA_DARK_GRAY,
@@ -231,9 +248,9 @@ class BookScreen(BaseScreen):
             (width - 16 * scale, header_bottom),
         )
 
-        footer_y = height - 20 * scale
+        footer_y = height - FOOTER_INSET * scale
         spacing = body_font.get_linesize()
-        y = header_bottom + 6 * scale
+        y = TEXT_TOP * scale
         for line in page.splitlines()[:PAGE_ROWS]:
             if line == APPENDIX_HEADER or line in ("WIZARD SORCERIES", "CLERICAL PRAYERS"):
                 color = EGA_BRIGHT_GREEN
@@ -246,8 +263,8 @@ class BookScreen(BaseScreen):
         pygame.draw.line(
             surface,
             EGA_DARK_GRAY,
-            (16 * scale, footer_y - 4 * scale),
-            (width - 16 * scale, footer_y - 4 * scale),
+            (16 * scale, footer_y - FOOTER_RULE_GAP * scale),
+            (width - 16 * scale, footer_y - FOOTER_RULE_GAP * scale),
         )
         footer_text = "[SPACE/RETURN/UP/DOWN] Turn Page   [ESC] Close"
         foot_surf = info_font.render(footer_text, True, EGA_BRIGHT_GREEN)

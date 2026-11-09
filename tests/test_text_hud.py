@@ -273,10 +273,11 @@ def _inspect_member() -> Character:
     return c
 
 
-def test_inspect_row_identity_race_sex_class_status():
-    """Java line 1: name  Race|Profession|Sex STATUS: G."""
+def test_inspect_row_identity_name_race_sex_class_status():
+    """Java line 1: name  Race|Profession|Sex STATUS: G — the name rides the
+    identity row (no separate title row)."""
     rows = inspect_rows(_inspect_member())
-    assert "ELF M WIZARD ST:G" in rows
+    assert "HERO ELF M WIZARD ST:G" in rows
 
 
 def test_inspect_row_health_and_maxhealth():
@@ -299,34 +300,50 @@ def test_inspect_row_gold_and_food_are_per_member():
     assert "GOLD:777 FOOD:150" in rows
 
 
-def test_inspect_row_armor_inventory_lists_every_entry():
-    """Java armor listing pairs every non-zero ArmorType incl. EXOTIC."""
+def test_inspect_row_armor_inventory_uses_xml_names_and_java_rule():
+    """Java lists every standard armor type (even 0-count) with its count,
+    two per line, EXOTIC appended only when > 0 (exodus/Party.java:673-697);
+    names come from armors.xml, e.g. "Exotic Armour"."""
     rows = inspect_rows(_inspect_member())
-    text = "\n".join(rows)
-    assert "A: LEATHER(2)  CHAIN(1)" in text
-    assert "EXOTIC(3)" in text
+    assert " Cloth: 0  Leather: 2" in rows
+    assert " Chain: 1  Plate: 0" in rows
+    assert " Chain +2: 0  Plate +2: 0" in rows
+    assert " Exotic Armour: 3" in rows
 
 
-def test_inspect_row_weapon_inventory_lists_every_entry():
-    """Java weapon listing pairs every non-zero WeaponType incl. EXOTIC."""
+def test_inspect_row_weapon_inventory_uses_xml_names_and_java_rule():
+    """Weapon listing: every standard type in weapons.xml order (even 0),
+    then "Exotic Weapon" only when owned."""
     rows = inspect_rows(_inspect_member())
-    assert "W: MACE(2)  SWORD(1)" in "\n".join(rows)
-    assert "EXOTIC(4)" in "\n".join(rows)
+    assert " Dagger: 0  Mace: 2" in rows
+    assert " Sword: 1  Sling: 0" not in rows  # pairs follow enum order
+    assert " Bow: 0  Sword: 1" in rows
+    assert " 2-Handed Sword: 0  Axe +2: 0" in rows
+    assert " Exotic Weapon: 4" in rows
 
 
-def test_inspect_row_inventory_wraps_when_needed():
-    """Inventory rows of two, continued and still complete beyond two entries."""
+def test_inspect_row_exotic_listed_only_when_owned():
+    """EXOTIC entries are conditional: absent at 0, present when > 0."""
     m = _inspect_member()
-    m.armors[ArmorType.PLATE] = 1  # 4 armor entries -> continuation row
-    rows = inspect_rows(m)
-    cont = [r for r in rows if r.startswith("   ") and "PLATE" in r]
-    assert cont == ["   PLATE(1)  EXOTIC(3)"]  # dict order follows ArmorType
+    m.armors[ArmorType.EXOTIC] = 0
+    m.weapons[WeaponType.EXOTIC] = 0
+    text = "\n".join(inspect_rows(m))
+    assert "Exotic Armour" not in text
+    assert "Exotic Weapon" not in text
+
+
+def test_inspect_row_lists_zero_count_standard_types():
+    """A bare member still lists every standard type with 0 (Java rule)."""
+    m = Character("Bare", "M", Race.HUMAN, Profession.FIGHTER, hp=100, mp=0)
+    text = "\n".join(inspect_rows(m))
+    assert "Dagger: 0" in text
+    assert "Cloth: 0" in text
 
 
 def test_inspect_row_colors():
     """Inventory rows render gray; supply and mark/card rows render green."""
-    assert inspect_row_color("A: LEATHER(2)") == EGA_LIGHT_GRAY
-    assert inspect_row_color("   EXOTIC(3)  PLATE(1)") == EGA_LIGHT_GRAY
+    assert inspect_row_color(" Cloth: 0  Leather: 2") == EGA_LIGHT_GRAY
+    assert inspect_row_color(" Exotic Weapon: 4") == EGA_LIGHT_GRAY
     assert inspect_row_color("KEYS:5 POWD:3") == EGA_BRIGHT_GREEN
     assert inspect_row_color("MARK KINGS: 1") == EGA_BRIGHT_GREEN
     assert inspect_row_color("HP:150/150") == EGA_WHITE

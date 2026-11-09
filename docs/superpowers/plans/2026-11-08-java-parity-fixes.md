@@ -1,5 +1,7 @@
 # Java-Parity Fix Plan for PyExodus
 
+> **2026-11-09 addendum**: 15 original tasks merged at 99a9a8d. Follow-up commits on master since then: peer gem (8a104cb, de396c9, 238e44e) and user-reported fixes (f2a832e, MP/Ztats/book).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Bring the Python port to behavioral parity with the Java source at `/sto/src/gdx-exodus/` (17k lines vs Python's 14k), fixing 6 game-blocking bugs and ~60 divergences found by a 5-agent audit.

@@ -91,7 +91,7 @@ class DungeonScreen(BaseScreen):
             asset_manager=self.asset_mgr,
         )
         self.camera = DungeonCamera(viewport_size=176)
-        self.stats_panel = StatsPanel()
+        self.stats_panel = StatsPanel(asset_mgr=self.asset_mgr)
         self.text_log = TextLog(max_lines=5, wrap_width=28)
         # Java DungeonScreen.java:79-80 — the minimap shows by default and P
         # toggles it.
