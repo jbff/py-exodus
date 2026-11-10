@@ -61,6 +61,23 @@ class SaveSystem:
         return Party.from_dict(data)
 
     @classmethod
+    def load_game_data(cls, path: str | Path) -> dict[str, Any]:
+        """Load the raw save document: the party record plus any screen-side
+        ``extra`` context (DungeonScreen's dungeon block, OverworldScreen's
+        ``overworld`` block). Callers that need the extras (Journey Onward's
+        world-state restore) build the party themselves via ``Party.from_dict``.
+        """
+        p = Path(path)
+        if not p.exists():
+            raise FileNotFoundError(f"Save file not found: {path}")
+
+        if p.suffix.lower() == ".ult":
+            return cls.load_binary_party(p).to_dict()
+
+        with open(p, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+    @classmethod
     def save_roster(cls, roster: list[Character], path: str | Path) -> None:
         """Save a list of roster characters to JSON."""
         p = Path(path)

@@ -190,6 +190,7 @@ class OverworldScreen(BaseScreen):
         audio: AudioManager | None = None,
         return_screen: BaseScreen | None = None,
         random_encounters: bool = True,
+        world_state: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(return_screen=return_screen, **kwargs)
@@ -204,6 +205,11 @@ class OverworldScreen(BaseScreen):
         # first map load so _load_world_map can purge stale fixtures)
         self.creatures: list[dict[str, Any]] = []
         self._load_world_map()
+        # Java GameScreen.java:280-330 restore-on-load: the Journey Onward
+        # starter rebuilds the saved SOSARIA monsters onto the map before any
+        # new wandering spawn. The map's own objects come back through
+        # party.dynamic_objects (serialized with the party record).
+        self._restore_world_state(world_state)
 
         self.anim_frame = 0
         # Peer Gem (P) view state (Java PeerGemInputAdapter, see gem_view).
@@ -1559,6 +1565,51 @@ class OverworldScreen(BaseScreen):
         """Advance wandering creatures and check proximity encounters."""
         self._update_creatures()
 
+    def _restore_world_state(self, world_state: dict[str, Any] | None) -> None:
+        """Rebuild the saved wandering/sea creatures onto the Sosaria map.
+
+        Java truth: ``GameScreen.java:300-312`` — after loading the save game,
+        up to 8 monsters are re-created on the SOSARIA map from the saved
+        tile ids/positions. User ruling (2026-11-10 amendment): whirlpools
+        are NOT excluded, so a saved block owns the fixtures too — the free
+        re-seed from ``_load_world_map`` is dropped here (exactly those
+        entries are replaced by the saved ones, so there can never be
+        duplicates); without a block (legacy saves) the Task 9 re-seed
+        fallback stays untouched. Mid-session map prepares (Ambrosia
+        round trips) keep re-seeding via ``_load_world_map`` per Java
+        GameScreen.java:111-121. ``on_enter`` then purges any creature
+        standing on the party's tile (combat re-trigger guard). Saved world
+        state only ever originates from a Sosaria Q-save, so non-Sosaria
+        loads ignore it.
+        """
+        if not world_state or str(self.map_id) != "0":
+            return
+        # The block owns the whirlpool fixtures at load: drop the free
+        # re-seed before restoring, so the saved fixtures replace them
+        # (no duplicates).
+        self.creatures = [
+            c for c in self.creatures if c.get("tile_name") != "whirlpool"
+        ]
+        for m in world_state.get("monsters", [])[:8]:
+            tile_name = str(m.get("tile_name", "")).lower()
+            if not tile_name:
+                continue
+            creature = {
+                "name": str(m.get("name", "")),
+                "tile_name": tile_name,
+                "tile": str(m.get("tile", m.get("tile_name", ""))),
+                "x": int(m.get("x", 0)),
+                "y": int(m.get("y", 0)),
+            }
+            if tile_name == "whirlpool":
+                # Fixtures are restored with the non-engaging fixture
+                # behavior (never move, never attack) that free-seeded
+                # whirlpools carry.
+                creature["wontattack"] = True
+            if m.get("hp") is not None:
+                creature["hp"] = int(m["hp"])
+            self.creatures.append(creature)
+
     def _save_game(self) -> None:
         """Save party progress to JSON file.
 
@@ -1566,12 +1617,44 @@ class OverworldScreen(BaseScreen):
         GameScreen map, but only SOSARIA (map id 0) accepts it: "Saved Game."
         there, "Cannot save here!" anywhere else. Both paths fall through the
         keyUp tail and consume a turn.
+
+        Java Context.saveGame (Context.java:138-193) additionally serializes
+        the SOSARIA map's dynamic state into the party record: the first 8
+        map creatures in list order with positions and tile ids, and the map
+        objects (embarked frigates/chests) — the objects already live in
+        ``party.dynamic_objects`` here and ride along in the party dict.
+        GameScreen.java:280-330 restores both on the next load.
+        Documented deviation (user ruling 2026-11-10): whirlpool entries are
+        NOT skipped the way Java's Context.saveGame does (Java `continue`s
+        whirlpools without freeing the slot); the first 8 creatures save
+        regardless of kind, so the fixtures ride in the block.
         """
         if getattr(self.game_map, "id", None) == 0:
             try:
                 from py_exodus.save_system import SaveSystem
 
-                SaveSystem.save_game(self.party, "saves/party.json")
+                saved_monsters = []
+                # First 8 creatures in list order regardless of kind
+                # (user ruling 2026-11-10: whirlpools save like any other
+                # creature — Java's skip-without-freeing-slot quirk is
+                # deliberately NOT reproduced).
+                for c in self.creatures[:8]:
+                    entry = {
+                        "name": c.get("name", ""),
+                        "tile_name": c.get("tile_name", ""),
+                        "tile": c.get("tile", ""),
+                        "x": int(c.get("x", 0)),
+                        "y": int(c.get("y", 0)),
+                    }
+                    if c.get("hp") is not None:
+                        entry["hp"] = int(c["hp"])
+                    saved_monsters.append(entry)
+
+                SaveSystem.save_game(
+                    self.party,
+                    "saves/party.json",
+                    extra={"overworld": {"monsters": saved_monsters}},
+                )
                 self.text_log.add_message("Saved Game.")
             except Exception:
                 self.text_log.add_message("Save failed!")

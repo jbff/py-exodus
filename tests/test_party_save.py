@@ -836,3 +836,221 @@ def test_journey_onward_ignores_screen_attached_party(pygame_setup, asset_mgr, m
     start._start_journey()
 
     assert isinstance(start.next_screen, RosterScreen)
+
+
+# ---------------------------------------------------------------------------
+# User-reported save bug (2026-11-10): after playing, exiting, and resuming
+# with Journey Onward, the map looked different (sea monsters gone) and
+# purchased items were missing.
+#
+# Symptom 1 (items) is probed below with the REAL vendor flow: buy weapons
+# through TownScreen/vendor dialogs, Q-save (SaveSystem.save_game), reload
+# (Party.from_dict) and assert the purchase survives. Java truth: only the
+# Q command writes party.sav (GameScreen.java:557-563) — there is no
+# save-on-exit in Java either, so a purchase made after the last Q is lost
+# by ordering, not by a serialization gap.
+#
+# Symptom 2 (world state) mirrors Java Context.saveGame (Context.java:138-193):
+# a Sosaria save carries the first 8 map creatures (whirlpools skipped but
+# slot-consuming) and the GameScreen.java:280-330 restore-on-load rebuilds
+# them at their saved positions. The port saved nothing per-map.
+# ---------------------------------------------------------------------------
+
+
+def _make_weapon_vendor():
+    from py_exodus.assets import AssetManager
+
+    am = AssetManager(assets_dir="src/main/resources/assets")
+    am.load_xml_definitions()
+    return am.vendors.get("windsor weaponry")
+
+
+def test_probe_weapon_purchase_survives_save_load(pygame_setup, tmp_path):
+    """The REAL vendor flow: TownScreen._start_vendor_shopping → buy
+    daggers → SaveSystem.save_game → SaveSystem.load_game → purchase
+    present and purse debited (user symptom: purchased items missing)."""
+    from py_exodus.constants import WeaponType
+    from py_exodus.screens.town import TownScreen
+
+    gold_start = 1000
+    members = [
+        PartyMember(Character(f"Hero{i}", "M", Race.HUMAN, Profession.FIGHTER, hp=100))
+        for i in range(2)
+    ]
+    party = Party(members, x=10, y=10, transport=Transport.FOOT)
+    party.members[0].gold = gold_start
+
+    town = TownScreen(party=party, map_id=1)
+    town._start_vendor_shopping(_make_weapon_vendor(), buyer=party.members[0])
+    town.text_log.submit_input("b")  # Buy
+    town.text_log.submit_input("b")  # Dagger
+    town.text_log.submit_input("2")  # How many: 2
+
+    assert party.members[0].weapons[WeaponType.DAGGER] == 2
+
+    save_path = tmp_path / "saves" / "party.json"
+    SaveSystem.save_game(party, save_path)
+    loaded = SaveSystem.load_game(save_path)
+
+    assert loaded.members[0].weapons[WeaponType.DAGGER] == 2
+    assert loaded.members[0].gold == gold_start - 10
+
+
+def test_overworld_save_carries_dynamic_world_state(pygame_setup, asset_mgr, monkeypatch, tmp_path):
+    """Java Context.java:138-193 — a Sosaria Q-save serializes the per-map
+    dynamic objects (up to 24: disembarked frigates, dropped chests, horses)
+    and the wandering/sea creatures: positions + tile ids. User ruling
+    (2026-11-10 amendment): whirlpools are NOT excluded — the first 8
+    creatures save in list order regardless of kind, so the two re-seeded
+    whirlpool fixtures ride in the block (Java's skip-without-freeing-slot
+    quirk is a documented deviation now)."""
+    monkeypatch.chdir(tmp_path)
+
+    from py_exodus.screens.overworld import OverworldScreen
+
+    party = Party()
+    party.add_member(_roster_char("Ariel"))
+    ow = OverworldScreen(party=party, map_id=0, asset_mgr=asset_mgr)
+
+    # The screen re-seeds its two whirlpool fixtures on Sosaria; after an
+    # engulf round trip (teleport → map reload) the two fixtures stand among
+    # the creatures when Q is pressed.
+    ow.creatures.clear()
+    for wx, wy in ((50, 13), (17, 48)):
+        ow.creatures.append({
+            "name": "Whirlpool", "tile_name": "whirlpool", "tile": "whirlpool",
+            "x": wx, "y": wy, "wontattack": True,
+        })
+    # User-visible state: a sea monster where it was, plus a stolen frigate
+    # and a dropped chest on the map.
+    ow.creatures.append({"name": "Pirate", "tile_name": "pirate", "tile": "pirate", "x": 30, "y": 40})
+    ow.creatures.append({"name": "Serpent", "tile_name": "serpent", "tile": "serpent", "x": 31, "y": 41})
+    party.dynamic_objects.append({"tile": "frigate", "x": 12, "y": 34})
+    party.dynamic_objects.append({"tile": "chest", "x": 20, "y": 21})
+
+    ow._save_game()
+
+    import json
+
+    data = json.loads((tmp_path / "saves" / "party.json").read_text())
+    monsters = data["overworld"]["monsters"]
+    # Whirlpool fixtures ride in the block like any other creature (the
+    # restore adds the non-engaging fixture flag itself).
+    assert monsters == [
+        {"name": "Whirlpool", "tile_name": "whirlpool", "tile": "whirlpool", "x": 50, "y": 13},
+        {"name": "Whirlpool", "tile_name": "whirlpool", "tile": "whirlpool", "x": 17, "y": 48},
+        {"name": "Pirate", "tile_name": "pirate", "tile": "pirate", "x": 30, "y": 40},
+        {"name": "Serpent", "tile_name": "serpent", "tile": "serpent", "x": 31, "y": 41},
+    ]
+    # Map objects round-trip through the party record itself: the dynamic
+    # objects list is saved with the party (Java objects_save arrays).
+    assert {"tile": "frigate", "x": 12, "y": 34} in data["dynamic_objects"]
+    assert {"tile": "chest", "x": 20, "y": 21} in data["dynamic_objects"]
+
+
+def test_overworld_save_creature_cap_is_8_including_whirlpools(pygame_setup, asset_mgr, monkeypatch, tmp_path):
+    """The block holds the first 8 map creatures in list order regardless
+    of kind (up to 8, GameScreen.java:300-312 restore cap) — a whirlpool
+    among them takes its slot (user ruling 2026-11-10)."""
+    monkeypatch.chdir(tmp_path)
+
+    from py_exodus.screens.overworld import OverworldScreen
+
+    party = Party()
+    party.add_member(_roster_char("Ariel"))
+    ow = OverworldScreen(party=party, map_id=0, asset_mgr=asset_mgr)
+    ow.creatures.clear()
+    ow.creatures.append({"name": "W", "tile_name": "whirlpool", "tile": "whirlpool",
+                         "x": 1, "y": 2, "wontattack": True})
+    for i in range(3):
+        ow.creatures.append({
+            "name": f"P{i}", "tile_name": "pirate", "tile": "pirate", "x": i, "y": 50,
+        })
+
+    ow._save_game()
+
+    import json
+
+    data = json.loads((tmp_path / "saves" / "party.json").read_text())
+    monsters = data["overworld"]["monsters"]
+    assert monsters == [
+        {"name": "W", "tile_name": "whirlpool", "tile": "whirlpool", "x": 1, "y": 2},
+        {"name": "P0", "tile_name": "pirate", "tile": "pirate", "x": 0, "y": 50},
+        {"name": "P1", "tile_name": "pirate", "tile": "pirate", "x": 1, "y": 50},
+        {"name": "P2", "tile_name": "pirate", "tile": "pirate", "x": 2, "y": 50},
+    ]
+
+
+def test_journey_onward_restores_sea_monsters_and_objects(pygame_setup, asset_mgr, monkeypatch, tmp_path):
+    """Full user flow (Java GameScreen.java:280-330): Q-save on Sosaria with
+    sea monsters + the whirlpool fixtures + disembarked frigate, exit,
+    Journey Onward — the creatures (fixtures included) come back at their
+    saved positions with NO duplicate fixtures, and the frigate is
+    boardable again (user ruling 2026-11-10: the block owns whirlpools)."""
+    monkeypatch.chdir(tmp_path)
+
+    from py_exodus.screens.overworld import OverworldScreen
+    from py_exodus.screens.start import StartScreen
+
+    party = Party()
+    party.add_member(_roster_char("Ariel"))
+    ow = OverworldScreen(party=party, map_id=0, asset_mgr=asset_mgr)
+    ow.creatures.clear()
+    for wx, wy in ((50, 13), (17, 48)):
+        ow.creatures.append({
+            "name": "Whirlpool", "tile_name": "whirlpool", "tile": "whirlpool",
+            "x": wx, "y": wy, "wontattack": True,
+        })
+    ow.creatures.append({"name": "Pirate", "tile_name": "pirate", "tile": "pirate", "x": 30, "y": 40, "hp": 37})
+    ow.creatures.append({"name": "Squid", "tile_name": "squid", "tile": "squid", "x": 8, "y": 9})
+    party.dynamic_objects.append({"tile": "frigate", "x": 12, "y": 34})
+
+    ow._save_game()
+
+    start = StartScreen(asset_mgr=asset_mgr)
+    start._start_journey()
+    resumed = start.next_screen
+    assert isinstance(resumed, OverworldScreen)
+
+    # Restored creatures stand exactly where they were saved (with hp). The
+    # resumed screen's normal wanderer spawns may add extra creatures, but
+    # nothing duplicates: every position is unique.
+    positions = [(c["x"], c["y"]) for c in resumed.creatures]
+    assert len(positions) == len(set(positions))
+    restored = {p: c for p, c in zip(positions, resumed.creatures)}
+    assert restored[(30, 40)]["tile_name"] == "pirate" and restored[(30, 40)]["hp"] == 37
+    assert restored[(8, 9)]["tile_name"] == "squid"
+    # Both whirlpool fixtures come back from the save — exactly 2, none
+    # re-seeded on the side.
+    whirls = [c for c in resumed.creatures if c.get("tile_name") == "whirlpool"]
+    assert sorted((c["x"], c["y"]) for c in whirls) == [(17, 48), (50, 13)]
+    assert all(c.get("wontattack") for c in whirls)
+
+    # Map objects: the stolen frigate is still on the map and boardable.
+    resumed.party.x, resumed.party.y = 12, 34
+    resumed._board_transport()
+    assert resumed.party.transport == Transport.SHIP
+    assert {"tile": "frigate", "x": 12, "y": 34} not in resumed.party.dynamic_objects
+
+
+def test_journey_onward_legacy_save_still_reseeds_whirlpools(pygame_setup, asset_mgr, monkeypatch, tmp_path):
+    """A legacy save with NO `overworld` block (pre-amendment party.json)
+    keeps the Task 9 fallback: the two whirlpool fixtures re-seed free
+    (Java GameScreen.java:111-121 adds them on every map prepare)."""
+    monkeypatch.chdir(tmp_path)
+
+    from py_exodus.screens.overworld import OverworldScreen
+    from py_exodus.screens.start import StartScreen
+
+    party = Party()
+    party.add_member(_roster_char("Ariel"))
+    SaveSystem.save_game(party, tmp_path / "saves" / "party.json")  # no extras
+
+    start = StartScreen(asset_mgr=asset_mgr)
+    start._start_journey()
+    resumed = start.next_screen
+    assert isinstance(resumed, OverworldScreen)
+
+    whirls = [c for c in resumed.creatures if c.get("tile_name") == "whirlpool"]
+    assert sorted((c["x"], c["y"]) for c in whirls) == [(17, 48), (50, 13)]
+    assert all(c.get("wontattack") for c in whirls)

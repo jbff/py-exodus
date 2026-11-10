@@ -166,12 +166,18 @@ class StartScreen(BaseScreen):
         has no default party anywhere on this path.
         """
         party = None
+        world_state: dict[str, Any] | None = None
         try:
             from py_exodus.save_system import SaveSystem
 
             json_p = Path("saves/party.json")
             if json_p.exists():
-                party = SaveSystem.load_game(json_p)
+                # Java reads the whole SaveGame record (party + per-map
+                # objects/monsters, Context.java:138-193); the screen extras
+                # (overworld/dungeon blocks) ride along in the same document.
+                data = SaveSystem.load_game_data(json_p)
+                party = Party.from_dict(data)
+                world_state = data.get("overworld")
         except Exception:
             party = None
 
@@ -186,12 +192,15 @@ class StartScreen(BaseScreen):
 
         from py_exodus.screens.overworld import OverworldScreen
 
+        # Java GameScreen.java:280-330 rebuilds the saved Sosaria objects and
+        # monsters onto the map on load (GameScreen constructor, sg.* arrays).
         overworld = OverworldScreen(
             party=self.party,
             asset_mgr=self.asset_mgr,
             audio=self.audio,
             return_screen=self,
             manager=self.manager,
+            world_state=world_state,
         )
         if self.manager is not None:
             self.manager.set_screen(overworld)
