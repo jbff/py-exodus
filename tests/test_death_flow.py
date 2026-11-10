@@ -244,6 +244,36 @@ def test_overworld_starvation_leaving_survivor_no_transition(sm, asset_mgr):
     assert party.get_member(1).hp == 4
 
 
+def test_town_starvation_wipe_transitions_to_start_screen(sm, asset_mgr):
+    """The town counterpart of the overworld/dungeon starvation wipes: a
+    food-0 member passes turns in town (SPACE — Java GameScreen.java:624-628
+    pass key; towns drain the 10-submorsel pool per turn, Party.endTurn
+    Party.java:592-639) while the per-turn regen tick applies the 2-HP
+    starvation blow (Party.tick_regen — user-directed original-rules
+    deviation), and the wipe routes to the StartScreen game over."""
+    party = single_member_party(hp=1)
+    for m in party.members:
+        m.food = 0
+
+    from py_exodus.screens.town import TownScreen
+
+    town = TownScreen(party=party, map_id=1, asset_mgr=asset_mgr, manager=sm)
+    sm.set_screen(town)
+
+    for _ in range(10):
+        town.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_SPACE))
+        if party.is_party_dead():
+            break
+
+    assert party.is_party_dead()
+    from py_exodus.screens.start import StartScreen
+
+    assert isinstance(sm.current_screen, StartScreen)
+    assert sm.current_screen.game_over is True
+    # Java partyDeath (GameScreen.java:444-446) does not revive the party
+    assert party.is_party_dead()
+
+
 def test_dungeon_starvation_wipe_transitions_to_start_screen(sm, asset_mgr):
     """USER-DIRECTED ORIGINAL-RULES DEVIATION (2026-11-10): the dungeon tick
     regenerates AND starves per consumed turn — Java DungeonScreen.finishTurn
