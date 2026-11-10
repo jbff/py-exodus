@@ -34,6 +34,8 @@ COLOR_BLUE = (85, 85, 255)
 COLOR_MAGENTA = (255, 85, 255)
 COLOR_DARK_GRAY = (85, 85, 85)
 COLOR_LIGHT_GRAY = (170, 170, 170)
+#: Perspective block-seam colour drawn across wall faces (mortar-joint read).
+COLOR_SEAM = (120, 120, 120)
 
 
 class DungeonEventType(str, Enum):
@@ -127,26 +129,46 @@ def get_relative_offsets(d: Direction) -> tuple[tuple[int, int], tuple[int, int]
 
 
 class DungeonCamera:
-    """First-person 3D perspective wireframe corridor renderer for Ultima III dungeons."""
+    """First-person 3D perspective wireframe corridor renderer for Ultima III dungeons.
+
+    Java truth (DungeonScreen.java): the dungeon is a true 3D scene — every
+    solid tile (WALL / DOOR / SECRET_DOOR) is a full 1x1x1 cube spanning one
+    grid cell, floor at y=0, ceiling at y=1 (DungeonScreen.java:192-205,
+    492-500), with a PerspectiveCamera at the party tile centre, mid-height,
+    vertical fov 67 and near plane 0.1 (DungeonScreen.java:180-183).  The
+    scene is symmetric in all four facings — there are no per-facing offset
+    tables; the camera basis rotates with the party.  This port reproduces
+    the same placement rules on a 2D canvas with a pinhole projection:
+
+    * camera-local axes: X lateral (positive = party's right), Y up,
+      Z depth along the facing (party eye at y=0.5, z=0 at tile centre).
+    * FOCAL encodes Java's 67-degree vertical fov on the 176px viewport:
+      a corridor cross-section one tile ahead spans half-height
+      ``TILE_HALF * FOCAL`` = 66.5px.
+    * Painter's algorithm, far to near: walls-through-openings, side faces,
+      corridor frames, then the terminating front face, then fixtures.
+    """
 
     # 176x176 viewport matching the 11x11 tile viewport area
     DEFAULT_SIZE = 176
 
-    # Perspective nested rectangle coordinates: (left, top, right, bottom)
-    # Step 0: camera plane (full 176x176)
-    # Step 1: 1 step ahead (inset 32 px)
-    # Step 2: 2 steps ahead (inset 54 px)
-    # Step 3: 3 steps ahead (inset 69 px)
-    # Step 4: 4 steps ahead (inset 79 px)
-    # Step 5: vanishing point (88, 88)
-    BOXES: ClassVar[list[tuple[int, int, int, int]]] = [
-        (0, 0, 175, 175),
-        (32, 32, 143, 143),
-        (54, 54, 121, 121),
-        (69, 69, 106, 106),
-        (79, 79, 96, 96),
-        (88, 88, 88, 88),
-    ]
+    #: Java PerspectiveCamera(67, ...) vertical fov (DungeonScreen.java:180)
+    #: -> focal length in viewport px per world unit at depth 1:
+    #: (viewport/2) / tan(67/2) = 88 / 0.664.
+    FOCAL: ClassVar[float] = 88 / 0.664
+
+    #: Java camera.near = 0.1f (DungeonScreen.java:183)
+    NEAR: ClassVar[float] = 0.1
+
+    #: Eye height: Java builds floor boxes at y=-0.5 and ceiling boxes at
+    #: y=1.5, so the walkable corridor spans y in [0, 1] and the camera sits
+    #: mid-height at y=0.5 (DungeonScreen.java:197, 203; currentPos y=.5).
+    EYE: ClassVar[float] = 0.5
+
+    #: How many corridor columns the lit view projects.  Java renders the
+    #: whole level every frame; the torch-lit falloff (point light ~5 units)
+    #: reads as roughly 6 tiles of detail.
+    MAX_DEPTH: ClassVar[int] = 6
 
     def __init__(
         self,
@@ -159,6 +181,119 @@ class DungeonCamera:
         self.default_color = default_color
         self.door_color = door_color
         self.fixture_color = fixture_color
+
+    # --- projection helpers -------------------------------------------------
+
+    def _project(
+        self,
+        cx: float,
+        cy: float,
+        focal: float,
+        lateral: float,
+        height: float,
+        depth: float,
+    ) -> tuple[float, float]:
+        """Pinhole projection of a camera-local (lateral, height, depth) point.
+
+        depth is clamped at Java's near plane (0.1) so faces that extend
+        behind the eye (a wall beside the party at depth -0.5..0.5) render
+        from the near-plane slice outward, exactly like the Java near clip.
+        """
+        z = max(depth, self.NEAR)
+        u = cx + lateral * focal / z
+        v = cy - (height - self.EYE) * focal / z
+        return (u, v)
+
+    def _half_extent(self, focal: float, depth: float) -> float:
+        """On-screen half-extent of a tile-half (0.5 world units) at depth."""
+        return min(0.5 * focal / max(depth, self.NEAR), 0.5 * 176)
+
+    def _face_quad(
+        self,
+        cx: float,
+        cy: float,
+        focal: float,
+        corners: list[tuple[float, float, float]],
+    ) -> list[tuple[float, float]]:
+        return [self._project(cx, cy, focal, *p) for p in corners]
+
+    def _draw_face(
+        self,
+        surface: pygame.Surface,
+        cx: float,
+        cy: float,
+        focal: float,
+        fill: tuple[int, int, int],
+        outline: tuple[int, int, int],
+        seam: tuple[int, int, int],
+        lat: float | None = None,
+        d0: float = 0.0,
+        d1: float = 0.0,
+        front_plane: float | None = None,
+        h0: float = 0.0,
+        h1: float = 1.0,
+    ) -> list[tuple[float, float]]:
+        """Fill one wall face and dress it with perspective block seams.
+
+        Either ``lat`` (a lateral face at the given X, spanning depths
+        d0..d1 and heights h0..h1) or ``front_plane`` (a face we look at
+        head-on at the given depth, spanning lateral -0.5..0.5).  Seams
+        project like the face, so a wall one tile ahead — whose face covers
+        the whole viewport at Java's 67-degree fov — still reads as a
+        receding block surface instead of a flat grey fill.
+        """
+        hs = [h0 + i * (h1 - h0) / 4 for i in (1, 2, 3)]
+        if lat is not None:
+            corners = [
+                (lat, h0, d0), (lat, h0, d1), (lat, h1, d1), (lat, h1, d0)
+            ]
+            span = (d1 - d0) / 4
+            verticals = [
+                [(lat, h0, d0 + i * span), (lat, h1, d0 + i * span)]
+                for i in (1, 2, 3)
+            ]
+            horizontals = [[(lat, h, d0), (lat, h, d1)] for h in hs]
+        else:
+            z = front_plane if front_plane is not None else 0.5
+            xs = (-0.25, 0.0, 0.25)
+            corners = [(-0.5, h0, z), (0.5, h0, z), (0.5, h1, z), (-0.5, h1, z)]
+            verticals = [[(x, h0, z), (x, h1, z)] for x in xs]
+            horizontals = [[(-0.5, h, z), (0.5, h, z)] for h in hs]
+        quad = self._face_quad(cx, cy, focal, corners)
+        pygame.draw.polygon(surface, fill, quad)
+        pygame.draw.lines(surface, outline, True, quad, 1)
+        for seg in verticals + horizontals:
+            pygame.draw.line(
+                surface,
+                seam,
+                self._project(cx, cy, focal, *seg[0]),
+                self._project(cx, cy, focal, *seg[1]),
+                1,
+            )
+        return quad
+
+    # --- tile helpers -------------------------------------------------------
+
+    @staticmethod
+    def _is_solid(tile: DungeonTile) -> bool:
+        """Tiles that render as a full blocking cube.
+
+        Java addBlock (DungeonScreen.java:492-591): WALL renders a full
+        1x1x1 mortar box; DOOR and SECRET_DOOR render the same full box plus
+        a door slab detail.  LOCKED_DOOR has no mesh in Java (its 0x00 value
+        can never survive the .ult lookup anyway), so the port renders it as
+        a solid door — visually informative and never an invisible blocker.
+        """
+        return tile in (
+            DungeonTile.WALL,
+            DungeonTile.DOOR,
+            DungeonTile.SECRET_DOOR,
+            DungeonTile.LOCKED_DOOR,
+        )
+
+    @staticmethod
+    def _is_door(tile: DungeonTile) -> bool:
+        return tile in (DungeonTile.DOOR, DungeonTile.SECRET_DOOR, DungeonTile.LOCKED_DOOR)
 
     def render_wireframe(
         self,
@@ -179,7 +314,10 @@ class DungeonCamera:
         if active_map is None:
             raise ValueError("DungeonMap instance required (pass dmap or dng).")
 
-        line_col = wall_color or self.default_color
+        w, h = surface.get_width(), surface.get_height()
+        size = min(w, h)
+        focal = self.FOCAL * (size / 176)
+        cx, cy = w / 2, h / 2
 
         # Fill background with solid black
         surface.fill(COLOR_BLACK)
@@ -189,115 +327,217 @@ class DungeonCamera:
         # Java truth: DungeonScreen.java:81 `boolean isTorchOn` — the torch is
         # a plain boolean toggle (lit vs dark); there are no rounds, no dimming
         # and no expiry. Render light follows the same binary model.
-        if not torch_lit:
-            max_visible = 1
-        else:
-            max_visible = min(max_steps, len(self.BOXES) - 2)
+        max_depth = self.MAX_DEPTH if torch_lit else 1
 
         fwd, left, right = get_relative_offsets(dir)
 
-        # Scan corridor directly ahead to find nearest front-blocking wall/door
-        visible_depth = max_visible
-        front_wall_tile: DungeonTile | None = None
+        def tile_at(lateral_col: int, depth_col: int) -> DungeonTile:
+            """Grid tile lateral_col tiles to the right (negative = left) and
+            depth_col tiles ahead of the party, wrapped like Java's dungeon."""
+            tx = (x + fwd[0] * depth_col + right[0] * lateral_col) % active_map.width
+            ty = (y + fwd[1] * depth_col + right[1] * lateral_col) % active_map.height
+            return active_map.get_tile(tx, ty, z)
 
-        for step in range(1, max_visible + 1):
-            check_x = (x + fwd[0] * step) % active_map.width
-            check_y = (y + fwd[1] * step) % active_map.height
-            t = active_map.get_tile(check_x, check_y, z)
-
-            if t in (
-                DungeonTile.WALL,
-                DungeonTile.DOOR,
-                DungeonTile.LOCKED_DOOR,
-                DungeonTile.SECRET_DOOR,
-            ):
-                visible_depth = step
-                front_wall_tile = t
+        # Scan the corridor ahead: the first solid column terminates sight
+        # (its front face occludes everything beyond).  A doorway stops the
+        # corridor visually too — Java renders the door cube as a full wall
+        # box with a slab detail.
+        stop_depth = max_depth + 1
+        front_tile: DungeonTile | None = None
+        for s in range(1, max_depth + 1):
+            t = tile_at(0, s)
+            if self._is_solid(t):
+                stop_depth = s
+                front_tile = t
                 break
 
-        # Render corridor segments from step 0 to visible_depth - 1
-        for s in range(visible_depth):
-            box_cur = self.BOXES[s]
-            box_next = self.BOXES[s + 1]
+        # Filled-face colours: front faces read bright, side faces darker,
+        # faces glimpsed through an opening darkest — judge walls AND depth.
+        # Java also renders floor/ceiling boxes for every grid tile, so the
+        # eye never sees a true void: rays past a wall hit its ceiling-box
+        # side face, and rays down an opening hit the side corridor's
+        # floor/ceiling planes. The port paints those with darker fills.
+        front_fill = (85, 85, 85)
+        side_fill = (55, 55, 55)
+        opening_fill = (40, 40, 40)
+        floor_fill = (38, 38, 38)
+        ceil_fill = (30, 30, 30)
+        shadow_fill = (25, 25, 25)
+        frame_col = COLOR_LIGHT_GRAY
 
-            l_c, t_c, r_c, b_c = box_cur
-            l_n, t_n, r_n, b_n = box_next
+        max_col = min(stop_depth, max_depth) - 1  # last column with open corridor
 
-            # Top & bottom longitudinal corridor lines (ceiling & floor edges)
-            pygame.draw.line(surface, line_col, (l_c, t_c), (l_n, t_n), 1)
-            pygame.draw.line(surface, line_col, (r_c, t_c), (r_n, t_n), 1)
-            pygame.draw.line(surface, line_col, (l_c, b_c), (l_n, b_n), 1)
-            pygame.draw.line(surface, line_col, (r_c, b_c), (r_n, b_n), 1)
+        def quad_for(corners: list[tuple[float, float, float]]):
+            return self._face_quad(cx, cy, focal, corners)
 
-            # Left side wall or opening
-            left_pos_x = (x + fwd[0] * s + left[0]) % active_map.width
-            left_pos_y = (y + fwd[1] * s + left[1]) % active_map.height
-            left_tile = active_map.get_tile(left_pos_x, left_pos_y, z)
+        for s in range(max_col, -1, -1):  # far to near
+            plane_near = s - 0.5
+            plane_far = s + 0.5
 
-            is_left_wall = left_tile in (
-                DungeonTile.WALL,
-                DungeonTile.LOCKED_DOOR,
-                DungeonTile.SECRET_DOOR,
+            # --- corridor floor and ceiling strips (y=0 / y=1 planes)
+            floor_quad = quad_for(
+                [(-0.5, 0.0, plane_near), (0.5, 0.0, plane_near),
+                 (0.5, 0.0, plane_far), (-0.5, 0.0, plane_far)]
             )
-            is_left_door = left_tile == DungeonTile.DOOR
-
-            if is_left_wall or is_left_door:
-                # Vertical dividing line at next step frame
-                pygame.draw.line(surface, line_col, (l_n, t_n), (l_n, b_n), 1)
-                if is_left_door:
-                    self._draw_side_door(surface, l_c, t_c, b_c, l_n, t_n, b_n, is_left=True)
-            else:
-                # Opening to the left (side corridor)
-                pygame.draw.line(surface, line_col, (l_n, t_n), (l_c, t_n), 1)
-                pygame.draw.line(surface, line_col, (l_n, b_n), (l_c, b_n), 1)
-                pygame.draw.line(surface, line_col, (l_n, t_n), (l_n, b_n), 1)
-
-            # Right side wall or opening
-            right_pos_x = (x + fwd[0] * s + right[0]) % active_map.width
-            right_pos_y = (y + fwd[1] * s + right[1]) % active_map.height
-            right_tile = active_map.get_tile(right_pos_x, right_pos_y, z)
-
-            is_right_wall = right_tile in (
-                DungeonTile.WALL,
-                DungeonTile.LOCKED_DOOR,
-                DungeonTile.SECRET_DOOR,
+            ceiling_quad = quad_for(
+                [(-0.5, 1.0, plane_near), (0.5, 1.0, plane_near),
+                 (0.5, 1.0, plane_far), (-0.5, 1.0, plane_far)]
             )
-            is_right_door = right_tile == DungeonTile.DOOR
+            pygame.draw.polygon(surface, floor_fill, floor_quad)
+            pygame.draw.polygon(surface, ceil_fill, ceiling_quad)
+            # longitudinal slab seams running along the corridor converge on
+            # the vanishing point — the strongest depth cue in the view
+            for lat_seam in (-0.25, 0.0, 0.25):
+                pygame.draw.line(
+                    surface, COLOR_SEAM,
+                    self._project(cx, cy, focal, lat_seam, 0.0, plane_near),
+                    self._project(cx, cy, focal, lat_seam, 0.0, plane_far), 1,
+                )
+                pygame.draw.line(
+                    surface, COLOR_SEAM,
+                    self._project(cx, cy, focal, lat_seam, 1.0, plane_near),
+                    self._project(cx, cy, focal, lat_seam, 1.0, plane_far), 1,
+                )
 
-            if is_right_wall or is_right_door:
-                pygame.draw.line(surface, line_col, (r_n, t_n), (r_n, b_n), 1)
-                if is_right_door:
-                    self._draw_side_door(surface, r_c, t_c, b_c, r_n, t_n, b_n, is_left=False)
-            else:
-                # Opening to the right (side corridor)
-                pygame.draw.line(surface, line_col, (r_n, t_n), (r_c, t_n), 1)
-                pygame.draw.line(surface, line_col, (r_n, b_n), (r_c, b_n), 1)
-                pygame.draw.line(surface, line_col, (r_n, t_n), (r_n, b_n), 1)
+            # --- side geometry, left then right (side = -1 / +1)
+            for side in (-1, 1):
+                lat_solid = side * 0.5
+                st = tile_at(side, s)
+                open_side = not self._is_solid(st)
 
-            # Transverse frame line at step boundary (ceiling and floor cross lines)
-            pygame.draw.line(surface, line_col, (l_n, t_n), (r_n, t_n), 1)
-            pygame.draw.line(surface, line_col, (l_n, b_n), (r_n, b_n), 1)
+                if open_side:
+                    # Side corridor floor/ceiling extending laterally to the
+                    # first wall one or two tiles out.
+                    boundary = lat_solid
+                    for k in (2, 3):
+                        if self._is_solid(tile_at(side * (k - 1), s)):
+                            break
+                        boundary = side * (k - 0.5)
+                    # visible lateral tiles: only up to the last column that
+                    # the eye can reach through the opening at this depth
+                    pygame.draw.polygon(surface, floor_fill, quad_for(
+                        [(lat_solid, 0.0, plane_near),
+                         (boundary, 0.0, plane_near),
+                         (boundary, 0.0, plane_far),
+                         (lat_solid, 0.0, plane_far)]
+                    ))
+                    pygame.draw.polygon(surface, ceil_fill, quad_for(
+                        [(lat_solid, 1.0, plane_near),
+                         (boundary, 1.0, plane_near),
+                         (boundary, 1.0, plane_far),
+                         (lat_solid, 1.0, plane_far)]
+                    ))
+                    # Java floor/ceiling boxes also show their side faces
+                    # below/above the planes — dark shadow wedges whose seams
+                    # continue the opening's block grid.
+                    self._draw_face(
+                        surface, cx, cy, focal,
+                        lat=lat_solid, d0=plane_near, d1=plane_far,
+                        h0=1.0, h1=2.0,
+                        fill=shadow_fill, outline=COLOR_DARK_GRAY,
+                        seam=(75, 75, 75),
+                    )
+                    self._draw_face(
+                        surface, cx, cy, focal,
+                        lat=lat_solid, d0=plane_near, d1=plane_far,
+                        h0=-1.0, h1=0.0,
+                        fill=shadow_fill, outline=COLOR_DARK_GRAY,
+                        seam=(75, 75, 75),
+                    )
 
-        # Render front wall if a wall/door terminates corridor vision
-        if front_wall_tile is not None:
-            s = visible_depth
-            l_f, t_f, r_f, b_f = self.BOXES[s]
+                    # first solid tile seen through the opening
+                    for k in (2, 3):
+                        far = tile_at(side * k, s)
+                        if self._is_solid(far):
+                            lat = side * (k - 0.5)
+                            quad = self._draw_face(
+                                surface, cx, cy, focal,
+                                lat=lat, d0=plane_near, d1=plane_far,
+                                fill=opening_fill, outline=COLOR_DARK_GRAY,
+                                seam=COLOR_SEAM,
+                            )
+                            if self._is_door(far):
+                                self._front_door_detail(surface, quad, far, dim=True)
+                            break
+                else:
+                    # Solid side wall: face at the corridor plane plus the
+                    # Java ceiling-box side face continuing it upward.
+                    far_boundary = plane_far
+                    quad = self._draw_face(
+                        surface, cx, cy, focal,
+                        lat=lat_solid, d0=plane_near, d1=far_boundary,
+                        fill=side_fill, outline=COLOR_LIGHT_GRAY,
+                        seam=COLOR_SEAM,
+                    )
+                    if self._is_door(st):
+                        self._side_door_detail(
+                            surface,
+                            quad[0][0], quad[0][1], quad[3][1],
+                            quad[1][0], quad[1][1], quad[2][1],
+                            is_left=side < 0, tile=st,
+                        )
+                    self._draw_face(
+                        surface, cx, cy, focal,
+                        lat=lat_solid, d0=plane_near, d1=plane_far,
+                        h0=1.0, h1=2.0,
+                        fill=ceil_fill, outline=COLOR_DARK_GRAY,
+                        seam=(75, 75, 75),
+                    )
 
-            # Flat-shaded black polygon to occlude wireframes behind it
-            poly_points = [(l_f, t_f), (r_f, t_f), (r_f, b_f), (l_f, b_f)]
-            pygame.draw.polygon(surface, COLOR_BLACK, poly_points)
-            pygame.draw.lines(surface, line_col, True, poly_points, 1)
+            # --- opening edges receding outward + opening far frame
+            for side in (-1, 1):
+                if self._is_solid(tile_at(side, s)):
+                    continue
+                lat = side * 0.5
+                for lat_line, hgt in ((lat, 0.0), (lat, 1.0)):
+                    p_near = self._project(cx, cy, focal, lat_line, hgt, plane_near)
+                    p_far = self._project(cx, cy, focal, lat_line, hgt, plane_far)
+                    pygame.draw.line(surface, frame_col, p_near, p_far, 1)
+                p_t = self._project(cx, cy, focal, lat, 1.0, plane_far)
+                p_b = self._project(cx, cy, focal, lat, 0.0, plane_far)
+                pygame.draw.line(surface, frame_col, p_t, p_b, 1)
 
-            # If front wall has a door, render vector door frame and details
-            if front_wall_tile in (
-                DungeonTile.DOOR,
-                DungeonTile.LOCKED_DOOR,
-                DungeonTile.SECRET_DOOR,
-            ):
-                self._draw_front_door(surface, l_f, t_f, r_f, b_f, front_wall_tile)
+            # --- corridor cross-section frames at the far plane
+            half = self._half_extent(focal, plane_far)
+            pygame.draw.line(
+                surface, frame_col,
+                (cx - half, cy + half), (cx + half, cy + half), 1,
+            )
+            pygame.draw.line(
+                surface, frame_col,
+                (cx - half, cy - half), (cx + half, cy - half), 1,
+            )
+            if s + 1 <= max_col or (front_tile is not None and stop_depth == s + 1):
+                half_n = self._half_extent(focal, s + 1 + 0.5)
+                for lat_line in (-half, half):
+                    for v_sgn in (-1, 1):
+                        pygame.draw.line(
+                            surface, frame_col,
+                            (cx + lat_line, cy + v_sgn * half),
+                            (cx + lat_line, cy + v_sgn * half_n), 1,
+                        )
+
+            # --- terminating front face (+ its ceiling-box face above) at
+            # the near plane of the solid column stop_depth
+            if s == stop_depth - 1 and front_tile is not None and stop_depth >= 1:
+                zf = plane_far  # = stop_depth - 0.5
+                quad = self._draw_face(
+                    surface, cx, cy, focal,
+                    front_plane=zf,
+                    fill=front_fill, outline=COLOR_WHITE,
+                    seam=COLOR_SEAM,
+                )
+                if self._is_door(front_tile):
+                    self._front_door_detail(surface, quad, front_tile)
+                self._draw_face(
+                    surface, cx, cy, focal,
+                    front_plane=zf, h0=1.0, h1=2.0,
+                    fill=shadow_fill, outline=COLOR_DARK_GRAY,
+                    seam=(75, 75, 75),
+                )
 
         # Render dungeon fixtures along the corridor (back to front)
-        for s in range(visible_depth, -1, -1):
+        for s in range(0, min(stop_depth - 1, max_depth) + 1):
             if s == 0:
                 cur_x, cur_y = x, y
             else:
@@ -305,9 +545,96 @@ class DungeonCamera:
                 cur_y = (y + fwd[1] * s) % active_map.height
 
             tile = active_map.get_tile(cur_x, cur_y, z)
-            # Only render fixtures at distance s
-            if s < len(self.BOXES) - 1:
-                self._render_fixture(surface, tile, s)
+            self._render_fixture(surface, tile, s, cx, cy, focal)
+
+    def _front_door_detail(
+        self,
+        surface: pygame.Surface,
+        quad: list[tuple[float, float]],
+        tile: DungeonTile,
+        dim: bool = False,
+    ) -> None:
+        """Door panel inside a wall face we look at head-on.
+
+        Java slab (DungeonScreen.java:574-589): a 1.04 x .85 x .6 box centred
+        at y=.4 — a panel reaching floor to 0.83 height against the wall cube.
+        DOOR shows the door texture; SECRET_DOOR a near-invisible dark slab;
+        LOCKED_DOOR (Java-empty, port-visible) a red panel.
+        """
+        xs = [p[0] for p in quad]
+        top = min(p[1] for p in quad)
+        bottom = max(p[1] for p in quad)
+        left, right = min(xs), max(xs)
+        fw = right - left
+        fh = bottom - top
+
+        if tile == DungeonTile.LOCKED_DOOR:
+            panel_col = COLOR_RED
+        elif tile == DungeonTile.SECRET_DOOR:
+            panel_col = COLOR_DARK_GRAY
+        else:
+            panel_col = COLOR_CYAN if not dim else COLOR_DARK_GRAY
+
+        door_w = max(6, int(fw * 0.82))
+        door_h = max(8, int(fh * 0.80))
+        door_x = int(left + (fw - door_w) / 2)
+        door_y = int(bottom - door_h)
+
+        pygame.draw.rect(surface, panel_col, (door_x, door_y, door_w, door_h), 1)
+        # Lintel band across the third
+        beam_y = door_y + door_h // 3
+        pygame.draw.line(surface, panel_col, (door_x, beam_y), (door_x + door_w, beam_y), 1)
+        # Plank centre line
+        mid_x = door_x + door_w // 2
+        pygame.draw.line(surface, panel_col, (mid_x, door_y), (mid_x, door_y + door_h), 1)
+        if tile == DungeonTile.DOOR:
+            radius = max(1, int(fw / 30))
+            knob_x = door_x + int(door_w * 0.8)
+            knob_y = door_y + int(door_h * 0.6)
+            pygame.draw.circle(surface, COLOR_YELLOW, (knob_x, knob_y), radius)
+
+    def _side_door_detail(
+        self,
+        surface: pygame.Surface,
+        x1: float,
+        top1: float,
+        bot1: float,
+        x2: float,
+        top2: float,
+        bot2: float,
+        is_left: bool,
+        tile: DungeonTile,
+    ) -> None:
+        """Door seams on a side wall face (Java's slab barely protrudes from
+        the wall cube, so the port shows an inset seam instead of a full
+        trapezoid — the wall face keeps reading as solid)."""
+        panel_col = (
+            COLOR_RED if tile == DungeonTile.LOCKED_DOOR else self.door_color
+        )
+        d_x1 = int(x1 + (x2 - x1) * 0.25)
+        d_x2 = int(x1 + (x2 - x1) * 0.85)
+
+        h1 = bot1 - top1
+        h2 = bot2 - top2
+
+        door_top1 = int(bot1 - h1 * 0.75)
+        door_top2 = int(bot2 - h2 * 0.75)
+
+        door_pts = [
+            (d_x1, door_top1),
+            (d_x2, door_top2),
+            (d_x2, bot2),
+            (d_x1, bot1),
+        ]
+        pygame.draw.lines(surface, panel_col, True, door_pts, 1)
+        # centre plank line
+        pygame.draw.line(
+            surface,
+            panel_col,
+            ((d_x1 + d_x2) // 2, (door_top1 + door_top2) // 2),
+            ((d_x1 + d_x2) // 2, (bot1 + bot2) // 2),
+            1,
+        )
 
     def _draw_front_door(
         self,
@@ -375,13 +702,31 @@ class DungeonCamera:
         ]
         pygame.draw.lines(surface, self.door_color, True, door_pts, 1)
 
-    def _render_fixture(self, surface: pygame.Surface, tile: DungeonTile, step: int) -> None:
-        """Render wireframe 3D fixtures (ladders, chests, fountains, pit traps, marks)."""
+    def _render_fixture(
+        self,
+        surface: pygame.Surface,
+        tile: DungeonTile,
+        step: int,
+        ccx: float = 88.0,
+        ccy: float = 88.0,
+        focal: float | None = None,
+    ) -> None:
+        """Render wireframe 3D fixtures (ladders, chests, fountains, pit traps, marks).
+
+        The fixture sits at the centre of the column ``step`` tiles ahead;
+        its screen box is the tile's true projected cross-section (Java
+        renders the object mesh at the tile position, so apparent size
+        follows the same 1/depth perspective as the walls).
+        """
         if tile in (DungeonTile.WALL, DungeonTile.NOTHING, DungeonTile.FLOOR, DungeonTile.DOOR):
             return
 
-        box = self.BOXES[step]
-        left, top, right, bottom = box
+        f = focal if focal is not None else self.FOCAL
+        # Tile centre depth (step 0 = own tile at the eye, use its near
+        # boundary so the box stays finite, matching the old full-screen box).
+        half = self._half_extent(f, step if step > 0 else 0.5)
+        left, top = ccx - half, ccy - half
+        right, bottom = ccx + half, ccy + half
         cx = (left + right) // 2
         w = right - left
         h = bottom - top
