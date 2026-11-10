@@ -1388,35 +1388,54 @@ class OverworldScreen(BaseScreen):
                         self.audio.play_sfx("moongate_flash")
 
     def _spawn_wandering_creature(self) -> None:
-        """Spawn a wandering creature near the edge of the viewport."""
+        """Spawn a wandering creature near the edge of the viewport.
+
+        Occupancy guard (robustness fix, 2026-11-10): Java
+        GameScreen.spawnCreature (GameScreen.java:769-818) re-samples a spawn
+        tile up to maxTries but only rejects rule-less tiles — it never checks
+        whether a creature already stands there, so a wanderer can materialize
+        on an occupied tile. The port keeps the same random candidate shape
+        (dist 8..12, either sign, each axis; wrap) but re-picks candidates
+        until the tile holds no creature and not the party, capped at Java's
+        10 tries: restored Sosaria save fixtures (whirlpools, sea monsters,
+        Journey Onward) must never be trampled by a fresh spawn.
+        """
         if self.game_map is None or len(self.creatures) >= 8:
             return
 
         import random
-        dist_x = random.randint(8, 12) * random.choice([-1, 1])
-        dist_y = random.randint(8, 12) * random.choice([-1, 1])
-        sx = (self.party.x + dist_x) % self.game_map.width
-        sy = (self.party.y + dist_y) % self.game_map.height
 
-        tile = self.game_map.get_tile(sx, sy)
-        if tile is None:
+        for _ in range(10):
+            dist_x = random.randint(8, 12) * random.choice([-1, 1])
+            dist_y = random.randint(8, 12) * random.choice([-1, 1])
+            sx = (self.party.x + dist_x) % self.game_map.width
+            sy = (self.party.y + dist_y) % self.game_map.height
+
+            if any(c.get("x") == sx and c.get("y") == sy for c in self.creatures):
+                continue
+            if sx == self.party.x and sy == self.party.y:
+                continue
+
+            tile = self.game_map.get_tile(sx, sy)
+            if tile is None:
+                continue
+
+            t_name = getattr(tile, "name", "grass").lower()
+            if "water" in t_name or "sea" in t_name:
+                c_name = random.choice(["pirate", "serpent", "squid"])
+            elif "forest" in t_name or "brush" in t_name:
+                c_name = random.choice(["giant", "thief", "skeleton"])
+            else:
+                c_name = random.choice(["orc", "skeleton", "giant", "thief"])
+
+            self.creatures.append({
+                "name": c_name.capitalize(),
+                "tile_name": c_name,
+                "tile": c_name,
+                "x": sx,
+                "y": sy,
+            })
             return
-
-        t_name = getattr(tile, "name", "grass").lower()
-        if "water" in t_name or "sea" in t_name:
-            c_name = random.choice(["pirate", "serpent", "squid"])
-        elif "forest" in t_name or "brush" in t_name:
-            c_name = random.choice(["giant", "thief", "skeleton"])
-        else:
-            c_name = random.choice(["orc", "skeleton", "giant", "thief"])
-
-        self.creatures.append({
-            "name": c_name.capitalize(),
-            "tile_name": c_name,
-            "tile": c_name,
-            "x": sx,
-            "y": sy,
-        })
 
     def _update_creatures(self) -> None:
         """Move wandering creatures towards the party or wander.

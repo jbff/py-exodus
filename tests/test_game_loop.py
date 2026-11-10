@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import random
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -1079,6 +1080,53 @@ def test_overworld_commands_cast_ztats_get_chest_pass(pygame_setup, asset_mgr, s
     overworld.text_log.submit_input("1")
     assert opening_member.gold == total_before_join
     assert all(m.gold == 0 for m in sample_party.members[1:])
+
+
+def test_overworld_wanderer_spawn_never_lands_on_occupied_tile(pygame_setup, asset_mgr):
+    """Occupancy guard on the wandering-creature spawn (2026-11-10 robustness
+    fix): Java GameScreen.spawnCreature (GameScreen.java:769-818) re-samples
+    a spawn tile up to maxTries but only rejects rule-less tiles — it never
+    checks whether a creature already stands there. The port keeps the same
+    random candidate shape but re-picks until the tile holds no creature and
+    no party (capped at Java's 10 tries). Without the guard a fresh spawn
+    can trample a restored save fixture (e.g. the Sosaria whirlpool at
+    (50,13)) and the Journey Onward restore test flakes. Seeded regression:
+    400 spawns against 8 fixed occupants inside the candidate ring."""
+    random.seed(1234)
+
+    party = Party()
+    party.add_member(Character("Hero", "M", Race.HUMAN, Profession.FIGHTER, hp=100))
+    party.x, party.y = 20, 20
+    overworld = OverworldScreen(party=party, map_id=0, asset_mgr=asset_mgr)
+    overworld.creatures.clear()
+
+    # The spawn candidate ring around (20,20) is dist 8..12 (either sign, on
+    # each axis): x in {8..12, 28..32}, y the same. 7 occupants seeded there
+    # give ~7% occupancy per candidate (7 < the 8-creature spawn cap, so the
+    # attempts are not short-circuited), so a spawn without the guard hits an
+    # occupied tile many times across 400 attempts.
+    for ox, oy in ((28, 28), (12, 12), (28, 12), (12, 28), (32, 32),
+                   (8, 8), (20, 30)):
+        overworld.creatures.append({
+            "name": "Orc", "tile_name": "orc", "tile": "orc", "x": ox, "y": oy,
+        })
+
+    recorded: list = []
+    for _ in range(400):
+        before = len(overworld.creatures)
+        overworld._spawn_wandering_creature()
+        if len(overworld.creatures) > before:
+            # Record the spawn, then vacate it so the 8 fixed occupants stay
+            # the only standing creatures for the next attempt (the 8-cap
+            # would otherwise starve the loop of spawns).
+            spawned = overworld.creatures[-1]
+            recorded.append((spawned["x"], spawned["y"]))
+            overworld.creatures.pop()
+
+    assert recorded, "no spawn succeeded in 400 attempts"
+    permanent = {(c["x"], c["y"]) for c in overworld.creatures}
+    for pos in recorded:
+        assert pos not in permanent, f"spawn trampled occupant at {pos}"
 
 
 def test_overworld_wandering_creatures(pygame_setup, asset_mgr, sample_party):
