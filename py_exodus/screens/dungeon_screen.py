@@ -170,8 +170,6 @@ class DungeonScreen(BaseScreen):
             self._process_event(evt)
         elif event.key == pygame.K_i:
             self._use_torch()
-        elif event.key == pygame.K_q:
-            self._save_game()
         elif event.key == pygame.K_p:
             # Java DungeonScreen.java:79-80 + 1012-1015 — P toggles the
             # minimap and falls through the keyUp tail (turn consumed).
@@ -215,6 +213,14 @@ class DungeonScreen(BaseScreen):
         else:
             # Java DungeonScreen.java:1045-1049 + 1049-1050 — any key without
             # a handler logs "Pass" and falls through to finishTurn.
+            # USER RULING 2026-11-10: the dungeon Q-save (Java
+            # DungeonScreen.java:976-986 — Keys.Q calls context.saveGame from
+            # any dungeon level and logs "Saved Game." with the dungeon
+            # coordinates) is DISABLED by ruling — a deliberate deviation
+            # from Java. Q-save lives ONLY on the Sosaria overland
+            # (OverworldScreen._save_game), so dungeon Q has no handler and
+            # lands on this unhandled-key tail: it logs "Pass" and consumes
+            # a turn. The dungeon `extra` save block was removed with it.
             self.text_log.add_message("Pass")
             self._consume_turn()
 
@@ -478,32 +484,6 @@ class DungeonScreen(BaseScreen):
             else:
                 self.audio.stop_music()
         self._consume_turn()
-
-    def _save_game(self) -> None:
-        """Java DungeonScreen.java:976-986 Keys.Q — the dungeon save. Q calls
-        ``context.saveGame`` with the dungeon coordinates and logs
-        "Saved Game." (there is no map restriction inside a dungeon; the
-        Sosaria-only gate lives only in GameScreen.java:557-563). Q returns
-        false before the keyUp tail, so saving consumes no turn."""
-        from py_exodus.save_system import SaveSystem
-
-        try:
-            SaveSystem.save_game(
-                self.party,
-                "saves/party.json",
-                extra={
-                    "dungeon": {
-                        "x": self.state.x,
-                        "y": self.state.y,
-                        "level": self.state.z,
-                        "dir": self.state.dir.name,
-                        "map_id": self.dungeon_map.id,
-                    }
-                },
-            )
-            self.text_log.add_message("Saved Game.")
-        except Exception:
-            self.text_log.add_message("Save failed!")
 
     def _cast_spell(self) -> None:
         from py_exodus.combat.magic import prompt_cast_party

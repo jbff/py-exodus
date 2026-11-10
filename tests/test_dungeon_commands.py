@@ -1,8 +1,10 @@
-"""Task 10 — dungeon command surface (R/W/M/V/P/Q), movement, torch, ladders.
+"""Task 10 — dungeon command surface (R/W/M/V/P), movement, torch, ladders.
 
-Java truth: DungeonScreen.java:859-1052 (movement, K/D ladders, Q/V/I/P/M
+Java truth: DungeonScreen.java:859-1052 (movement, K/D ladders, V/I/P/M
 keys), SecondaryInputProcessor.java:419-437 (dungeon G/R/W/C/S member
-routing), GameScreen.java:557-563 (Q save restriction).
+routing), GameScreen.java:557-563 (Q save restriction). USER RULING
+2026-11-10: the dungeon Q handler itself is disabled (see the Q test) —
+Q-save lives ONLY on the Sosaria overland.
 """
 from __future__ import annotations
 
@@ -169,33 +171,35 @@ def test_dungeon_p_minimap_toggle(pygame_setup):
     assert ticks() == 98
 
 
-def test_dungeon_q_saves_and_logs(pygame_setup, monkeypatch, tmp_path):
+def test_dungeon_q_is_an_unhandled_pass_key(pygame_setup, monkeypatch, tmp_path):
+    """USER RULING 2026-11-10: Q-save is disabled inside dungeons — a
+    deliberate deviation from Java DungeonScreen.java:976-986, where Keys.Q
+    calls context.saveGame from any dungeon level and logs "Saved Game.".
+    Removed per ruling (Q-save is allowed ONLY on the Sosaria overland), so
+    dungeon Q has no handler and reaches the keyUp tail like every other
+    unhandled key (DungeonScreen.java:1045-1050): it logs "Pass" and
+    consumes a turn, and no save file is written."""
+    monkeypatch.chdir(tmp_path)
     party = make_party()
     scr = make_screen(party)
-    scr.state.x, scr.state.y, scr.state.z = 7, 7, 2
-
-    saved: dict = {}
-
-    def fake_save(party_obj, path, extra=None):
-        saved["called"] = True
-        saved["party"] = party_obj
-        saved["path"] = path
-        saved["extra"] = extra
 
     from py_exodus import save_system
 
-    monkeypatch.setattr(save_system.SaveSystem, "save_game", staticmethod(fake_save))
+    calls: list = []
+    monkeypatch.setattr(
+        save_system.SaveSystem, "save_game", staticmethod(lambda *a, **k: calls.append(a))
+    )
 
     moves_before = party.moves
+    ticks = turn_meter(party)
     press(scr, pygame.K_q)
-    assert any("Saved Game." in m for m in scr.text_log.history)
-    assert saved["called"]
-    assert saved["party"] is party
-    assert saved["extra"]["dungeon"]["x"] == 7
-    assert saved["extra"]["dungeon"]["level"] == 2
-    # Java DungeonScreen.java:976-986 — Q returns false before the keyUp
-    # tail, so saving does not consume a turn.
+    assert any("Pass" in m for m in scr.text_log.history)
+    # The unhandled-key tail falls through to finishTurn — a turn is
+    # consumed, unlike Java's Q which returned before the tail.
+    assert ticks() == 98
     assert party.moves == moves_before
+    assert calls == []  # no save call from a dungeon
+    assert not (tmp_path / "saves" / "party.json").exists()
 
 
 # --- (b) DOWN arrow = one step backward, not a 180-degree turn ---------

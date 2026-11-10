@@ -30,7 +30,7 @@ Explore Sosaria (and Ambrosia) on foot, horseback, or by frigate; visit towns an
 - Experience is awarded for every kill you cause (capped at 9999) and victory chests drop where the creature fell.
 
 ### Dungeons
-- 8-level wireframe dungeons (first-person projection), full command surface (climb/descend, search, chests, ready/wear, save).
+- 8-level wireframe dungeons (first-person projection), full command surface (climb/descend, search, chests, ready/wear).
 - Wandering monsters approach your party level by level; battles can start mid-move, and the vanquished leave a chest.
 - Fountains, wind and pit traps, gremlins, and the four Marks of Kings, Fire, Snake, and Force.
 
@@ -91,7 +91,7 @@ All 26 letter commands match the reference implementation, including per-context
 | **N** | Negate | Burn silver powder for a quickness aura (stops creatures for 6 turns) |
 | **O** | Other | Type a special command (PRAY, BRIBE, STEAL, DIG, KISS, INSERT) |
 | **P** | Peer | Use a gem to view a map of your surroundings |
-| **Q** | Save | Save the game (Sosaria surface or anywhere in a dungeon) |
+| **Q** | Save | Save the game (Sosaria surface only — dungeons refuse by 2026-11-10 user ruling) |
 | **R** | Ready | Ready a weapon (member, then A–P) |
 | **S** | Search | Search the party's tile (labels, fountains, chests, portals) |
 | **T** | Transact | Talk or trade with NPCs and vendors (across signs) |
@@ -128,7 +128,7 @@ All tests should pass; the count is printed at the end of the run.
 1. **Wireframe dungeon rendering**: the Java implementation uses LibGDX's 3D pipeline; `py-exodus` uses a software wireframe renderer in the classic Ultima III style. Presentation only — mechanics match.
 2. **Audio parity**: SFX/music play via Pygame-CE's mixer; some reference sound cues (e.g., trap and field effects) are not wired to every trigger.
 3. **Controller/gamepad support**: keyboard only today; gamepad mapping is planned.
-4. **Deliberate divergences from the Java port** (kept for playability): prompt-engine conveniences (ESC cancels, arrow keys commit); text instead of artwork for a few reference visualizations. The starter/quick-start party was removed (2026-11-09 user ruling) — new players create characters in the party-formation screen, as in Java.
+4. **Deliberate divergences from the Java port** (kept for playability): prompt-engine conveniences (ESC cancels, arrow keys commit); text instead of artwork for a few reference visualizations. The starter/quick-start party was removed (2026-11-09 user ruling) — new players create characters in the party-formation screen, as in Java. Q-save is disabled in dungeons (2026-11-10 user ruling) — Java's dungeon screen offers it, Sosaria overland only here.
 5. **Not yet at parity**: Java's binary `party.sav` interop (saves are JSON; legacy binary roster import is read-only), combat-round move counting/hull repair during ship combat, and a small set of message-priority strings where the reference is silent — tracked for a future pass.
 
 ---
