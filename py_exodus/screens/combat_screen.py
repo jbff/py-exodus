@@ -480,7 +480,16 @@ class CombatScreen(BaseScreen):
                 self.text_log.add_message("Victory!")
                 self.text_log.add_message("Press Enter to continue.")
                 if self.audio is not None:
-                    self.audio.play_sfx("Fanfare")
+                    # Music-class fanfare goes through play_music so the
+                    # single music stream stops the combat theme before
+                    # starting. User ruling (2026-11-10): a C64-style victory
+                    # sting plays ONCE — pygame loops counts REPEATS, so
+                    # loops=0 is the loop-once idiom. (British's castle keeps
+                    # its looping fanfare via the town map theme path,
+                    # town.py _play_town_music; Java's looping Sound.FANFARE,
+                    # Sound.java:48, exists for that map theme, not this
+                    # sting.)
+                    self.audio.play_music("fanfare", loops=0)
             elif self.arena.is_defeat:
                 self.text_log.add_message("DEFEAT! Thy party has fallen.")
                 self.text_log.add_message("Press Enter to continue.")

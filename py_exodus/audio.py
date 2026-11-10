@@ -144,6 +144,11 @@ class AudioManager:
                 if self.current_track == str(file_path) and music.get_busy():
                     return True
 
+                # Music invariant: exactly ONE music track at a time. The
+                # single mixer.music stream holds music, so an explicit stop
+                # of whatever is streaming precedes every track change.
+                # (Re-asserting the already-playing track never restarts it.)
+                music.stop()
                 music.load(str(file_path))
                 music.set_volume(vol)
                 music.play(loops)
@@ -214,6 +219,15 @@ class AudioManager:
         """Load and play a sound effect with caching."""
         if not self.enabled:
             return False
+
+        # Music invariant: mixer.music is the ONLY music stream. A request for
+        # a music-class track (anything in the MUSIC_TRACKS alias table, e.g.
+        # Fanfare reaching the SFX path) must never load a mixer.Sound channel
+        # on top of the running stream — it routes through play_music here,
+        # which stops the current track before starting the new one. Sound
+        # effects are unaffected and may overlap music.
+        if sfx_name.strip().lower() in MUSIC_TRACKS:
+            return self.play_music(sfx_name)
 
         file_path = self.resolve_sound_file(sfx_name)
         if file_path is None or not file_path.exists():
