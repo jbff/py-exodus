@@ -53,11 +53,19 @@ def main() -> None:
         surf = pygame.transform.scale(surf, (580, 580))
         pygame.image.save(surf, os.path.join(out, f"L1door_{d.name}.png"))
 
-    # level 2 (z=1): door straight ahead, wall on the right, open left
+    # level 2 (z=1): door straight ahead (framed box), border wall beside
     surf = pygame.Surface((176, 176))
     cam.render_wireframe(surf, dmap, 4, 1, 1, Direction.WEST, torch_lit=True)
     surf = pygame.transform.scale(surf, (580, 580))
     pygame.image.save(surf, os.path.join(out, "L2door_WEST.png"))
+
+    # walk sequence along row 7 heading EAST toward a door 5 tiles out:
+    # side walls appear at depth 2 and slide past as the party advances
+    for i, wx in enumerate((3, 4, 6)):
+        surf = pygame.Surface((176, 176))
+        cam.render_wireframe(surf, dmap, wx, 7, 0, Direction.EAST, torch_lit=True)
+        surf = pygame.transform.scale(surf, (580, 580))
+        pygame.image.save(surf, os.path.join(out, f"walk1_{i}.png"))
 
     print("samples:", out)
 

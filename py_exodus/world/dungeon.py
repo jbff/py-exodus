@@ -140,11 +140,19 @@ class DungeonCamera:
     tables; the camera basis rotates with the party.  This port reproduces
     the same placement rules on a 2D canvas with a pinhole projection:
 
-    * camera-local axes: X lateral (positive = party's right), Y up,
-      Z depth along the facing (party eye at y=0.5, z=0 at tile centre).
-    * FOCAL encodes Java's 67-degree vertical fov on the 176px viewport:
-      a corridor cross-section one tile ahead spans half-height
-      ``TILE_HALF * FOCAL`` = 66.5px.
+    * camera-local axes: X lateral (positive = party's right), Y up, Z depth
+      along the facing; the eye sits at y=0.5 on the NEAR BOUNDARY of the
+      party tile (z=0), so the corridor column ``s`` tiles ahead spans
+      z [s, s+1].  This is the classic stepped dungeon-view convention (and
+      the old renderer's frame table): a wall one step ahead projects to
+      half-extent 56px with generous margins, the wall beside the party
+      shows as a screen-edge strip, and deeper geometry shrinks hard
+      (half-extents 56 / 28 / 18.7 / 14 / 11.2 px by depth) so distance is
+      readable.  Java's true centre-of-tile camera would render a wall one
+      tile ahead as a viewport-filling plane — accurate but unnavigable on
+      a wireframe canvas.
+    * FOCAL: a 0.5-unit half-tile at depth 1 projects to 56px on the 176px
+      viewport, i.e. a 77-degree vertical fov bracketing Java's 67.
     * Painter's algorithm, far to near: walls-through-openings, side faces,
       corridor frames, then the terminating front face, then fixtures.
     """
@@ -152,10 +160,8 @@ class DungeonCamera:
     # 176x176 viewport matching the 11x11 tile viewport area
     DEFAULT_SIZE = 176
 
-    #: Java PerspectiveCamera(67, ...) vertical fov (DungeonScreen.java:180)
-    #: -> focal length in viewport px per world unit at depth 1:
-    #: (viewport/2) / tan(67/2) = 88 / 0.664.
-    FOCAL: ClassVar[float] = 88 / 0.664
+    #: Screen px a half-tile spans at depth 1 (56 = one frame step).
+    FOCAL: ClassVar[float] = 112.0
 
     #: Java camera.near = 0.1f (DungeonScreen.java:183)
     NEAR: ClassVar[float] = 0.1
@@ -196,8 +202,9 @@ class DungeonCamera:
         """Pinhole projection of a camera-local (lateral, height, depth) point.
 
         depth is clamped at Java's near plane (0.1) so faces that extend
-        behind the eye (a wall beside the party at depth -0.5..0.5) render
-        from the near-plane slice outward, exactly like the Java near clip.
+        behind the eye render from the near-plane slice outward — a wall
+        beside the party (its column spans z [0, 1]) paints the strip from
+        the screen edge inward exactly like the classic view.
         """
         z = max(depth, self.NEAR)
         u = cx + lateral * focal / z
@@ -371,8 +378,8 @@ class DungeonCamera:
             return self._face_quad(cx, cy, focal, corners)
 
         for s in range(max_col, -1, -1):  # far to near
-            plane_near = s - 0.5
-            plane_far = s + 0.5
+            plane_near = s
+            plane_far = s + 1
 
             # --- corridor floor and ceiling strips (y=0 / y=1 planes)
             floor_quad = quad_for(
@@ -508,7 +515,7 @@ class DungeonCamera:
                 (cx - half, cy - half), (cx + half, cy - half), 1,
             )
             if s + 1 <= max_col or (front_tile is not None and stop_depth == s + 1):
-                half_n = self._half_extent(focal, s + 1 + 0.5)
+                half_n = self._half_extent(focal, s + 2)
                 for lat_line in (-half, half):
                     for v_sgn in (-1, 1):
                         pygame.draw.line(
@@ -608,8 +615,12 @@ class DungeonCamera:
         """Door seams on a side wall face (Java's slab barely protrudes from
         the wall cube, so the port shows an inset seam instead of a full
         trapezoid — the wall face keeps reading as solid)."""
+        # Java SECRET_DOOR slab is translucent dark gray (DungeonScreen.java:
+        # 577-578) — subtle seams, unlike a plain DOOR's bright panel.
         panel_col = (
-            COLOR_RED if tile == DungeonTile.LOCKED_DOOR else self.door_color
+            COLOR_RED if tile == DungeonTile.LOCKED_DOOR
+            else COLOR_DARK_GRAY if tile == DungeonTile.SECRET_DOOR
+            else self.door_color
         )
         d_x1 = int(x1 + (x2 - x1) * 0.25)
         d_x2 = int(x1 + (x2 - x1) * 0.85)
@@ -722,9 +733,10 @@ class DungeonCamera:
             return
 
         f = focal if focal is not None else self.FOCAL
-        # Tile centre depth (step 0 = own tile at the eye, use its near
-        # boundary so the box stays finite, matching the old full-screen box).
-        half = self._half_extent(f, step if step > 0 else 0.5)
+        # Tile centre at z = s + 0.5 (stepped convention: column s spans
+        # z [s, s+1]); the party's own tile still uses its near boundary so
+        # the box stays finite (the old full-screen box).
+        half = self._half_extent(f, step + 0.5)
         left, top = ccx - half, ccy - half
         right, bottom = ccx + half, ccy + half
         cx = (left + right) // 2

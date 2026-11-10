@@ -568,9 +568,10 @@ def test_front_face_wall_two_ahead():
     dmap.set_tile(8, 6, 0, DungeonTile.WALL)  # party (8,8) facing NORTH
     surf = _render_geom(dmap, 8, 8)
     assert surf.get_at((80, 80))[:3] == FRONT_FILL
-    assert surf.get_at((60, 60))[:3] == FRONT_FILL
-    # the wall's ceiling-box face continues one block above (java ceiling row)
-    assert surf.get_at((60, 20))[:3] == SHADOW_FILL
+    assert surf.get_at((70, 70))[:3] == FRONT_FILL
+    # rays above the wall's top edge hit the corridor ceiling before the
+    # wall plane (java's floor/ceiling boxes tile the whole plane — no void)
+    assert surf.get_at((80, 20))[:3] == CEILING_FILL
     # past the box on the far side: darkness before the box ring ends
     assert surf.get_at((150, 88))[:3] == (0, 0, 0)
 
@@ -583,7 +584,7 @@ def test_side_face_wall_one_east():
     dmap.set_tile(9, 7, 0, DungeonTile.WALL)  # one EAST, one NORTH of party
     surf = _render_geom(dmap, 8, 8)
     # side strip on the right: fill at the screen edge of the wall plane
-    strip = surf.get_at((150, 70))[:3]
+    strip = surf.get_at((130, 70))[:3]
     assert strip == SIDE_FILL
     # and the same wall is NOT painted as a front face in the centre column
     assert surf.get_at((80, 20))[:3] != FRONT_FILL
@@ -592,7 +593,7 @@ def test_side_face_wall_one_east():
 def test_side_face_wall_one_west():
     """Mirror of the east case: wall one WEST paints the left side strip."""
     dmap = _flat_dmap()
-    dmap.set_tile(7, 7, 0, DungeonTile.WALL)
+    dmap.set_tile(7, 8, 0, DungeonTile.WALL)  # adjacent, party's own column
     surf = _render_geom(dmap, 8, 8)
     assert surf.get_at((26, 70))[:3] == SIDE_FILL
 
@@ -620,17 +621,16 @@ def test_opening_reads_different_from_wall():
     # enclose the level's north edge so the corridor terminates at depth 4
     for gx in range(16):
         dmap.set_tile(gx, 0, 0, DungeonTile.WALL)
-    dmap.set_tile(7, 7, 0, DungeonTile.WALL)  # west wall, depth 1
+    dmap.set_tile(7, 8, 0, DungeonTile.WALL)  # west wall, party column
     surf_wall = _render_geom(dmap, 8, 8)
 
-    dmap.set_tile(7, 7, 0, DungeonTile.NOTHING)  # swap the wall for an opening
+    dmap.set_tile(7, 8, 0, DungeonTile.NOTHING)  # swap the wall for an opening
     surf_open = _render_geom(dmap, 8, 8)
 
-    assert surf_wall.get_at((26, 70))[:3] == SIDE_FILL
+    assert surf_wall.get_at((16, 70))[:3] == SIDE_FILL
     # through the opening the eye sees the side corridor's ceiling plane
     # (Java draws floor/ceiling boxes for every tile) — clearly darker
-    assert surf_open.get_at((26, 70))[:3] == CEILING_FILL
-    assert surf_open.get_at((26, 70))[:3] != SIDE_FILL
+    assert surf_open.get_at((16, 70))[:3] == CEILING_FILL
 
 
 def test_front_face_occludes_deeper_geometry():
