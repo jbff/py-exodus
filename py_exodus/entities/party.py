@@ -194,6 +194,7 @@ class Party:
         gold: int | None = None,
         food: int | None = None,
         moves: int = 0,
+        regen_turns: int = 0,
         torch_duration: int = 0,
         active_member_index: int = 0,
         exodus_cards_status: int = 0,
@@ -249,6 +250,13 @@ class Party:
             self.food = food
         self.moves = moves
         self.torch_duration = torch_duration
+
+        # Per-turn regen counter (Party.tick_regen, user-directed deviation
+        # 2026-11-10): counts consumed turns for the underground 1-in-4
+        # mana/HP cadence. Persisted so a save/load does not reset the
+        # count-based slot. Persisted so a save/load does not reset the
+        # count-based slot.
+        self.regen_turns = regen_turns
 
         # Exodus machine card-insertion status (SaveGame.exodusCardsStatus):
         # bit 0x1 love, 0x2 sol, 0x4 moons, 0x8 death.
@@ -562,19 +570,25 @@ class Party:
         return total
 
     def end_turn(self, surface: bool = True, sosaria: bool = False) -> None:
-        """Advance one movement turn: submorsels, food, heal/poison, mana.
+        """Advance one movement turn: move counter, per-member submorsels.
 
         Java truth: ``exodus/Party.java:592-639`` ``Party.endTurn``. Increments
         the move counter, then for every non-DEAD member: decrement the
         member's ``submorsels`` by 40 on the surface maps (Sosaria/Exodus) or
         10 elsewhere (towns, castles, dungeons); when the pool crosses below
-        0 it resets to 400 and one unit of food is consumed, triggering —
-        poisoned member: 1 damage via ``applyDamage`` (the Task 2 death-flow
-        chokepoint, so a wipe raises ``PartyDeathException``); otherwise +1
-        health capped at max. Mana regenerates +1 (+2 for a Druid) while the
-        member is alive, not disabled, and below max mana. Members with food
-        at 0 after eating take 2 damage. Finally, on Sosaria the ship hull
-        repairs 1 point on a 1-in-4 roll while below 50 (Party.java:633-638).
+        0 it resets to 400 and one unit of food is consumed.
+
+        USER-DIRECTED ORIGINAL-RULES DEVIATION (2026-11-10): Java also
+        regenerated here — a poisoned member took 1 meal damage or a healthy
+        one healed +1, mana regenerated +1 (+1 Druid, able to exceed
+        maxMana), and a member with food 0 took 2 starvation damage — all
+        inside the meal-crossing block. The U3 Book of Play ties poison
+        ("Every step the character takes, lowers the character's hit level
+        by one"), mana (+1/turn surface, +1 every 4 turns elsewhere, Druids
+        double the local rate) and starvation (2/turn at food 0) to the
+        TURN, not to the meal crossing. Those effects now live in
+        ``tick_regen``, which every screen's tick calls once per consumed
+        turn; the meal crossing decrements food ONLY.
         """
         self.moves += 1
 
@@ -589,23 +603,66 @@ class Party:
                 m.submorsels = 400
                 m.food = max(0, m.food - 1)
 
-                if m.status == Status.POISONED:
-                    m.apply_damage(1, False)
-                else:
-                    m.hp = min(m.max_hp, m.hp + 1)
-
-                if not m.is_disabled() and m.mp < m.max_mp:
-                    m.mp += 1
-                    if m.profession == Profession.DRUID:
-                        m.mp += 1
-
-                if m.food <= 0:
-                    m.apply_damage(2, False)
-
         if sosaria and self.ship_hull < 50 and random.randint(0, 3) == 0:
             self.ship_hull += 1
             if self.ship_hull > 50:
                 self.ship_hull = 50
+
+    def tick_regen(self, surface: bool = True) -> None:
+        """Original-rules per-turn regeneration tick (user-directed
+        deviation, 2026-11-10) — owns what Java kept inside the meal
+        crossing, moved onto the turn itself.
+
+        U3 Book of Play quotes behind each rule:
+        - Mana: "A character replenishes that energy at a rate of one point
+          per turn on the surface, and one point every four turns in a town
+          or dungeon. Druids regain two points per turn" — implemented as
+          doubling the LOCAL rate: +2/turn on the surface, +2 in the SAME
+          4th-turn slot elsewhere (not every 2nd turn). Capped at max_mp —
+          Java's exceed-max quirk (`mana < maxMana` checked once, then +1,
+          +1 Druid — Party.java:612-617) is deliberately NOT reproduced.
+        - Poison: "Every step the character takes, lowers the character's
+          hit level by one" — poisoned living members lose 1 HP per TURN
+          (per move AND per pass), everywhere.
+        - HP regen (controller interpretation, documented): +1 HP per turn
+          on the surface, +1 HP per 4 turns in towns/castles/dungeons when
+          food > 0 and not poisoned — mirroring the mana cadence split,
+          since the manual quantifies only mana and the NES guide says
+          regen is slower underground.
+        - Starvation: food <= 0 → 2 damage per turn (Java-port value kept),
+          no regen.
+
+        ``surface`` means the overworld SCREEN (Sosaria AND Ambrosia) per
+        the original rule; the map_id in ("0","2") 40-submorsel decision in
+        ``end_turn`` is the food rule only. The 4-turn slot is
+        count-based on consumed turns (move or pass — every caller routes
+        exactly one tick per consumed turn), never wall-clock. Damage
+        routes through ``apply_damage`` (the Task 2 chokepoint), so DEAD is
+        never touched and a wipe raises ``PartyDeathException``.
+        """
+        self.regen_turns += 1
+        underground_slot = not surface and self.regen_turns % 4 == 0
+
+        for m in self.members:
+            if m.is_dead():
+                continue
+
+            # Mana: +1/+2 Druid on the surface, in the shared 4th-turn slot
+            # underground; capped at max_mp (recomputed from stats).
+            if not m.is_disabled() and (surface or underground_slot):
+                gain = 2 if m.profession == Profession.DRUID else 1
+                m.mp = min(m.max_mp, m.mp + gain)
+
+            # Poison every turn; heal only when food > 0 and not poisoned,
+            # at the same cadence split as mana.
+            if m.status == Status.POISONED:
+                m.apply_damage(1, False)
+            elif (surface or underground_slot) and m.food > 0:
+                m.hp = min(m.max_hp, m.hp + 1)
+
+            # Starvation: 2 damage per turn at food <= 0.
+            if m.food <= 0:
+                m.apply_damage(2, False)
 
     def adjust_ship_hull(self, val: int) -> int:
         """Adjust ship hull health between 0 and 50."""
@@ -651,6 +708,7 @@ class Party:
             "gold": self.gold,
             "food": self.food,
             "moves": self.moves,
+            "regen_turns": self.regen_turns,
             "torch_duration": self.torch_duration,
             "active_member_index": self.active_member_index,
             "exodus_cards_status": self.exodus_cards_status,
@@ -690,6 +748,7 @@ class Party:
             # gold and food live on the member records. Legacy-migration below
             # handles old saves that kept a party-level wallet.
             moves=p_data.get("moves", 0),
+            regen_turns=p_data.get("regen_turns", 0),
             torch_duration=p_data.get("torch_duration", 0),
             active_member_index=p_data.get("active_member_index", 0),
             exodus_cards_status=p_data.get("exodus_cards_status", 0),

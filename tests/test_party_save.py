@@ -235,16 +235,20 @@ def test_party_gold_food_and_transport():
         m.hp = 100
     p.end_turn(surface=False)
     assert p.food == 18
-    assert c1.hp == 101
-    assert c2.hp == 101
+    # Meal crossing decrements food ONLY — heal/poison/mana regen moved to
+    # the per-turn original-rules tick (Party.tick_regen, user-directed
+    # deviation 2026-11-10), so no heal lands at the crossing.
+    assert c1.hp == 100
+    assert c2.hp == 100
 
-    # Starvation: food 0 → heal +1 then 2 damage (Java tick order)
+    # Starvation: food 0 → 2 damage per turn on the regen tick
     for m in p.members:
         m.food = 0
         m.submorsels = 5
-    p.end_turn(surface=False)
-    assert c1.hp == 100
-    assert c2.hp == 100
+    p.end_turn(surface=False)  # crossing decrements food only (stays 0)
+    p.tick_regen(surface=False)  # first underground turn: -2 HP
+    assert c1.hp == 98
+    assert c2.hp == 98
 
     # Transport & Ship hull
     assert p.transport == Transport.FOOT
@@ -1054,3 +1058,33 @@ def test_journey_onward_legacy_save_still_reseeds_whirlpools(pygame_setup, asset
     whirls = [c for c in resumed.creatures if c.get("tile_name") == "whirlpool"]
     assert sorted((c["x"], c["y"]) for c in whirls) == [(17, 48), (50, 13)]
     assert all(c.get("wontattack") for c in whirls)
+
+
+def test_journey_onward_malformed_overworld_block_loads(pygame_setup, asset_mgr, monkeypatch, tmp_path):
+    """R1 rider: a hand-edited save whose `overworld` block is not a dict
+    (e.g. []) is treated as ABSENT — Journey Onward still loads (Java
+    degrades to the roster screen on an unreadable record rather than
+    crashing) and the whirlpool fixtures re-seed free."""
+    import json
+
+    monkeypatch.chdir(tmp_path)
+
+    from py_exodus.screens.overworld import OverworldScreen
+    from py_exodus.screens.start import StartScreen
+
+    party = Party()
+    party.add_member(_roster_char("Ariel"))
+    SaveSystem.save_game(party, tmp_path / "saves" / "party.json")
+
+    save_p = tmp_path / "saves" / "party.json"
+    data = json.loads(save_p.read_text())
+    data["overworld"] = ["not", "a", "dict"]
+    save_p.write_text(json.dumps(data))
+
+    start = StartScreen(asset_mgr=asset_mgr)
+    start._start_journey()
+    resumed = start.next_screen
+    assert isinstance(resumed, OverworldScreen)
+
+    whirls = [c for c in resumed.creatures if c.get("tile_name") == "whirlpool"]
+    assert sorted((c["x"], c["y"]) for c in whirls) == [(17, 48), (50, 13)]

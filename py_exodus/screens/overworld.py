@@ -1189,6 +1189,17 @@ class OverworldScreen(BaseScreen):
             self._check_hull_integrity()
             # Java order (GameScreen.java:710-714): endTurn, then aura.passTurn.
             self.party.end_turn(surface=map_id in ("0", "2"), sosaria=sosaria)
+            # USER-DIRECTED ORIGINAL-RULES DEVIATION (2026-11-10): Java's
+            # Party.endTurn regenerated mana/HP/poison only at the meal
+            # crossing (Party.java:612-617). The U3 Book of Play ties those
+            # to the TURN ("A character replenishes that energy at a rate of
+            # one point per turn on the surface, and one point every four
+            # turns in a town or dungeon"; "Every step the character takes,
+            # lowers the character's hit level by one" for poison), so the
+            # regen tick runs every consumed turn here. Surface means the
+            # overworld screen — Sosaria AND Ambrosia; the map_id in
+            # ("0","2") decision above is the food interval only.
+            self.party.tick_regen(surface=True)
             self.party.aura.pass_turn()
             tile_effects.apply_rule_effect(self.party, effect_tile)
         except PartyDeathException:
@@ -1580,9 +1591,18 @@ class OverworldScreen(BaseScreen):
         GameScreen.java:111-121. ``on_enter`` then purges any creature
         standing on the party's tile (combat re-trigger guard). Saved world
         state only ever originates from a Sosaria Q-save, so non-Sosaria
-        loads ignore it.
+        loads ignore it. Documented deviation (user ruling 2026-11-10,
+        R2 rider): a saved creature's ``hp`` is restored too — Java's
+        GameScreen.java:300-312 rebuilds monsters at full health and
+        discards the saved hp.
         """
         if not world_state or str(self.map_id) != "0":
+            return
+        # Guard a malformed block (R1): a hand-edited save can carry a
+        # non-dict "overworld" value (e.g. a bare list). Treat it as absent
+        # — the free re-seed fallback stays (Java degrades to the roster
+        # screen on an unreadable record rather than crashing).
+        if not isinstance(world_state, dict):
             return
         # The block owns the whirlpool fixtures at load: drop the free
         # re-seed before restoring, so the saved fixtures replace them
@@ -1628,6 +1648,10 @@ class OverworldScreen(BaseScreen):
         NOT skipped the way Java's Context.saveGame does (Java `continue`s
         whirlpools without freeing the slot); the first 8 creatures save
         regardless of kind, so the fixtures ride in the block.
+        Documented deviation (user ruling 2026-11-10, R2 rider): a
+        creature's current ``hp`` persists in the block — Java's
+        Context.saveGame records tile ids/positions only and discards hp,
+        so a restored monster here resumes at the health it had.
         """
         if getattr(self.game_map, "id", None) == 0:
             try:

@@ -42,6 +42,12 @@ def test_dungeon_touch_mark_kings(asset_mgr, party, test_dmap):
     screen.state = state
 
     m1 = party.members[0]
+    # Feed both members so the original-rules regen tick (user-directed
+    # deviation 2026-11-10) neither starves nor heals across the sip turns:
+    # Character defaults food to 0 and the party fixture seeds only one
+    # member, and the underground heal slot only opens on the 4th turn.
+    for m in party.members:
+        m.food = 100
     initial_hp = m1.hp
     assert m1.marks[0] == 0
 
@@ -65,6 +71,11 @@ def test_dungeon_drink_fountain_heal(asset_mgr, party, test_dmap):
 
     m1 = party.members[0]
     m1.hp = 20
+    # Feed both members so the original-rules regen tick (user-directed
+    # deviation 2026-11-10) neither starves nor heals across the sip turns
+    # (see test_dungeon_touch_mark_kings).
+    for m in party.members:
+        m.food = 100
 
     screen.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_s, unicode="s"))
     screen.text_log.handle_char("1")
@@ -81,6 +92,11 @@ def test_dungeon_drink_fountain_acid(asset_mgr, party, test_dmap):
     screen.state = state
 
     m1 = party.members[0]
+    # Feed both members so the original-rules regen tick (user-directed
+    # deviation 2026-11-10) neither starves nor heals across the sip turns
+    # (see test_dungeon_touch_mark_kings).
+    for m in party.members:
+        m.food = 100
     initial_hp = m1.hp
 
     screen.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_s, unicode="s"))

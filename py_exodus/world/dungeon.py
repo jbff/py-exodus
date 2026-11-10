@@ -1037,12 +1037,18 @@ class DungeonState:
         creatureCleanup + the spawn roll + moveDungeonCreatures ONLY.
         ``Party.endTurn`` is NEVER called while exploring a dungeon — it
         runs only from GameScreen.java:712 and CombatScreen.java:472 — so
-        submorsel drain, food loss, poison ticks, mana regen, starvation and
-        the move counter do not tick per dungeon move, and the torch boolean
-        needs no upkeep (no rounds to decrement, no expiry ever). After the
-        aura pass this runs the wandering-creature upkeep and returns a
-        COMBAT event when a creature reaches the avatar (battleWandering),
-        else None.
+        submorsel drain, food loss and the move counter do not tick per
+        dungeon move, and the torch boolean needs no upkeep (no rounds to
+        decrement, no expiry ever). After the aura pass this runs the
+        wandering-creature upkeep and returns a COMBAT event when a
+        creature reaches the avatar (battleWandering), else None.
+
+        USER-DIRECTED ORIGINAL-RULES DEVIATION (2026-11-10): Java's dungeon
+        tick regenerates NOTHING, but the original-rules regen
+        (``Party.tick_regen`` — mana +1 per 4 turns underground, HP +1 per
+        4 turns, poison -1 HP per turn, starvation 2/turn) applies here
+        every consumed turn. Food still does NOT drain in the dungeon: no
+        submorsel decrement, no meal crossing (Java truth, kept).
         """
         if self.party is not None:
             # Java order: the aura pass precedes the wandering upkeep. It
@@ -1050,6 +1056,7 @@ class DungeonState:
             # from a future aura effect must not crash the move — mirror the
             # post-routing guard the other tick paths carry.
             try:
+                self.party.tick_regen(surface=False)
                 self.party.aura.pass_turn()
             except PartyDeathException:
                 pass

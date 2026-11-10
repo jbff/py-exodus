@@ -230,8 +230,10 @@ def test_overworld_starvation_leaving_survivor_no_transition(sm, asset_mgr):
     ow = OverworldScreen(party=party, map_id=0, asset_mgr=asset_mgr, manager=sm)
     sm.set_screen(ow)
 
-    # Java tick order: heal +1 happens first, then the starvation blow of 2 —
-    # a net loss of 1 for a member who was alive at the crossing.
+    # Original-rules tick order (user-directed deviation 2026-11-10): a
+    # food-0 member gets NO heal — the per-turn starvation blow of 2 lands
+    # alone (the old Java meal crossing healed +1 first, net −1; the
+    # original tick is 2/turn, no regen at food <= 0).
     for m in party.members:
         m.food = 0
         m.submorsels = 5
@@ -239,14 +241,17 @@ def test_overworld_starvation_leaving_survivor_no_transition(sm, asset_mgr):
 
     assert not party.is_party_dead()
     assert sm.current_screen is ow
-    assert party.get_member(1).hp == 5
+    assert party.get_member(1).hp == 4
 
 
 def test_dungeon_starvation_wipe_transitions_to_start_screen(sm, asset_mgr):
-    """A dungeon move never ticks food: Java DungeonScreen.finishTurn
-    (DungeonScreen.java:1124-1141) runs aura.passTurn + creature upkeep ONLY
-    — Party.endTurn is never called in dungeons — so a zero-food party
-    exploring a dungeon cannot starve and cannot route to game over."""
+    """USER-DIRECTED ORIGINAL-RULES DEVIATION (2026-11-10): the dungeon tick
+    regenerates AND starves per consumed turn — Java DungeonScreen.finishTurn
+    (DungeonScreen.java:1124-1141) never called Party.endTurn, but the
+    original rules starve a food-0 party 2 HP per turn everywhere. Food
+    still does not DRAIN in the dungeon (no meal crossing — Java truth,
+    kept); members whose food is ALREADY 0 take the starvation blow on the
+    dungeon move and a wiped party routes to game over."""
 
     def member(name: str) -> Character:
         char = Character(name, "M", Race.HUMAN, Profession.FIGHTER, hp=0, max_hp=100)
@@ -256,8 +261,6 @@ def test_dungeon_starvation_wipe_transitions_to_start_screen(sm, asset_mgr):
     party = Party(members=[], x=2, y=2, gold=0, food=0, transport=Transport.FOOT)
     party.add_member(member("Hero"))
     party.add_member(member("Mage"))
-    for m in party.members:
-        m.submorsels = 5
 
     dmap = DungeonMap(id=99, name="TestDungeon", width=8, height=8, levels=8)
     dmap.tiles = [
@@ -277,15 +280,23 @@ def test_dungeon_starvation_wipe_transitions_to_start_screen(sm, asset_mgr):
 
     dungeon.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_UP))
 
-    assert not party.is_party_dead()
-    assert sm.current_screen is dungeon
+    assert party.is_party_dead()
+    from py_exodus.screens.start import StartScreen
+
+    assert isinstance(sm.current_screen, StartScreen)
+    assert sm.current_screen.game_over is True
+    # Dungeon food drain stays off (Java truth): food was already 0 and no
+    # submorsel crossing ran.
     assert all(m.food == 0 for m in party.members)
 
 
-def test_dungeon_tick_never_heals_or_mana_regen(sm, asset_mgr):
-    """A starving member stays untouched: the invented dungeon
-    finishTurn heal/starve tick (endTurn surface=False) is gone —
-    Party.endTurn runs only from GameScreen.java:712 and CombatScreen.java:472."""
+def test_dungeon_tick_starves_food_zero_but_is_count_based(sm, asset_mgr):
+    """USER-DIRECTED ORIGINAL-RULES DEVIATION (2026-11-10): the dungeon
+    tick applies the original per-turn starvation (food 0 → 2 damage per
+    turn) even though Java's dungeon finishTurn never touched the party
+    (DungeonScreen.java:1124-1141). A food-0 member is NOT healed (+1
+    requires food > 0) and fighters regen no mana (max_mp 0); food does
+    not drain on its own."""
 
     def member(name: str) -> Character:
         char = Character(name, "M", Race.HUMAN, Profession.FIGHTER, hp=6, max_hp=100)
@@ -295,8 +306,6 @@ def test_dungeon_tick_never_heals_or_mana_regen(sm, asset_mgr):
     party = Party(members=[], x=2, y=2, gold=0, food=0, transport=Transport.FOOT)
     party.add_member(member("Hero"))
     party.add_member(member("Mage"))
-    for m in party.members:
-        m.submorsels = 5
 
     dmap = DungeonMap(id=99, name="TestDungeon", width=8, height=8, levels=8)
     dmap.tiles = [
@@ -318,8 +327,9 @@ def test_dungeon_tick_never_heals_or_mana_regen(sm, asset_mgr):
 
     assert not party.is_party_dead()
     assert sm.current_screen is dungeon
-    # No endTurn ran: the 6 hp member was never healed (+1) nor starved (−2).
-    assert party.get_member(1).hp == 6
+    # One consumed dungeon turn: −2 starvation, no heal, no mana regen.
+    assert party.get_member(1).hp == 4
+    assert all(m.food == 0 for m in party.members)
 
 
 def test_overworld_chest_gas_trap_wipe_transitions_to_start_screen(sm, asset_mgr, monkeypatch):

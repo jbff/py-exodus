@@ -342,12 +342,19 @@ class TownScreen(BaseScreen):
                 self.audio.play_sfx("blocked")
 
     def _finish_turn(self, effect_tile=None) -> None:
-        """End the town movement turn: submorsel tick, aura tick, then the
-        standing tile effect (Java GameScreen.finishTurn GameScreen.java:
-        706-754 — endTurn, then aura.passTurn). Towns drain submorsels at 10
-        per move (non-surface map)."""
+        """End the town movement turn: submorsel tick, regen tick, aura tick,
+        then the standing tile effect (Java GameScreen.finishTurn
+        GameScreen.java:706-754 — endTurn, then aura.passTurn). Towns drain
+        submorsels at 10 per move (non-surface map).
+
+        USER-DIRECTED ORIGINAL-RULES DEVIATION (2026-11-10): mana/HP regen
+        and poison/starvation run every consumed turn (Party.tick_regen) at
+        the underground cadence (+1 per 4 turns — "one point every four
+        turns in a town or dungeon"), not at Java's meal crossing
+        (Party.java:612-617)."""
         try:
             self.party.end_turn(surface=False)
+            self.party.tick_regen(surface=False)
             self.party.aura.pass_turn()
             tile_effects.apply_rule_effect(self.party, effect_tile)
         except PartyDeathException:

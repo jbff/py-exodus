@@ -214,6 +214,12 @@ def test_overworld_pass_turn_applies_standing_effect_and_consumes_turn(
     )
 
     party = make_party()
+    # Feed both members: Character defaults food to 0 and Party(food=400)
+    # seeds only one member. With food > 0 the original-rules regen tick
+    # (user-directed deviation 2026-11-10) never starves across the two
+    # passes, and the poison tick below is the only HP loss.
+    for m in party.members:
+        m.food = 400
     ow = OverworldScreen(
         party=party, map_id=0, asset_mgr=asset_mgr, random_encounters=False
     )
@@ -230,7 +236,12 @@ def test_overworld_pass_turn_applies_standing_effect_and_consumes_turn(
     assert (party.x, party.y) == (0, 0)
     assert party.moves == moves_before + 2
     assert all(m.status == Status.POISONED for m in party.members)
-    assert all(m.hp == 100 for m in party.members)
+    # Original-rules poison tick (deviation 2026-11-10): the FIRST pass ran
+    # its regen tick BEFORE the tile effect poisoned the party (no damage
+    # that turn); the SECOND pass is a poisoned turn — "Every step the
+    # character takes, lowers the character's hit level by one" — so each
+    # member is −1 HP.
+    assert all(m.hp == 99 for m in party.members)
 
 
 def test_ambrosia_drains_at_the_10_interval(pygame_setup, asset_mgr):
@@ -495,6 +506,11 @@ def test_dungeon_field_poison_applies_poisonfield():
     dmap = make_dmap()
     dmap.set_tile(5, 4, 0, DungeonTile.FIELD_POISON)
     party = make_party()
+    # Feed both members (Character defaults food to 0; see the overworld
+    # poison-field pass test) so the deviation tick neither starves nor
+    # heals — poison is the only HP change on this turn.
+    for m in party.members:
+        m.food = 400
     state = DungeonState(
         dmap,
         start_x=5,
@@ -508,7 +524,9 @@ def test_dungeon_field_poison_applies_poisonfield():
     evt = state.move_forward()
     assert evt.type == DungeonEventType.MOVED
     assert all(m.status == Status.POISONED for m in party.members)
-    assert all(m.hp == 100 for m in party.members)
+    # Original-rules poison tick (deviation 2026-11-10): the field poisons
+    # on entry, then the move's tick runs — a poisoned turn is −1 HP.
+    assert all(m.hp == 99 for m in party.members)
     assert dmap.get_tile(5, 4, 0) is DungeonTile.FIELD_POISON  # not consumed
 
 
