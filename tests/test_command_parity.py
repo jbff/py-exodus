@@ -179,7 +179,9 @@ class TestEnterAndWhirlpool:
         assert sample_party.moves == moves + 1
 
     def test_whirlpool_never_triggers_combat_or_wanders(self, ow, sample_party):
-        """Whirlpools never move and never start combat (wontattack creature)."""
+        """Whirlpools never start combat (wontattack creature). Inland at
+        (6, 6) its swimmable-only mask is empty, so the Java random-walk
+        (BaseMap.java:564-565) keeps it in place here."""
         ow.creatures.append({"tile_name": "whirlpool", "tile": "whirlpool", "x": 6, "y": 6})
         ow._update_creatures()
         assert (6, 6) in [(c["x"], c["y"]) for c in ow.creatures]

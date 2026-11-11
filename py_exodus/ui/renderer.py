@@ -69,7 +69,18 @@ def can_move_to(
         # field still demands it.
         if tile.dispelable:
             return tile_effects.party_has_mark_of_force(party)
+        # Java BaseMap.java:786-793 hasShipObjectAt: an unwalkable (water)
+        # tile holding a frigate object is enterable on foot, so the exact
+        # -tile board (GameScreen.board) can be reached on the dropped
+        # post-battle frigate.
         if not tile.walkable:
+            if party is not None and any(
+                str(obj.get("tile", "")).lower() in ("frigate", "ship")
+                and obj.get("x") == target_x
+                and obj.get("y") == target_y
+                for obj in getattr(party, "dynamic_objects", [])
+            ):
+                return True
             return False
 
     # Check NPC collision
@@ -230,6 +241,11 @@ class WorldRenderer:
                     continue
 
             obj_surf = self.asset_manager.get_tile_surface(tile_name, anim_frame)
+            # Java draws map objects from a single atlas region
+            # (objects/Drawable.java:46-52) — a dropped frigate must not
+            # cycle the ship's 4 atlas frames (the "toilet rotation" fix).
+            if str(tile_name).lower() in ("frigate", "ship"):
+                obj_surf = self.asset_manager.get_tile_surface(tile_name, 0)
             surface.blit(obj_surf, (ox + col * self.tile_size, oy + row * self.tile_size))
 
         # 3. Render dynamic monsters

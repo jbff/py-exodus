@@ -107,6 +107,136 @@ def get_combat_map_id(
     return combat_map_id
 
 
+# --- moveObjects creature-half helpers (Java objects/BaseMap.java:421-610) --- #
+
+MAX_CREATURE_DISTANCE = 24  # Java exodus/Constants.java:44
+
+_DIRECTION_VALUES = (Direction.WEST, Direction.NORTH, Direction.EAST, Direction.SOUTH)
+
+
+def get_relative_direction_mask(
+    width: int, height: int, to_x: int, to_y: int, from_x: int, from_y: int
+) -> int:
+    """Java ``util/Utils.java:359-401`` ``getRelativeDirection`` — the mask of
+    directions leading from (from_x, from_y) toward (to_x, to_y), with the
+    same wrap adjustments the Java helper applies (which, as there, reuse
+    ``width`` for the Y axis)."""
+
+    def _shortest(f: int, t: int, span: int) -> int:
+        if abs(f - t) > abs(f + span - t):
+            return f + span
+        if abs(f - t) > abs(f - span - t):
+            return f - span
+        return f
+
+    from_x = _shortest(from_x, to_x, width)
+    from_y = _shortest(from_y, to_y, width)  # Java quirk: width, not height
+
+    dirmask = 0
+    dx = from_x - to_x
+    dy = from_y - to_y
+    if dx < 0:
+        dirmask |= Direction.EAST.mask
+    elif dx > 0:
+        dirmask |= Direction.WEST.mask
+    if dy < 0:
+        dirmask |= Direction.SOUTH.mask
+    elif dy > 0:
+        dirmask |= Direction.NORTH.mask
+    return dirmask
+
+
+def movement_distance(
+    width: int, height: int, from_x: int, from_y: int, to_x: int, to_y: int
+) -> int:
+    """Java ``util/Utils.java:314-357`` ``movementDistance`` — the directional
+    walk-step count between two tiles over the wrap seams."""
+
+    def _shortest(f: int, t: int, span: int) -> int:
+        if abs(f - t) > abs(f + span - t):
+            return f + span
+        if abs(f - t) > abs(f - span - t):
+            return f - span
+        return f
+
+    from_x = _shortest(from_x, to_x, width)
+    from_y = _shortest(from_y, to_y, width)  # Java quirk: width, not height
+
+    dirmask = get_relative_direction_mask(width, height, to_x, to_y, from_x, from_y)
+
+    dist = 0
+    while from_x != to_x or from_y != to_y:
+        if from_x != to_x:
+            from_x = from_x - 1 if dirmask & Direction.WEST.mask else from_x + 1
+            dist += 1
+        if from_y != to_y:
+            from_y = from_y - 1 if dirmask & Direction.NORTH.mask else from_y + 1
+            dist += 1
+    return dist
+
+
+def broadsides_direction_mask(sail_dir_name: str | None) -> int:
+    """Java ``Constants.java:371-384`` ``getBroadsidesDirectionMask`` — the
+    two directions a ship's cannons can fire in, perpendicular to sailDir."""
+    if sail_dir_name in ("EAST", "WEST"):
+        return Direction.NORTH.mask | Direction.SOUTH.mask
+    if sail_dir_name in ("NORTH", "SOUTH"):
+        return Direction.EAST.mask | Direction.WEST.mask
+    return 0
+
+
+def go_broadsides(broadsides_mask: int) -> str | None:
+    """Java ``Constants.java:386-395`` ``goBroadsides`` — the first direction
+    in value order (W, N, E, S) carried by the broadsides mask."""
+    for d in _DIRECTION_VALUES:
+        if broadsides_mask & d.mask:
+            return d.name
+    return None
+
+
+def direction_by_mask(mask: int) -> Direction | None:
+    """Java ``Constants.java:360-368`` ``getByMask`` — the single direction
+    matching an exactly-one-bit mask."""
+    for d in _DIRECTION_VALUES:
+        if d.mask == mask:
+            return d
+    return None
+
+
+def random_valid_direction(mask: int) -> Direction | None:
+    """Java ``Constants.java:319-333`` ``getRandomValidDirection`` — a random
+    direction among the masked set, value order."""
+    valid = [d for d in _DIRECTION_VALUES if mask & d.mask]
+    if not valid:
+        return None
+    return random.choice(valid)
+
+
+def can_creature_move_on(tile, creature) -> bool:
+    """Java ``objects/BaseMap.java:700-717`` ``canCreatureMoveOn``."""
+    if creature.sails:
+        return bool(tile.attribs & TileAttrib.SAILABLE)
+    if creature.swims:
+        return bool(tile.attribs & TileAttrib.SWIMMABLE)
+    if creature.flies:
+        return not bool(tile.attribs & TileAttrib.UNFLYABLE)
+    if bool(tile.attribs & TileAttrib.CREATUREUNWALKABLE):
+        return False
+    return creature.incorporeal or not bool(tile.attribs & TileAttrib.UNWALKABLE)
+
+
+def has_ship_object_at(party, x: int, y: int) -> bool:
+    """Java ``objects/BaseMap.java:786-793`` ``hasShipObjectAt`` — a frigate
+    object sits on that tile (the frigate tile carries the ship rule)."""
+    return any(
+        str(obj.get("tile", "")).lower() in ("frigate", "ship")
+        and obj.get("x") == x
+        and obj.get("y") == y
+        for obj in party.dynamic_objects
+    )
+
+
+
 # --- Overworld HUD sky strip (Java GameScreen.java:180-196) ------------------ #
 # On Sosaria (map id 0) Java draws two moon-phase icons (Trammel and Felucca),
 # the "Wind <direction>" text, the aura label while active, and "Hull: N" when
@@ -1434,20 +1564,38 @@ class OverworldScreen(BaseScreen):
                 "tile": c_name,
                 "x": sx,
                 "y": sy,
+                # Java Creature.sailDir defaults to EAST (Creature.java:63).
+                **({"sail_dir": "EAST"} if c_name == "pirate" else {}),
             })
             return
 
     def _update_creatures(self) -> None:
-        """Move wandering creatures towards the party or wander.
+        """Java ``objects/BaseMap.java:421-610`` ``moveObjects`` creature half.
 
-        Java truth: the QUICKNESS aura skips ``moveObjects`` for the turn
-        (``GameScreen.java:728-731``) — no creature advance while time is
-        quick. Whirlpool creatures never move and never engage.
+        The QUICKNESS aura skips ``moveObjects`` for the turn
+        (``GameScreen.java:728-731``). Per creature, in Java's order:
+
+        1. Despawn beyond ``MAX_CREATURE_DISTANCE`` (= 24, wrap distance),
+           whirlpools excepted (BaseMap.java:505-509).
+        2. Pirate broadsides (BaseMap.java:511-538): with the avatar in the
+           same row/column, range 2-3 on a broadsides heading fires the enemy
+           cannons (and eats the tick); 2-3 misaligned turns to a broadsides
+           heading 1-in-2; distance <= 1 battles when aligned, else turns.
+        3. Distance <= 1 for other creatures: attack-capable ones ENGAGE
+           (battle, creature removed) — engagement is by proximity, not
+           same-tile contact; wontattack creatures (whirlpools included)
+           never battle — the whirlpool engulf scan in ``_finish_turn``
+           carries Java's 542-553 engulf branch.
+        4. Movement inside ``getValidMovesMask`` (BaseMap.java:633-717):
+           wontattack creatures random-walk, attackers path toward the
+           avatar; a zero intersection means no move this tick. PIRATES obey
+           the rotate-then-move rule (BaseMap.java:573-578): sailing only
+           when the intended dir equals ``sail_dir``, else the turn consumes
+           the tick.
         """
         if not self.creatures and self.random_encounters_enabled:
             self._spawn_wandering_creature()
 
-        import random
         if self.random_encounters_enabled and random.random() < 0.25 and len(self.creatures) < 6:
             self._spawn_wandering_creature()
 
@@ -1456,64 +1604,113 @@ class OverworldScreen(BaseScreen):
         if self.party.aura.get_type() == AuraType.QUICKNESS:
             return
 
-        width = self.game_map.width if self.game_map else 64
-        height = self.game_map.height if self.game_map else 64
+        if self.game_map is None:
+            return
+        width = self.game_map.width
+        height = self.game_map.height
 
         survivors: list[dict[str, Any]] = []
-        encounter_creature = None
+        encounter_creature: dict[str, Any] | None = None
+        stop_after_combat = False
 
-        for c in self.creatures:
+        for c in list(self.creatures):
+            tile_name = str(c.get("tile_name", ""))
             cx, cy = c["x"], c["y"]
 
-            if c.get("tile_name") == "whirlpool":
-                # Java moveObjects still walks whirlpools a random direction
-                # on open water (wontattack), but they never travel to the
-                # party: keep them parked where they were placed.
+            cr_def = (
+                self.asset_mgr.get_creature(tile_name)
+                if self.asset_mgr is not None
+                else None
+            )
+            wontattack = (
+                cr_def.wontattack if cr_def is not None else bool(c.get("wontattack"))
+            )
+
+            # 1. Despawn beyond the creature leash (whirlpools are kept).
+            dist = movement_distance(width, height, cx, cy, self.party.x, self.party.y)
+            if dist > MAX_CREATURE_DISTANCE and tile_name != "whirlpool":
+                continue
+
+            # 2. Pirate broadsides (BaseMap.java:511-538).
+            if tile_name == "pirate" and not wontattack:
+                rel = get_relative_direction_mask(
+                    width, height, self.party.x, self.party.y, cx, cy
+                )
+                if self.party.x == cx:
+                    rel &= ~(Direction.EAST.mask | Direction.WEST.mask)
+                elif self.party.y == cy:
+                    rel &= ~(Direction.NORTH.mask | Direction.SOUTH.mask)
+                else:
+                    rel = 0
+                # Java Creature.sailDir defaults to EAST (Creature.java:63).
+                sail = c.get("sail_dir") or "EAST"
+                broad = broadsides_direction_mask(sail)
+                if rel > 0 and dist in (2, 3) and rel & broad:
+                    # Aligned broadside: enemy cannons fire; the pirate
+                    # forfeits movement this tick (Java 525 continue).
+                    fire_dir = direction_by_mask(rel)
+                    if fire_dir is not None:
+                        self._enemy_fire_cannons(c, fire_dir)
+                    survivors.append(c)
+                    continue
+                if rel > 0 and dist in (2, 3) and not rel & broad and random.randint(0, 1) == 0:
+                    c["sail_dir"] = go_broadsides(broad)
+                    survivors.append(c)
+                    continue
+                if dist <= 1:
+                    if rel & broad:
+                        if encounter_creature is None:
+                            encounter_creature = c
+                        stop_after_combat = True  # Java 533 break
+                        continue
+                    c["sail_dir"] = go_broadsides(broad)
+                    survivors.append(c)
+                    continue
+
+            # 3. Other creatures: engage at distance <= 1 (BaseMap.java:540-558).
+            elif dist <= 1 and not wontattack:
+                if encounter_creature is None:
+                    encounter_creature = c
+                stop_after_combat = True  # Java 557 break
+                continue
+
+            # 4. Movement inside the valid-moves mask (BaseMap.java:562-608).
+            mask = self._creature_valid_moves_mask(c, cr_def, wontattack)
+            if wontattack:
+                move_dir = random_valid_direction(mask)
+            else:
+                toward = get_relative_direction_mask(
+                    width, height, self.party.x, self.party.y, cx, cy
+                )
+                toward &= mask
+                if toward > 0:
+                    move_dir = random_valid_direction(toward)
+                else:
+                    move_dir = None  # Java getPath null → no move this tick
+            if move_dir is None:
                 survivors.append(c)
                 continue
 
-            # If already on the party, engage and remove
-            if cx == self.party.x and cy == self.party.y:
-                if encounter_creature is None:
-                    encounter_creature = c
+            # PIRATES rotate-then-move (BaseMap.java:573-578).
+            if tile_name == "pirate" and c.get("sail_dir") != move_dir.name:
+                c["sail_dir"] = move_dir.name
+                survivors.append(c)
                 continue
 
-            dx = self.party.x - cx
-            dy = self.party.y - cy
-
-            if dx > width // 2:
-                dx -= width
-            elif dx < -width // 2:
-                dx += width
-            if dy > height // 2:
-                dy -= height
-            elif dy < -height // 2:
-                dy += height
-
-            step_x = 1 if dx > 0 else (-1 if dx < 0 else 0)
-            step_y = 1 if dy > 0 else (-1 if dy < 0 else 0)
-
-            if abs(dx) > abs(dy) or (abs(dx) == abs(dy) and random.random() < 0.5):
-                nx = (cx + step_x) % width
-                ny = cy
+            c["x"] = cx + move_dir.dx
+            c["y"] = cy + move_dir.dy
+            if self.game_map.border_behavior == "wrap":
+                c["x"] %= width
+                c["y"] %= height
             else:
-                nx = cx
-                ny = (cy + step_y) % height
+                c["x"] = max(0, min(width - 1, c["x"]))
+                c["y"] = max(0, min(height - 1, c["y"]))
 
-            tile = self.game_map.get_tile(nx, ny) if self.game_map else None
-            is_sea = c.get("tile_name") in ("pirate", "serpent", "squid")
-            if tile is not None:
-                is_water = "water" in tile.name.lower() or "sea" in tile.name.lower()
-                if (is_sea and is_water) or (not is_sea and not is_water and tile.walkable):
-                    cx, cy = nx, ny
-
-            c["x"] = cx
-            c["y"] = cy
-
-            # Check collision with party
-            if cx == self.party.x and cy == self.party.y:
+            # Stepping onto the party's tile engages (Java's post-move check).
+            if c["x"] == self.party.x and c["y"] == self.party.y and not wontattack:
                 if encounter_creature is None:
                     encounter_creature = c
+                stop_after_combat = True
                 continue
 
             survivors.append(c)
@@ -1524,6 +1721,101 @@ class OverworldScreen(BaseScreen):
             self._trigger_combat(
                 encounter_creature.get("tile_name", "orc"), encounter_creature
             )
+            if stop_after_combat:
+                # Java's attackAt break: no creature left in self.creatures
+                # is processed further — the survivors list already holds the
+                # rest, which is exactly what Java's iterator-break leaves.
+                return
+
+    def _creature_valid_moves_mask(self, c: dict[str, Any], cr_def, wontattack: bool) -> int:
+        """Java ``objects/BaseMap.java:637-698`` ``getValidMovesMask`` for a
+        creature: each direction passes ``canCreatureMoveOn`` (rule-based
+        sailable/swimmable/unwalkable gating), never steps onto the avatar's
+        tile unless the creature can move onto the avatar, and never onto a
+        tile another creature occupies (``hasBlockingCreatureAt``)."""
+        mask = 0
+        if self.game_map is None or cr_def is None:
+            return mask
+        wrap = self.game_map.border_behavior == "wrap"
+        for d in _DIRECTION_VALUES:
+            tx = c["x"] + d.dx
+            ty = c["y"] + d.dy
+            if not wrap and not (
+                0 <= tx < self.game_map.width and 0 <= ty < self.game_map.height
+            ):
+                # Off-map: Java adds the direction only for fleeing monsters.
+                continue
+            tx %= self.game_map.width
+            ty %= self.game_map.height
+            tile = self.game_map.get_tile(tx, ty)
+            if tile is None:
+                continue
+            canmove = can_creature_move_on(tile, cr_def)
+            if (
+                tx == self.party.x
+                and ty == self.party.y
+                and not cr_def.can_move_onto_avatar
+            ):
+                canmove = False
+            if any(
+                other is not c and other.get("x") == tx and other.get("y") == ty
+                for other in self.creatures
+            ):
+                canmove = False
+            if canmove:
+                mask |= d.mask
+        return mask
+
+    def _enemy_fire_cannons(self, pirate: dict[str, Any], fire_dir: Direction) -> None:
+        """Java ``util/Utils.java:403-421`` ``enemyfireCannon`` +
+        ``animateCannonFire`` — the pirate's cannonball trace toward the
+        avatar (range 1-4, never blocked: ``isCannonBall``), with the
+        ``fireAt`` (Utils.java:532-589) rules: an unmanned frigate in the
+        path takes 10 hull damage and ends the volley; the avatar's tile at
+        range N is a 1-in-3 hit that damages the ship hull (``damageShip``)
+        or rolls ``Party.damageParty(10, 25)`` (each member on a coin flip)
+        when on foot."""
+        if self.game_map is None:
+            return
+        if self.audio is not None:
+            self.audio.play_sfx("cannon") or self.audio.play_sfx("enemy_magic_proj")
+        self.text_log.add_message("The pirate ship fires its broadside!")
+
+        sx, sy = pirate["x"], pirate["y"]
+        for distance in range(1, 5):
+            tx = (sx + fire_dir.dx * distance) % self.game_map.width
+            ty = (sy + fire_dir.dy * distance) % self.game_map.height
+
+            # fireAt: unmanned frigate first (Utils.java:539-546).
+            for obj in self.party.dynamic_objects:
+                if (
+                    str(obj.get("tile", "")).lower() in ("frigate", "ship")
+                    and obj.get("x") == tx
+                    and obj.get("y") == ty
+                ):
+                    obj["hull"] = obj.get("hull", 50) - 10
+                    self.text_log.add_message("Cannon fire strikes the unmanned frigate!")
+                    return
+
+            if tx == self.party.x and ty == self.party.y:
+                if self.party.transport == Transport.SHIP:
+                    # 1-in-3 hit: adjustShipHull(-10) (Context.java:242-246).
+                    if random.randint(0, 2) == 0:
+                        self.party.adjust_ship_hull(-10)
+                        self.text_log.add_message("Cannon fire rakes thy ship!")
+                    else:
+                        self.text_log.add_message("The cannonball splashes down!")
+                else:
+                    # 1-in-3 hit: damageParty(10, 25), coin flip per member
+                    # (Party.java:79-86), combat damage (no death routing).
+                    if random.randint(0, 2) == 0:
+                        for member in self.party.members:
+                            if random.randint(0, 1) == 0 and not member.is_dead():
+                                member.apply_damage(random.randint(10, 25), True)
+                        self.text_log.add_message("Cannon fire strikes thy party!")
+                    else:
+                        self.text_log.add_message("The cannonball splashes down!")
+                return
 
     def _trigger_combat(self, creature_name: str, creature: dict[str, Any] | None = None) -> None:
         """Initiate tactical combat screen with creature.
@@ -1641,10 +1933,14 @@ class OverworldScreen(BaseScreen):
                 "y": int(m.get("y", 0)),
             }
             if tile_name == "whirlpool":
-                # Fixtures are restored with the non-engaging fixture
-                # behavior (never move, never attack) that free-seeded
-                # whirlpools carry.
+                # Fixture whirlpools carry the wontattack flag for saves
+                # without a creatures.xml-backed asset manager: they never
+                # attack, only random-walk over water (BaseMap.java:564-565).
                 creature["wontattack"] = True
+            # Java rebuilds monsters fresh on load: a pirate's sailDir is the
+            # Creature.java:63 default EAST (not persisted by saveGame).
+            if tile_name == "pirate":
+                creature["sail_dir"] = "EAST"
             if m.get("hp") is not None:
                 creature["hp"] = int(m["hp"])
             self.creatures.append(creature)
