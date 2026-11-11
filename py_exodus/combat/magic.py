@@ -129,14 +129,16 @@ DIRECTIONAL_SPELLS = {
     Spell.MENTAR,
     Spell.DECORP,
     Spell.EXCUUN,
-    # Java requires a direction prompt for APPAR_UNEM although the value is
-    # then ignored (SpellUtil.java:40-50, SpellInputProcessor.java:52-59).
     Spell.APPAR_UNEM,
 }
 
 # The spells whose Java effect branch is a directional bolt
-# (SpellUtil.spellMagicAttack).
-_PROJECTILE_SPELLS = DIRECTIONAL_SPELLS - {Spell.APPAR_UNEM}
+# (SpellUtil.spellMagicAttack). APPAR_UNEM's effect reads the caster's own
+# tile (SpellUtil.java:140-148) — the direction value is never used. Java
+# still PROMPTS for it (SpellInputProcessor.java:52-61), but
+# USER RULING 2026-11-11: the port drops that prompt — APPAR_UNEM casts
+# without ever asking for a direction.
+_PROJECTILE_SPELLS = {Spell.MITTAR, Spell.FULGAR, Spell.MENTAR, Spell.DECORP, Spell.EXCUUN}
 
 # Java spells whose effect branches never call finishPlayerTurn — the caster
 # acts again — plus the effect-less REPLACE ME / default cases (SpellUtil.java
@@ -276,12 +278,14 @@ def cast_spell(
         )
 
     # Direction for the cast: Java validates the direction requirement before
-    # the mana check (SpellUtil.java:40-57).
+    # the mana check (SpellUtil.java:40-57). APPAR_UNEM is exempt per
+    # USER RULING 2026-11-11 — Java's own effect ignores the value
+    # (SpellUtil.java:140-148), so the prompt (and its requirement) is gone.
     dir_val: Direction | None = None
     if target_dir is not None:
         dir_val = target_dir if isinstance(target_dir, Direction) else Direction.from_name_or_key(target_dir)
 
-    if resolved_spell in DIRECTIONAL_SPELLS and dir_val is None:
+    if resolved_spell in _PROJECTILE_SPELLS and dir_val is None:
         return SpellResult(
             success=False,
             message="Thou must indicate a direction to cast the spell!",
@@ -641,9 +645,17 @@ def _apply_spell_effect(
     # Chest Disarm (APPAR_UNEM)
     if spell == Spell.APPAR_UNEM:
         # Java SpellUtil.java:140-148 — GameScreen/DungeonScreen.getChest at
-        # the caster's own tile with disarmed=true; the prompted direction is
-        # ignored. Gold and the "The Chest Holds: N Gold" log come from the
-        # shared chests pipeline (world/chests.py, Task 1).
+        # the caster's own tile with disarmed=true; Java prompts a direction
+        # but ignores its value (USER RULING 2026-11-11: no prompt at all).
+        # Gold and the "The Chest Holds: N Gold" log come from the shared
+        # chests pipeline (world/chests.py, Task 1).
+        #
+        # Screen split is Java truth: DungeonScreen.getChest
+        # (DungeonScreen.java:1224-1252) scans ONLY the dungeon level's chest
+        # tiles at (x, y, z), while GameScreen.getChest (GameScreen.java:
+        # 1036-1074) scans the current map's chest objects at (x, y) and then
+        # falls back to the chest tile rule. So a dungeon cast must not touch
+        # the (stale) overworld party.x/y coordinates.
         from py_exodus.world.chests import ChestNotFound, open_chest, take_chest_object
         from py_exodus.world.map import DungeonTile
 
@@ -656,31 +668,27 @@ def _apply_spell_effect(
 
         is_dungeon = world_map is not None and hasattr(world_map, "dmap") and hasattr(world_map, "z")
 
-        # 1. Chest object at the party's tile (Java getChest drawables scan)
-        if party is not None and hasattr(party, "dynamic_objects"):
-            try:
-                take_chest_object(party, px, py)
-                lines.extend(open_chest(party, member, dungeon=is_dungeon, disarmed=True))
+        if is_dungeon:
+            # DungeonScreen.getChest: the party's own dungeon tile only.
+            dx = getattr(world_map, "x", px)
+            dy = getattr(world_map, "y", py)
+            if world_map.dmap.get_tile(dx, dy, world_map.z) == DungeonTile.CHEST:
+                world_map.dmap.set_tile(dx, dy, world_map.z, DungeonTile.NOTHING)
+                lines.extend(open_chest(party, member, dungeon=True, disarmed=True))
                 opened = True
-            except ChestNotFound:
-                pass
-
-        # 2. Chest tile at the party's position (GameScreen.getChest tile
-        #    fallback) — dungeon chest tiles are cleared for the shared path.
-        if not opened and world_map is not None:
-            if hasattr(world_map, "dmap") and hasattr(world_map, "z"):
-                tile = world_map.dmap.get_tile(
-                    getattr(world_map, "x", px), getattr(world_map, "y", py),
-                    world_map.z,
-                )
-                if tile == DungeonTile.CHEST:
-                    world_map.dmap.set_tile(
-                        getattr(world_map, "x", px), getattr(world_map, "y", py),
-                        world_map.z, DungeonTile.NOTHING,
-                    )
-                    lines.extend(open_chest(party, member, dungeon=True, disarmed=True))
+        else:
+            # GameScreen.getChest: chest object exactly at the party's tile.
+            if party is not None and hasattr(party, "dynamic_objects"):
+                try:
+                    take_chest_object(party, px, py)
+                    lines.extend(open_chest(party, member, dungeon=False, disarmed=True))
                     opened = True
-            elif hasattr(world_map, "get_tile") and hasattr(world_map, "set_tile"):
+                except ChestNotFound:
+                    pass
+
+            # ... then the chest tile rule under the party (GameScreen.java
+            # 1052-1059: replaceTile("floor") before the gold log).
+            if not opened and world_map is not None and hasattr(world_map, "get_tile") and hasattr(world_map, "set_tile"):
                 tile = world_map.get_tile(px, py)
                 if tile is not None and (
                     getattr(tile, "name", "") == "chest"
@@ -1025,7 +1033,8 @@ def prompt_cast_party(
     2. If profession has multiple disciplines (Druid, Ranger): Spell Type? [W]izard or [C]leric
     3. [Wizard/Cleric] Spell? (A-P)
     4. Directional spells prompt "Direction?" (Java SpellInputProcessor.java
-       :52-59; the direction value is ignored where the spell needs none)
+       :52-59; the direction value is ignored where the spell needs none).
+       APPAR_UNEM is exempt — USER RULING 2026-11-11: no direction prompt.
     5. If targeted restorative spell: On who? (1-4)
     6. Execute via cast_spell(...); VIEDA invokes ``view_callback`` and a
        dungeon-exiting spell invokes ``exit_callback``.
@@ -1101,7 +1110,7 @@ def prompt_cast_party(
                         _dispatch(target_m)
 
                     text_log.prompt("On who? (1-4):", callback=_on_target, single_char=True)
-                elif found_spell in DIRECTIONAL_SPELLS:
+                elif found_spell in _PROJECTILE_SPELLS:
                     text_log.add_message("Direction?")
 
                     def _on_dir(d_str: str) -> None:

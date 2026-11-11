@@ -315,8 +315,14 @@ class DungeonCamera:
         *,
         dng: DungeonMap | None = None,
         wall_color: tuple[int, int, int] | None = None,
+        creatures: list | None = None,
     ) -> None:
-        """Project first-person perspective dungeon corridors onto surface."""
+        """Project first-person perspective dungeon corridors onto surface.
+
+        ``creatures`` carries the wandering monsters loose on level z (Java
+        renders each dungeon creature as a 3D mesh at its live position,
+        DungeonScreen.creatureModels / moveDungeonCreatures draw order).
+        """
         active_map = dmap or dng
         if active_map is None:
             raise ValueError("DungeonMap instance required (pass dmap or dng).")
@@ -553,6 +559,79 @@ class DungeonCamera:
 
             tile = active_map.get_tile(cur_x, cur_y, z)
             self._render_fixture(surface, tile, s, cx, cy, focal)
+
+        # Render the wandering creatures at their live positions (Java's
+        # creature meshes stand on their tile, so the same tile-centre
+        # perspective applies). Back to front so nearer monsters paint over.
+        for s in range(min(stop_depth - 1, max_depth), 0, -1):
+            for wc in creatures or []:
+                if getattr(wc, "level", z) != z:
+                    continue
+                # Camera-local offset, wrapped the short way the dungeon wraps
+                # (Java Utils.getRelativeDirection, wrap only).
+                dcol = (wc.x - x) % active_map.width
+                drow = (wc.y - y) % active_map.height
+                if dcol > active_map.width // 2:
+                    dcol -= active_map.width
+                if drow > active_map.height // 2:
+                    drow -= active_map.height
+                depth = dcol * fwd[0] + drow * fwd[1]
+                lateral = dcol * right[0] + drow * right[1]
+                if depth != s or abs(depth) != depth:
+                    continue
+                # Occlusion: the eye sees a creature only if everything
+                # between its tile and the corridor centre line at its depth
+                # is open (wall blocks side corridors the same way it blocks
+                # the floor).
+                if lateral == int(lateral) and all(
+                    not self._is_solid(
+                        tile_at((1 if lateral > 0 else -1) * k, s)
+                    )
+                    for k in range(0, abs(int(lateral)) + 1)
+                ):
+                    self._render_creature(
+                        surface, cx, cy, focal, int(lateral), s
+                    )
+
+    def _render_creature(
+        self,
+        surface: pygame.Surface,
+        ccx: float,
+        ccy: float,
+        focal: float,
+        lateral: int,
+        depth: int,
+    ) -> None:
+        """Draw a wandering monster's silhouette on its tile centre.
+
+        The figure keeps the wireframe conventions of the fixture renderer:
+        the box is the tile's projected cross-section at the column centre
+        (stepped convention: column s spans z [s, s+1]), so a monster one
+        step away fills a far bigger screen region than one two steps out.
+        """
+        d = depth + 0.5
+        half = self._half_extent(focal, d)
+        fxc = ccx + lateral * focal / d
+        top = ccy - (0.62 - self.EYE) * focal / d
+        bottom = ccy - (0.0 - self.EYE) * focal / d
+        w = max(3, int(half * 0.8))
+        # body
+        pygame.draw.rect(
+            surface, COLOR_YELLOW,
+            (int(fxc - w // 2), int(top), w, int(bottom - top)), 1,
+        )
+        # shoulders
+        pygame.draw.line(
+            surface, COLOR_YELLOW,
+            (fxc - w // 2, int(top + (bottom - top) * 0.25)),
+            (fxc + w // 2, int(top + (bottom - top) * 0.25)), 1,
+        )
+        # head
+        head_r = max(2, w // 4)
+        pygame.draw.circle(
+            surface, COLOR_YELLOW,
+            (int(fxc), int(top) - head_r), head_r, 1,
+        )
 
     def _front_door_detail(
         self,

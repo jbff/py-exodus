@@ -269,6 +269,14 @@ class DungeonScreen(BaseScreen):
                 self.audio.play_sfx("magic")
             elif evt.type == DungeonEventType.CHEST:
                 self.audio.play_sfx("trigger")
+            # Java checkTileAffects' own Sounds.play calls, keyed by the same
+            # event types (DungeonScreen.java:1080-1097): WIND, BOOM, GIGGLE.
+            elif evt.type == DungeonEventType.WIND_TRAP:
+                self.audio.play_sfx("tornado")
+            elif evt.type == DungeonEventType.PIT_TRAP:
+                self.audio.play_sfx("boom")
+            elif evt.type == DungeonEventType.GREMLINS:
+                self.audio.play_sfx("giggle")
 
         if evt.type == DungeonEventType.EXIT_DUNGEON:
             # Java spellXit (SpellUtil.java:501-509) logs "Leaving <label>!";
@@ -551,6 +559,7 @@ class DungeonScreen(BaseScreen):
                 z=self.state.z,
                 dir=self.state.dir,
                 torch_lit=torch_lit,
+                creatures=self.state.wandering_creatures,
             )
 
             font = get_hud_font(size=10)
@@ -586,6 +595,7 @@ class DungeonScreen(BaseScreen):
                 z=self.state.z,
                 dir=self.state.dir,
                 torch_lit=torch_lit,
+                creatures=self.state.wandering_creatures,
             )
 
             font = get_hud_font(size=10)

@@ -11,12 +11,15 @@ from py_exodus.world.dungeon import (
     DungeonCamera,
     DungeonEventType,
     DungeonState,
+    WanderingCreature,
     get_relative_offsets,
     turn_left_dir,
     turn_right_dir,
 )
+from py_exodus.entities.defs import CreatureDef
 from py_exodus.world.loader import MapLoader
 from py_exodus.world.map import DungeonMap, DungeonTile
+from py_exodus.screens.dungeon_screen import DungeonScreen
 
 
 @pytest.fixture
@@ -73,6 +76,94 @@ def test_dungeon_wireframe_render(asset_mgr, perinian_dmap):
     cam = DungeonCamera()
     cam.render_wireframe(surf, perinian_dmap, state.x, state.y, state.z, state.dir)
     assert surf.get_at((88, 88)) is not None
+
+
+# --- Dungeon creatures in the 3D view (Java DungeonScreen renders the
+# wandering-creature meshes approaching the party) ---
+
+
+def _wc(level=0):
+    return WanderingCreature(
+        CreatureDef(id=10, name="Orc", tile="orc", basehp=30, level=level),
+        5, 4, 0,
+    )
+
+
+def _creature_pixels(surf):
+    """Bounding box (x0, y0, x1, y1) of the monster's drawn pixels in the
+    central viewport, or None when it did not render."""
+    yellowish = []
+    for px in range(0, 176):
+        for py in range(0, 176):
+            col = surf.get_at((px, py))[:3]
+            if col == (255, 255, 85):
+                yellowish.append((px, py))
+    if not yellowish:
+        return None
+    xs = [p[0] for p in yellowish]
+    ys = [p[1] for p in yellowish]
+    return (min(xs), min(ys), max(xs), max(ys))
+
+
+def test_creature_renders_in_3d_view(empty_dmap):
+    pygame.init()
+    surf = pygame.Surface((176, 176))
+    cam = DungeonCamera()
+    cam.render_wireframe(
+        surf, empty_dmap, 5, 5, 0, Direction.NORTH, torch_lit=True,
+        creatures=[_wc()],
+    )
+    box = _creature_pixels(surf)
+    assert box is not None, "creature one tile ahead did not render in the 3D view"
+    # A monster one tile ahead stands in the center of the corridor.
+    assert box[0] < 88 < box[2]
+
+
+def test_creature_absent_from_3d_view_without_argument(empty_dmap):
+    """No creatures argument — no creature pixels (view unchanged, so the
+    geometry-lock baselines and conventions hold)."""
+    pygame.init()
+    surf = pygame.Surface((176, 176))
+    cam = DungeonCamera()
+    cam.render_wireframe(surf, empty_dmap, 5, 5, 0, Direction.NORTH, torch_lit=True)
+    assert _creature_pixels(surf) is None
+
+
+def test_creature_farther_is_smaller_and_high(empty_dmap):
+    """A monster two tiles ahead must be visibly smaller than one one tile
+    ahead (depth-scaled like the wall geometry), so the party reads distance."""
+    pygame.init()
+    cam = DungeonCamera()
+    sizes = []
+    for wy in (4, 3):
+        surf = pygame.Surface((176, 176))
+        wc = _wc()
+        wc.y = wy
+        cam.render_wireframe(
+            surf, empty_dmap, 5, 5, 0, Direction.NORTH, torch_lit=True,
+            creatures=[wc],
+        )
+        box = _creature_pixels(surf)
+        assert box is not None, f"creature at distance {5 - wy} did not render"
+        sizes.append((box[2] - box[0]) * (box[3] - box[1]))
+    assert sizes[0] > sizes[1], "creature two tiles ahead not visibly smaller"
+
+
+def test_creature_off_axis_positions_with_facing(empty_dmap):
+    """A monster one tile ahead in the party's right-hand opening renders on
+    the correct screen side (Java places the mesh at the world position)."""
+    pygame.init()
+    cam = DungeonCamera()
+    surf = pygame.Surface((176, 176))
+    wc = _wc()
+    wc.x = 6  # one right of the party facing NORTH
+    cam.render_wireframe(
+        surf, empty_dmap, 5, 5, 0, Direction.NORTH, torch_lit=True,
+        creatures=[wc],
+    )
+    box = _creature_pixels(surf)
+    assert box is not None, "side monster did not render"
+    assert box[0] > 88, "a monster to the east must appear in the right half"
 
 
 def test_dungeon_wireframe_all_directions(empty_dmap):
@@ -472,6 +563,43 @@ def test_misty_writings_and_time_lord(empty_dmap):
     ev_tl = state.move_forward()
     assert ev_tl.type == DungeonEventType.MESSAGE
     assert "Time Lord" in ev_tl.message
+
+
+class _AudioSpy:
+    def __init__(self):
+        self.played = []
+
+    def play_sfx(self, name, volume=None):
+        self.played.append(name)
+        return True
+
+
+@pytest.mark.parametrize(
+    "tile, expected_sfx",
+    [
+        (DungeonTile.WIND_TRAP, "tornado"),  # Java Sounds.play(Sound.WIND)
+        (DungeonTile.PIT_TRAP, "boom"),  # Sound.BOOM
+        (DungeonTile.GREMLINS, "giggle"),  # Sound.GIGGLE
+    ],
+)
+def test_walkover_trap_sounds_play(empty_dmap, test_party, tile, expected_sfx):
+    """Java checkTileAffects (DungeonScreen.java:1080-1097) plays WIND / BOOM
+    / GIGGLE as the trap fires; the port played the walk-over specials
+    silently — the user heard and saw nothing on stepping onto the tile."""
+    pygame.init()
+    dmap = empty_dmap
+    dmap.set_tile(5, 4, 0, tile)
+    audio = _AudioSpy()
+    screen = DungeonScreen(
+        party=test_party,
+        dungeon_map=dmap,
+        audio=audio,
+        start_x=5,
+        start_y=5,
+        start_z=0,
+    )
+    screen.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_UP))
+    assert expected_sfx in audio.played
 
 
 def test_door_rendering_and_traversal(empty_dmap):

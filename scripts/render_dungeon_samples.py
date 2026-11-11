@@ -20,6 +20,7 @@ from py_exodus.assets import AssetManager  # noqa: E402
 from py_exodus.constants import Direction  # noqa: E402
 from py_exodus.world.dungeon import DungeonCamera  # noqa: E402
 from py_exodus.world.loader import MapLoader  # noqa: E402
+from py_exodus.world.map import DungeonTile  # noqa: E402
 
 DEFAULT_OUT = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -66,6 +67,45 @@ def main() -> None:
         cam.render_wireframe(surf, dmap, wx, 7, 0, Direction.EAST, torch_lit=True)
         surf = pygame.transform.scale(surf, (580, 580))
         pygame.image.save(surf, os.path.join(out, f"walk1_{i}.png"))
+
+    # wandering monsters in the view, from (8,3) facing EAST — perinian L1
+    # row 3 is a long open corridor with an opening at (9,4): one monster
+    # one tile ahead, one two ahead (visibly smaller), one through the
+    # side opening at (9,4) (perinian.ult bytes; see the tile map dump).
+    from py_exodus.entities.defs import CreatureDef  # noqa: E402
+    from py_exodus.world.dungeon import WanderingCreature  # noqa: E402
+
+    def _monster(tx, ty):
+        return WanderingCreature(
+            CreatureDef(id=10, name="Orc", tile="orc", basehp=30), tx, ty, 0
+        )
+
+    for name, cr in (
+        ("monster_1_ahead", _monster(9, 3)),
+        ("monster_2_ahead", _monster(10, 3)),
+        ("monster_off_axis", _monster(9, 4)),
+    ):
+        surf = pygame.Surface((176, 176))
+        cam.render_wireframe(
+            surf, dmap, 8, 3, 0, Direction.EAST, torch_lit=True, creatures=[cr]
+        )
+        surf = pygame.transform.scale(surf, (580, 580))
+        pygame.image.save(surf, os.path.join(out, f"{name}.png"))
+
+    # The "cross/altar thing": Java draws no altar mesh and the dungeon data
+    # holds no altar tiles at all (byte 0x01 is the Time Lord, byte 0x00 the
+    # open floor; ALTAR's enum value collides with NOTHING so it can never be
+    # produced by either the data or the maps.xml labels). The plus-shaped
+    # sparkle the playtest read as a cross is the Mark pedestal — MARK lives
+    # at byte 0x05 and the level-1 label turns (15,11) into a MARK_KINGS.
+    # Sample that: the party facing the pedestal from two tiles away.
+    surf = pygame.Surface((176, 176))
+    dmap.set_tile(15, 10, 0, DungeonTile.NOTHING)  # keep the corridor clear
+    cam.render_wireframe(
+        surf, dmap, 15, 9, 0, Direction.SOUTH, torch_lit=True
+    )
+    surf = pygame.transform.scale(surf, (580, 580))
+    pygame.image.save(surf, os.path.join(out, "mark_pedestal_SOUTH.png"))
 
     print("samples:", out)
 

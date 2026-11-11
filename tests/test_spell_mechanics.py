@@ -1,6 +1,8 @@
 """Tests for APPAR_UNEM chest pipeline (Java GameScreen.getChest
 / DungeonScreen.getChest with disarmed=true) and the dungeon spells
 (Java SpellUtil.spellYup/spellZdown/spellLibRec/spellXit)."""
+import re
+
 import pytest
 from py_exodus.assets import AssetManager
 from py_exodus.constants import Direction, Profession, Race, Spell, Status, Transport
@@ -29,17 +31,23 @@ def cleric_party():
     return party
 
 
-# --- APPAR_UNEM requires a direction (Java SpellUtil.java:40-50) ---
+# --- APPAR_UNEM takes NO direction (USER RULING 2026-11-11) ---
+# Java prompts a direction (SpellInputProcessor.java:52-61) and then ignores
+# it — the chest effect reads the player's tile (SpellUtil.java:140-148).
+# The ruling removes the prompt entirely. Without a direction the cast
+# proceeds to the chest logic (mana still spent, Java SpellUtil.java:57).
 
-def test_appar_unem_requires_direction(cleric_party):
+def test_appar_unem_no_direction_proceeds_to_chest_logic(cleric_party):
     res = cast_spell(
         spell=Spell.APPAR_UNEM,
         caster=cleric_party.members[0],
         party=cleric_party,
     )
     assert not res.success
-    assert "indicate a direction" in res.message
-    assert cleric_party.members[0].mp == 50
+    assert "Not Here!" in res.message
+    # Java deducts mana before the getChest effect, so an empty-handed cast
+    # still spends it (SpellUtil.java:57 precedes the effect dispatch).
+    assert cleric_party.members[0].mp == 45
 
 
 def test_appar_unem_overworld_dynamic_chest(cleric_party):
@@ -130,6 +138,90 @@ def test_appar_unem_dungeon_chest(cleric_party):
     assert cleric_party.gold > initial_gold
     assert cleric_party.members[0].hp == initial_hp
     assert dmap.get_tile(2, 2, 0) == DungeonTile.NOTHING
+
+
+def test_appar_unem_dungeon_never_opens_the_overworld_chest(cleric_party):
+    """DungeonScreen.getChest (DungeonScreen.java:1224-1252) scans ONLY the
+    dungeon level's chest tiles at (x, y) — Java never reads the main-game
+    chest drawables from inside a dungeon. A stale overworld chest object at
+    (party.x, party.y) must not be opened by a dungeon cast."""
+    state = DungeonState(
+        DungeonMap(id=99, name="TestDungeon", width=16, height=16, levels=8),
+        start_x=2, start_y=2, start_z=0, party=cleric_party,
+    )
+    # The party keeps a chest object at its (stale) overworld tile.
+    cleric_party.dynamic_objects.append({"tile": "chest", "x": 10, "y": 10})
+
+    before_gold = cleric_party.gold
+    res = cast_spell(
+        spell=Spell.APPAR_UNEM,
+        caster=cleric_party.members[0],
+        party=cleric_party,
+        world_map=state,
+    )
+
+    assert not res.success
+    assert "Not Here!" in res.message
+    assert cleric_party.gold == before_gold
+    # The overworld chest object survives the dungeon cast untouched.
+    assert len(cleric_party.dynamic_objects) == 1
+
+
+def test_appar_unem_dungeon_chest_opens_exactly_once(cleric_party):
+    """Chest cleared exactly once and gold credited exactly once; the second
+    cast on the same (now cleared) tile says "Not Here!" (DungeonScreen.getChest
+    removes the model and sets the tile to NOTHING before any later cast)."""
+    dmap = DungeonMap(id=99, name="TestDungeon", width=16, height=16, levels=8)
+    dmap.tiles = [
+        [[DungeonTile.NOTHING for _ in range(16)] for _ in range(16)] for _ in range(8)
+    ]
+    state = DungeonState(dmap, start_x=2, start_y=2, start_z=0, party=cleric_party)
+    dmap.set_tile(2, 2, 0, DungeonTile.CHEST)
+
+    res = cast_spell(
+        spell=Spell.APPAR_UNEM,
+        caster=cleric_party.members[0],
+        party=cleric_party,
+        world_map=state,
+    )
+    assert res.success
+    gold_after_first = cleric_party.gold
+    m = re.search(r"Chest Holds: (\d+) Gold", res.message)
+    assert m is not None
+    assert 10 <= int(m.group(1)) < 70
+
+    res2 = cast_spell(
+        spell=Spell.APPAR_UNEM,
+        caster=cleric_party.members[1],
+        party=cleric_party,
+        world_map=state,
+    )
+    assert not res2.success
+    assert "Not Here!" in res2.message
+    assert cleric_party.gold == gold_after_first
+
+
+def test_appar_unem_dungeon_opens_nothing_at_a_neighbouring_chest(cleric_party):
+    """Java reads the caster's own tile only — a chest one tile ahead is NOT
+    opened by APPAR_UNEM (SpellUtil.java:142-147 casts at currentPos)."""
+    dmap = DungeonMap(id=99, name="TestDungeon", width=16, height=16, levels=8)
+    dmap.tiles = [
+        [[DungeonTile.NOTHING for _ in range(16)] for _ in range(16)] for _ in range(8)
+    ]
+    state = DungeonState(dmap, start_x=2, start_y=2, start_z=0, party=cleric_party)
+    dmap.set_tile(2, 1, 0, DungeonTile.CHEST)  # one tile north of the party
+
+    before_gold = cleric_party.gold
+    res = cast_spell(
+        spell=Spell.APPAR_UNEM,
+        caster=cleric_party.members[0],
+        party=cleric_party,
+        world_map=state,
+    )
+    assert not res.success
+    assert "Not Here!" in res.message
+    assert cleric_party.gold == before_gold
+    assert dmap.get_tile(2, 1, 0) == DungeonTile.CHEST
 
 
 # --- Free combat spell limits (unchanged rule, re-verified) ---

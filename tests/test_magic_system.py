@@ -624,6 +624,33 @@ def test_appar_unem_disarms_and_gets_chest():
     assert "Not Here!" in res2.message
 
 
+def test_appar_unem_prompt_flow_never_asks_direction():
+    """USER RULING 2026-11-11: APPAR_UNEM gets no direction prompt. Java asks
+    "Direction?" then ignores the answer (SpellInputProcessor.java:52-61) —
+    the ruling removes the prompt, so selecting the spell dispatches straight
+    to the caster's-tile chest effect (SpellUtil.java:140-148)."""
+    from py_exodus.combat.magic import prompt_cast_party
+    from py_exodus.ui.text_log import TextLog
+
+    party = Party(x=10, y=10, gold=100)
+    cleric = Character("Bishop", "M", Race.BOBIT, Profession.CLERIC, wisdom=50, mp=50)
+    party.add_member(cleric)
+    party.dynamic_objects.append({"tile": "chest", "x": 10, "y": 10})
+
+    log = TextLog()
+    prompt_cast_party(log, party)
+    log.handle_char("1")  # member 1
+    log.handle_char("B")  # APPAR_UNEM
+
+    # The flow completed without any further prompt — no Direction? step.
+    assert not log.is_waiting_for_input
+    all_log = "\n".join(str(line) for line in log.history)
+    assert "Direction?" not in all_log
+    assert "The Chest Holds" in all_log
+    assert party.gold > 100
+    assert len(party.dynamic_objects) == 0
+
+
 # --- Task 11: exact Java spell-table rows (audit Part 1) ---
 
 def test_sanctu_heals_java_range():
