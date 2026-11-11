@@ -160,6 +160,46 @@ class TestAdjacencyEngagement:
         assert combat_trigger == []
 
 
+class TestFaithfulBreak:
+    """BaseMap.java:532-533 / 553-557 — the loop BREAKS at the first
+    engagement: creatures after the engaging one get no movement tick and
+    are not silently deleted that tick."""
+
+    def test_farther_creature_unticked_and_survives(self, ow, sample_party, combat_trigger, asset_mgr):
+        # Ensure the farther orc's whole lane is walker-friendly (the real
+        # map has water at (18..19, 10)).
+        land = asset_mgr.get_tile_by_name("grass")
+        for x in (13, 14):
+            ow.game_map.set_tile(x, 10, land)
+        ow.creatures = [
+            {"tile_name": "orc", "tile": "orc", "x": 11, "y": 10},  # adjacent: engages
+            {"tile_name": "orc", "tile": "orc", "x": 14, "y": 10},  # would march west
+        ]
+        ow._update_creatures()
+        assert [c[0] for c in combat_trigger] == ["orc"]
+        assert len(combat_trigger) == 1
+        farther = [c for c in ow.creatures if c["x"] == 14]
+        assert len(farther) == 1  # present, un-deleted
+        assert farther[0]["y"] == 10 and farther[0]["x"] == 14  # no movement tick
+
+        # Next tick (engaged creature gone) the farther one finally marches.
+        ow._update_creatures()
+        assert [c for c in ow.creatures if c["tile_name"] == "orc"][0]["x"] == 13
+
+    def test_two_adjacent_engage_same_tick_only_first_battles(
+        self, ow, sample_party, combat_trigger
+    ):
+        ow.creatures = [
+            {"tile_name": "orc", "tile": "orc", "x": 9, "y": 10},
+            {"tile_name": "orc", "tile": "orc", "x": 11, "y": 10},
+        ]
+        ow._update_creatures()
+        assert [c[0] for c in combat_trigger] == ["orc"]
+        assert len(combat_trigger) == 1
+        # The second creature was never processed: still at (11, 10).
+        assert (11, 10) in [(c["x"], c["y"]) for c in ow.creatures]
+
+
 class TestPirateBroadsides:
     """BaseMap.java:511-538 — the pirate block: cannon fire at range 2-3 on a
     broadsides heading, the 1-in-2 misaligned turn, and the adjacent rules."""
@@ -413,8 +453,12 @@ class TestFrigateBoarding:
     can board it."""
 
     def test_foot_avatar_walks_onto_frigate_water_tile(
-        self, ow_real_move, sample_party
+        self, ow_real_move, sample_party, asset_mgr
     ):
+        # Java truth for the dropped frigate: it sits on WATER (a pirate
+        # battle is a sea battle), so this exercises the real hasShipObjectAt
+        # gate on an unwalkable tile.
+        ow_real_move.game_map.set_tile(10, 11, water_tile(asset_mgr))
         frig = {"tile": "frigate", "x": 10, "y": 11}
         sample_party.dynamic_objects.append(frig)
         key_move(ow_real_move, Direction.SOUTH)
@@ -427,7 +471,8 @@ class TestFrigateBoarding:
         key_move(ow_real_move, Direction.SOUTH)
         assert (sample_party.x, sample_party.y) == (10, 10)
 
-    def test_walk_onto_then_board(self, ow_real_move, sample_party):
+    def test_walk_onto_then_board(self, ow_real_move, sample_party, asset_mgr):
+        ow_real_move.game_map.set_tile(10, 11, water_tile(asset_mgr))
         sample_party.ship_hull = 10
         frig = {"tile": "frigate", "x": 10, "y": 11}
         sample_party.dynamic_objects.append(frig)

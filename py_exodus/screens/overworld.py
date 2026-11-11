@@ -130,7 +130,10 @@ def get_relative_direction_mask(
         return f
 
     from_x = _shortest(from_x, to_x, width)
-    from_y = _shortest(from_y, to_y, width)  # Java quirk: width, not height
+    # Java quirk (Utils.java:371-376 / 328-332): the Y wrap compares against
+    # width-sized shifts but shifts by height — identical outcomes on square
+    # maps, so this port compares and shifts with width for both axes.
+    from_y = _shortest(from_y, to_y, width)
 
     dirmask = 0
     dx = from_x - to_x
@@ -160,7 +163,9 @@ def movement_distance(
         return f
 
     from_x = _shortest(from_x, to_x, width)
-    from_y = _shortest(from_y, to_y, width)  # Java quirk: width, not height
+    # Java quirk (Utils.java:328-332): compares against width, shifts by
+    # height — equal outcomes on square maps; width is used for both here.
+    from_y = _shortest(from_y, to_y, width)
 
     dirmask = get_relative_direction_mask(width, height, to_x, to_y, from_x, from_y)
 
@@ -1356,6 +1361,9 @@ class OverworldScreen(BaseScreen):
         ``moveObjects`` is skipped entirely (``GameScreen.java:728-731``), so
         no engulf happens while time is quick.
         """
+        # deferred (review minors): this scan uses Chebyshev distance while
+        # Java's engulf branch sits behind movementDistance (Utils.java:314-357)
+        # — the two agree at distance <= 1.
         if self.game_map is None:
             return
         if self.party.aura.get_type() == AuraType.QUICKNESS:
@@ -1611,9 +1619,10 @@ class OverworldScreen(BaseScreen):
 
         survivors: list[dict[str, Any]] = []
         encounter_creature: dict[str, Any] | None = None
-        stop_after_combat = False
+        engaged = False
+        snapshot = list(self.creatures)
 
-        for c in list(self.creatures):
+        for i, c in enumerate(snapshot):
             tile_name = str(c.get("tile_name", ""))
             cx, cy = c["x"], c["y"]
 
@@ -1631,7 +1640,10 @@ class OverworldScreen(BaseScreen):
             if dist > MAX_CREATURE_DISTANCE and tile_name != "whirlpool":
                 continue
 
-            # 2. Pirate broadsides (BaseMap.java:511-538).
+            # 2. Pirate broadsides (BaseMap.java:511-538). Java gates on the
+            # tile alone; the wontattack conjunction here is a documented
+            # # deferred: mirror-strict port would run the broadsides block
+            # even for a wontattack pirate.
             if tile_name == "pirate" and not wontattack:
                 rel = get_relative_direction_mask(
                     width, height, self.party.x, self.party.y, cx, cy
@@ -1648,6 +1660,10 @@ class OverworldScreen(BaseScreen):
                 if rel > 0 and dist in (2, 3) and rel & broad:
                     # Aligned broadside: enemy cannons fire; the pirate
                     # forfeits movement this tick (Java 525 continue).
+                    # # deferred (review minors): Java also removes an
+                    # unmanned frigate whose hull reaches 0 in the volley
+                    # (animateCannonFire, Utils.java:509-514), and the trace
+                    # clamps at map edges differently.
                     fire_dir = direction_by_mask(rel)
                     if fire_dir is not None:
                         self._enemy_fire_cannons(c, fire_dir)
@@ -1659,20 +1675,24 @@ class OverworldScreen(BaseScreen):
                     continue
                 if dist <= 1:
                     if rel & broad:
-                        if encounter_creature is None:
-                            encounter_creature = c
-                        stop_after_combat = True  # Java 533 break
-                        continue
+                        encounter_creature = c
+                        # Java 533 attackAt + break — the engaged creature is
+                        # gone and every LATER creature keeps its exact state
+                        # this tick (no movement, no despawn check).
+                        self.creatures = survivors + snapshot[i + 1:]
+                        engaged = True
+                        break
                     c["sail_dir"] = go_broadsides(broad)
                     survivors.append(c)
-                    continue
+                    continue  # Java 536 turn, tick consumed
 
             # 3. Other creatures: engage at distance <= 1 (BaseMap.java:540-558).
             elif dist <= 1 and not wontattack:
-                if encounter_creature is None:
-                    encounter_creature = c
-                stop_after_combat = True  # Java 557 break
-                continue
+                encounter_creature = c
+                # Java 557 attackAt + break — see above.
+                self.creatures = survivors + snapshot[i + 1:]
+                engaged = True
+                break
 
             # 4. Movement inside the valid-moves mask (BaseMap.java:562-608).
             mask = self._creature_valid_moves_mask(c, cr_def, wontattack)
@@ -1706,33 +1726,26 @@ class OverworldScreen(BaseScreen):
                 c["x"] = max(0, min(width - 1, c["x"]))
                 c["y"] = max(0, min(height - 1, c["y"]))
 
-            # Stepping onto the party's tile engages (Java's post-move check).
-            if c["x"] == self.party.x and c["y"] == self.party.y and not wontattack:
-                if encounter_creature is None:
-                    encounter_creature = c
-                stop_after_combat = True
-                continue
-
             survivors.append(c)
 
-        self.creatures = survivors
+        if not engaged:
+            self.creatures = survivors
 
         if encounter_creature is not None:
             self._trigger_combat(
                 encounter_creature.get("tile_name", "orc"), encounter_creature
             )
-            if stop_after_combat:
-                # Java's attackAt break: no creature left in self.creatures
-                # is processed further — the survivors list already holds the
-                # rest, which is exactly what Java's iterator-break leaves.
-                return
 
     def _creature_valid_moves_mask(self, c: dict[str, Any], cr_def, wontattack: bool) -> int:
         """Java ``objects/BaseMap.java:637-698`` ``getValidMovesMask`` for a
         creature: each direction passes ``canCreatureMoveOn`` (rule-based
         sailable/swimmable/unwalkable gating), never steps onto the avatar's
         tile unless the creature can move onto the avatar, and never onto a
-        tile another creature occupies (``hasBlockingCreatureAt``)."""
+        tile another creature occupies (``hasBlockingCreatureAt``).
+        """
+        # deferred (review minors): Java's mask also excludes tiles held by
+        # map people (hasBlockingPersonAt, BaseMap.java:746-760) — the
+        # Sosaria creature map carries no people, so this is inert here.
         mask = 0
         if self.game_map is None or cr_def is None:
             return mask
@@ -1780,6 +1793,10 @@ class OverworldScreen(BaseScreen):
         if self.audio is not None:
             self.audio.play_sfx("cannon") or self.audio.play_sfx("enemy_magic_proj")
         self.text_log.add_message("The pirate ship fires its broadside!")
+        # deferred (review minors): the port matches frigate objects by the
+        # "frigate"|"ship" superset where Java matches the ship-rule tile
+        # (Utils.java:538), and Java's animateCannonFire (509-514) removes an
+        # unmanned frigate whose hull reaches 0 during the volley.
 
         sx, sy = pirate["x"], pirate["y"]
         for distance in range(1, 5):

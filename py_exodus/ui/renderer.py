@@ -73,6 +73,8 @@ def can_move_to(
         # tile holding a frigate object is enterable on foot, so the exact
         # -tile board (GameScreen.board) can be reached on the dropped
         # post-battle frigate.
+        # deferred (review minors): the port matches the "frigate"|"ship"
+        # superset where Java matches the ship-rule tile (BaseMap.java:788).
         if not tile.walkable:
             if party is not None and any(
                 str(obj.get("tile", "")).lower() in ("frigate", "ship")
