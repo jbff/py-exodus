@@ -10,7 +10,7 @@ A faithful Python 3 / Pygame-CE reimplementation of *Ultima III: Exodus*, ported
 - **Java LibGDX Reference**: Created by [Paul Antinori](https://github.com/pantinor) ([pantinor/gdx-exodus](https://github.com/pantinor/gdx-exodus)).
 - **Python Port**: A complete, self-contained Python reimplementation built on top of [Pygame-CE](https://pyga.me/) (Python 3.10+; developed and tested through 3.14).
 
-This project uses the original asset definitions, tile atlases, sound effects, binary `.ult` world maps, and XML data (`maps.xml`, `vendor.xml`, `creatures.xml`) from the Java LibGDX implementation, translating all game logic, formulas, tactical combat, and dungeon mechanics into modern Python. Game behavior is maintained at parity with the Java implementation: formulas, dice, thresholds, message strings, and even a few of the Java version's own quirks are ported as-is.
+This project uses the original asset definitions, tile atlases, sound effects, JSON world maps (converted from the binary `.ult` originals), and XML data (`maps.xml`, `vendor.xml`, `creatures.xml`) from the Java LibGDX implementation, translating all game logic, formulas, tactical combat, and dungeon mechanics into modern Python. Game behavior is maintained at parity with the Java implementation: formulas, dice, thresholds, message strings, and even a few of the Java version's own quirks are ported as-is.
 
 ---
 
@@ -129,7 +129,7 @@ All tests should pass; the count is printed at the end of the run.
 2. **Audio parity**: SFX/music play via Pygame-CE's mixer; only the poison/fire field sound cues (Java's `Sound.POISON_EFFECT`/`Sound.FIREFIELD` on field effect application) remain unwired to their triggers.
 3. **Controller/gamepad support**: keyboard only today; gamepad mapping is planned.
 4. **Deliberate divergences from the Java port** (kept for playability): prompt-engine conveniences (ESC cancels, arrow keys commit); text instead of artwork for a few reference visualizations. The starter/quick-start party was removed (2026-11-09 user ruling) — new players create characters in the party-formation screen, as in Java. Q-save is disabled in dungeons (2026-11-10 user ruling) — Java's dungeon screen offers it, Sosaria overland only here. APPAR_UNEM casts with no direction prompt (2026-11-11 user ruling) — Java asks "Direction?" and then ignores the answer (SpellInputProcessor.java:52-61), so the port asks nothing and opens the chest on the caster's own tile.
-5. **Not yet at parity**: Java's binary `party.sav` interop (saves are JSON; legacy binary roster import is read-only), combat-round move counting/hull repair during ship combat, and a small set of message-priority strings where the reference is silent — tracked for a future pass.
+5. **Not yet at parity**: combat-round move counting/hull repair during ship combat, and a small set of message-priority strings where the reference is silent — tracked for a future pass. Saves and rosters are JSON-only (the legacy binary roster import was removed along with all binary asset loading).
 
 ---
 

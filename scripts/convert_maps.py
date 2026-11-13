@@ -12,7 +12,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
 
@@ -20,7 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 
-def convert_maps(force: bool = False) -> int:
+def convert_maps() -> int:
     """Regenerate assets/maps/*.json — historical mode.
 
     The JSON map assets are committed and the runtime loads them; the binary
@@ -78,7 +77,7 @@ def main() -> int:
 
     if args.roster:
         return convert_roster(force=args.force)
-    return convert_maps(force=args.force)
+    return convert_maps()
 
 
 if __name__ == "__main__":
