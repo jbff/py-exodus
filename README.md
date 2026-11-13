@@ -10,7 +10,7 @@ A faithful Python 3 / Pygame-CE reimplementation of *Ultima III: Exodus*, ported
 - **Java LibGDX Reference**: Created by [Paul Antinori](https://github.com/pantinor) ([pantinor/gdx-exodus](https://github.com/pantinor/gdx-exodus)).
 - **Python Port**: A complete, self-contained Python reimplementation built on top of [Pygame-CE](https://pyga.me/) (Python 3.10+; developed and tested through 3.14).
 
-This project uses the original asset definitions, tile atlases, sound effects, JSON world maps (converted from the binary `.ult` originals), and XML data (`maps.xml`, `vendor.xml`, `creatures.xml`) from the Java LibGDX implementation, translating all game logic, formulas, tactical combat, and dungeon mechanics into modern Python. Game behavior is maintained at parity with the Java implementation: formulas, dice, thresholds, message strings, and even a few of the Java version's own quirks are ported as-is.
+This project uses the original asset definitions, tile atlases, sound effects, JSON world maps and character roster (converted from the binary `.ult` originals), and XML data (`maps.xml`, `vendor.xml`, `creatures.xml`) from the Java LibGDX implementation, translating all game logic, formulas, tactical combat, and dungeon mechanics into modern Python. Game behavior is maintained at parity with the Java implementation: formulas, dice, thresholds, message strings, and even a few of the Java version's own quirks are ported as-is.
 
 ---
 
@@ -43,30 +43,32 @@ Explore Sosaria (and Ambrosia) on foot, horseback, or by frigate; visit towns an
 
 ---
 
-## Installation & Requirements
+## Installation
 
-### Prerequisites
-- Python 3.10+ (developed through 3.14)
-- [Pygame-CE](https://pyga.me/) >= 2.5.0
+The project is managed by [uv](https://docs.astral.sh/uv/) with a committed `uv.lock`:
 
-### Setup
 ```bash
 # Clone the repository
 git clone https://github.com/jbff/py-exodus.git
 cd py-exodus
 
-# Install dependencies
-pip install -r requirements.txt  # or: pip install pygame-ce pytest
+# Create .venv and install the locked dependencies
+uv sync
+
+# Launch
+uv run exodus          # (or: uv run py-exodus)
 ```
+
+Alternative without uv (Python 3.10+; developed through 3.14):
+```bash
+pip install pygame-ce sounddevice soundfile
+python3 -m py_exodus
+```
+Dependencies: [Pygame-CE](https://pyga.me/) >= 2.5.0 (rendering/audio), plus `sounddevice`/`soundfile` for music streaming.
 
 ---
 
 ## How to Play
-
-Launch the game directly:
-```bash
-python3 -m py_exodus
-```
 
 ### Controls
 
@@ -111,9 +113,9 @@ All 26 letter commands match the reference implementation, including per-context
 The project has an extensive test suite covering asset loading, celestial routing, combat arena and parity dice, command semantics, chests, death flow, dungeon mechanics and specials, the endgame, magic, party/save state, tile effects, the turn tick, vendors, ships, and rendering:
 
 ```bash
-pytest
+uv run python -m pytest        # (or: pytest, from any env that has the deps)
 ```
-All tests should pass; the count is printed at the end of the run.
+All tests should pass; the count is printed at the end of the run (778 as of 2026-11-13, including the asset load-graph guard).
 
 ---
 
@@ -132,7 +134,7 @@ All tests should pass; the count is printed at the end of the run.
 3. **Controller/gamepad support**: keyboard only today; gamepad mapping is planned.
 4. **Deliberate divergences from the Java port** (kept for playability): prompt-engine conveniences (ESC cancels, arrow keys commit); text instead of artwork for a few reference visualizations. The starter/quick-start party was removed (2026-11-09 user ruling) — new players create characters in the party-formation screen, as in Java. Q-save is disabled in dungeons (2026-11-10 user ruling) — Java's dungeon screen offers it, Sosaria overland only here. APPAR_UNEM casts with no direction prompt (2026-11-11 user ruling) — Java asks "Direction?" and then ignores the answer (SpellInputProcessor.java:52-61), so the port asks nothing and opens the chest on the caster's own tile.
 5. **Not yet at parity**: combat-round move counting/hull repair during ship combat, and a small set of message-priority strings where the reference is silent — tracked for a future pass. Saves and rosters are JSON-only (the legacy binary roster import was removed along with all binary asset loading).
-6. **Post asset-conversion follow-ups (2026-11-13)**: `scripts/convert_maps.py` `convert_roster` still names the deleted `SaveSystem.load_binary_roster` — unreachable (its input `roster.ult` is gone) but would `AttributeError` if that input ever reappeared; `scripts/transcode_music.py` is inert by design (no `.mid` inputs — kept as the provenance record for regenerating the `.ogg` soundtrack); `tests/test_asset_load_graph.py` could pin the fonts, `demon.png`, `splash_border.png`, and `roster.json` directly (today their absence degrades silently); `assets/xml/sound.xml` is a Java-parity def the port does not read.
+6. **Post asset-conversion follow-ups (2026-11-13)**: `scripts/transcode_music.py` is inert by design (no `.mid` inputs — kept as the provenance record for regenerating the `.ogg` soundtrack); `tests/test_asset_load_graph.py` could pin the fonts, `demon.png`, `splash_border.png`, and `roster.json` directly (today their absence degrades silently); `assets/xml/sound.xml` is a Java-parity def the port does not read.
 
 ---
 
