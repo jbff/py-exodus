@@ -4,15 +4,18 @@ from __future__ import annotations
 import struct
 from pathlib import Path
 
-from py_exodus.assets import COMBAT_MAPS, MAP_ID_TO_NAME, MAP_NAME_TO_ID, AssetManager, TileDef
-from py_exodus.constants import MapType
+from py_exodus.assets import COMBAT_MAPS, MAP_NAME_TO_ID, AssetManager
 from py_exodus.entities.defs import MapDef
 from py_exodus.world.map import (
     ConflictMap,
     DungeonMap,
-    DungeonTile,
     GameMap,
-    MapNpc,
+)
+from py_exodus.world.map_build import (
+    build_conflict_map,
+    build_dungeon_map,
+    build_grid_map,
+    build_shrine_map,
 )
 
 
@@ -74,180 +77,15 @@ class MapLoader:
             raise FileNotFoundError(f"Map file not found: {file_path}")
 
         data = file_path.read_bytes()
-        width = m_def.width
-        height = m_def.height
-        num_tiles = width * height
+        num_tiles = m_def.width * m_def.height
         if len(data) < num_tiles:
             raise ValueError(
                 f"Map file {m_def.fname} has {len(data)} bytes, expected at least {num_tiles}"
             )
 
-        raw_bytes = struct.unpack(f"{num_tiles}B", data[:num_tiles])
-        tiles: list[TileDef] = []
-        for b in raw_bytes:
-            tile_idx = b // 4
-            tile = self.asset_mgr.tile_defs.get(tile_idx)
-            if tile is None:
-                tile = self.asset_mgr.tile_defs.get(36)
-            tiles.append(tile)
-
-        # Replace tile 46 (character 'I') with locked_door when surrounded by non-signs
-        locked_door = self.asset_mgr.get_tile_by_name("locked_door")
-        if locked_door is not None:
-            for y in range(height):
-                for x in range(width):
-                    idx = y * width + x
-                    tile = tiles[idx]
-                    if tile and tile.index == 46:
-                        left = tiles[idx - 1] if x > 0 else None
-                        right = tiles[idx + 1] if x < width - 1 else None
-                        if (
-                            left is not None
-                            and left.rule != "signs"
-                            and right is not None
-                            and right.rule != "signs"
-                        ):
-                            tiles[idx] = locked_door
-
-        # Ambrosia locked doors (map ID 13)
-        if m_def.id == 13 and locked_door is not None:
-            for ox in (34, 35, 36):
-                idx = 5 * width + ox
-                if idx < len(tiles):
-                    tiles[idx] = locked_door
-
-        # Reset moongate tile to grass on Sosaria (map ID 0)
-        if m_def.id == 0:
-            grass = self.asset_mgr.tile_defs.get(1)
-            if grass is not None:
-                tiles[29 * width + 15] = grass
-
-        # City NPCs (32 characters placed at 0x1180, 0x11A0, 0x11C0, 0x11E0, 0x1200)
-        npcs: list[MapNpc] = []
-        if m_def.map_type.lower() == "city" and len(data) >= 0x1200:
-            npc_tiles = struct.unpack("32B", data[0x1180:0x11A0])
-            underlying_tiles = struct.unpack("32B", data[0x11A0:0x11C0])
-            npc_xs = struct.unpack("32B", data[0x11C0:0x11E0])
-            npc_ys = struct.unpack("32B", data[0x11E0:0x1200])
-            npc_ctrl = (
-                struct.unpack("32B", data[0x1200:0x1220])
-                if len(data) >= 0x1220
-                else (0,) * 32
-            )
-
-            # Extract 8 conversation texts from 0x1000
-            texts: list[str] = []
-            if len(data) >= 0x1010:
-                text_offsets: list[int] = []
-                for t_i in range(8):
-                    pos = 0x1000 + t_i * 2
-                    off = (data[pos] & 0xFF) + 0x1000
-                    text_offsets.append(off)
-
-                for os in text_offsets:
-                    if 0 <= os < len(data):
-                        end = data.find(b"\x00", os)
-                        if end == -1:
-                            end = min(os + 64, len(data))
-                        raw_str = data[os:end].decode("ascii", errors="replace")
-                        clean_str = (
-                            raw_str.replace("<", "")
-                            .replace(">", "")
-                            .replace("\r", " ")
-                            .replace("\n", " ")
-                            .strip()
-                        )
-                        texts.append(clean_str)
-                    else:
-                        texts.append("")
-
-            # Vendors defined for this map
-            vendors = (
-                self.asset_mgr.get_vendors_for_map(m_def.id)
-                if self.asset_mgr is not None
-                else []
-            )
-
-            for i in range(32):
-                t_idx = npc_tiles[i] // 4
-                t_def = self.asset_mgr.tile_defs.get(t_idx) or self.asset_mgr.tile_defs.get(36)
-                t_name = t_def.name if t_def else ""
-                nx = npc_xs[i]
-                ny = npc_ys[i]
-
-                ctrl = npc_ctrl[i]
-                dialog_id = ctrl & 0x0F
-                m = (ctrl >> 4) & 0x0F
-                movement = "FIXED"
-                if m == 4:
-                    movement = "WANDER"
-                elif m == 8:
-                    movement = "FOLLOW_AVATAR"
-                elif m == 12:
-                    movement = "ATTACK_AVATAR"
-
-                conv = None
-                if 1 <= dialog_id <= 8 and (dialog_id - 1) < len(texts):
-                    t_val = texts[dialog_id - 1]
-                    if t_val:
-                        conv = t_val
-
-                # Match vendor by starting position
-                matched_vendor = None
-                for v in vendors:
-                    if v.start_x == nx and v.start_y == ny:
-                        matched_vendor = v
-                        break
-
-                # Skip empty / null person objects (e.g. 0, 0 water)
-                if nx == 0 and ny == 0 and (t_name == "water" or t_idx == 0):
-                    continue
-
-                npcs.append(
-                    MapNpc(
-                        tile_index=t_idx,
-                        tile_name=t_name,
-                        x=nx,
-                        y=ny,
-                        start_x=nx,
-                        start_y=ny,
-                        tile_def=t_def,
-                        dialog_id=dialog_id,
-                        movement=movement,
-                        conversation=conv,
-                        vendor=matched_vendor,
-                    )
-                )
-
-                # Replace tile on the map grid with the underlying floor tile
-                under_idx = underlying_tiles[i] // 4
-                under_tile = self.asset_mgr.tile_defs.get(under_idx) or self.asset_mgr.tile_defs.get(36)
-                if under_tile is not None and 0 <= nx < width and 0 <= ny < height:
-                    tiles[ny * width + nx] = under_tile
-
-        map_type = (
-            MapType(m_def.map_type.lower())
-            if m_def.map_type.lower() in MapType._value2member_map_
-            else MapType.WORLD
-        )
-
-        return GameMap(
-            id=m_def.id,
-            name=MAP_ID_TO_NAME.get(m_def.id, m_def.fname),
-            fname=m_def.fname,
-            map_type=map_type,
-            width=width,
-            height=height,
-            levels=m_def.levels,
-            border_behavior=m_def.border_behavior,
-            music=m_def.music,
-            no_line_of_sight=m_def.no_line_of_sight,
-            tiles=tiles,
-            npcs=npcs,
-            portals=list(m_def.portals),
-            moongates=list(m_def.moongates),
-            labels=list(m_def.labels),
-        )
+        map_struct = decode_grid_bytes(data, m_def.width, m_def.height)
+        map_struct["source"] = m_def.fname
+        return build_grid_map(m_def, map_struct, self.asset_mgr)
 
     def load_conflict_map(
         self, fname_or_id: str | int, m_def: MapDef | None = None
@@ -279,41 +117,9 @@ class MapLoader:
                 f"Invalid conflict map file {fname}: expected at least 176 bytes, found {len(data)}"
             )
 
-        raw_tiles = struct.unpack("121B", data[:121])
-        tiles: list[TileDef] = []
-        for b in raw_tiles:
-            tile = self.asset_mgr.tile_defs.get(b)
-            if tile is None:
-                tile = self.asset_mgr.tile_defs.get(36)
-            tiles.append(tile)
-
-        monster_xs = struct.unpack("8B", data[0x80:0x88])
-        monster_ys = struct.unpack("8B", data[0x88:0x90])
-        monster_starts = list(zip(monster_xs, monster_ys))
-
-        player_xs = struct.unpack("4B", data[0xA0:0xA4])
-        player_ys = struct.unpack("4B", data[0xA4:0xA8])
-        player_starts = list(zip(player_xs, player_ys))
-
-        map_id = m_def.id if m_def else 33
-        name = MAP_ID_TO_NAME.get(map_id, fname)
-        music = m_def.music if m_def else "COMBAT"
-
-        return ConflictMap(
-            id=map_id,
-            name=name,
-            fname=fname,
-            map_type=MapType.COMBAT,
-            width=11,
-            height=11,
-            levels=1,
-            border_behavior="fixed",
-            music=music,
-            no_line_of_sight=True,
-            tiles=tiles,
-            monster_starts=monster_starts,
-            player_starts=player_starts,
-        )
+        map_struct = decode_conflict_bytes(data)
+        map_struct["source"] = fname
+        return build_conflict_map(m_def, map_struct, self.asset_mgr)
 
     def load_dungeon_map(
         self, fname_or_id: str | int, m_def: MapDef | None = None
@@ -342,68 +148,9 @@ class MapLoader:
                 f"Invalid dungeon map file {fname}: expected at least 2048 bytes, found {len(data)}"
             )
 
-        raw_tiles = struct.unpack(f"{16 * 16 * 8}B", data[:2048])
-        tiles: list[list[list[DungeonTile]]] = []
-        pos = 0
-        for z in range(8):
-            level_grid: list[list[DungeonTile]] = []
-            for y in range(16):
-                row: list[DungeonTile] = []
-                for x in range(16):
-                    byte_val = raw_tiles[pos]
-                    pos += 1
-                    tile = DungeonTile.get_tile_by_value(byte_val)
-                    row.append(tile)
-                level_grid.append(row)
-            tiles.append(level_grid)
-
-        # Apply labels from maps.xml definitions (marks, special fountains, etc.)
-        labels = list(m_def.labels) if m_def else []
-        for label in labels:
-            override = DungeonTile.from_name(label.name)
-            if override and 0 <= label.z < 8 and 0 <= label.y < 16 and 0 <= label.x < 16:
-                tiles[label.z][label.y][label.x] = override
-
-        # Extract 8 level text messages from 0x800
-        level_texts: list[str] = []
-        if len(data) >= 0x810:
-            text_offsets = struct.unpack("<8H", data[0x800:0x810])
-            for off in text_offsets:
-                start = 0x800 + off
-                end = data.find(b"\x00", start)
-                if end == -1:
-                    end = min(start + 64, len(data))
-                raw_text = data[start:end].decode("utf-8", errors="replace")
-                cleaned = (
-                    raw_text.strip()
-                    .replace("<", "")
-                    .replace(">", "")
-                    .replace("\r", " ")
-                    .replace("\n", " ")
-                    .strip()
-                )
-                level_texts.append(cleaned)
-        else:
-            level_texts = [""] * 8
-
-        map_id = m_def.id if m_def else 14
-        name = MAP_ID_TO_NAME.get(map_id, fname)
-        music = m_def.music if m_def else "DUNGEON"
-
-        return DungeonMap(
-            id=map_id,
-            name=name,
-            fname=fname,
-            map_type=MapType.DUNGEON,
-            width=16,
-            height=16,
-            levels=8,
-            border_behavior="exit",
-            music=music,
-            level_texts=level_texts,
-            labels=labels,
-            tiles=tiles,
-        )
+        map_struct = decode_dungeon_bytes(data)
+        map_struct["source"] = fname
+        return build_dungeon_map(m_def, map_struct, self.asset_mgr)
 
     def load_shrine_map(
         self, fname_or_id: str | int = "shrine.con", m_def: MapDef | None = None
@@ -432,43 +179,156 @@ class MapLoader:
                 f"Invalid shrine map file {fname}: expected at least 121 bytes, found {len(data)}"
             )
 
-        raw_tiles = struct.unpack("121B", data[:121])
-        tiles: list[TileDef] = []
-        for b in raw_tiles:
-            idx = b
-            if idx == 4:
-                idx = 1
-            elif idx in (55, 57):
-                idx = 102
-            elif idx == 61:
-                idx = 101
-            elif idx == 31:
-                idx = 103
-            tile = self.asset_mgr.tile_defs.get(idx)
-            if tile is None:
-                tile = self.asset_mgr.tile_defs.get(36)
-            tiles.append(tile)
+        map_struct = decode_shrine_bytes(data)
+        map_struct["source"] = fname
+        return build_shrine_map(m_def, map_struct, self.asset_mgr)
 
-        map_id = m_def.id if m_def else 55
-        name = MAP_ID_TO_NAME.get(map_id, "SHRINE")
-        music = m_def.music if m_def else "ALIVE"
 
-        return GameMap(
-            id=map_id,
-            name=name,
-            fname=fname,
-            map_type=MapType.SHRINE,
-            width=11,
-            height=11,
-            levels=1,
-            border_behavior="fixed",
-            music=music,
-            no_line_of_sight=False,
-            tiles=tiles,
-            portals=list(m_def.portals) if m_def else [],
-            moongates=list(m_def.moongates) if m_def else [],
-            labels=list(m_def.labels) if m_def else [],
+def decode_grid_bytes(data: bytes, width: int, height: int) -> dict:
+    """Decode a grid .ult file into a pure struct (tiles are indices = byte // 4)."""
+    num_tiles = width * height
+    raw_bytes = struct.unpack(f"{num_tiles}B", data[:num_tiles])
+    tiles: list[list[int]] = [
+        list(raw_bytes[y * width:(y + 1) * width]) for y in range(height)
+    ]
+    # b // 4 on each raw tile byte
+    tiles = [[b // 4 for b in row] for row in tiles]
+
+    # City NPCs (32 characters placed at 0x1180, 0x11A0, 0x11C0, 0x11E0, 0x1200);
+    # all 32 raw slots, never filtered by the runtime null-slot skip rule
+    npcs: list[dict] = []
+    if len(data) >= 0x1200:
+        npc_tiles = struct.unpack("32B", data[0x1180:0x11A0])
+        underlying_tiles = struct.unpack("32B", data[0x11A0:0x11C0])
+        npc_xs = struct.unpack("32B", data[0x11C0:0x11E0])
+        npc_ys = struct.unpack("32B", data[0x11E0:0x1200])
+        npc_ctrl = (
+            struct.unpack("32B", data[0x1200:0x1220])
+            if len(data) >= 0x1220
+            else (0,) * 32
         )
+        for i in range(32):
+            npcs.append(
+                {
+                    "tile": npc_tiles[i] // 4,
+                    "underlying": underlying_tiles[i] // 4,
+                    "x": npc_xs[i],
+                    "y": npc_ys[i],
+                    "ctrl": npc_ctrl[i],
+                }
+            )
+
+    # Extract 8 conversation texts from 0x1000
+    texts: list[str] = []
+    if len(data) >= 0x1010:
+        text_offsets: list[int] = []
+        for t_i in range(8):
+            pos = 0x1000 + t_i * 2
+            off = (data[pos] & 0xFF) + 0x1000
+            text_offsets.append(off)
+
+        for os in text_offsets:
+            if 0 <= os < len(data):
+                end = data.find(b"\x00", os)
+                if end == -1:
+                    end = min(os + 64, len(data))
+                raw_str = data[os:end].decode("ascii", errors="replace")
+                clean_str = (
+                    raw_str.replace("<", "")
+                    .replace(">", "")
+                    .replace("\r", " ")
+                    .replace("\n", " ")
+                    .strip()
+                )
+                texts.append(clean_str)
+            else:
+                texts.append("")
+
+    return {
+        "width": width,
+        "height": height,
+        "tiles": tiles,
+        "npcs": npcs,
+        "conversations": texts,
+    }
+
+
+def decode_conflict_bytes(data: bytes) -> dict:
+    """Decode a conflict .ult file into a pure struct (tiles are raw byte values)."""
+    raw_tiles = struct.unpack("121B", data[:121])
+    tiles: list[list[int]] = [
+        list(raw_tiles[k * 11:(k + 1) * 11]) for k in range(11)
+    ]
+
+    monster_xs = struct.unpack("8B", data[0x80:0x88])
+    monster_ys = struct.unpack("8B", data[0x88:0x90])
+    monster_starts = [list(ms) for ms in zip(monster_xs, monster_ys)]
+
+    player_xs = struct.unpack("4B", data[0xA0:0xA4])
+    player_ys = struct.unpack("4B", data[0xA4:0xA8])
+    player_starts = [list(ps) for ps in zip(player_xs, player_ys)]
+
+    return {
+        "tiles": tiles,
+        "monster_starts": monster_starts,
+        "player_starts": player_starts,
+    }
+
+
+def decode_dungeon_bytes(data: bytes) -> dict:
+    """Decode a dungeon .ult file into a pure struct (tiles are raw dungeon-tile byte values)."""
+    raw_tiles = struct.unpack(f"{16 * 16 * 8}B", data[:2048])
+    tiles: list[list[list[int]]] = []
+    pos = 0
+    for z in range(8):
+        level_grid: list[list[int]] = []
+        for y in range(16):
+            row: list[int] = []
+            for x in range(16):
+                byte_val = raw_tiles[pos]
+                pos += 1
+                row.append(byte_val)
+            level_grid.append(row)
+        tiles.append(level_grid)
+
+    # Extract 8 level text messages from 0x800
+    level_texts: list[str] = []
+    if len(data) >= 0x810:
+        text_offsets = struct.unpack("<8H", data[0x800:0x810])
+        for off in text_offsets:
+            start = 0x800 + off
+            end = data.find(b"\x00", start)
+            if end == -1:
+                end = min(start + 64, len(data))
+            raw_text = data[start:end].decode("utf-8", errors="replace")
+            cleaned = (
+                raw_text.strip()
+                .replace("<", "")
+                .replace(">", "")
+                .replace("\r", " ")
+                .replace("\n", " ")
+                .strip()
+            )
+            level_texts.append(cleaned)
+    else:
+        level_texts = [""] * 8
+
+    return {
+        "tiles": tiles,
+        "level_texts": level_texts,
+    }
+
+
+def decode_shrine_bytes(data: bytes) -> dict:
+    """Decode a shrine .con file into a pure struct (tiles are raw .con byte values)."""
+    raw_tiles = struct.unpack("121B", data[:121])
+    tiles: list[list[int]] = [
+        list(raw_tiles[k * 11:(k + 1) * 11]) for k in range(11)
+    ]
+
+    return {
+        "tiles": tiles,
+    }
 
 
 def load_map(map_id: int, asset_mgr: AssetManager) -> GameMap | DungeonMap:
