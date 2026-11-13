@@ -6,7 +6,7 @@ A faithful Python 3 / Pygame-CE reimplementation of *Ultima III: Exodus*, ported
 
 ## Provenance & Attribution
 
-- **Original Game**: *Ultima III: Exodus* (1983) by Richard Garriott / Origin Systems.
+- **Original Game**: [*Ultima III: Exodus*](https://wiki.ultimacodex.com/wiki/Ultima_III:_Exodus) (1983) by Richard Garriott / Origin Systems (Codexpedia page linked).
 - **Java LibGDX Reference**: Created by [Paul Antinori](https://github.com/pantinor) ([pantinor/gdx-exodus](https://github.com/pantinor/gdx-exodus)).
 - **Python Port**: A complete, self-contained Python reimplementation built on top of [Pygame-CE](https://pyga.me/) (Python 3.10+; developed and tested through 3.14).
 
