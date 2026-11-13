@@ -153,7 +153,7 @@ def test_victory_fanfare_routes_through_music_stream(
     from py_exodus.world.loader import MapLoader
 
     loader = MapLoader(asset_mgr)
-    c_map = loader.load_conflict_map("CNFLCT_G.ULT")
+    c_map = loader.load_conflict_map("cnflct_g.json")
 
     sm = StateMachine(asset_mgr)
     audio = AudioManager(sound_dir="src/main/resources/assets/sound", enabled=True)

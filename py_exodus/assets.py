@@ -25,15 +25,15 @@ from py_exodus.entities.defs import (
 
 # Combat Map ID and Filename mappings (matching classic Ultima III conflict arenas)
 COMBAT_MAPS: dict[int, str] = {
-    33: "CNFLCT_A.ULT",  # CONFLICT_SHIP_TOP
-    34: "CNFLCT_B.ULT",  # CONFLICT_GRASS_BRUSH
-    35: "CNFLCT_C.ULT",  # CONFLICT_BRICK_FLOOR
-    36: "CNFLCT_F.ULT",  # CONFLICT_GRASS_FOREST
-    37: "CNFLCT_G.ULT",  # CONFLICT_GRASS
-    38: "CNFLCT_M.ULT",  # CONFLICT_SHORE
-    39: "CNFLCT_Q.ULT",  # CONFLICT_SHIP
-    40: "CNFLCT_R.ULT",  # CONFLICT_SHIP_BOTTOM
-    41: "CNFLCT_S.ULT",  # CONFLICT_BOTH_SHIPS
+    33: "cnflct_a.json",  # CONFLICT_SHIP_TOP
+    34: "cnflct_b.json",  # CONFLICT_GRASS_BRUSH
+    35: "cnflct_c.json",  # CONFLICT_BRICK_FLOOR
+    36: "cnflct_f.json",  # CONFLICT_GRASS_FOREST
+    37: "cnflct_g.json",  # CONFLICT_GRASS
+    38: "cnflct_m.json",  # CONFLICT_SHORE
+    39: "cnflct_q.json",  # CONFLICT_SHIP
+    40: "cnflct_r.json",  # CONFLICT_SHIP_BOTTOM
+    41: "cnflct_s.json",  # CONFLICT_BOTH_SHIPS
 }
 
 # Maps enum name to integer map ID (matching classic Ultima III and maps.xml)
@@ -206,7 +206,7 @@ class TileDef:
     opaque: bool = False
     attribs: TileAttrib = TileAttrib.NONE
     combat_map_id: int = 37
-    combat_map_fname: str = "CNFLCT_G.ULT"
+    combat_map_fname: str = "cnflct_g.json"
 
     @property
     def combat_map(self) -> int:
@@ -502,7 +502,7 @@ class AssetManager:
 
             # Derive combat map association
             combat_map_id = TILE_COMBAT_MAP_IDS.get(name.lower(), 37)
-            combat_map_fname = COMBAT_MAPS.get(combat_map_id, "CNFLCT_G.ULT")
+            combat_map_fname = COMBAT_MAPS.get(combat_map_id, "cnflct_g.json")
 
             tile_def = TileDef(
                 index=index,
@@ -896,10 +896,15 @@ class AssetManager:
         if isinstance(id_or_name, str) and id_or_name.isdigit():
             return self.map_defs.get(int(id_or_name))
         query = str(id_or_name).strip().lower()
+        query_stem = Path(query).stem.lower()
         if query.upper() in MAP_NAME_TO_ID:
             return self.map_defs.get(MAP_NAME_TO_ID[query.upper()])
         for m in self.map_defs.values():
-            if m.fname.lower() == query or Path(m.fname).stem.lower() == query:
+            fname_stem = Path(m.fname).stem.lower()
+            if (
+                m.fname.lower() == query
+                or (query_stem and fname_stem == query_stem)
+            ):
                 return m
         return None
 

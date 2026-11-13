@@ -602,7 +602,7 @@ def test_combat_screen_turns_and_actions(pygame_setup, asset_mgr, sample_party):
     from py_exodus.world.loader import MapLoader
 
     loader = MapLoader(asset_mgr)
-    c_map = loader.load_conflict_map("CNFLCT_G.ULT")
+    c_map = loader.load_conflict_map("cnflct_g.json")
 
     sm = StateMachine(asset_mgr)
     combat = CombatScreen(
@@ -630,7 +630,7 @@ def test_combat_screen_attack_key_and_directional_strike(pygame_setup, asset_mgr
     from py_exodus.world.loader import MapLoader
 
     loader = MapLoader(asset_mgr)
-    c_map = loader.load_conflict_map("CNFLCT_G.ULT")
+    c_map = loader.load_conflict_map("cnflct_g.json")
 
     sm = StateMachine(asset_mgr)
     combat = CombatScreen(
@@ -661,7 +661,7 @@ def test_combat_screen_render(pygame_setup, asset_mgr, sample_party):
     from py_exodus.world.loader import MapLoader
 
     loader = MapLoader(asset_mgr)
-    c_map = loader.load_conflict_map("CNFLCT_G.ULT")
+    c_map = loader.load_conflict_map("cnflct_g.json")
 
     combat = CombatScreen(
         party=sample_party,
@@ -819,7 +819,7 @@ def test_combat_screen_defeat_routes_to_game_over(pygame_setup, asset_mgr, sampl
     from py_exodus.world.loader import MapLoader
 
     loader = MapLoader(asset_mgr)
-    c_map = loader.load_conflict_map("CNFLCT_B.ULT")
+    c_map = loader.load_conflict_map("cnflct_b.json")
     before_map_id = sample_party.map_id
 
     combat = CombatScreen(
@@ -855,7 +855,7 @@ def test_combat_screen_defeat_via_state_machine_transitions_to_game_over(pygame_
 
     sm = StateMachine(asset_mgr)
     loader = MapLoader(asset_mgr)
-    c_map = loader.load_conflict_map("CNFLCT_B.ULT")
+    c_map = loader.load_conflict_map("cnflct_b.json")
 
     # Start with overworld screen
     ow = OverworldScreen(party=sample_party, map_id=0, asset_mgr=asset_mgr, manager=sm)
@@ -1439,7 +1439,7 @@ def test_combat_screen_mittar_visual_projectile(pygame_setup, asset_mgr, sample_
     from py_exodus.constants import Spell
     from py_exodus.world.loader import MapLoader
     loader = MapLoader(asset_mgr)
-    c_map = loader.load_conflict_map("CNFLCT_A.ULT")
+    c_map = loader.load_conflict_map("cnflct_a.json")
 
     # Ensure member 0 has MP and can cast wizard spells
     m = sample_party.members[0]
@@ -1477,7 +1477,7 @@ def test_combat_screen_zero_mp_casting(pygame_setup, asset_mgr, sample_party):
     """Verify in combat screen that 0 MP allows casting 0-cost Spell A and prompts correctly."""
     from py_exodus.world.loader import MapLoader
     loader = MapLoader(asset_mgr)
-    c_map = loader.load_conflict_map("CNFLCT_A.ULT")
+    c_map = loader.load_conflict_map("cnflct_a.json")
 
     m = sample_party.members[0]
     m.profession = Profession.WIZARD

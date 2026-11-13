@@ -34,7 +34,7 @@ def asset_mgr():
 @pytest.fixture
 def conflict_map(asset_mgr):
     loader = MapLoader(asset_mgr)
-    return loader.load_conflict_map("CNFLCT_A.ULT")
+    return loader.load_conflict_map("cnflct_a.json")
 
 
 def test_heal_spell():

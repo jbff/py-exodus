@@ -678,7 +678,7 @@ def test_combat_screen_notifies_return_screen(asset_mgr, open_dmap, test_party):
     from py_exodus.world.loader import MapLoader
 
     loader = MapLoader(asset_mgr)
-    c_map = loader.load_conflict_map("CNFLCT_B.ULT")
+    c_map = loader.load_conflict_map("cnflct_b.json")
     calls = []
 
     class Recorder:

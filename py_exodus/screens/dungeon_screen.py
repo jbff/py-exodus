@@ -78,7 +78,7 @@ class DungeonScreen(BaseScreen):
             from py_exodus.world.map import DungeonMap
 
             self.dungeon_map = DungeonMap(
-                width=16, height=16, levels=8, name="Dungeon", fname="perinian.ult"
+                width=16, height=16, levels=8, name="Dungeon", fname="perinian.json"
             )
 
         self.state = DungeonState(
@@ -416,7 +416,7 @@ class DungeonScreen(BaseScreen):
 
             loader = MapLoader(self.asset_mgr)
             # Brick floor combat map (map ID 35)
-            c_map = loader.load_conflict_map("CNFLCT_B.ULT")
+            c_map = loader.load_conflict_map("cnflct_b.json")
             combat_scr = CombatScreen(
                 party=self.party,
                 combat_map=c_map,

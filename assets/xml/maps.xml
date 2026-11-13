@@ -1,6 +1,6 @@
 <maps>
     
-    <map id="0" type="world" fname="sosaria.ult" width="64" height="64" levels="1" borderbehavior="wrap" music="OUTSIDE">
+    <map id="0" type="world" fname="sosaria.json" width="64" height="64" levels="1" borderbehavior="wrap" music="OUTSIDE">
         <portal x="45" y="18" destmapid="1" startx="32" starty="61" />
         <portal x="10" y="53" destmapid="2" startx="32" starty="62" />
         <portal x="46" y="19" destmapid="3" startx="2" starty="32" />
@@ -35,31 +35,31 @@
         <label name="EXOTIC_WEAPON" x="134" y="14" />
 
     </map>
-    <map id="1" type="city" fname="british.ult" width="64" height="64" levels="1" borderbehavior="exit" music="FANFARE">
+    <map id="1" type="city" fname="british.json" width="64" height="64" levels="1" borderbehavior="exit" music="FANFARE">
     </map>
-    <map id="2" type="city" fname="exodus.ult" width="64" height="64" levels="1" borderbehavior="exit" music="EXODUS">
+    <map id="2" type="city" fname="exodus.json" width="64" height="64" levels="1" borderbehavior="exit" music="EXODUS">
     </map>
-    <map id="3" type="city" fname="lcb.ult" width="64" height="64" levels="1" borderbehavior="exit" music="TOWNS">
+    <map id="3" type="city" fname="lcb.json" width="64" height="64" levels="1" borderbehavior="exit" music="TOWNS">
     </map>
-    <map id="4" type="city" fname="yew.ult" width="64" height="64" levels="1" borderbehavior="exit" music="TOWNS">
+    <map id="4" type="city" fname="yew.json" width="64" height="64" levels="1" borderbehavior="exit" music="TOWNS">
     </map>
-    <map id="5" type="city" fname="moon.ult" width="64" height="64" levels="1" borderbehavior="exit" music="TOWNS">
+    <map id="5" type="city" fname="moon.json" width="64" height="64" levels="1" borderbehavior="exit" music="TOWNS">
     </map>
-    <map id="6" type="city" fname="grey.ult" width="64" height="64" levels="1" borderbehavior="exit" music="TOWNS">
+    <map id="6" type="city" fname="grey.json" width="64" height="64" levels="1" borderbehavior="exit" music="TOWNS">
     </map>
-    <map id="7" type="city" fname="devil.ult" width="64" height="64" levels="1" borderbehavior="exit" music="EXODUS">
+    <map id="7" type="city" fname="devil.json" width="64" height="64" levels="1" borderbehavior="exit" music="EXODUS">
     </map>
-    <map id="8" type="city" fname="montor_e.ult" width="64" height="64" levels="1" borderbehavior="exit" music="TOWNS">
+    <map id="8" type="city" fname="montor_e.json" width="64" height="64" levels="1" borderbehavior="exit" music="TOWNS">
     </map>
-    <map id="9" type="city" fname="montor_w.ult" width="64" height="64" levels="1" borderbehavior="exit" music="TOWNS">
+    <map id="9" type="city" fname="montor_w.json" width="64" height="64" levels="1" borderbehavior="exit" music="TOWNS">
     </map>
-    <map id="10" type="city" fname="death.ult" width="64" height="64" levels="1" borderbehavior="exit" music="EXODUS">
+    <map id="10" type="city" fname="death.json" width="64" height="64" levels="1" borderbehavior="exit" music="EXODUS">
     </map>
-    <map id="11" type="city" fname="dawn.ult" width="64" height="64" levels="1" borderbehavior="exit" music="TOWNS">
+    <map id="11" type="city" fname="dawn.json" width="64" height="64" levels="1" borderbehavior="exit" music="TOWNS">
     </map>
-    <map id="12" type="city" fname="fawn.ult" width="64" height="64" levels="1" borderbehavior="exit" music="TOWNS">
+    <map id="12" type="city" fname="fawn.json" width="64" height="64" levels="1" borderbehavior="exit" music="TOWNS">
     </map>
-    <map id="13" type="city" fname="ambrosia.ult" width="64" height="64" levels="1" borderbehavior="exit" music="DUNGEON">
+    <map id="13" type="city" fname="ambrosia.json" width="64" height="64" levels="1" borderbehavior="exit" music="DUNGEON">
         <label name="CARD_OF_DEATH" x="55" y="27" />
         <label name="CARD_OF_SOL" x="45" y="52" />
         <label name="CARD_OF_MOONS" x="6" y="6" />
@@ -71,7 +71,7 @@
         <portal name="WHIRLPOOL" x="32" y="58" destmapid="0" startx="1" starty="1" />
     </map>
     
-    <map id="14" type="dungeon" fname="perinian.ult" width="16" height="16" levels="8" borderbehavior="exit" music="DUNGEON">
+    <map id="14" type="dungeon" fname="perinian.json" width="16" height="16" levels="8" borderbehavior="exit" music="DUNGEON">
         <label name="MARK_KINGS" x="15" y="11" z="0" />
         <label name="MARK_KINGS" x="11" y="15" z="0" />
         <label name="MARK_KINGS" x="11" y="11" z="7" />
@@ -87,7 +87,7 @@
         <label name="FOUNTAIN_HEAL" x="5" y="11" z="7" />
         <label name="FOUNTAIN_CURE" x="11" y="5" z="7" />
     </map>
-    <map id="15" type="dungeon" fname="dardin.ult" width="16" height="16" levels="8" borderbehavior="exit" music="DUNGEON">
+    <map id="15" type="dungeon" fname="dardin.json" width="16" height="16" levels="8" borderbehavior="exit" music="DUNGEON">
         <label name="MARK_KINGS" x="11" y="3" z="1" />
         <label name="MARK_KINGS" x="3" y="3" z="7" />
         <label name="FOUNTAIN_ACID" x="6" y="4" z="1" />
@@ -99,7 +99,7 @@
         <label name="FOUNTAIN_POISON" x="4" y="12" z="4" />
         <label name="FOUNTAIN_HEAL" x="9" y="9" z="7" />
     </map>
-    <map id="16" type="dungeon" fname="mine.ult" width="16" height="16" levels="8" borderbehavior="exit" music="DUNGEON">
+    <map id="16" type="dungeon" fname="mine.json" width="16" height="16" levels="8" borderbehavior="exit" music="DUNGEON">
         <label name="MARK_KINGS" x="3" y="5" z="2" />
         <label name="MARK_KINGS" x="3" y="9" z="7" />
         <label name="MARK_FIRE" x="13" y="15" z="7" />
@@ -113,7 +113,7 @@
         <label name="FOUNTAIN_POISON" x="7" y="8" z="0" />
         <label name="FOUNTAIN_CURE" x="8" y="7" z="0" />
     </map>
-    <map id="17" type="dungeon" fname="fire.ult" width="16" height="16" levels="8" borderbehavior="exit" music="DUNGEON">
+    <map id="17" type="dungeon" fname="fire.json" width="16" height="16" levels="8" borderbehavior="exit" music="DUNGEON">
         <label name="MARK_FIRE" x="5" y="14" z="7" />
         <label name="MARK_FORCE" x="4" y="10" z="7" />
         <label name="FOUNTAIN_ACID" x="12" y="9" z="7" />
@@ -127,7 +127,7 @@
         <label name="FOUNTAIN_CURE" x="3" y="4" z="0" />
         <label name="FOUNTAIN_POISON" x="8" y="5" z="0" />
     </map>
-    <map id="18" type="dungeon" fname="m.ult" width="16" height="16" levels="8" borderbehavior="exit" music="DUNGEON">
+    <map id="18" type="dungeon" fname="m.json" width="16" height="16" levels="8" borderbehavior="exit" music="DUNGEON">
         <label name="MARK_FORCE" x="8" y="9" z="7" />
         <label name="FOUNTAIN_CURE" x="15" y="15" z="0" />
         <label name="FOUNTAIN_CURE" x="15" y="15" z="4" />
@@ -138,7 +138,7 @@
         <label name="FOUNTAIN_CURE" x="8" y="2" z="7" />
         <label name="FOUNTAIN_POISON" x="7" y="2" z="7" />
     </map>
-    <map id="19" type="dungeon" fname="p.ult" width="16" height="16" levels="8" borderbehavior="exit" music="DUNGEON">
+    <map id="19" type="dungeon" fname="p.json" width="16" height="16" levels="8" borderbehavior="exit" music="DUNGEON">
         <label name="MARK_KINGS" x="15" y="15" z="7" />
         <label name="MARK_SNAKE" x="6" y="15" z="7" />
         <label name="FOUNTAIN_ACID" x="10" y="1" z="7" />
@@ -164,7 +164,7 @@
         <label name="FOUNTAIN_POISON" x="8" y="14" z="3" />
         <label name="FOUNTAIN_CURE" x="3" y="3" z="0" />
     </map>
-    <map id="20" type="dungeon" fname="time.ult" width="16" height="16" levels="8" borderbehavior="exit" music="DUNGEON">
+    <map id="20" type="dungeon" fname="time.json" width="16" height="16" levels="8" borderbehavior="exit" music="DUNGEON">
         <label name="MARK_KINGS" x="7" y="7" z="1" />
         <label name="MARK_KINGS" x="15" y="11" z="7" />
         <label name="MARK_FIRE" x="11" y="15" z="7" />
@@ -178,18 +178,18 @@
         <label name="FOUNTAIN_CURE" x="7" y="7" z="0" />
     </map>
     
-    <map id="33" type="combat" fname="CNFLCT_A.ULT" width="11" height="11" levels="1" borderbehavior="fixed" nolineofsight="true" music="COMBAT" tileset="base" tilemap="base" />
-    <map id="34" type="combat" fname="CNFLCT_B.ULT" width="11" height="11" levels="1" borderbehavior="fixed" nolineofsight="true" music="COMBAT" tileset="base" tilemap="base" />
-    <map id="35" type="combat" fname="CNFLCT_C.ULT" width="11" height="11" levels="1" borderbehavior="fixed" nolineofsight="true" music="COMBAT" tileset="base" tilemap="base" />
-    <map id="36" type="combat" fname="CNFLCT_F.ULT" width="11" height="11" levels="1" borderbehavior="fixed" nolineofsight="true" music="COMBAT" tileset="base" tilemap="base" />  
-    <map id="37" type="combat" fname="CNFLCT_G.ULT" width="11" height="11" levels="1" borderbehavior="fixed" nolineofsight="true" music="COMBAT" tileset="base" tilemap="base" />  
-    <map id="38" type="combat" fname="CNFLCT_M.ULT" width="11" height="11" levels="1" borderbehavior="fixed" nolineofsight="true" music="COMBAT" tileset="base" tilemap="base" />  
-    <map id="39" type="combat" fname="CNFLCT_Q.ULT" width="11" height="11" levels="1" borderbehavior="fixed" nolineofsight="true" music="COMBAT" tileset="base" tilemap="base" />  
-    <map id="40" type="combat" fname="CNFLCT_R.ULT" width="11" height="11" levels="1" borderbehavior="fixed" nolineofsight="true" music="COMBAT" tileset="base" tilemap="base" />   
-    <map id="41" type="combat" fname="CNFLCT_S.ULT" width="11" height="11" levels="1" borderbehavior="fixed" nolineofsight="true" music="COMBAT" tileset="base" tilemap="base" />   
+    <map id="33" type="combat" fname="cnflct_a.json" width="11" height="11" levels="1" borderbehavior="fixed" nolineofsight="true" music="COMBAT" tileset="base" tilemap="base" />
+    <map id="34" type="combat" fname="cnflct_b.json" width="11" height="11" levels="1" borderbehavior="fixed" nolineofsight="true" music="COMBAT" tileset="base" tilemap="base" />
+    <map id="35" type="combat" fname="cnflct_c.json" width="11" height="11" levels="1" borderbehavior="fixed" nolineofsight="true" music="COMBAT" tileset="base" tilemap="base" />
+    <map id="36" type="combat" fname="cnflct_f.json" width="11" height="11" levels="1" borderbehavior="fixed" nolineofsight="true" music="COMBAT" tileset="base" tilemap="base" />  
+    <map id="37" type="combat" fname="cnflct_g.json" width="11" height="11" levels="1" borderbehavior="fixed" nolineofsight="true" music="COMBAT" tileset="base" tilemap="base" />  
+    <map id="38" type="combat" fname="cnflct_m.json" width="11" height="11" levels="1" borderbehavior="fixed" nolineofsight="true" music="COMBAT" tileset="base" tilemap="base" />  
+    <map id="39" type="combat" fname="cnflct_q.json" width="11" height="11" levels="1" borderbehavior="fixed" nolineofsight="true" music="COMBAT" tileset="base" tilemap="base" />  
+    <map id="40" type="combat" fname="cnflct_r.json" width="11" height="11" levels="1" borderbehavior="fixed" nolineofsight="true" music="COMBAT" tileset="base" tilemap="base" />   
+    <map id="41" type="combat" fname="cnflct_s.json" width="11" height="11" levels="1" borderbehavior="fixed" nolineofsight="true" music="COMBAT" tileset="base" tilemap="base" />   
      
-    <map id="55" type="shrine" fname="shrine.con" width="11" height="11" levels="1" borderbehavior="fixed" music="ALIVE" />
-    <map id="56" type="shrine" fname="shrine.con" width="11" height="11" levels="1" borderbehavior="fixed" music="ALIVE" />
-    <map id="57" type="shrine" fname="shrine.con" width="11" height="11" levels="1" borderbehavior="fixed" music="ALIVE" />
-    <map id="58" type="shrine" fname="shrine.con" width="11" height="11" levels="1" borderbehavior="fixed" music="ALIVE" />
+    <map id="55" type="shrine" fname="shrine.json" width="11" height="11" levels="1" borderbehavior="fixed" music="ALIVE" />
+    <map id="56" type="shrine" fname="shrine.json" width="11" height="11" levels="1" borderbehavior="fixed" music="ALIVE" />
+    <map id="57" type="shrine" fname="shrine.json" width="11" height="11" levels="1" borderbehavior="fixed" music="ALIVE" />
+    <map id="58" type="shrine" fname="shrine.json" width="11" height="11" levels="1" borderbehavior="fixed" music="ALIVE" />
 </maps>

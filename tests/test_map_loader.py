@@ -41,8 +41,8 @@ def test_load_sosaria(asset_mgr):
 
 def test_load_conflict_case_insensitive(asset_mgr):
     loader = MapLoader(asset_mgr)
-    # Test uppercase
-    conflict = loader.load_conflict_map("CNFLCT_A.ULT")
+    # Test canonical lowercase name
+    conflict = loader.load_conflict_map("cnflct_a.json")
     assert isinstance(conflict, ConflictMap)
     assert conflict.width == 11 and conflict.height == 11
     assert conflict.map_type == MapType.COMBAT
@@ -51,8 +51,8 @@ def test_load_conflict_case_insensitive(asset_mgr):
     assert conflict.monster_starts[0] == (3, 3)
     assert conflict.player_starts[0] == (3, 7)
 
-    # Test lowercase case-insensitivity on Linux
-    conflict_lower = loader.load_conflict_map("cnflct_a.ult")
+    # Test legacy uppercase filename (resolved case-insensitively by stem)
+    conflict_lower = loader.load_conflict_map("CNFLCT_A.JSON")
     assert conflict_lower.width == 11 and conflict_lower.height == 11
     assert conflict_lower.monster_starts == conflict.monster_starts
     assert conflict_lower.player_starts == conflict.player_starts
@@ -108,7 +108,7 @@ def test_load_ambrosia_doors(asset_mgr):
 def test_load_dungeon_map(asset_mgr):
     loader = MapLoader(asset_mgr)
     # Test lowercase and uppercase loading
-    dmap = loader.load_dungeon_map("perinian.ult")
+    dmap = loader.load_dungeon_map("perinian.json")
     assert isinstance(dmap, DungeonMap)
     assert dmap.width == 16 and dmap.height == 16
     assert dmap.levels == 8
@@ -132,8 +132,8 @@ def test_load_dungeon_map(asset_mgr):
     dmap.set_tile(1, 1, 0, DungeonTile.CHEST)
     assert dmap.get_tile(1, 1, 0) == DungeonTile.CHEST
 
-    # Test uppercase filename
-    dmap_upper = loader.load_dungeon_map("PERINIAN.ULT")
+    # Test legacy uppercase filename
+    dmap_upper = loader.load_dungeon_map("PERINIAN.JSON")
     assert dmap_upper.get_tile(1, 1, 0) == DungeonTile.LADDER_UP
 
 
@@ -153,7 +153,7 @@ def test_load_by_name_and_id_variants(asset_mgr):
     assert sosaria_by_name.id == 0
 
     # Load combat map via load_map
-    combat_by_name = loader.load_map("CNFLCT_A.ULT")
+    combat_by_name = loader.load_map("cnflct_a.json")
     assert isinstance(combat_by_name, ConflictMap)
 
     # Load combat map by integer ID
@@ -206,11 +206,11 @@ def test_dungeon_tile_methods():
 def test_module_level_helpers(asset_mgr):
     sosaria = load_map(0, asset_mgr)
     assert sosaria.width == 64
-    conflict = load_conflict_map("CNFLCT_B.ULT", asset_mgr)
+    conflict = load_conflict_map("cnflct_b.json", asset_mgr)
     assert conflict.width == 11
-    dungeon = load_dungeon_map("dardin.ult", asset_mgr)
+    dungeon = load_dungeon_map("dardin.json", asset_mgr)
     assert dungeon.width == 16
-    shrine = load_shrine_map("shrine.con", asset_mgr)
+    shrine = load_shrine_map("shrine.json", asset_mgr)
     assert shrine.width == 11
 
 
@@ -220,10 +220,10 @@ def test_invalid_map_errors(asset_mgr):
         loader.load_map(9999)
 
     with pytest.raises(FileNotFoundError):
-        loader.load_conflict_map("does_not_exist.ult")
+        loader.load_conflict_map("does_not_exist.json")
 
     with pytest.raises(FileNotFoundError):
-        loader.load_dungeon_map("does_not_exist.ult")
+        loader.load_dungeon_map("does_not_exist.json")
 
 
 def test_city_npc_dialogues_and_movement(asset_mgr):

@@ -13,7 +13,7 @@ def test_xml_entity_loading():
     assert "dagger" in am.weapons
     assert "cloth" in am.armors
     assert 0 in am.map_defs  # Sosaria
-    assert am.map_defs[0].fname.lower() == "sosaria.ult"
+    assert am.map_defs[0].fname.lower() == "sosaria.json"
 
 
 def test_creatures_parsing():
@@ -99,7 +99,7 @@ def test_maps_parsing():
     # Map 0 is Sosaria overworld
     sosaria = am.map_defs[0]
     assert sosaria.id == 0
-    assert sosaria.fname.lower() == "sosaria.ult"
+    assert sosaria.fname.lower() == "sosaria.json"
     assert sosaria.width == 64
     assert sosaria.height == 64
     assert sosaria.border_behavior == "wrap"
@@ -185,7 +185,7 @@ def test_helper_getters_and_query_methods():
     assert am.get_map_def("0") is not None
     assert am.get_map_def("14") is not None
     assert am.get_map_def("SOSARIA") is not None
-    assert am.get_map_def("sosaria.ult") is not None
+    assert am.get_map_def("sosaria.json") is not None
     assert am.get_map_def("sosaria") is not None
 
     # Vendor getters by map and coordinates

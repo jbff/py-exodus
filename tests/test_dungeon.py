@@ -33,7 +33,7 @@ def asset_mgr():
 @pytest.fixture
 def perinian_dmap(asset_mgr):
     loader = MapLoader(asset_mgr)
-    return loader.load_dungeon_map("perinian.ult")
+    return loader.load_dungeon_map("perinian.json")
 
 
 @pytest.fixture

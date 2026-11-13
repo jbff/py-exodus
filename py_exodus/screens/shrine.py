@@ -82,12 +82,12 @@ class ShrineScreen(BaseScreen):
             self._load_shrine_map()
 
     def _load_shrine_map(self) -> None:
-        """Attempt loading shrine.con map via MapLoader."""
+        """Attempt loading shrine map JSON via MapLoader."""
         try:
             from py_exodus.world.loader import MapLoader
 
             loader = MapLoader(self.asset_mgr)
-            self.game_map = loader.load_shrine_map("shrine.con")
+            self.game_map = loader.load_shrine_map("shrine.json")
         except (FileNotFoundError, ValueError, OSError):
             self.game_map = None
 

@@ -76,34 +76,34 @@ def test_combat_map_associations():
     am = AssetManager(assets_dir="src/main/resources/assets")
     am.load_tiles()
 
-    # Water -> conflict map 41 (CNFLCT_S.ULT / CONFLICT_BOTH_SHIPS)
+    # Water -> conflict map 41 (cnflct_s.json / CONFLICT_BOTH_SHIPS)
     water = am.get_tile_by_index(0)
     assert water.combat_map == 41
-    assert "CNFLCT_S" in water.combat_map_fname
+    assert "cnflct_s" in water.combat_map_fname
 
-    # Grass -> conflict map 37 (CNFLCT_G.ULT / CONFLICT_GRASS)
+    # Grass -> conflict map 37 (cnflct_g.json / CONFLICT_GRASS)
     grass = am.get_tile_by_index(1)
     assert grass.combat_map == 37
-    assert "CNFLCT_G" in grass.combat_map_fname
+    assert "cnflct_g" in grass.combat_map_fname
 
-    # Brush -> conflict map 34 (CNFLCT_B.ULT / CONFLICT_GRASS_BRUSH)
+    # Brush -> conflict map 34 (cnflct_b.json / CONFLICT_GRASS_BRUSH)
     brush = am.get_tile_by_index(2)
     assert brush.combat_map == 34
-    assert "CNFLCT_B" in brush.combat_map_fname
+    assert "cnflct_b" in brush.combat_map_fname
 
-    # Forest -> conflict map 36 (CNFLCT_F.ULT / CONFLICT_GRASS_FOREST)
+    # Forest -> conflict map 36 (cnflct_f.json / CONFLICT_GRASS_FOREST)
     forest = am.get_tile_by_index(3)
     assert forest.combat_map == 36
-    assert "CNFLCT_F" in forest.combat_map_fname
+    assert "cnflct_f" in forest.combat_map_fname
 
 
 def test_case_insensitive_path_resolution():
     am = AssetManager(assets_dir="src/main/resources/assets")
 
-    # Lowercase requested, file on disk is CNFLCT_A.ULT
-    resolved = am.resolve_path("data", "cnflct_a.ult")
+    # Lowercase requested, file on disk is cnflct_a.json
+    resolved = am.resolve_path("maps", "cnflct_a.json")
     assert resolved.exists()
-    assert resolved.name == "CNFLCT_A.ULT"
+    assert resolved.name == "cnflct_a.json"
 
     # Mixed case requested
     resolved_xml = am.resolve_path("XML", "TILESET-BASE.XML")

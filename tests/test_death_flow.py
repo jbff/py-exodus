@@ -523,7 +523,7 @@ def test_combat_defeat_transitions_to_start_screen_without_revival(sm, asset_mgr
     from py_exodus.world.loader import MapLoader
 
     loader = MapLoader(asset_mgr)
-    c_map = loader.load_conflict_map("CNFLCT_B.ULT")
+    c_map = loader.load_conflict_map("cnflct_b.json")
 
     before_map_id = 0
     party = single_member_party(hp=10)
