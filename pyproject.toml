@@ -2,6 +2,16 @@
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools]
+packages = [
+    "py_exodus",
+    "py_exodus.combat",
+    "py_exodus.entities",
+    "py_exodus.screens",
+    "py_exodus.ui",
+    "py_exodus.world",
+]
+
 [project]
 name = "py-exodus"
 version = "0.1.0"
@@ -10,10 +20,18 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "pygame-ce>=2.5.0",
+    "sounddevice>=0.5.0",
+    "soundfile>=0.13.0",
 ]
 
 [project.scripts]
+exodus = "py_exodus.__main__:main"
 py-exodus = "py_exodus.__main__:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
