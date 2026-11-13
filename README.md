@@ -121,7 +121,7 @@ All tests should pass; the count is printed at the end of the run.
 
 `docs/superpowers/plans/2026-11-08-java-parity-fixes.md` documents a full Java↔Python parity audit (findings in `docs/superpowers/plans/2026-11-08-audit-findings.md`) and the fix plan that brought the port to parity.
 
-`scripts/render_maps.py` renders every JSON map (`assets/maps/*.json`) to top-down PNGs — cities with NPC dots, combat arenas with spawn markers, dungeons one PNG per level: `python -I scripts/render_maps.py [--outdir DIR] [--scale N]` (defaults to git-ignored scratch; not part of the test suite).
+`scripts/render_maps.py` renders the JSON maps (`assets/maps/*.json`) to the committed top-down PNGs in `maps_rendered/` — lands/, castles/, towns/ (with NPC dots), and dungeons/<map>/per-level PNGs; shrine and combat arenas are skipped (`--all` includes them): `python -I scripts/render_maps.py [--outdir DIR] [--scale N]` (not part of the test suite).
 
 ---
 

@@ -1,16 +1,17 @@
 #!/usr/bin/env python
-"""Render every map in assets/maps/*.json to PNG images (not part of the test suite).
+"""Render every playable map in assets/maps/*.json to PNG images (committed).
 
-Grid, combat, and shrine maps render top-down from the tile atlas; city maps
-overlay red dots on NPC positions and combat maps overlay monster (red) and
-player (blue) start positions. Dungeon maps render one top-down PNG per level,
-with the dungeon view's own tile textures where the atlas has them and
-hash-colored patches otherwise.
+Grid, castle, and town maps render top-down from the tile atlas; town maps
+overlay red dots on NPC positions. Dungeon maps render one top-down PNG per
+level, with the dungeon view's own tile textures where the atlas has them and
+hash-colored patches otherwise. Output follows the committed layout:
+lands/ (overworld), castles/, towns/, dungeons/<map>/levelN.png. Shrine and
+combat arenas are skipped unless --all is given.
 
 Usage:
-    python -I scripts/render_maps.py [--outdir DIR] [--scale N]
+    python -I scripts/render_maps.py [--outdir DIR] [--scale N] [--all]
 
-Defaults: .superpowers/maprenders/, scale 1 (16px tiles; 64x64 maps -> 1024px).
+Defaults: maps_rendered/ (committed), scale 1 (16px tiles; 64x64 maps -> 1024px).
 """
 from __future__ import annotations
 
@@ -32,8 +33,13 @@ from py_exodus.world.map import DungeonTile  # noqa: E402
 
 DEFAULT_OUT = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    ".superpowers", "maprenders",
+    "maps_rendered",
 )
+
+# Committed layout (human-categorized): shrine/combat render only with --all.
+LAND_STEMS = {"sosaria", "ambrosia"}
+CASTLE_STEMS = {"british", "exodus"}
+SKIP_TYPES = {"shrine", "combat"}
 TILE = 16
 
 
@@ -134,6 +140,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--outdir", default=DEFAULT_OUT)
     parser.add_argument("--scale", type=int, default=1)
+    parser.add_argument("--all", action="store_true",
+                        help="also render shrine and combat maps")
     args = parser.parse_args()
 
     pygame.init()
@@ -148,20 +156,30 @@ def main() -> int:
     rendered: dict[str, int] = {}
     for mdef in sorted(asset_mgr.map_defs.values(), key=lambda m: m.id):
         stem = Path(mdef.fname).stem.lower()
+        kind = mdef.map_type.lower()
+        if kind in SKIP_TYPES and not args.all:
+            continue
         m = loader.load_map(mdef.id)
         if hasattr(m, "level_texts"):  # DungeonMap: one PNG per level
             for z in range(m.levels):
                 img = render_dungeon_level(asset_mgr, m.tiles[z], args.scale)
-                path = out / f"{stem}_level{z + 1}.png"
+                path = out / "dungeons" / stem / f"{stem}_level{z + 1}.png"
+                path.parent.mkdir(parents=True, exist_ok=True)
                 pygame.image.save(img, str(path))
                 rendered[stem] = rendered.get(stem, 0) + 1
         else:
-            kind = mdef.map_type.lower()
             combat = tuple(m.monster_starts) + tuple(m.player_starts) if kind == "combat" else ()
             img = render_surface_map(kind, asset_mgr, m,
                                      npcs=getattr(m, "npcs", ()),
                                      combat=combat, scale=args.scale)
-            pygame.image.save(img, str(out / f"{stem}.png"))
+            if stem in CASTLE_STEMS:
+                category = "castles"
+            elif stem in LAND_STEMS:
+                category = "lands"
+            else:
+                category = "towns"
+            (out / category).mkdir(parents=True, exist_ok=True)
+            pygame.image.save(img, str(out / category / f"{stem}.png"))
             rendered[stem] = 1
 
     total = sum(rendered.values())
