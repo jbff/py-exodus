@@ -70,8 +70,9 @@ Common envelope:
 - **Grid maps** (world/city): `tiles` = rows of integers = resolved tile
   indices (original byte // 4; the Java loader ignores the low 2 bits). City
   maps add:
-  - `npcs`: up to 32 entries `{tile, underlying, x, y, ctrl}` (resolved
-    indices + raw ctrl byte); empty slots omitted.
+  - `npcs`: all 32 raw entries `{tile, underlying, x, y, ctrl}` (resolved
+    indices + raw ctrl byte) — the runtime null-slot skip rule stays in
+    loader code, so the JSON is a pure file-content dump.
   - `conversations`: the decoded conversation strings (up to 8), `null` where
     the original had none; offsets and NUL-terminators are gone at this layer.
 - **Combat maps**: `tiles` = 11x11 indices, `monster_starts` = 8 `[x, y]`
