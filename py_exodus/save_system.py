@@ -1,4 +1,4 @@
-"""JSON and binary save system for Ultima III party, roster, and overworld state."""
+"""JSON save system for Ultima III party, roster, and overworld state."""
 from __future__ import annotations
 
 import json
@@ -12,7 +12,6 @@ from py_exodus.constants import (
     Race,
     Sex,
     Status,
-    Transport,
     WeaponType,
 )
 from py_exodus.entities.character import Character
@@ -47,13 +46,10 @@ class SaveSystem:
 
     @classmethod
     def load_game(cls, path: str | Path) -> Party:
-        """Load party from JSON save file (or binary .ult file if specified)."""
+        """Load party from JSON save file."""
         p = Path(path)
         if not p.exists():
             raise FileNotFoundError(f"Save file not found: {path}")
-
-        if p.suffix.lower() == ".ult":
-            return cls.load_binary_party(p)
 
         with open(p, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -71,9 +67,6 @@ class SaveSystem:
         if not p.exists():
             raise FileNotFoundError(f"Save file not found: {path}")
 
-        if p.suffix.lower() == ".ult":
-            return cls.load_binary_party(p).to_dict()
-
         with open(p, "r", encoding="utf-8") as f:
             return json.load(f)
 
@@ -88,13 +81,10 @@ class SaveSystem:
 
     @classmethod
     def load_roster(cls, path: str | Path) -> list[Character]:
-        """Load a character roster from JSON or binary roster.ult file."""
+        """Load a character roster from a JSON array of character records."""
         p = Path(path)
         if not p.exists():
             raise FileNotFoundError(f"Roster file not found: {path}")
-
-        if p.suffix.lower() in (".ult", ".sav"):
-            return cls.load_binary_roster(p)
 
         with open(p, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -261,57 +251,3 @@ class SaveSystem:
             food=food,
             gold=gold,
         )
-
-    @classmethod
-    def load_binary_party(cls, path: str | Path) -> Party:
-        """Load party from 274-byte binary party.ult."""
-        with open(path, "rb") as f:
-            data = f.read()
-
-        p = Party()
-        if len(data) >= 18:
-            transport_code = data[0]
-            lookup_t = {0: Transport.FOOT, 1: Transport.HORSE, 2: Transport.SHIP}
-            p.transport = lookup_t.get(transport_code, Transport.FOOT)
-            p.map_id = data[1]
-            p.moves = struct.unpack_from("<I", data, 2)[0] if len(data) >= 6 else 0
-            # Missing/zero position falls back to the default start tile:
-            # Java SaveGame.java:164-169 seeds (45, 19).
-            if data[7] != 0 or data[8] != 0:
-                p.x = data[7]
-                p.y = data[8]
-            else:
-                p.x = 45
-                p.y = 19
-            p.dungeon_level = data[9]
-            # Ship hull
-            if len(data) > 11 and data[11] > 0:
-                p.ship_hull = data[11]
-
-        # Parse up to 4 characters (64 bytes each starting at offset 18)
-        offset = 18
-        for _ in range(4):
-            if offset + 64 <= len(data):
-                char = cls.parse_binary_character_record(data[offset : offset + 64])
-                if char is not None and char.name:
-                    p.add_member(char)
-                offset += 64
-
-        return p
-
-    @classmethod
-    def load_binary_roster(cls, path: str | Path) -> list[Character]:
-        """Load up to 20 characters from 1280-byte binary roster.ult."""
-        with open(path, "rb") as f:
-            data = f.read()
-
-        roster: list[Character] = []
-        offset = 0
-        for _ in range(20):
-            if offset + 64 <= len(data):
-                char = cls.parse_binary_character_record(data[offset : offset + 64])
-                if char is not None:
-                    roster.append(char)
-                offset += 64
-
-        return roster

@@ -415,7 +415,7 @@ def test_legacy_keys_in_modern_saves_do_not_double_credit():
 
 
 def test_binary_roster_and_party_loader():
-    """Verify reading initial characters from binary 64-byte records and party.ult."""
+    """Verify reading initial characters from binary 64-byte Java records."""
     # Create synthetic 64-byte binary record for a character:
     # 0x00..0x09: Name (10 bytes null padded)
     # 0x0E: cards/marks bitmask
@@ -454,12 +454,6 @@ def test_binary_roster_and_party_loader():
     assert char.torches == 12
     assert char.cards[0] == 1  # Love card
     assert char.marks[0] == 1  # Kings mark
-
-    # Verify loading existing asset party.ult if present
-    asset_party_path = "src/main/resources/assets/data/party.ult"
-    if os.path.exists(asset_party_path):
-        binary_party = SaveSystem.load_binary_party(asset_party_path)
-        assert isinstance(binary_party, Party)
 
 
 def test_character_factory_and_aliases():
@@ -544,7 +538,7 @@ def test_party_member_lifecycle():
 
 
 def test_roster_save_load_and_binary():
-    """Verify save_roster and load_roster with JSON and binary roster.ult."""
+    """Verify save_roster / load_roster JSON round-trip; parse_binary_character_record."""
     roster = [
         Character(name="R1", race=Race.HUMAN, profession=Profession.FIGHTER),
         Character(name="R2", race=Race.ELF, profession=Profession.WIZARD),
@@ -563,12 +557,12 @@ def test_roster_save_load_and_binary():
         if os.path.exists(tmp_name):
             os.remove(tmp_name)
 
-    # Load existing binary roster.ult asset if present
-    asset_roster_path = "src/main/resources/assets/data/roster.ult"
-    if os.path.exists(asset_roster_path):
-        binary_roster = SaveSystem.load_roster(asset_roster_path)
-        assert isinstance(binary_roster, list)
-        assert len(binary_roster) == 20
+    # Java-format record decode still available for parity tests: a blank
+    # 64-byte record parses to an unnamed character (the shipped roster is
+    # an empty JSON array; the binary format lives on only in tests).
+    empty = SaveSystem.parse_binary_character_record(bytes(64))
+    assert empty is not None
+    assert empty.name == ""
 
 
 def test_save_system_missing_file_errors():

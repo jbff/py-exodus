@@ -92,16 +92,16 @@ class RosterScreen(BaseScreen):
 
         Java truth: ManagePartyScreen.java:85-99 seeds the registry from
         roster.sav and every record without a name shows <empty> — a fresh
-        install has an EMPTY roster (assets/data/roster.ult is a blank 20-slot
-        file). Java ships no starter pool, so neither does this screen: new
-        players create characters with [C].
+        install has an EMPTY roster (Java ships a blank 20-slot roster file;
+        here that ships as an empty JSON roster, assets/data/roster.json,
+        same semantics). Java ships no starter pool, so neither does this
+        screen: new players create characters with [C].
         """
         from py_exodus.save_system import SaveSystem
 
         candidates = [
             Path("saves/roster.json"),
-            Path("assets/data/roster.ult"),
-            Path("src/main/resources/assets/data/roster.ult"),
+            Path("assets/data/roster.json"),
         ]
         for c in candidates:
             if c.exists():

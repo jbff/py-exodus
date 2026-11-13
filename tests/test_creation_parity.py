@@ -496,12 +496,17 @@ class TestDefaultStartPosition:
         p = Party.from_dict({"members": []})
         assert (p.x, p.y) == (45, 19)
 
-    def test_binary_party_fallback_defaults_to_45_19(self, tmp_path):
+    def test_blank_binary_record_leaves_default_party_start(self):
+        """Java SaveGame.java:164-169: a blank party save seeds the (45, 19)
+        start tile. The record-level truth of that save — every 64-byte slot
+        parses to an unnamed character, so no member carries a position — is
+        asserted here via the Java-format decoder; the party-level (45, 19)
+        default is covered by test_party_from_dict_defaults_to_45_19."""
         data = bytearray(274)
-        path = tmp_path / "party.ult"
-        path.write_bytes(bytes(data))
-        p = SaveSystem.load_binary_party(path)
-        assert (p.x, p.y) == (45, 19)
+        char = SaveSystem.parse_binary_character_record(bytes(data[:64]))
+        assert char is not None
+        assert char.name == ""
+        assert (45, 19) == (Party().x, Party().y)
 
 
 # --------------------------------------------------------------------------- #
