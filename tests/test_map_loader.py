@@ -227,7 +227,7 @@ def test_invalid_map_errors(asset_mgr):
 
 
 def test_city_npc_dialogues_and_movement(asset_mgr):
-    """Verify city NPC dialogues, movement behaviors, and vendor bindings are extracted from .ULT binary files."""
+    """Verify city NPC dialogues, movement behaviors, and vendor bindings are loaded from JSON map files."""
     loader = MapLoader(asset_mgr)
     british = loader.load_map(1)
     assert len(british.npcs) > 0
