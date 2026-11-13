@@ -14,9 +14,13 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 # Run from anywhere: import the package relative to this script's repo root.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+if TYPE_CHECKING:
+    from py_exodus.entities.character import Character
 
 
 def convert_maps() -> int:
@@ -35,10 +39,11 @@ def convert_maps() -> int:
 def convert_roster(force: bool = False) -> int:
     """Convert assets/data/roster.ult to assets/data/roster.json.
 
-    Decodes the binary roster with SaveSystem.load_binary_roster (the same
-    byte-level record decoder the deleted loader used) and writes the named
-    characters in SaveSystem.save_roster's exact JSON format — the same file
-    shape the runtime reads back with SaveSystem.load_roster.
+    Decodes the binary roster one 64-byte record at a time with
+    SaveSystem.parse_binary_character_record (the Java-format record decoder
+    the deleted file-level loader used) and writes the named characters in
+    SaveSystem.save_roster's exact JSON format — the same file shape the
+    runtime reads back with SaveSystem.load_roster.
     """
     from py_exodus.save_system import SaveSystem
 
@@ -53,7 +58,14 @@ def convert_roster(force: bool = False) -> int:
         print(f"REFUSING to overwrite {out_path} (use --force)")
         return 1
 
-    records = SaveSystem.load_binary_roster(src)
+    data = src.read_bytes()
+    records: list[Character] = []
+    offset = 0
+    for _ in range(min(20, len(data) // 64)):
+        char = SaveSystem.parse_binary_character_record(data[offset : offset + 64])
+        if char is not None:
+            records.append(char)
+        offset += 64
     named = [char for char in records if char.name.strip()]
     SaveSystem.save_roster(named, out_path)
     print(f"WROTE {out_path.name}: {len(records)} record(s) decoded, "
