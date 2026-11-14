@@ -1,8 +1,33 @@
-"""JSON save system for Ultima III party, roster, and overworld state."""
+"""JSON save system for Ultima III party, roster, and overworld state.
+
+Save integrity envelope (Task 27 / D2):
+
+    USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): save integrity envelope
+    (GBC SRAM checksum pattern; ult3.c:1743-1757, menucmd2.c:1137-1139).
+
+Every party or roster save this module writes is a
+``{"magic": "U3PY", "checksum": int, "payload": ...}`` document, where
+``payload`` is the party dict (or roster list) exactly as the older bare
+format produced, and ``checksum`` is
+``zlib.crc32(json.dumps(payload, sort_keys=True, indent=None).encode())``.
+Loads accept BOTH formats: a document carrying the magic is verified and
+raises :class:`SaveChecksumError` (message includes the file path) on a
+checksum mismatch; any other document loads exactly as before, so legacy
+saves written before the envelope keep loading unchanged.
+
+The checksum is computed at SAVE time only. The GBC original recomputes it
+at every state mutation because its battery-backed SRAM is mutable in place
+between saves (menucmd2.c:1137-1139 re-verifies on load against a value
+ult3.c:1743-1757 keeps current through play); Python's JSON saves are
+written as a whole file in one operation, so nothing mutates an enveloped
+save behind the checksum's back between writes — verifying at load time
+against the save-time value is sufficient (ledger ruling).
+"""
 from __future__ import annotations
 
 import json
 import struct
+import zlib
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +41,45 @@ from py_exodus.constants import (
 )
 from py_exodus.entities.character import Character
 from py_exodus.entities.party import Party
+
+SAVE_MAGIC = "U3PY"
+
+
+class SaveChecksumError(Exception):
+    """Raised when an enveloped save file's checksum does not match its payload.
+
+    The message includes the save file's path."""
+
+
+def _save_checksum(payload: Any) -> int:
+    """CRC32 over the canonical JSON encoding of ``payload``."""
+    return zlib.crc32(json.dumps(payload, sort_keys=True, indent=None).encode())
+
+
+def _wrap_save(payload: Any) -> dict[str, Any]:
+    """Envelope ``payload`` (party dict or roster list) for writing."""
+    return {"magic": SAVE_MAGIC, "checksum": _save_checksum(payload), "payload": payload}
+
+
+def _unwrap_save(raw: Any, path: str | Path) -> Any:
+    """Return the payload of an enveloped save, or ``raw`` itself for legacy saves.
+
+    A document with the U3PY magic is a checksummed envelope: verify and
+    return ``raw["payload"]``, raising :class:`SaveChecksumError` (with the
+    path in the message) on a mismatch or a malformed envelope. Anything
+    else is a legacy (pre-envelope) record and loads exactly as before.
+    """
+    if isinstance(raw, dict) and raw.get("magic") == SAVE_MAGIC:
+        if "payload" not in raw:
+            raise SaveChecksumError(f"Malformed enveloped save (no payload): {path}")
+        expected = _save_checksum(raw["payload"])
+        if raw.get("checksum") != expected:
+            raise SaveChecksumError(
+                f"Save checksum mismatch in {path}: "
+                f"stored {raw.get('checksum')!r}, computed {expected}"
+            )
+        return raw["payload"]
+    return raw
 
 
 class SaveSystem:
@@ -42,53 +106,72 @@ class SaveSystem:
         p = Path(path)
         p.parent.mkdir(parents=True, exist_ok=True)
         with open(p, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
+            json.dump(_wrap_save(data), f, indent=2)
 
     @classmethod
     def load_game(cls, path: str | Path) -> Party:
-        """Load party from JSON save file."""
-        p = Path(path)
-        if not p.exists():
-            raise FileNotFoundError(f"Save file not found: {path}")
+        """Load party from JSON save file.
 
-        with open(p, "r", encoding="utf-8") as f:
-            data = json.load(f)
-
-        return Party.from_dict(data)
-
-    @classmethod
-    def load_game_data(cls, path: str | Path) -> dict[str, Any]:
-        """Load the raw save document: the party record plus any screen-side
-        ``extra`` context (DungeonScreen's dungeon block, OverworldScreen's
-        ``overworld`` block). Callers that need the extras (Journey Onward's
-        world-state restore) build the party themselves via ``Party.from_dict``.
+        Accepts the enveloped (verified) format and the legacy bare party
+        dict; see the module docstring for the envelope contract.
         """
         p = Path(path)
         if not p.exists():
             raise FileNotFoundError(f"Save file not found: {path}")
 
         with open(p, "r", encoding="utf-8") as f:
-            return json.load(f)
+            raw = json.load(f)
+
+        return Party.from_dict(_unwrap_save(raw, p))
+
+    @classmethod
+    def load_game_data(cls, path: str | Path) -> dict[str, Any]:
+        """Load the save record: the party dict plus any screen-side
+        ``extra`` context (DungeonScreen's dungeon block, OverworldScreen's
+        ``overworld`` block). The integrity envelope (see module docstring),
+        when present, is unwrapped: the returned dict is the payload —
+        i.e. the same document legacy saves stored bare. Callers that need
+        the extras (Journey Onward's world-state restore) build the party
+        themselves via ``Party.from_dict``.
+        """
+        p = Path(path)
+        if not p.exists():
+            raise FileNotFoundError(f"Save file not found: {path}")
+
+        with open(p, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+
+        data = _unwrap_save(raw, p)
+        if not isinstance(data, dict):
+            raise SaveChecksumError(f"Party save is not a record: {path}")
+        return data
 
     @classmethod
     def save_roster(cls, roster: list[Character], path: str | Path) -> None:
-        """Save a list of roster characters to JSON."""
+        """Save a list of roster characters to JSON (enveloped; see module docstring)."""
         p = Path(path)
         p.parent.mkdir(parents=True, exist_ok=True)
         data = [char.to_dict() for char in roster]
         with open(p, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
+            json.dump(_wrap_save(data), f, indent=2)
 
     @classmethod
     def load_roster(cls, path: str | Path) -> list[Character]:
-        """Load a character roster from a JSON array of character records."""
+        """Load a character roster from a JSON array of character records.
+
+        Accepts the enveloped (verified) format and the legacy bare array;
+        see the module docstring for the envelope contract.
+        """
         p = Path(path)
         if not p.exists():
             raise FileNotFoundError(f"Roster file not found: {path}")
 
         with open(p, "r", encoding="utf-8") as f:
-            data = json.load(f)
+            raw = json.load(f)
 
+        data = _unwrap_save(raw, p)
+        if not isinstance(data, list):
+            raise SaveChecksumError(f"Roster save is not a list of characters: {path}")
         return [Character.from_dict(cd) for cd in data]
 
     @classmethod

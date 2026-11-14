@@ -11,6 +11,7 @@ import pytest
 from py_exodus.constants import Direction, Profession, Race, Sex, Status, Transport
 from py_exodus.entities.character import Character
 from py_exodus.entities.party import Party, PartyMember
+from py_exodus import save_system
 from py_exodus.save_system import SaveSystem
 from py_exodus.state_machine import StateMachine
 
@@ -985,7 +986,10 @@ def test_overworld_save_carries_dynamic_world_state(pygame_setup, asset_mgr, mon
     import json
 
     data = json.loads((tmp_path / "saves" / "party.json").read_text())
-    monsters = data["overworld"]["monsters"]
+    # Task 27: the on-disk document is the integrity envelope; the party
+    # record + extras live in `payload`.
+    payload = data["payload"]
+    monsters = payload["overworld"]["monsters"]
     # Whirlpool fixtures ride in the block like any other creature (the
     # restore adds the non-engaging fixture flag itself).
     assert monsters == [
@@ -996,8 +1000,8 @@ def test_overworld_save_carries_dynamic_world_state(pygame_setup, asset_mgr, mon
     ]
     # Map objects round-trip through the party record itself: the dynamic
     # objects list is saved with the party (Java objects_save arrays).
-    assert {"tile": "frigate", "x": 12, "y": 34} in data["dynamic_objects"]
-    assert {"tile": "chest", "x": 20, "y": 21} in data["dynamic_objects"]
+    assert {"tile": "frigate", "x": 12, "y": 34} in payload["dynamic_objects"]
+    assert {"tile": "chest", "x": 20, "y": 21} in payload["dynamic_objects"]
 
 
 def test_overworld_save_creature_cap_is_8_including_whirlpools(pygame_setup, asset_mgr, monkeypatch, tmp_path):
@@ -1024,7 +1028,10 @@ def test_overworld_save_creature_cap_is_8_including_whirlpools(pygame_setup, ass
     import json
 
     data = json.loads((tmp_path / "saves" / "party.json").read_text())
-    monsters = data["overworld"]["monsters"]
+    # Task 27: the on-disk document is the integrity envelope; the party
+    # record + extras live in `payload`.
+    payload = data["payload"]
+    monsters = payload["overworld"]["monsters"]
     assert monsters == [
         {"name": "W", "tile_name": "whirlpool", "tile": "whirlpool", "x": 1, "y": 2},
         {"name": "P0", "tile_name": "pirate", "tile": "pirate", "x": 0, "y": 50},
@@ -1126,7 +1133,12 @@ def test_journey_onward_malformed_overworld_block_loads(pygame_setup, asset_mgr,
 
     save_p = tmp_path / "saves" / "party.json"
     data = json.loads(save_p.read_text())
-    data["overworld"] = ["not", "a", "dict"]
+    payload = data["payload"]
+    payload["overworld"] = ["not", "a", "dict"]
+    # Rewrite the envelope with an up-to-date checksum: the point of this
+    # test is the semantic degradation, not corruption detection (checksum
+    # failure is tested by test_tampered_party_save_raises_save_checksum_error).
+    data["checksum"] = save_system._save_checksum(payload)
     save_p.write_text(json.dumps(data))
 
     start = StartScreen(asset_mgr=asset_mgr)
@@ -1136,3 +1148,186 @@ def test_journey_onward_malformed_overworld_block_loads(pygame_setup, asset_mgr,
 
     whirls = [c for c in resumed.creatures if c.get("tile_name") == "whirlpool"]
     assert sorted((c["x"], c["y"]) for c in whirls) == [(17, 48), (50, 13)]
+
+
+# --------------------------------------------------------------------------- #
+# Save integrity envelope (Task 27 / D2)
+# --------------------------------------------------------------------------- #
+# USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): save integrity envelope
+# (GBC SRAM checksum pattern; ult3.c:1743-1757, menucmd2.c:1137-1139).
+# Every SaveSystem save is written as
+# {"magic": "U3PY", "checksum": int, "payload": ...}; loads accept the
+# legacy (non-envelope) format unchanged for backwards compatibility.
+
+
+def _save_envelope_checksum(payload) -> int:
+    import json as _json
+    import zlib
+
+    return zlib.crc32(_json.dumps(payload, sort_keys=True, indent=None).encode())
+
+
+def test_party_save_writes_envelope():
+    """save_game writes the U3PY envelope; checksum covers the payload dict
+    exactly (party to_dict() when no extra context is given)."""
+    import json
+
+    p = Party()
+    c1 = Character(name="Fighter1", sex="M", race=Race.HUMAN, profession=Profession.FIGHTER)
+    p.add_member(c1)
+    p.gold = 500
+    p.map_id = 0
+
+    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+        tmp_name = f.name
+    try:
+        SaveSystem.save_game(p, tmp_name)
+        with open(tmp_name, encoding="utf-8") as fh:
+            raw = json.load(fh)
+        assert raw["magic"] == "U3PY"
+        assert isinstance(raw["checksum"], int)
+        assert raw["checksum"] == _save_envelope_checksum(raw["payload"])
+        assert raw["payload"] == p.to_dict()
+        # And it still loads back through the public API.
+        loaded = SaveSystem.load_game(tmp_name)
+        assert loaded.gold == 500
+        assert loaded.members[0].name == "Fighter1"
+    finally:
+        if os.path.exists(tmp_name):
+            os.remove(tmp_name)
+
+
+def test_tampered_party_save_raises_save_checksum_error():
+    """A mutated payload (bit-rot / bad hand-edit of an enveloped save)
+    raises SaveChecksumError naming the file."""
+    import json
+
+    from py_exodus.save_system import SaveChecksumError
+
+    p = Party()
+    p.add_member(_roster_char("Ariel"))
+
+    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+        tmp_name = f.name
+    try:
+        SaveSystem.save_game(p, tmp_name)
+        with open(tmp_name, encoding="utf-8") as fh:
+            raw = json.load(fh)
+        raw["payload"]["gold"] = 99999  # tampered in place, checksum not updated
+        with open(tmp_name, "w", encoding="utf-8") as fh:
+            json.dump(raw, fh)
+
+        with pytest.raises(SaveChecksumError) as exc:
+            SaveSystem.load_game(tmp_name)
+        assert tmp_name in str(exc.value)
+    finally:
+        if os.path.exists(tmp_name):
+            os.remove(tmp_name)
+
+
+def test_legacy_bare_party_dict_save_loads():
+    """A pre-envelope save (bare party dict JSON) loads exactly as before."""
+    import json
+
+    p = Party()
+    p.add_member(_roster_char("Ariel"))
+    p.gold = 77
+    data = p.to_dict()
+
+    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+        tmp_name = f.name
+    try:
+        with open(tmp_name, "w", encoding="utf-8") as fh:
+            json.dump(data, fh)
+        loaded = SaveSystem.load_game(tmp_name)
+        assert loaded.gold == 77
+        assert loaded.members[0].name == "Ariel"
+    finally:
+        if os.path.exists(tmp_name):
+            os.remove(tmp_name)
+
+
+def test_roster_save_writes_envelope_and_round_trips():
+    """save_roster writes {"magic": "U3PY", "checksum", "payload": [...]}."""
+    import json
+
+    roster = [_roster_char("Ariel"), _roster_char("Bors")]
+
+    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+        tmp_name = f.name
+    try:
+        SaveSystem.save_roster(roster, tmp_name)
+        with open(tmp_name, encoding="utf-8") as fh:
+            raw = json.load(fh)
+        assert raw["magic"] == "U3PY"
+        assert raw["checksum"] == _save_envelope_checksum(raw["payload"])
+        assert raw["payload"] == [c.to_dict() for c in roster]
+        loaded = SaveSystem.load_roster(tmp_name)
+        assert [c.name for c in loaded] == ["Ariel", "Bors"]
+    finally:
+        if os.path.exists(tmp_name):
+            os.remove(tmp_name)
+
+
+def test_tampered_roster_save_raises_save_checksum_error():
+    import json
+
+    from py_exodus.save_system import SaveChecksumError
+
+    roster = [_roster_char("Ariel")]
+
+    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+        tmp_name = f.name
+    try:
+        SaveSystem.save_roster(roster, tmp_name)
+        with open(tmp_name, encoding="utf-8") as fh:
+            raw = json.load(fh)
+        raw["payload"][0]["gold"] = 0
+        with open(tmp_name, "w", encoding="utf-8") as fh:
+            json.dump(raw, fh)
+
+        with pytest.raises(SaveChecksumError) as exc:
+            SaveSystem.load_roster(tmp_name)
+        assert tmp_name in str(exc.value)
+    finally:
+        if os.path.exists(tmp_name):
+            os.remove(tmp_name)
+
+
+def test_legacy_roster_list_loads():
+    """A pre-envelope roster save (bare JSON array of character records)
+    loads exactly as before."""
+    import json
+
+    roster = [_roster_char("Ariel"), _roster_char("Bors")]
+    data = [c.to_dict() for c in roster]
+
+    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+        tmp_name = f.name
+    try:
+        with open(tmp_name, "w", encoding="utf-8") as fh:
+            json.dump(data, fh)
+        loaded = SaveSystem.load_roster(tmp_name)
+        assert [c.name for c in loaded] == ["Ariel", "Bors"]
+    finally:
+        if os.path.exists(tmp_name):
+            os.remove(tmp_name)
+
+
+def test_load_game_data_returns_unwrapped_payload():
+    """load_game_data returns the payload record (party dict + screen extras),
+    unwrapping the envelope if the file carries one (start.py Journey Onward)."""
+    p = Party()
+    p.add_member(_roster_char("Ariel"))
+
+    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+        tmp_name = f.name
+    try:
+        SaveSystem.save_game(p, tmp_name, extra={"overworld": {"monsters": []}})
+        data = SaveSystem.load_game_data(tmp_name)
+        assert "overworld" in data
+        assert data["members"][0]["name"] == "Ariel"
+        assert "magic" not in data and "checksum" not in data and "payload" not in data
+    finally:
+        if os.path.exists(tmp_name):
+            os.remove(tmp_name)
