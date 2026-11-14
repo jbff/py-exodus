@@ -14,6 +14,7 @@ expected result instead of silently passing a stale audit.
 
 import contextlib
 import dataclasses
+import re
 
 import pytest
 
@@ -230,3 +231,130 @@ def test_map_type_masks_match_java():
     assert MapType.COMBAT.mask == 0x02
     assert MapType.CITY.mask == 0x04
     assert MapType.DUNGEON.mask == 0x08
+
+
+# --- Task 3: the shared prompt flow consumes the mapping --------------------
+# (combat/magic.py prompt_cast_party — the overworld/town/dungeon flow; the
+# combat screen flow is pinned by the play-driver sequence tests.)
+
+_SPELL_ROW = re.compile(r"^[A-Z] - [A-Z_]+ \(\d+\)$")
+
+
+def _flow_party(mp: int):
+    from py_exodus.entities.party import Party
+
+    party = Party()
+    party.add_member(_cleric(mp))
+    return party
+
+
+def _prompt_world_cleric(mp: int = 99):
+    """Open the shared cast prompt and select the cleric; returns the TextLog."""
+    from py_exodus.combat.magic import prompt_cast_party
+    from py_exodus.ui.text_log import TextLog
+
+    log = TextLog()
+    prompt_cast_party(log, _flow_party(mp))
+    log.handle_char("1")  # the cleric is member 1
+    return log
+
+
+def test_dungeon_flow_walks_the_dungeon_mask():
+    """The dungeon screen passes its DungeonState (SecondaryInputProcessor
+    .java:443 passes MapType.dungeon in Java): the flow unwraps ``dmap`` the
+    same way cast_spell's location gate does, so the dungeon-mask spells
+    (APPAR_UNEM city|world|dungeon, REC_SU/REC_DU/SEQUITU dungeon-only) are
+    walkable — LUMINAE is NEVER reachable from a world-context walk."""
+    from types import SimpleNamespace
+
+    from py_exodus.combat.magic import prompt_cast_party
+    from py_exodus.entities.party import Party
+    from py_exodus.ui.text_log import TextLog
+
+    dungeon_state = SimpleNamespace(
+        dmap=SimpleNamespace(map_type=MapType.DUNGEON)
+    )
+    party = Party()
+    party.add_member(_cleric(40))
+    log = TextLog()
+    prompt_cast_party(log, party, world_map=dungeon_state)
+    log.handle_char("1")  # the cleric
+    rows = [str(line) for line in log.history if _SPELL_ROW.match(str(line))]
+    names = [row.split(" - ")[1].split(" (")[0] for row in rows]
+    assert "LUMINAE" in names
+    assert "REC_SU" in names
+    assert "SEQUITU" in names
+    # The letters were recomputed from the live walk (context-aware).
+    assert rows[0] == "A - APPAR_UNEM (5)"  # 0x0D includes the dungeon bit
+
+
+def test_world_flow_prints_rows_after_member_selection():
+    """The list rows print as the spell prompt opens (Java
+    SpellInputProcessor.java:36-39 via SecondaryInputProcessor.java:283)."""
+    log = _prompt_world_cleric()
+    assert log.current_prompt == "Cleric Spell? (A-P):"
+    rows = [
+        str(line) for line in log.history if _SPELL_ROW.match(str(line))
+    ]
+    # World-context cleric walk (mp 99): APPAR_UNEM leads (PONTORI's mask is
+    # combat-only), letters compact from A.. over the survivors.
+    assert rows == [
+        "A - APPAR_UNEM (5)",
+        "B - SANCTU (10)",
+        "C - ALCORT (35)",
+        "D - SANCTU_MANI (50)",
+        "E - VIEDA (55)",
+        "F - SURMANDUM (65)",
+        "G - ANJU_SERMANI (75)",
+    ]
+
+
+def test_unmapped_letter_is_a_silent_noop_prompt_stays_open():
+    """A letter beyond the live list does nothing (silence): the old
+    "Unknown spell!" path is gone and the menu keeps awaiting a mapped
+    letter (Task-3 ruling 2026-11-14; Java's "Not a spell!" disarms instead
+    — see the code commentary)."""
+    log = _prompt_world_cleric(mp=15)  # list: A APPAR_UNEM (5), B SANCTU (10)
+    assert log.current_prompt == "Cleric Spell? (A-P):"
+    log.handle_char("D")  # beyond the two-entry list
+    assert log.is_waiting_for_input
+    assert log.current_prompt == "Cleric Spell? (A-P):"
+    blob = "\n".join(str(line) for line in log.history)
+    assert "Unknown spell!" not in blob
+    assert "Not a spell!" not in blob
+
+
+def test_unaffordable_spell_never_offers_mp_refusal():
+    """MP 3 in context "world": every >3-cost spell is unlisted, so the
+    prompt flow can never emit "Thou dost not have enough magic points!".
+    A mage at MP 3 has an EMPTY world wizard list (DAG_ACRON 30, PABULUM 40,
+    FAL_DIVI 45 are all unaffordable) — the Java empty-map canonical line
+    prints instead of a prompt."""
+    from py_exodus.combat.magic import prompt_cast_party
+    from py_exodus.entities.party import Party
+    from py_exodus.ui.text_log import TextLog
+
+    party = Party()
+    party.add_member(_wizard(3))
+    log = TextLog()
+    prompt_cast_party(log, party)
+    log.handle_char("1")
+    blob = "\n".join(str(line) for line in log.history)
+    assert "No spells to cast!" in blob
+    assert "magic points" not in blob
+    assert not log.is_waiting_for_input
+
+
+def test_mapped_letter_dispatches_and_deducts_cost():
+    """Selecting a listed letter casts exactly the mapped spell (the lookup
+    resolves through the same get_castables list that printed the rows).
+    SANCTU is listed at B for a cleric at MP 15 — the letter no longer
+    means the fixed-code C."""
+    log = _prompt_world_cleric(mp=15)
+    log.handle_char("B")  # SANCTU (10)
+    assert log.current_prompt == "On who? (1-4):"  # targeted restorative
+    log.handle_char("1")  # target the cleric themselves
+    assert not log.is_waiting_for_input
+    blob = "\n".join(str(line) for line in log.history)
+    assert "Unknown spell!" not in blob
+    assert "cannot cast" not in blob

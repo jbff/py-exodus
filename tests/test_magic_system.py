@@ -717,8 +717,10 @@ def test_prompt_cast_party_flow():
     # Prompt advances to Cleric spell code immediately (no Enter needed)
     assert "Cleric Spell?" in log.current_prompt
 
-    # User inputs 'C' for Sanctu
-    log.handle_char("C")
+    # User inputs 'B' for Sanctu — the letter comes from the LIVE
+    # get_castables walk (world cleric at 50 MP: APPAR_UNEM A, SANCTU B,
+    # ALCORT C, SANCTU_MANI D); the old fixed-code "C" is now ALCORT.
+    log.handle_char("B")
     # Prompt advances to target member immediately
     assert "On who?" in log.current_prompt
 
@@ -778,7 +780,7 @@ def test_fal_divi_re_enters_member_cleric_spell_prompt_once():
     from py_exodus.ui.text_log import TextLog
 
     party = Party()
-    mage = Character("Mage", "M", Race.FUZZY, Profession.WIZARD, intelligence=50, mp=50)
+    mage = Character("Mage", "M", Race.FUZZY, Profession.WIZARD, intelligence=50, mp=90)
     party.add_member(mage)
 
     log = TextLog()
@@ -794,19 +796,21 @@ def test_fal_divi_re_enters_member_cleric_spell_prompt_once():
     prompt_cast_party(log, party)
     log.handle_char("1")  # member 1: the Mage
     assert "Wizard Spell?" in log.current_prompt
-    log.handle_char("J")  # FAL_DIVI
+    # FAL_DIVI is C in the LIVE walk (world wizard at 50 MP: DAG_ACRON A,
+    # PABULUM B, FAL_DIVI C) — the old fixed-code letter J is unlisted.
+    log.handle_char("C")  # FAL_DIVI
 
     # The cast message is logged and the member prompt is re-opened.
     assert "Fal Divi" in "\n".join(str(line) for line in log.history)
     assert log.current_prompt == "Cast: Which member? (1-4):"
     # The re-entry is user-driven: answering it with a NON-fal-divi cast
-    # ('A' = REPOND) completes the flow and re-opens NOTHING (no third
-    # member prompt, no loop).
+    # (PABULUM = B now that the mage has 45 MP left) completes the flow and
+    # re-opens NOTHING (no third member prompt, no loop).
     log.handle_char("1")
     assert log.current_prompt == "Wizard Spell? (A-P):"
-    log.handle_char("A")  # REPOND
+    log.handle_char("B")  # PABULUM
     assert not log.is_waiting_for_input
-    assert "Repond" in "\n".join(str(line) for line in log.history)
+    assert "Pabulum" in "\n".join(str(line) for line in log.history)
     # Exactly one re-entry: member, spell, then member again, spell — no more.
     assert prompts == [
         "Cast: Which member? (1-4):",
@@ -850,7 +854,7 @@ def test_vieda_outside_combat_view_only_for_non_combat_sites():
 
     prompt_cast_party(log, party, view_callback=lambda: calls.append(("view",)))
     log.handle_char("1")
-    log.handle_char("L")  # VIEDA
+    log.handle_char("E")  # VIEDA — E in the live world walk (mp 60)
 
     # The screen view callback fired once, off the flag.
     assert calls == [("view",)]
@@ -954,7 +958,7 @@ def test_appar_unem_prompt_flow_never_asks_direction():
         log = TextLog()
         prompt_cast_party(log, party)
         log.handle_char("1")  # member 1
-        log.handle_char("B")  # APPAR_UNEM
+        log.handle_char("A")  # APPAR_UNEM — A in the live world walk (0-cost PONTORI is combat-only)
 
     # The flow completed without any further prompt — no Direction? step.
     assert not log.is_waiting_for_input

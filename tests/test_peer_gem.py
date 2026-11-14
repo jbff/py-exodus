@@ -396,7 +396,7 @@ def test_vieda_cast_on_overworld_opens_peer_gem_view(ow_vieda, cast_party):
     assert "Which member?" in ow_vieda.text_log.current_prompt
     ow_vieda.text_log.handle_char("2")  # the Cleric
     assert "Cleric Spell?" in ow_vieda.text_log.current_prompt
-    ow_vieda.text_log.handle_char("L")  # VIEDA
+    ow_vieda.text_log.handle_char("E")  # VIEDA — live world-walk letter
 
     # The spell's success opened the same gem view the P command opens.
     assert ow_vieda.gem_view_active is True
@@ -428,17 +428,17 @@ def test_fal_divi_cast_on_overworld_re_enters_cast_prompt(asset_mgr, cast_party)
     assert "Which member?" in o.text_log.current_prompt
     o.text_log.handle_char("1")  # the Mage
     assert "Wizard Spell?" in o.text_log.current_prompt
-    o.text_log.handle_char("J")  # FAL_DIVI
+    o.text_log.handle_char("C")  # FAL_DIVI — live world-walk letter (mp 50)
 
     # The wizard's cast completes and the member prompt is re-opened once.
     assert "Fal Divi" in "\n".join(str(line) for line in o.text_log.history)
     assert "Which member?" in o.text_log.current_prompt
-    # One re-entry, no loop: re-answer the member prompt, pick a spell whose
-    # MP is unaffordable now (mage has 5 left after 45) — the stream ends and
-    # member prompt is NOT re-opened a second time.
+    # One re-entry, no loop: re-answer the member prompt — the mage has 5 MP
+    # left, so the LIVE walk lists NOTHING (not offered = not promptable) and
+    # the stream ends with Java's canonical empty-map line; the member prompt
+    # is NOT re-opened a second time.
     o.text_log.handle_char("1")
-    assert "Wizard Spell?" in o.text_log.current_prompt
-    o.text_log.handle_char("P")  # wizard P costs 75 MP
+    assert "No spells to cast!" in "\n".join(str(line) for line in o.text_log.history)
     assert not o.text_log.is_waiting_for_input
     member_prompts = sum(
         1 for line in o.text_log.history if "Which member?" in str(line)
@@ -468,7 +468,7 @@ def test_vieda_cast_in_town_opens_peer_gem_view(asset_mgr):
     assert "Which member?" in town.text_log.current_prompt
     town.text_log.handle_char("2")  # the Cleric
     assert "Cleric Spell?" in town.text_log.current_prompt
-    town.text_log.handle_char("L")  # VIEDA
+    town.text_log.handle_char("E")  # VIEDA — live city-walk letter
 
     # The spell's success opened the same gem view the town P command opens,
     # with no gem paid.

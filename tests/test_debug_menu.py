@@ -320,10 +320,12 @@ class TestNoClass:
         prompt_cast_party(text_log, party)
         text_log.submit_input("1")  # member
         text_log.submit_input("W")  # Spell Type?
-        text_log.submit_input("C")  # LORUM (wizard, 10 MP)
+        # PABULUM = B in the live walk (world wizard at 50 MP, NOCLASS: the
+        # old fixed-code "C" (LORUM) is dungeon-only and never listed here).
+        text_log.submit_input("B")
         blob = "\n".join(text_log.history)
         assert "cannot cast" not in blob
-        assert hero.character.mp == 40
+        assert hero.character.mp == 10  # 50 - 40
 
     def test_without_gate_fighter_is_refused(self, text_log: TextLog, cheat_state: Any) -> None:
         party = make_party()

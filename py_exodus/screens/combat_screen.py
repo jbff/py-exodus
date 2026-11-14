@@ -11,8 +11,8 @@ from py_exodus.combat.magic import (
     DIRECTIONAL_SPELLS,
     TARGETED_MEMBER_SPELLS,
     get_castable_spell_types,
-    resolve_spell,
 )
+from py_exodus.spell_menu import get_castables, spell_menu_prompt_lines
 from py_exodus.constants import (
     COMBAT_HEIGHT,
     COMBAT_WIDTH,
@@ -225,7 +225,17 @@ class CombatScreen(BaseScreen):
         self.text_log.prompt("Direction? (N,S,E,W):", callback=_on_dir, single_char=True)
 
     def _prompt_cast(self) -> None:
-        """Prompt active member for spell casting."""
+        """Prompt active member for spell casting.
+
+        Java truth (CombatScreen.java:322-330 + SpellInputProcessor.java
+        :31-46): C uses the ACTIVE member (no member prompt), builds
+        ``Spell.getCastables(ap, MapType.combat)`` — "No spells to cast!"
+        when the map is empty — then SpellInputProcessor prints the rows
+        (``{letter} - {SPELL} ({cost})``) and reads letters from that SAME
+        map. py splits the walk per RESOLVED discipline (the druid/ranger
+        dual gate upstream), so each menu is one ``get_castables`` call with
+        the chosen discipline; a letter resolves through the captured list.
+        """
         active = self.active_party_member
         if not active:
             return
@@ -244,22 +254,38 @@ class CombatScreen(BaseScreen):
 
         def _ask_spell_code(discipline: str) -> None:
             type_label = "Wizard" if discipline == "wizard" else "Cleric"
+            # The list is captured once and drives BOTH the printed rows and
+            # the letter lookup (Java reuses the ctor's spellSelection map).
+            castables = get_castables(active, "combat", discipline)
+            if not castables:
+                # A per-discipline empty walk: the canonical empty-map line
+                # (CombatScreen.java:326); the menu does not open.
+                self.text_log.add_message("No spells to cast!")
+                return
+            # Rows render through the same message stream the ready-weapon
+            # menu uses (screen menus print in the log, then arm a prompt).
+            for line in spell_menu_prompt_lines(castables):
+                self.text_log.add_message(line)
 
             def _on_spell(code: str) -> None:
-                code_upper = code.strip().upper()
-                found_spell = resolve_spell(code_upper, spell_type=discipline, caster=active)
+                letter = code.strip().upper()
+                found_spell = next((s for l, s in castables if l == letter), None)
                 if found_spell is None:
-                    self.text_log.add_message("Unknown spell!")
-                    return
-
-                if not found_spell.can_cast(char.profession) and not debug.CHEATS.no_class:
-                    self.text_log.add_message(f"{char.name} cannot cast {found_spell.name}!")
-                    return
-
-                if char.mp < found_spell.mp_cost:
-                    # Java's canonical MP refusal (SpellUtil.java:58); the
-                    # specific cost is never named.
-                    self.text_log.add_message("Thou dost not have enough magic points!")
+                    # A letter beyond the live list is a SILENT no-op: the
+                    # menu stays open awaiting a mapped letter (Task-3
+                    # ruling 2026-11-14). The old fixed-code walk printed
+                    # "Unknown spell!" for any unmatched letter; Java logs
+                    # "Not a spell!" and disarms (SpellInputProcessor.java
+                    # :69-70) — here silence + a still-armed menu wins, so
+                    # the caster always picks from the printed rows. The
+                    # profession/MP re-checks of the old resolved-letter
+                    # path are gone with it: ``get_castables`` already
+                    # filtered class (and cost, unless FULL MP opens the
+                    # gate) — an offered letter is always castable.
+                    self.text_log.prompt(
+                        f"{type_label} Spell? (A-P):", callback=_on_spell,
+                        single_char=True,
+                    )
                     return
 
                 if found_spell in DIRECTIONAL_SPELLS:
