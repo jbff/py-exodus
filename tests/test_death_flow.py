@@ -377,12 +377,18 @@ def test_dungeon_tick_starves_food_zero_but_is_count_based(sm, asset_mgr):
     assert all(m.food == 0 for m in party.members)
 
 
-def test_overworld_chest_gas_trap_wipe_transitions_to_start_screen(sm, asset_mgr, monkeypatch):
-    """A gas trap that kills the whole party (Task 1 pipeline) routes to game over."""
+def test_overworld_chest_acid_trap_wipe_transitions_to_start_screen(sm, asset_mgr, monkeypatch):
+    """An acid trap killing a sole party member (Task 1 pipeline) routes to game over.
+
+    USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): the Gas trap poisons
+    every living member (GBC menucmd.c:1077-1147) and can no longer wipe
+    the party, so the wipe route runs through the Acid trap (opener-only
+    FIRE effect, 16 + rand(32)).
+    """
 
     class _FakeRandom:
-        def randrange(self, n: int) -> int:  # trap hits, evade fails, trap #3 = gas
-            return {2: 0, 100: 99, 4: 3, 50: 0, 8: 0, 32: 31}[n]
+        def randrange(self, n: int) -> int:  # trap hits, evade fails, trap #0 = acid
+            return {2: 0, 100: 99, 4: 0, 50: 0, 8: 0, 32: 31}[n]
 
     import py_exodus.world.chests as chests_mod
 
@@ -402,7 +408,7 @@ def test_overworld_chest_gas_trap_wipe_transitions_to_start_screen(sm, asset_mgr
     ow.text_log.handle_char("1")
     ow.text_log.handle_enter()
 
-    assert any("Gas Trap!" in line for line in ow.text_log.history)
+    assert any("Acid Trap!" in line for line in ow.text_log.history)
     assert party.is_party_dead()
     assert isinstance(sm.current_screen, StartScreen)
     assert sm.current_screen.game_over is True
@@ -500,12 +506,18 @@ def test_dungeon_fountain_acid_death_transitions_to_start_screen(sm, asset_mgr):
     assert sm.current_screen.game_over is True
 
 
-def test_town_chest_gas_trap_wipe_transitions_to_start_screen(sm, asset_mgr, monkeypatch):
-    """A town chest gas trap killing the whole party routes to game over."""
+def test_town_chest_acid_trap_wipe_transitions_to_start_screen(sm, asset_mgr, monkeypatch):
+    """A town chest acid trap killing the sole party member routes to game over.
+
+    USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): the Gas trap poisons
+    every living member (GBC menucmd.c:1077-1147) and can no longer wipe
+    the party, so the wipe route runs through the Acid trap (opener-only
+    FIRE effect, 16 + rand(32)).
+    """
 
     class _FakeRandom:
         def randrange(self, n: int) -> int:
-            return {2: 0, 100: 99, 4: 3, 50: 0, 8: 0, 32: 31}[n]
+            return {2: 0, 100: 99, 4: 0, 50: 0, 8: 0, 32: 31}[n]
 
     import py_exodus.world.chests as chests_mod
 

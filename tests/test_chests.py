@@ -153,22 +153,46 @@ def test_acid_trap_with_mark_of_fire_is_a_no_op(monkeypatch):
     assert member.gold == 150 + 41
 
 
-def test_gas_trap_applies_lava_effect_to_party(monkeypatch):
-    """Gas trap applies the LAVA effect through party.applyEffect (every living member)."""
+def test_gas_trap_poisons_whole_party(monkeypatch):
+    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): the Gas trap poisons
+    every living member with no damage (GBC menucmd.c:1077-1147; LW
+    UltimaMain.c:1718-1734 case 3 — every living member status 'P')."""
     member = make_member("Fighter")
     other = make_member("Cleric")
-    marked = make_member("Druid", marks=[0, 1, 0, 0])
-    party = make_party([member, other, marked])
+    already = make_member("Druid")
+    dead = make_member("Wizard")
+    party = make_party([member, other, already, dead])
 
-    # Trap, hit, gas; per-member LAVA damage rolls for the two unmarked members, then gold
-    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 3, 2, 4, 25, 6]))
+    # Trap, hit, gas; no damage rolls exist under GBC rules, then gold
+    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 3, 25, 6]))
+    already.status = Status.POISONED
+    dead.status = Status.DEAD
 
     lines = open_chest(party, member, dungeon=False)
 
     assert lines == ["Gas Trap!", "The Chest Holds: 41 Gold"]
-    assert member.hp == 100 - 18
-    assert other.hp == 100 - 20
-    assert marked.hp == 100  # Mark of Fire absorbs the LAVA effect
+    assert member.status == Status.POISONED
+    assert other.status == Status.POISONED
+    assert already.status == Status.POISONED
+    assert all(m.hp == 100 for m in party.members)  # no fire/lava damage
+    assert dead.status == Status.DEAD  # dead members are untouched
+
+
+def test_gas_trap_hits_living_members_only(monkeypatch):
+    """A Gas trap never resurrects a dead member or writes over its status."""
+    member = make_member("Fighter")
+    dead = make_member("Wizard")
+    party = make_party([member, dead])
+
+    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 3, 25, 6]))
+    dead.status = Status.DEAD
+    dead.hp = 0
+
+    open_chest(party, member, dungeon=False)
+
+    assert dead.status == Status.DEAD
+    assert dead.hp == 0
+    assert member.status == Status.POISONED
 
 
 def test_poison_trap_poisons_opener(monkeypatch):

@@ -91,9 +91,14 @@ def _chest_trap(party: Party, member: PartyMember) -> list[str]:
             member.status = Status.POISONED
         return ["Poison Trap!"]
 
-    if which_trap == 3:  # LAVA (Gas Trap): party.applyEffect hits every member
+    if which_trap == 3:  # GAS: poisons the whole party, no damage
+        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): Gas trap poisons every living member (GBC menucmd.c:1077-1147; LW UltimaMain.c:1718-1734 case 3)
+        # Same status write as the POISON branch above — a party-wide loop
+        # instead of the opener alone, skipping dead members.
         for m in party.members:
-            _apply_fire_lava(m)
+            if m.status != Status.DEAD and m.status != Status.POISONED:
+                m.status = Status.POISONED
+        # deferred: GBC Bomb trap is a party-wide cannonfire blast — pending-items ledger; GBC's bomb reuses cannonfire which py's trap path lacks
         return ["Gas Trap!"]
 
     _apply_fire_lava(member)  # FIRE (Acid Trap): the opening member only

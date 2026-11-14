@@ -23,7 +23,7 @@ import pygame
 import pytest
 
 from py_exodus.assets import AssetManager
-from py_exodus.constants import Direction
+from py_exodus.constants import Direction, Status
 from py_exodus.entities.character import Character
 from py_exodus.entities.defs import CreatureDef
 from py_exodus.entities.party import Party
@@ -543,9 +543,10 @@ def test_dungeon_chest_delegates_to_pipeline(open_dmap, test_party, monkeypatch)
 def test_dungeon_chest_trapped_without_disarm(open_dmap, test_party, monkeypatch):
     import py_exodus.world.chests as chests
 
-    # hasTrap roll 0 → trap; evade roll 99 (dex+25 < 99 fails); gas trap
-    # (whichTrap 3); lava damage 16 + rand(32)=0 → 16 per non-DEAD member.
-    seq = [0, 99, 3, 0]
+    # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): Gas trap poisons every
+    # living member (GBC menucmd.c:1077-1147; LW UltimaMain.c:1718-1734 case
+    # 3) — no damage rolls, both living members end POISONED at full HP.
+    seq = [0, 99, 3]
 
     def fake_randrange(n, **kwargs):
         return seq.pop(0) if seq else 0
@@ -564,8 +565,8 @@ def test_dungeon_chest_trapped_without_disarm(open_dmap, test_party, monkeypatch
     )
     ev = state.open_chest(member_index=0, disarm=False)
     assert ev.type == DungeonEventType.CHEST
-    assert m0.hp == m0.max_hp - 16
-    assert m1.hp == m1.max_hp - 16
+    assert m0.status == Status.POISONED and m0.hp == m0.max_hp
+    assert m1.status == Status.POISONED and m1.hp == m1.max_hp
 
 
 def test_dungeon_chest_disarm_skips_trap(open_dmap, test_party, monkeypatch):
