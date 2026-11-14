@@ -159,13 +159,17 @@ class DungeonScreen(BaseScreen):
             evt = self.state.turn_right()
             self._process_event(evt)
         elif event.key == pygame.K_k:
-            # Java DungeonScreen.java:959-971 — K on an up-ladder steps the
-            # level and returns before finishTurn: no turn consumed.
+            # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): ladders consume
+            # a turn (GBC ult3.c:1388-1429; LW free-action ladders disagree,
+            # no LW+NES agreement — GBC retained). Java DungeonScreen.java:
+            # 959-971 returned before finishTurn.
             evt = self.state.klimb_up()
             self._process_event(evt)
         elif event.key == pygame.K_d:
-            # Java DungeonScreen.java:973-981 — D on a down-ladder steps the
-            # level (clamped at DUNGEON_LVLS) and consumes no turn.
+            # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): ladders consume
+            # a turn (GBC ult3.c:1388-1429; LW free-action ladders disagree,
+            # no LW+NES agreement — GBC retained). Java DungeonScreen.java:
+            # 973-981 returned before finishTurn.
             evt = self.state.klimb_down()
             self._process_event(evt)
         elif event.key == pygame.K_i:

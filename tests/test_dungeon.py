@@ -339,6 +339,77 @@ def test_dungeon_ladder_climbing(empty_dmap, test_party):
     assert ev_exit.type == DungeonEventType.EXIT_DUNGEON
 
 
+class ZeroRNG(random.Random):
+    """RNG whose randrange always returns the first masked direction."""
+
+    def randrange(self, *args, **kwargs):  # noqa: D401
+        return 0
+
+
+# USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): ladders consume a turn
+# (GBC ult3.c:1388-1429; LW free-action ladders disagree, no LW+NES
+# agreement — GBC retained). The tests below pin the consumed-turn
+# pipeline (moon clock + encounter roll) that K/D now shares with a
+# normal dungeon move.
+
+def test_ladder_consume_turn_moon_tick(empty_dmap, test_party):
+    """A real climb ticks the shared consumed-turn counter like a normal
+    move (moon_turns +1 via Party.advance_moons in _tick_turn)."""
+    empty_dmap.set_tile(5, 5, 0, DungeonTile.LADDER_DOWN)
+    state = DungeonState(empty_dmap, start_x=5, start_y=5, start_z=0, party=test_party)
+
+    assert test_party.moon_turns == 0
+    ev_down = state.klimb_down()
+    assert ev_down.type == DungeonEventType.LADDER_DOWN
+    assert test_party.moon_turns == 1
+
+    empty_dmap.set_tile(5, 5, 1, DungeonTile.LADDER_UP)
+    ev_up = state.klimb_up()
+    assert ev_up.type == DungeonEventType.LADDER_UP
+    assert test_party.moon_turns == 2
+
+
+def test_ladder_no_turn_blocked_and_exit(empty_dmap, test_party):
+    """Refusals and level-0 exits are unchanged: only an actual level
+    change consumes the turn. A blocked K/D is not a move, and the K-exit
+    to the overworld is a map transition, not a dungeon move."""
+    # No ladder here: BLOCKED, no tick.
+    state = DungeonState(empty_dmap, start_x=5, start_y=5, start_z=0, party=test_party)
+    ev_blocked = state.klimb_up()
+    assert ev_blocked.type == DungeonEventType.BLOCKED
+    assert test_party.moon_turns == 0
+
+    # K at level 0 on a ladder up: exits to the surface, no tick.
+    empty_dmap.set_tile(5, 5, 0, DungeonTile.LADDER_UP)
+    ev_exit = state.klimb_up()
+    assert ev_exit.type == DungeonEventType.EXIT_DUNGEON
+    assert test_party.moon_turns == 0
+
+
+def test_ladder_climb_encounter_roll_fires(empty_dmap, test_party):
+    """GBC 1388-1429: mademove stays 1 through the climb, so the wandering
+    upkeep / encounter roll runs after the climb — a creature on the
+    destination level reaching the ladder tile raises the battle."""
+    empty_dmap.set_tile(5, 5, 0, DungeonTile.LADDER_DOWN)
+    state = DungeonState(
+        empty_dmap,
+        start_x=5,
+        start_y=5,
+        start_z=0,
+        party=test_party,
+        rng=ZeroRNG(),
+        random_encounters=False,
+    )
+    cr = CreatureDef(id=10, name="Orc", tile="orc", basehp=30, level=1)
+    # Destination level (1), adjacent north of the party's ladder tile.
+    state.wandering_creatures.append(WanderingCreature(cr, 5, 4, 1))
+
+    ev = state.klimb_down()
+    assert ev.type == DungeonEventType.COMBAT
+    assert ev.creature is cr
+    assert state.z == 1
+
+
 # --- Traps Tests (Pit, Wind, Gremlins) ---
 
 class RemainingRng:

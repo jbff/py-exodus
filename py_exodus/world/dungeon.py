@@ -1685,9 +1685,14 @@ class DungeonState:
     def klimb_up(self) -> DungeonEvent:
         """Ascend via ladder towards surface (z decrements towards 0).
 
-        Java truth: DungeonScreen.java:959-971 — the K branch steps
-        currentLevel down, exits to the overworld below level 0 and returns
-        false before finishTurn, so ladders never consume a turn.
+        USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): ladders consume a
+        turn (GBC ult3.c:1388-1429; LW free-action ladders disagree, no
+        LW+NES agreement — GBC retained). Unlike Java's K branch
+        (DungeonScreen.java:959-971), which returns false before
+        finishTurn, a real climb runs the same turn tick a normal move
+        runs (mademove stays 1, so the encounter roll can fire while
+        standing on the ladder). Level-0 K still exits to the overworld
+        unchanged — a map transition, not a consumed move.
         """
         tile = self.current_tile
         if tile not in (DungeonTile.LADDER_UP, DungeonTile.LADDER_UP_DOWN):
@@ -1716,25 +1721,35 @@ class DungeonState:
         if self.party:
             self.party.dungeon_level = self.z
 
-        return DungeonEvent(
-            type=DungeonEventType.LADDER_UP,
-            message=f"Climbed up to level {self.z + 1}.",
-            x=self.x,
-            y=self.y,
-            z=self.z,
-            tile=tile,
+        return self._with_combat(
+            DungeonEvent(
+                type=DungeonEventType.LADDER_UP,
+                message=f"Climbed up to level {self.z + 1}.",
+                x=self.x,
+                y=self.y,
+                z=self.z,
+                tile=tile,
+            ),
+            self._tick_turn(),
         )
 
     def klimb_down(self) -> DungeonEvent:
         """Descend via ladder deeper into the dungeon (z increments).
 
-        Java truth: DungeonScreen.java:973-981 — the D branch increments
-        currentLevel and only clamps when currentLevel exceeds DUNGEON_LVLS
-        (Java's fixed constant 8), so a descent off the deepest playable
-        grid is *accepted* and clamped one level past the last playable
-        array index, never refused. The clamp here is ``dmap.levels`` — 8
-        for every shipped dungeon, matching Java's DUNGEON_LVLS constant.
-        K/D return false before finishTurn: no turn is consumed.
+        USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): ladders consume a
+        turn (GBC ult3.c:1388-1429; LW free-action ladders disagree, no
+        LW+NES agreement — GBC retained). Unlike Java's D branch
+        (DungeonScreen.java:973-981), which returns false before
+        finishTurn, a real descent runs the same turn tick a normal move
+        runs (mademove stays 1, so the encounter roll can fire while
+        standing on the ladder).
+
+        Java truth otherwise kept: the D branch increments currentLevel and
+        only clamps when currentLevel exceeds DUNGEON_LVLS (Java's fixed
+        constant 8), so a descent off the deepest playable grid is
+        *accepted* and clamped one level past the last playable array
+        index, never refused. The clamp here is ``dmap.levels`` — 8 for
+        every shipped dungeon, matching Java's DUNGEON_LVLS constant.
         """
         tile = self.current_tile
         if tile not in (DungeonTile.LADDER_DOWN, DungeonTile.LADDER_UP_DOWN):
@@ -1754,13 +1769,16 @@ class DungeonState:
         if self.party:
             self.party.dungeon_level = self.z
 
-        return DungeonEvent(
-            type=DungeonEventType.LADDER_DOWN,
-            message=f"Climbed down to level {self.z + 1}.",
-            x=self.x,
-            y=self.y,
-            z=self.z,
-            tile=tile,
+        return self._with_combat(
+            DungeonEvent(
+                type=DungeonEventType.LADDER_DOWN,
+                message=f"Climbed down to level {self.z + 1}.",
+                x=self.x,
+                y=self.y,
+                z=self.z,
+                tile=tile,
+            ),
+            self._tick_turn(),
         )
 
     def drink_fountain(self, member_index: int = 0) -> DungeonEvent:

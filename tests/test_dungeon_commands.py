@@ -313,22 +313,27 @@ def test_dungeon_unhandled_keys_pass_and_consume_turn(pygame_setup):
     assert ticks() == 96
 
 
-def test_dungeon_ladders_do_not_consume_turns(pygame_setup):
+# USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): ladders consume a turn
+# (GBC ult3.c:1388-1429; LW free-action ladders disagree, no LW+NES
+# agreement — GBC retained). Java's K/D return false before finishTurn —
+# the port now runs the same turn tick a normal move runs, so the climb is
+# metered by the moon-clock counter (the party.moves move counter does not
+# tick while exploring a dungeon — Java truth, kept).
+def test_dungeon_ladders_consume_turns(pygame_setup):
     party = make_party()
     scr = make_screen(party)
     scr.dungeon_map.set_tile(scr.state.x, scr.state.y, scr.state.z, DungeonTile.LADDER_DOWN)
-    moves = party.moves
+    turn = party.moon_turns
 
     press(scr, pygame.K_d)
     assert scr.state.z == 1
     assert any("Climbed down" in m for m in scr.text_log.history)
-    # Java DungeonScreen.java:959-982 — K/D return false before finishTurn.
-    assert party.moves == moves
+    assert party.moon_turns == turn + 1
 
     scr.dungeon_map.set_tile(scr.state.x, scr.state.y, scr.state.z, DungeonTile.LADDER_UP)
     press(scr, pygame.K_k)
     assert scr.state.z == 0
-    assert party.moves == moves
+    assert party.moon_turns == turn + 2
 
 
 # --- (e) ladder bounds clamp (Java DungeonScreen.java:959-982) ---------
