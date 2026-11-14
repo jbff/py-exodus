@@ -228,11 +228,12 @@ class TestCombatCastFlow:
         assert session.is_waiting_for_input
         assert any("[msg] A - PONTORI (0)" in line for line in session.transcript)
 
-    def test_low_mp_cleric_list_compacts_and_beyond_letter_is_silent(self, asset_mgr):
+    def test_low_mp_cleric_list_compacts_and_out_of_list_letter_disarms(self, asset_mgr):
         """MP 3: only the 0-cost spell is listed (not offered = not
         promptable — no "Thou dost not have enough magic points!" from the
-        prompt flow); a letter beyond the list length does nothing silently
-        and the active-member marker persists."""
+        prompt flow); a letter beyond the list length logs Java's canonical
+        "Not a spell!" and DISARMS the menu (SpellInputProcessor.java:69-72)
+        — the turn is untouched, so the active-member marker persists."""
         session = PlaySession(asset_mgr).start(party=_cleric_party(mp=3))
         session.enter_combat(creature_tile="orc", context_map_id=2, monster_count=1)
 
@@ -250,12 +251,13 @@ class TestCombatCastFlow:
         before = session.transcript
         session.press("B")  # beyond the one-entry list
         added = session.transcript[len(before):]
+        assert any("Not a spell!" in line for line in added), added
         assert not any(
-            "Unknown spell!" in line or "Not a spell!" in line for line in added
+            "Unknown spell!" in line or "FAILED" in line for line in added
         ), added
-        assert not any("FAILED" in line for line in added)
+        # The menu is disarmed (no re-arm, no row re-print).
+        assert not session.is_waiting_for_input
         assert session.active_member == "Cora"  # marker persists
-        assert session.is_waiting_for_input
 
     def test_druid_combat_wizard_cleric_choice_then_wizard_rows(self, asset_mgr):
         """The druid/ranger dual gate: combat prompts [W]izard or [C]leric

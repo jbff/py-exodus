@@ -309,19 +309,20 @@ def test_world_flow_prints_rows_after_member_selection():
     ]
 
 
-def test_unmapped_letter_is_a_silent_noop_prompt_stays_open():
-    """A letter beyond the live list does nothing (silence): the old
-    "Unknown spell!" path is gone and the menu keeps awaiting a mapped
-    letter (Task-3 ruling 2026-11-14; Java's "Not a spell!" disarms instead
-    — see the code commentary)."""
+def test_out_of_list_letter_logs_not_a_spell_and_disarms():
+    """A key outside the live list logs Java's canonical "Not a spell!" and
+    DISARMS the menu — the prompt closes with no row re-print and the
+    player re-presses C to see the list again (Java
+    SpellInputProcessor.java:69-72: any key failing the ``A..size`` guard —
+    letters past the list length, digits, ESC — takes this same branch)."""
     log = _prompt_world_cleric(mp=15)  # list: A APPAR_UNEM (5), B SANCTU (10)
     assert log.current_prompt == "Cleric Spell? (A-P):"
     log.handle_char("D")  # beyond the two-entry list
-    assert log.is_waiting_for_input
-    assert log.current_prompt == "Cleric Spell? (A-P):"
+    assert not log.is_waiting_for_input
+    assert log.current_prompt == ""
     blob = "\n".join(str(line) for line in log.history)
+    assert "Not a spell!" in blob
     assert "Unknown spell!" not in blob
-    assert "Not a spell!" not in blob
 
 
 def test_unaffordable_spell_never_offers_mp_refusal():

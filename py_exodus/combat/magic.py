@@ -1187,10 +1187,11 @@ def prompt_cast_party(
     exists in the PROMPT flows: ``get_castables`` filters ``cost <= mana``,
     so an unaffordable spell is never offered (not offered = not
     promptable); the string remains only on the pre-execution gate in
-    ``cast_spell`` for direct API callers. Similarly the old "Unknown
-    spell!" path is gone: a letter outside the captured list is a SILENT
-    no-op and the menu stays armed (Task-3 ruling 2026-11-14; Java logs
-    "Not a spell!" and disarms instead, SpellInputProcessor.java:69-70).
+    ``cast_spell`` for direct API callers. The old "Unknown spell!" path is
+    likewise gone: a key outside the captured list logs Java's canonical
+    "Not a spell!" and DISARMS the menu (SpellInputProcessor.java:69-72 —
+    py's Escape cancel stays silent, the harness-wide prompt convention,
+    where Java's ESC would take the same out-of-range branch).
     """
     # Java builds the map with ``bm.getType()`` (SecondaryInputProcessor.java
     # :283; the dungeon screen passes MapType.dungeon, :443) — derive the
@@ -1252,17 +1253,19 @@ def prompt_cast_party(
                 letter = code.strip().upper()
                 found_spell = next((s for l, s in castables if l == letter), None)
                 if found_spell is None:
-                    # A letter beyond the live list is a SILENT no-op: the
-                    # menu stays open awaiting a mapped letter (Task-3
-                    # ruling 2026-11-14). The old fixed-code walk printed
-                    # "Unknown spell!" for any unmatched letter; Java logs
-                    # "Not a spell!" and disarms (SpellInputProcessor.java
-                    # :69-70). The profession/MP re-checks of the old
-                    # resolved-letter path are gone with it — the captured
-                    # get_castables list already filtered class (and cost,
-                    # unless FULL MP opens the gate), so an offered letter
-                    # is always castable.
-                    text_log.prompt(f"{type_label} Spell? (A-P):", callback=_on_spell, single_char=True)
+                    # Java's out-of-list branch: ANY key failing the
+                    # ``keycode >= Keys.A && keycode < size + Keys.A`` guard
+                    # (a letter past the live list length, digits, ESC —
+                    # there is no special case) logs "Not a spell!" and
+                    # DISARMS the menu: input returns to the screen
+                    # multiplexer with no row re-print, and the player
+                    # re-presses C to see the list again
+                    # (SpellInputProcessor.java:69-72). The profession/MP
+                    # re-checks of the old resolved-letter path are gone
+                    # with it — the captured get_castables list already
+                    # filtered class (and cost, unless FULL MP opens the
+                    # gate), so an offered letter is always castable.
+                    text_log.add_message("Not a spell!")
                     return
 
                 def _dispatch(target: Any | None = None, direction: Direction | None = None) -> None:

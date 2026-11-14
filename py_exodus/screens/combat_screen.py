@@ -271,21 +271,19 @@ class CombatScreen(BaseScreen):
                 letter = code.strip().upper()
                 found_spell = next((s for l, s in castables if l == letter), None)
                 if found_spell is None:
-                    # A letter beyond the live list is a SILENT no-op: the
-                    # menu stays open awaiting a mapped letter (Task-3
-                    # ruling 2026-11-14). The old fixed-code walk printed
-                    # "Unknown spell!" for any unmatched letter; Java logs
-                    # "Not a spell!" and disarms (SpellInputProcessor.java
-                    # :69-70) — here silence + a still-armed menu wins, so
-                    # the caster always picks from the printed rows. The
-                    # profession/MP re-checks of the old resolved-letter
-                    # path are gone with it: ``get_castables`` already
-                    # filtered class (and cost, unless FULL MP opens the
-                    # gate) — an offered letter is always castable.
-                    self.text_log.prompt(
-                        f"{type_label} Spell? (A-P):", callback=_on_spell,
-                        single_char=True,
-                    )
+                    # Java's out-of-list branch: ANY key failing the
+                    # ``keycode >= Keys.A && keycode < size + Keys.A`` guard
+                    # (a letter past the live list length, digits, ESC —
+                    # there is no special case) logs "Not a spell!" and
+                    # DISARMS the menu: input returns to the screen
+                    # multiplexer with no row re-print, and the player
+                    # re-presses C to see the list again
+                    # (SpellInputProcessor.java:69-72). The profession/MP
+                    # re-checks of the old resolved-letter path are gone
+                    # with it: ``get_castables`` already filtered class
+                    # (and cost, unless FULL MP opens the gate) — an
+                    # offered letter is always castable.
+                    self.text_log.add_message("Not a spell!")
                     return
 
                 if found_spell in DIRECTIONAL_SPELLS:
