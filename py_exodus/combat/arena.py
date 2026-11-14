@@ -761,13 +761,20 @@ class CombatArena:
             target_member=action.target_member,
             party=self.party,
         )
-        # Java never consumes a spell-cast failure: every SpellUtil.spellCast
-        # gate (SpellUtil.java:24-76 — bad target/direction, out of mana,
+        # Task 4 executed-vs-refusal rule (2026-11-14): Java never consumes a
+        # PRE-execution refusal — every SpellUtil.spellCast gate
+        # (SpellUtil.java:24-76 — bad target/direction, out of mana,
         # "Can't!" used free spell, NEGATE aura) returns false before any
         # finishPlayerTurn, and SpellInputProcessor (SpellInputProcessor.java:
-        # 63/84/116) ignores the result — the caster REMAINS ACTIVE (pending
-        # item 11). On success the turn is consumed unless the spell is a
-        # NO_TURN spell (SpellUtil.java:87-237).
+        # 63/84/116) ignores the result — the caster REMAINS ACTIVE. But an
+        # EXECUTED failure consumes: GBC battle.c:1052-1060 runs the
+        # masskill-mismatch FAILED path through the effect branch and returns
+        # 1 (the directional-cancel gate semantics differ per Java — those
+        # stay refusals here). On success the turn is consumed unless the
+        # spell is a NO_TURN spell (SpellUtil.java:87-237), whose effect
+        # branch never calls finishPlayerTurn. This corrects P6's
+        # over-breadth: the old success-based rule also granted a retry on
+        # executed-but-failed casts.
         # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): FAL_DIVI re-dispatches
         # to the cleric spell menu (GBC menucmd.c:1519-1530; LW
         # UltimaSpellCombat.c corroboration) — GBC's fal-divi battle variant
@@ -775,7 +782,7 @@ class CombatArena:
         # the combat site consumes the followup as a no-op rather than
         # re-opening a spell menu mid-round (LW's battle case 9 goes the other
         # way, ClericChoose; the GBC referee source settles it).
-        consumes = bool(spell_res.success and resolved not in NO_TURN_SPELLS)
+        consumes = bool(spell_res.executed and resolved not in NO_TURN_SPELLS)
         return ActionResult(
             success=spell_res.success,
             action=action,

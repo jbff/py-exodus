@@ -204,27 +204,40 @@ class TestCombatCastFlow:
         assert not any("APPAR_UNEM" in line for line in session.transcript)
         assert session.is_waiting_for_input
 
-    def test_masskill_gate_failed_cast_reopens_for_same_member(self, asset_mgr):
-        """``C A`` (PONTORI) with the per-battle masskill latch OFF: the
-        FAILED refusal does not execute, the turn is not consumed, and a
-        follow-up C re-opens the spell list for the SAME member with no
-        member prompt anywhere (Task 4 will pin the executed-vs-refusal
-        consumption rule)."""
+    def test_masskill_gate_failed_cast_consumes_the_turn(self, asset_mgr):
+        """``C A`` (PONTORI) with the per-battle masskill latch OFF: FAILED is
+        an EXECUTED failure (GBC battle.c:1052-1060 — the masskill-mismatch
+        FAILED path prints and RETURNS 1, so the monster phase follows), the
+        turn is consumed, and the round rolls over: with a one-member party
+        the caster still holds the prompt at the head of the NEXT round.
+
+        Rewritten 2026-11-14 (Task 4, plan's binding executed-vs-refusal
+        rule): the Task 3 reading flipped — this cast reached its effect
+        branch (mana spent, roll made), so it consumes; only pre-execution
+        refusals (the SpellUtil gates, executed=False) keep the caster
+        active."""
         session = PlaySession(asset_mgr).start(party=_cleric_party())
         session.enter_combat(creature_tile="orc", context_map_id=2, monster_count=1)
-        session.screen.arena.masskill = False  # pin the 50% latch
+        arena = session.screen.arena
+        arena.masskill = False  # pin the 50% latch
+        before_round = arena.round_count
 
         session.press_seq("C A")
         assert any("[msg] FAILED" in line for line in session.transcript), (
             session.transcript
         )
-        marker = session.active_member
-        assert marker == "Cora"
 
-        # The prompt re-opens for the same caster.
+        # The consumed turn finished the single member's round: the monster
+        # phase ran (round_count advanced) and the fresh round re-armed Cora.
+        assert arena.round_count == before_round + 1
+        assert arena.is_party_round_done is False
+        assert session.active_member == "Cora"
+
+        # The prompt re-opens for the caster's next-round turn (no member
+        # prompt anywhere — combat casts with the active member).
         session.press("C")
         assert not any("Which member?" in line for line in session.transcript)
-        assert session.active_member == marker
+        assert session.active_member == "Cora"
         assert session.is_waiting_for_input
         assert any("[msg] A - PONTORI (0)" in line for line in session.transcript)
 
@@ -249,15 +262,19 @@ class TestCombatCastFlow:
         assert not any("magic points" in line for line in session.transcript)
 
         before = session.transcript
+        before_cast_round = session.screen.arena.round_count
         session.press("B")  # beyond the one-entry list
         added = session.transcript[len(before):]
         assert any("Not a spell!" in line for line in added), added
         assert not any(
             "Unknown spell!" in line or "FAILED" in line for line in added
         ), added
-        # The menu is disarmed (no re-arm, no row re-print).
+        # The menu is disarmed (no re-arm, no row re-print); the refusal is
+        # pre-execution (prompt-level, SpellInputProcessor.java:69-72), so
+        # nothing consumed: no turn advance, no monster phase.
         assert not session.is_waiting_for_input
         assert session.active_member == "Cora"  # marker persists
+        assert session.screen.arena.round_count == before_cast_round
 
     def test_druid_combat_wizard_cleric_choice_then_wizard_rows(self, asset_mgr):
         """The druid/ranger dual gate: combat prompts [W]izard or [C]leric

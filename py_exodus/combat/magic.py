@@ -54,6 +54,16 @@ class SpellResult:
     # UltimaSpellCombat.c corroboration) — "cleric_menu" asks the calling
     # handler for one re-entry; combat consumes it as a no-op.
     followup: str | None = None
+    # Task 4 (2026-11-14 combat-interaction-parity): EXECUTED vs REFUSED.
+    # True (default) marks a cast that reached its effect branch — mana was
+    # spent and the attempt happened, even when success is False (GBC
+    # battle.c:1052-1060: the masskill-mismatch FAILED path returns 1, the
+    # turn counts as spent). Only cast_spell's PRE-execution gates
+    # (SpellUtil.java:24-76 semantics: unknown spell, incapacitation,
+    # profession, missing direction, mana, used free spell, NEGATE aura,
+    # location, restorative prevalidation) return executed=False — the
+    # refusal happened BEFORE anything ran, so the caster stays active.
+    executed: bool = True
 
 
 # Spell name and synonym lookup table
@@ -269,22 +279,24 @@ def cast_spell(
     # 1. Resolve spell enum
     resolved_spell = resolve_spell(spell, spell_type=spell_type, caster=caster)
     if resolved_spell is None:
-        return SpellResult(success=False, message=f"Unknown spell: {spell}")
+        # REFUSED (Task 4): nothing resolved — nothing to execute.
+        return SpellResult(success=False, message=f"Unknown spell: {spell}", executed=False)
 
     # 2. Extract underlying Character and party
     caster_char: Character = getattr(caster, "character", caster)
     target_char: Character = getattr(target_member, "character", target_member) if target_member else caster_char
     active_party = party or getattr(caster, "party", None) or (arena.party if arena else None)
 
-    # 3. Check caster incapacitation
+    # 3. Check caster incapacitation — REFUSED (Task 4)
     if caster_char.is_dead() or caster_char.is_disabled() or caster_char.status in (Status.DEAD, Status.ASH, Status.ASHES):
         return SpellResult(
             success=False,
             message=f"{caster_char.name} cannot cast spells while incapacitated.",
             spell=resolved_spell,
+            executed=False,
         )
 
-    # 4. Check profession permission
+    # 4. Check profession permission — REFUSED (Task 4)
     profession = caster_char.profession
     # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): debug cheat harness
     # (GBC cheat.c:414-825) — NOCLASS also opens the per-spell gate.
@@ -294,6 +306,7 @@ def cast_spell(
             success=False,
             message=f"{prof_name} cannot cast {resolved_spell.name}.",
             spell=resolved_spell,
+            executed=False,
         )
 
     # Direction for the cast: Java validates the direction requirement before
@@ -305,19 +318,25 @@ def cast_spell(
         dir_val = target_dir if isinstance(target_dir, Direction) else Direction.from_name_or_key(target_dir)
 
     if resolved_spell in _PROJECTILE_SPELLS and dir_val is None:
+        # REFUSED (Task 4): Java's no-direction gate (SpellUtil.java:40-57) —
+        # the directional-cancel case stays NON-consuming.
         return SpellResult(
             success=False,
             message="Thou must indicate a direction to cast the spell!",
             spell=resolved_spell,
+            executed=False,
         )
 
     # 5. Check magic points (Java SpellUtil.java:57) — before free-spell use.
     mp_cost = resolved_spell.cost
     if caster_char.mp < mp_cost:
+        # REFUSED (Task 4): mana gate fires BEFORE any effect — the caster
+        # stays active (direct-API callers; prompt flows never hit it).
         return SpellResult(
             success=False,
             message="Thou dost not have enough magic points!",
             spell=resolved_spell,
+            executed=False,
         )
 
     # 6. Free combat spell flag: Java sets usedFreeSpellInCombat BEFORE the
@@ -326,10 +345,13 @@ def cast_spell(
     is_free_combat_spell = resolved_spell in (Spell.REPOND, Spell.PONTORI)
     if arena is not None and is_free_combat_spell:
         if getattr(caster, "used_free_spell_in_combat", False):
+            # REFUSED (Task 4): "Can't!" used-free-spell gate
+            # (SpellUtil.java:65-67) — pre-execution.
             return SpellResult(
                 success=False,
                 message="Can't!",
                 spell=resolved_spell,
+                executed=False,
             )
         setattr(caster, "used_free_spell_in_combat", True)
         if hasattr(caster_char, "used_free_spell_in_combat"):
@@ -339,19 +361,22 @@ def cast_spell(
     #    (Java SpellUtil.java:73-76 — the deductive adjustMagic comes after).
     aura = getattr(active_party, "aura", None)
     if aura is not None and aura.get_type() == AuraType.NEGATE:
+        # REFUSED (Task 4): negation gate fires before the deduct.
         return SpellResult(
             success=False,
             message="Spell is negated!",
             spell=resolved_spell,
+            executed=False,
         )
 
-    # 8. Check location permissions if environment is specified
+    # 8. Check location permissions if environment is specified — REFUSED (Task 4)
     if arena is not None:
         if not resolved_spell.can_cast_location(MapType.COMBAT):
             return SpellResult(
                 success=False,
                 message=f"{resolved_spell.name} cannot be cast in combat!",
                 spell=resolved_spell,
+                executed=False,
             )
     elif world_map is not None:
         m_type = getattr(world_map, "map_type", None)
@@ -367,21 +392,26 @@ def cast_spell(
                 success=False,
                 message=f"{resolved_spell.name} cannot be cast here!",
                 spell=resolved_spell,
+                executed=False,
             )
 
     # 9. Pre-validate targeted restorative spells before consuming MP
+    # REFUSED (Task 4) on each branch: the gate fires BEFORE the effect and
+    # the MP deduct.
     if resolved_spell == Spell.SANCTU:
         if target_char.is_dead() or target_char.status in (Status.DEAD, Status.ASH, Status.ASHES):
             return SpellResult(
                 success=False,
                 message=f"Cannot heal {target_char.name} (dead or ashes).",
                 spell=resolved_spell,
+                executed=False,
             )
         if target_char.hp >= target_char.max_hp:
             return SpellResult(
                 success=False,
                 message=f"{target_char.name} is already at full health.",
                 spell=resolved_spell,
+                executed=False,
             )
 
     elif resolved_spell == Spell.ALCORT:
@@ -390,6 +420,7 @@ def cast_spell(
                 success=False,
                 message=f"{target_char.name} is not poisoned.",
                 spell=resolved_spell,
+                executed=False,
             )
 
     elif resolved_spell == Spell.SANCTU_MANI:
@@ -398,12 +429,14 @@ def cast_spell(
                 success=False,
                 message=f"Cannot heal {target_char.name} (dead or ashes).",
                 spell=resolved_spell,
+                executed=False,
             )
         if target_char.hp >= target_char.max_hp:
             return SpellResult(
                 success=False,
                 message=f"{target_char.name} is already at full health.",
                 spell=resolved_spell,
+                executed=False,
             )
 
     elif resolved_spell == Spell.SURMANDUM:
@@ -412,6 +445,7 @@ def cast_spell(
                 success=False,
                 message=f"{target_char.name} is not dead.",
                 spell=resolved_spell,
+                executed=False,
             )
 
     elif resolved_spell == Spell.ANJU_SERMANI:
@@ -420,6 +454,7 @@ def cast_spell(
                 success=False,
                 message=f"{target_char.name} is not in ashes.",
                 spell=resolved_spell,
+                executed=False,
             )
 
     # 10. Deduct MP and flag free spell usage
@@ -501,6 +536,8 @@ def _apply_spell_effect(
                 spell=spell,
             )
         target_char.status = Status.ASHES
+        # EXECUTED (Task 4): the 25% fizzle rolled INSIDE the effect branch
+        # (mana spent, target changed) — consumes despite success=False.
         return SpellResult(
             success=False,
             message=f"The spell fails! {target_char.name} crumbles to ashes!",
@@ -526,7 +563,10 @@ def _apply_spell_effect(
                 # GBC faildat path: the gate fails the cast outright and the
                 # latch stays unconsumed; mana was spent before the effect.
                 # (GBC battle.c:1052; LW UltimaSpellCombat.c:192-268,475-495)
-                return SpellResult(success=False, message="FAILED", spell=spell)
+                # EXECUTED (Task 4): the cast ran its effect branch and GBC's
+                # FAILED path returns 1 — the turn counts as spent even
+                # though success is false.
+                return SpellResult(success=False, message="FAILED", spell=spell, executed=True)
             # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): the Java
             # 50/65/80/100% turn ladder is deleted — the kill is level-
             # independent; each eligible undead dies on its own 75% roll
@@ -568,7 +608,8 @@ def _apply_spell_effect(
             # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): per-battle 50% masskill flag gates PONTORI/REPOND (GBC funcs5.c:1354-1358; LW latch + cast-time roll is functionally equivalent)
             if not arena.masskill:
                 # GBC faildat path (battle.c:1235); mana was already spent.
-                return SpellResult(success=False, message="FAILED", spell=spell)
+                # EXECUTED (Task 4): reached the effect branch — consumes.
+                return SpellResult(success=False, message="FAILED", spell=spell, executed=True)
             # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): same masskill
             # latch, same 75%-per-monster kill roll, level-independent — but
             # only the single tile "orc" is eligible (the port's goblinoid set
@@ -759,6 +800,8 @@ def _apply_spell_effect(
                 if _appar_unem_fizzle():
                     # GBC faildat2 (menucmd.c:153-156) prints "FAILED" and
                     # returns without opening; the chest tile is untouched.
+                    # EXECUTED (Task 4): the fizzle rolled inside the effect
+                    # branch — not a pre-execution refusal.
                     return SpellResult(success=False, message="FAILED", spell=spell)
                 world_map.dmap.set_tile(dx, dy, world_map.z, DungeonTile.NOTHING)
                 lines.extend(open_chest(party, member, dungeon=True, disarmed=True))
@@ -774,6 +817,7 @@ def _apply_spell_effect(
                     for o in party.dynamic_objects
                 )
                 if chest_object_present and _appar_unem_fizzle():
+                    # EXECUTED (Task 4): effect-branch fizzle (see above).
                     return SpellResult(success=False, message="FAILED", spell=spell)
                 try:
                     take_chest_object(party, px, py)
@@ -791,6 +835,7 @@ def _apply_spell_effect(
                     or str(getattr(tile, "rule", "")).lower() == "chest"
                 ):
                     if _appar_unem_fizzle():
+                        # EXECUTED (Task 4): effect-branch fizzle (see above).
                         return SpellResult(success=False, message="FAILED", spell=spell)
                     from py_exodus.assets import TileDef
 
@@ -800,6 +845,10 @@ def _apply_spell_effect(
 
         if opened:
             return SpellResult(success=True, message="\n".join(lines), spell=spell)
+        # EXECUTED (Task 4): the chest branch ran to its negative result
+        # ("Not Here!") — in the world flow there is no turn to consume; in
+        # combat it is unpromptable post-Task-3 and direct-API arena callers
+        # now record the attempt as executed.
         return SpellResult(success=False, message="Not Here!", spell=spell)
 
     # Overhead View / Peer (VIEDA)

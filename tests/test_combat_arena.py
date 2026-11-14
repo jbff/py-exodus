@@ -709,44 +709,98 @@ def test_failed_spell_cast_leaves_caster_active(asset_mgr, conflict_map):
     arena = _two_caster_arena(asset_mgr, conflict_map)
     assert arena.active_party_member_idx == 0
 
-    # Missing direction gate (SpellUtil.java:41-49)
+    # Missing direction gate (SpellUtil.java:41-49) — a pre-execution
+    # refusal: executed=False (Task 4 classification)
     res = arena.execute_turn(Action.cast(Spell.MITTAR))
     assert not res.success
     assert res.message == "Thou must indicate a direction to cast the spell!"
+    assert res.spell_res.executed is False
     assert res.consume_turn is False
     assert arena.active_party_member_idx == 0
     assert not arena.is_party_round_done
 
-    # Out-of-mana gate (SpellUtil.java:57-60): spend the mage's MP first
+    # Out-of-mana gate (SpellUtil.java:57-60): spend the mage's MP first.
+    # Direct-API call (bypassing the menu/letter list): the prevalidation
+    # gate fires BEFORE any effect, executed=False — the caster stays active.
     arena.party.members[0].mp = 0
     res = arena.execute_turn(Action.cast(Spell.MITTAR, direction=Direction.NORTH))
     assert not res.success
     assert res.message == "Thou dost not have enough magic points!"
+    assert res.spell_res.executed is False
     assert res.consume_turn is False
     assert arena.active_party_member_idx == 0
     assert not arena.is_party_round_done
     arena.party.members[0].mp = 50
 
     # "Can't!" used-free-spell gate (SpellUtil.java:65-67) on the next caster
+    # — pre-execution refusal: executed=False
     arena.active_party_member_idx = 1
     arena.party.members[1].used_free_spell_in_combat = True
     res = arena.execute_turn(Action.cast(Spell.PONTORI))
     assert not res.success
     assert res.message == "Can't!"
+    assert res.spell_res.executed is False
     assert res.consume_turn is False
     assert arena.active_party_member_idx == 1
     assert not arena.is_party_round_done
     arena.party.members[1].used_free_spell_in_combat = False
 
     # NEGATE gate (SpellUtil.java:73-76): mana stays unspent AND turn unspent
+    # — pre-execution refusal: executed=False
     arena.party.aura.set(AuraType.NEGATE, 3)
     res = arena.execute_turn(Action.cast(Spell.PONTORI))
     assert not res.success
     assert res.message == "Spell is negated!"
+    assert res.spell_res.executed is False
     assert res.consume_turn is False
     assert arena.active_party_member_idx == 1
     assert not arena.is_party_round_done
     assert arena.party.members[1].mp == 50
+
+
+def test_masskill_gate_failed_cast_consumes_the_turn(asset_mgr, conflict_map):
+    """Task 4 (GBC truth, battle.c:1052-1060): a PONTORI cast whose
+    per-battle masskill latch mismatches runs FAILED through the EFFECT
+    branch (mana already spent, the roll happened) and RETURNS 1 — the turn
+    is consumed even though success is false. Corrects P6's over-breadth:
+    the old success-based consume rule also granted a retry on this
+    executed-but-failed cast."""
+    from py_exodus.constants import Spell
+
+    random.seed(2026)
+    arena = _two_caster_arena(asset_mgr, conflict_map)
+    arena.masskill = False  # pin the latch: PONTORI hits faildat
+    arena.active_party_member_idx = 1  # PONTORI is a cleric spell
+    before_round = arena.round_count
+    assert arena.active_party_member_idx == 1
+
+    res = arena.execute_turn(Action.cast(Spell.PONTORI))
+    assert not res.success
+    assert res.message == "FAILED"
+    assert res.spell_res.executed is True
+    assert res.consume_turn is True
+    # The consumed turn finished the round: the monster phase ran and the
+    # turn order reset to the head of the next round.
+    assert arena.round_count == before_round + 1
+    assert arena.is_party_round_done is False
+    assert arena.active_party_member_idx == 0
+
+
+def test_altair_executed_yet_still_stays_no_turn(asset_mgr, conflict_map):
+    """Task 4 contract on a NO_TURN spell: the cast runs its effect branch
+    (executed=True) yet Java's effect never calls finishPlayerTurn
+    (SpellUtil.java:125-127) — the caster stays active. The executed flag
+    must not override the NO_TURN list."""
+    from py_exodus.constants import Spell
+
+    random.seed(2026)
+    arena = _two_caster_arena(asset_mgr, conflict_map)
+    arena.party.members[0].mp = 99  # ALTAIR costs more than the fixture's 50
+    res = arena.execute_turn(Action.cast(Spell.ALTAIR))
+    assert res.success
+    assert res.spell_res.executed is True
+    assert res.consume_turn is False
+    assert arena.active_party_member_idx == 0
 
 
 def test_successful_bolt_still_consumes_the_turn(asset_mgr, conflict_map):
@@ -758,6 +812,7 @@ def test_successful_bolt_still_consumes_the_turn(asset_mgr, conflict_map):
     arena = _two_caster_arena(asset_mgr, conflict_map)
     res = arena.execute_turn(Action.cast(Spell.MITTAR, direction=Direction.NORTH))
     assert res.success
+    assert res.spell_res.executed is True  # Task 4: effect branch ran
     assert res.consume_turn is True
     assert arena.active_party_member_idx == 1
 

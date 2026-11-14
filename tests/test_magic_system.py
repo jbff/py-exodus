@@ -305,6 +305,9 @@ def test_pontori_kills_nothing_without_masskill_flag(asset_mgr, conflict_map, mo
     res = cast_spell(Spell.PONTORI, caster=cleric, arena=arena)
     assert not res.success
     assert res.message == "FAILED"
+    # Task 4: FAILED reached the effect branch (mana spent) — an EXECUTED
+    # failure, not a pre-execution refusal (GBC battle.c:1052 returns 1).
+    assert res.executed is True
     assert all(not m.is_dead for m in arena.monsters)
     assert cleric.exp == 0
 
@@ -321,8 +324,34 @@ def test_repond_kills_nothing_without_masskill_flag(asset_mgr, conflict_map, mon
     res = cast_spell(Spell.REPOND, caster=wiz, arena=arena)
     assert not res.success
     assert res.message == "FAILED"
+    assert res.executed is True  # Task 4: executed-but-failed (battle.c:1235)
     assert all(not m.is_dead for m in arena.monsters)
     assert wiz.exp == 0
+
+
+def test_spell_result_executed_classification(asset_mgr, conflict_map):
+    """Task 4: the executed flag on SpellResult — default True (effect
+    branches ran); the cast_spell pre-execution gates return executed=False;
+    the masskill-gate FAILED paths are executed failures."""
+    # Direct-API mana refusal (SpellUtil.java:57): pre-execution, executed=False
+    poor = Character("Broke", "M", Race.FUZZY, Profession.WIZARD, intelligence=50, mp=0)
+    res = cast_spell(Spell.MITTAR, caster=poor, target_dir=Direction.NORTH)
+    assert not res.success
+    assert res.message == "Thou dost not have enough magic points!"
+    assert res.executed is False
+    assert poor.mp == 0  # mana never moved
+
+    # Successful effect cast: executed=True by default
+    rich = Character("Rich", "F", Race.BOBIT, Profession.CLERIC, wisdom=50, mp=50)
+    party = Party()
+    party.add_member(rich)
+    arena2 = CombatArena(
+        party, conflict_map, creature_tile="orc", asset_mgr=asset_mgr, monster_count=1
+    )
+    arena2.masskill = True  # pin the latch: the effect branch runs
+    res = cast_spell(Spell.PONTORI, caster=rich, arena=arena2, party=party)
+    assert res.success
+    assert res.executed is True
 
 
 def test_pontori_against_undead(asset_mgr, conflict_map, monkeypatch):
