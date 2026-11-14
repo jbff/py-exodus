@@ -294,6 +294,45 @@ def test_dungeon_wind_trap_extinguishes_boolean(pygame_setup):
     assert not hasattr(state, "torch_rounds")
 
 
+# --- Task 24: GBC torch durations through the screen pipeline -----------
+# USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): finite torch durations
+# (GBC dungfun2.c:852-853,962,1128,1168-1191; dungfunc.c:719-734).
+
+
+def test_dungeon_ignite_screen_pipeline_pins_counter(pygame_setup):
+    """GBC dungfun2.c:1168-1191 — the I handler burns one torch and loads
+    torchtime 255; the ignite turn is itself consumed (finishTurn), so the
+    keypress completes with the counter one lower (dungfunc.c:719-734 runs
+    under every consumed turn)."""
+    scr = make_screen()
+    scr.state.x, scr.state.y = 5, 5
+    scr.state.z = 0
+    scr.party.members[0].torches = 5
+
+    press(scr, pygame.K_i)
+    assert scr.party.members[0].torches == 4
+    assert scr.state.torchtime == 254
+    assert scr.state.is_torch_on is True
+
+    # Extinguish: no torch spent, counter gone.
+    press(scr, pygame.K_i)
+    assert scr.party.members[0].torches == 4
+    assert scr.state.torchtime == 0
+    assert scr.state.is_torch_on is False
+
+
+def test_dungeon_dark_view_after_last_round(pygame_setup):
+    """At torchtime 0 the screen's lighting read (dungeon_screen.py:558)
+    goes dark; the render path consumes the same state without breaking."""
+    scr = make_screen()
+    scr.state.torchtime = 1
+    assert scr.state.is_torch_on is True
+    scr._consume_turn()
+    assert scr.state.torchtime == 0
+    scr.render(pygame.Surface((320, 200)))
+    assert scr.state.is_torch_on is False
+
+
 # --- unhandled keys consume a turn ("Pass") ----------------------------
 
 

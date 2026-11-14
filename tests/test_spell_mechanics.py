@@ -404,3 +404,83 @@ def test_sequitu_exits_with_label_log(cleric_party):
     assert res.exit_dungeon is True
     assert "Leaving" in res.message
     assert "Doom" in res.message
+
+
+# --- Task 24: GBC light spells write the torch counter ------------------
+# USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): finite torch durations —
+# LORUM/LUMINAE top up to >= 10 (GBC dungfun2.c:852-853,1070-1071) and
+# SOMINAE loads 235 (GBC dungfun2.c:962); LW's 250 and the exact-10 write
+# are outvoted (no pair agreement on SOMINAE, so GBC governs).
+
+
+def test_sominae_sets_torchtime_235(cleric_party):
+    state = _dungeon(cleric_party, z=2)
+    assert cleric_party.members[0].mp >= Spell.SOMINAE.mp_cost
+    res = cast_spell(
+        spell=Spell.SOMINAE,
+        caster=cleric_party.members[0],
+        party=cleric_party,
+        world_map=state,
+    )
+    assert res.success
+    assert state.torchtime == 235
+    assert state.is_torch_on is True
+
+
+def test_lorum_tops_up_to_at_least_10(cleric_party, asset_mgr):
+    c1 = Character("Willow", "F", Race.HUMAN, Profession.WIZARD, mp=50, hp=80)
+    party = Party([PartyMember(c1), PartyMember(cleric_party.members[0].character)], x=10, y=10)
+    party.members[1].character.profession = Profession.CLERIC
+    state = _dungeon(party, z=0)
+
+    # From dark: the top-up floor applies.
+    res = cast_spell(
+        spell=Spell.LORUM,
+        caster=party.members[0],
+        party=party,
+        world_map=state,
+    )
+    assert res.success
+    assert state.torchtime == 10
+
+    # From a higher count: GBC's top-up never lowers the counter.
+    state.torchtime = 50
+    cast_spell(
+        spell=Spell.LORUM,
+        caster=party.members[0],
+        party=party,
+        world_map=state,
+    )
+    assert state.torchtime == 50
+
+
+def test_luminae_tops_up_to_at_least_10(cleric_party):
+    state = _dungeon(cleric_party, z=1)
+    res = cast_spell(
+        spell=Spell.LUMINAE,
+        caster=cleric_party.members[0],
+        party=cleric_party,
+        world_map=state,
+    )
+    assert res.success
+    assert state.torchtime == 10
+    state.torchtime = 90
+    cast_spell(
+        spell=Spell.LUMINAE,
+        caster=cleric_party.members[0],
+        party=cleric_party,
+        world_map=state,
+    )
+    assert state.torchtime == 90
+
+
+def test_light_spells_outside_dungeon_stay_noops_on_world_map(cleric_party):
+    """No torchtime on the target (overworld map): the legacy boolean alias
+    path is skipped and the cast still succeeds."""
+    res = cast_spell(
+        spell=Spell.LUMINAE,
+        caster=cleric_party.members[0],
+        party=cleric_party,
+        world_map=None,
+    )
+    assert res.success

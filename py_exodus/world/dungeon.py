@@ -1091,7 +1091,69 @@ class DungeonState:
         # Torch: Java DungeonScreen.java:81 `boolean isTorchOn` — a plain
         # toggle, default off when entering. There is no rounds counter and
         # no dim; the old torch_duration inheritance is gone.
-        self.is_torch_on = False
+        #
+        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): finite torch
+        # durations (GBC dungfun2.c:852-853,962,1128,1168-1191;
+        # dungfunc.c:719-734; LW UltimaDngn.c:282,192-194) — the boolean
+        # internals are replaced by `torchtime` (0-255), decremented once per
+        # consumed dungeon turn in `_tick_turn`; `is_torch_on` stays as a
+        # boolean alias so the screen lighting reads keep working.
+        self.torchtime: int = 0
+
+    # --- Torch counter (GBC torchtime; user-directed 2026-11-14 deviation) ---
+
+    @property
+    def is_torch_on(self) -> bool:
+        """Torch lit: any non-zero counter (Java `isTorchOn` reads)."""
+        return self.torchtime > 0
+
+    @is_torch_on.setter
+    def is_torch_on(self, value: bool) -> None:
+        """Java-parity boolean writes (DungeonScreen.java:988-1004,
+        1080-1085): True lights a fresh torch (the GBC doignite load —
+        dungfun2.c:1168-1191), False kills the counter outright."""
+        self.torchtime = 255 if value else 0
+
+    def ignite(self) -> bool:
+        """Ignite a torch (Java DungeonScreen.java:988-1004 Keys.I; GBC
+        dungfun2.c:1168-1191 doignite).
+
+        USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): finite torch
+        durations — ignition burns one torch from the first member who owns
+        one (Java truth) and loads `torchtime` to 255 (GBC's `lightnum`).
+        With no torches owned the call fails and the caller keeps its
+        "No Torches!" log; nothing is consumed.
+        """
+        if self.party is None:
+            return False
+        for pm in self.party.members:
+            if pm.torches > 0:
+                pm.torches -= 1
+                self.torchtime = 255
+                return True
+        return False
+
+    # --- Torch persistence ---------------------------------------------------
+
+    def torch_save_data(self) -> dict:
+        """Torch block for a save dict: the GBC counter under `torchtime`.
+
+        Old boolean saves carry the Java `isTorchOn` field instead; those
+        map through `apply_torch_state` (True -> a freshly lit 255).
+        """
+        return {"torchtime": self.torchtime}
+
+    def apply_torch_state(self, data: dict) -> None:
+        """Restore the torch from a save dict.
+
+        Old saves keep the Java `isTorchOn` boolean (DungeonScreen.java:81):
+        on = a freshly lit 255-round torch, off = 0. New saves carry
+        `torchtime` directly and win when both fields are present.
+        """
+        if "torchtime" in data:
+            self.torchtime = min(255, max(0, int(data["torchtime"])))
+        else:
+            self.torchtime = 255 if data.get("is_torch_on") else 0
 
     # --- Spell-utility routing (Java SpellUtil.java:511-608) ---
 
@@ -1200,10 +1262,15 @@ class DungeonState:
     def light_spell(self) -> bool:
         """Spell-lit alias of the torch boolean.
 
-        Java truth: SpellUtil.java:89-91 (LORUM) and 158-161 (LUMINAE) both
-        set ``DungeonScreen.isTorchOn = True`` — the light spells and the
-        torch share the single on/off flag, so pressing I extinguishes a
-        spell-lit corridor the same way it extinguishes a torch.
+        USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): finite torch
+        durations — LORUM/LUMINAE top the counter up to >= 10
+        (max(10, torchtime); GBC dungfun2.c:852-853,1070-1071) and SOMINAE
+        loads 235 (dungfun2.c:962); those writes go through `torchtime` in
+        combat/magic.py. This boolean alias keeps the Java-truth shape
+        (SpellUtil.java:89-91 and 158-161 set ``isTorchOn = True`` — the
+        light spells and the torch share one flag, so pressing I
+        extinguishes a spell-lit corridor the same way it extinguishes a
+        torch) for callers on the old model.
         """
         return self.is_torch_on
 
@@ -1340,8 +1407,12 @@ class DungeonState:
         # Wind trap: extinguishes the torch (Java DungeonScreen.java:1080-1085
         # — log "Wind extinguished your torch!", Sounds.WIND, isTorchOn =
         # false; no torchduration change — that field is dead in Java).
+        #
+        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): the strange winds
+        # kill the counter outright (GBC dungfunc.c:719-734 — torchtime = 0;
+        # the dark check and the decrement follow on the same tick).
         if target_tile == DungeonTile.WIND_TRAP:
-            self.is_torch_on = False
+            self.torchtime = 0
             combat_evt = self._tick_turn()
             return self._with_combat(
                 DungeonEvent(
@@ -1494,6 +1565,17 @@ class DungeonState:
         wandering-creature upkeep and returns a COMBAT event when a
         creature reaches the avatar (battleWandering), else None.
 
+        USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): finite torch
+        durations — every consumed dungeon turn burns one unit of `torchtime`
+        (GBC dungfun2.c:852-853,962,1128,1168-1191; dungfunc.c:719-734 —
+        ``if (torchtime) torchtime--;`` under the strange-winds check; LW
+        UltimaDngn.c:282,192-194). Java's boolean torch has no upkeep (no
+        rounds to decrement, no expiry ever) — superseded here for the GBC
+        rule. At 0 the view renders dark: the screen lighting check reads
+        `is_torch_on` (torchtime > 0). The torch burn precedes the party
+        upkeep, mirroring GBC's move loop (dungfunc.c:719-734) where the
+        counter tick runs under the tile check before the view is drawn.
+
         USER-DIRECTED ORIGINAL-RULES DEVIATION (2026-11-10): Java's dungeon
         tick regenerates NOTHING, but the mana tick
         (``Party.tick_regen`` — mana +1 per 4 turns underground, poison
@@ -1505,6 +1587,8 @@ class DungeonState:
         never runs. Food still does NOT drain in the dungeon: no
         submorsel decrement, no meal crossing (Java truth, kept).
         """
+        if self.torchtime > 0:
+            self.torchtime -= 1
         if self.party is not None:
             # Java order: the aura pass precedes the wandering upkeep. It
             # only decrements the aura counter, but a member death raised

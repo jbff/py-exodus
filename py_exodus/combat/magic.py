@@ -646,8 +646,19 @@ def _apply_spell_effect(
 
     # Light / Torches (LORUM, LUMINAE, SOMINAE)
     if spell in (Spell.LORUM, Spell.LUMINAE):
-        # Java SpellUtil.java:89-94 (LORUM) and 161-163 (LUMINAE) both set
-        # DungeonScreen.isTorchOn = true — the Task 10 boolean torch model.
+        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): finite torch
+        # durations — the light spells top the counter up to >= 10
+        # (max(10, torchtime); GBC dungfun2.c:852-853,1070-1071). Java's
+        # boolean flip (SpellUtil.java:89-94, 161-163) and LW's exact-10
+        # write are outvoted; a higher count is never lowered.
+        if world_map is not None and hasattr(world_map, "torchtime"):
+            world_map.torchtime = max(10, world_map.torchtime)
+            return SpellResult(
+                success=True,
+                message=f"{spell.name.capitalize()} illuminates the darkness.",
+                spell=spell,
+            )
+        # Java-parity boolean model fallback (DungeonScreen.isTorchOn).
         if world_map is not None and hasattr(world_map, "light_spell"):
             world_map.light_spell = True
         return SpellResult(
@@ -657,8 +668,12 @@ def _apply_spell_effect(
         )
 
     if spell == Spell.SOMINAE:
-        # Java SpellUtil.java:187-189 — "REPLACE ME": the spell is a no-op
-        # (mana is spent, nothing happens).
+        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): SOMINAE is no
+        # longer the Java "REPLACE ME" no-op (SpellUtil.java:187-189) — the
+        # torch counter loads 235 (GBC dungfun2.c:962; also 1128). No pair
+        # agreement (LW 250 / NES ~240 are outvoted) so GBC governs.
+        if world_map is not None and hasattr(world_map, "torchtime"):
+            world_map.torchtime = 235
         return SpellResult(success=True, spell=spell)
 
     # Food (PABULUM)

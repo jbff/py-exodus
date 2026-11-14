@@ -472,22 +472,18 @@ class DungeonScreen(BaseScreen):
     def _use_torch(self) -> None:
         """Toggle the torch (Java DungeonScreen.java:988-1004 Keys.I).
 
-        A lit torch press extinguishes it with no consumption; otherwise the
-        first member with torches burns one to light it. With none owned the
-        log prints "No Torches!". Every press falls through to finishTurn.
+        A lit torch press extinguishes it with no consumption; otherwise
+        `DungeonState.ignite` burns the first member's torch and loads the
+        GBC counter to 255 — USER-DIRECTED GBC-RULES DEVIATION (2026-11-14):
+        finite torch durations (GBC dungfun2.c:1168-1191 doignite). With
+        none owned the log prints "No Torches!". Every press falls through
+        to finishTurn (which then burns one `torchtime` unit —
+        dungfunc.c:719-734), so the keypress completes one round down.
         """
         if self.state.is_torch_on:
-            self.state.is_torch_on = False
-        else:
-            found_torch = False
-            for pm in self.party.members:
-                if pm.torches > 0:
-                    pm.torches -= 1
-                    self.state.is_torch_on = True
-                    found_torch = True
-                    break
-            if not found_torch:
-                self.text_log.add_message("No Torches!")
+            self.state.torchtime = 0
+        elif not self.state.ignite():
+            self.text_log.add_message("No Torches!")
         self._consume_turn()
 
     def _toggle_music(self) -> None:

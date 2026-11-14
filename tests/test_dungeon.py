@@ -978,3 +978,102 @@ def test_front_face_occludes_deeper_geometry():
     for px in range(0, 176, 4):
         for py in range(0, 176, 4):
             assert surf.get_at((px, py))[:3] != (0, 255, 0)
+
+
+# --- Task 24: GBC finite torch durations --------------------------------
+# USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): finite torch durations
+# (GBC dungfun2.c:852-853,962,1128,1168-1191; dungfunc.c:719-734; LW
+# UltimaDngn.c:282,192-194). `torchtime` (0-255) replaces the boolean
+# internals; `is_torch_on` stays as a boolean alias for the screen reads.
+
+
+def _torch_state(empty_dmap, test_party, heading=Direction.EAST):
+    return DungeonState(
+        empty_dmap,
+        start_x=5,
+        start_y=5,
+        start_z=0,
+        start_dir=heading,
+        party=test_party,
+    )
+
+
+def test_ignite_consumes_one_torch_and_sets_255(empty_dmap, test_party):
+    """GBC dungfun2.c:1168-1191 (doignite): torches-- , then the counter
+    loads 255 (the port's lightnum)."""
+    state = _torch_state(empty_dmap, test_party)
+    state.party.members[0].torches = 5
+    assert state.ignite() is True
+    assert state.party.members[0].torches == 4
+    assert state.torchtime == 255
+    assert state.is_torch_on is True
+
+
+def test_ignite_with_no_torches_fails(empty_dmap, test_party):
+    state = _torch_state(empty_dmap, test_party)
+    for m in state.party.members:
+        m.torches = 0
+    assert state.ignite() is False
+    assert state.torchtime == 0
+    assert state.is_torch_on is False
+
+
+def test_torchtime_decrements_per_consumed_turn(empty_dmap, test_party):
+    """GBC dungfunc.c:719-734 — torchtime-- once per consumed dungeon turn."""
+    state = _torch_state(empty_dmap, test_party)
+    state.torchtime = 255
+    state.move_forward()
+    assert state.torchtime == 254
+    state.move_forward()
+    assert state.torchtime == 253
+
+
+def test_blocked_move_still_burns_torchtime(empty_dmap, test_party):
+    """A blocked move still consumes a turn (Java finishTurn runs
+    DungeonScreen.java:1052-1076) — the counter follows."""
+    state = _torch_state(empty_dmap, test_party, heading=Direction.NORTH)
+    state.torchtime = 140
+    state.move_forward()  # (5, 4) is a WALL in the hulled map
+    assert state.torchtime == 139
+
+
+def test_torchtime_1_goes_dark_after_next_move(empty_dmap, test_party):
+    state = _torch_state(empty_dmap, test_party)
+    state.torchtime = 1
+    state.move_forward()
+    assert state.torchtime == 0
+    assert state.is_torch_on is False
+
+
+def test_wind_trap_sets_torchtime_to_0(empty_dmap, test_party):
+    """GBC dungfunc.c:719-734 — strange winds load the counter to 0; the
+    view then renders dark through the unchanged screen lighting read."""
+    empty_dmap.set_tile(5, 4, 0, DungeonTile.WIND_TRAP)
+    state = _torch_state(empty_dmap, test_party, heading=Direction.NORTH)
+    state.torchtime = 140
+    ev = state.move_forward()
+    assert ev.type == DungeonEventType.WIND_TRAP
+    assert state.torchtime == 0
+    assert state.is_torch_on is False
+
+
+def test_torch_save_round_trip_new_field(empty_dmap, test_party):
+    """New saves carry the counter under `torchtime`."""
+    state = _torch_state(empty_dmap, test_party)
+    state.torchtime = 137
+    data = state.torch_save_data()
+    assert data == {"torchtime": 137}
+    fresh = _torch_state(empty_dmap, test_party)
+    fresh.apply_torch_state(data)
+    assert fresh.torchtime == 137
+    assert fresh.is_torch_on is True
+
+
+def test_torch_load_maps_old_boolean_saves(empty_dmap, test_party):
+    """Old boolean saves (Java `isTorchOn`) map: True -> 255, False -> 0."""
+    state = _torch_state(empty_dmap, test_party)
+    state.apply_torch_state({"is_torch_on": True})
+    assert state.torchtime == 255
+    state.apply_torch_state({"is_torch_on": False})
+    assert state.torchtime == 0
+    assert state.is_torch_on is False
