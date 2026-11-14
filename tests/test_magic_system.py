@@ -683,6 +683,7 @@ def test_spell_letter_code_resolution_by_discipline(asset_mgr, conflict_map):
     party = Party()
     party.add_member(cleric_char)
     arena = CombatArena(party, conflict_map, creature_tile="skeleton", asset_mgr=asset_mgr, monster_count=1)
+    arena.masskill = True  # Force the latch: this test pins spell-letter resolution only
     res = cast_spell("A", caster=party.members[0], arena=arena)
     assert res.success
     assert res.spell == Spell.PONTORI
