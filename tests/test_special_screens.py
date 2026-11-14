@@ -185,14 +185,18 @@ def test_final_screen_wrong_sequence():
 
     scr = FinalScreen(party=p, return_screen=None)
 
-    # Inserting Love at x31 (Sol's panel) consumes the card and kills Hero;
-    # a wipe raises PartyDeathException (Party.java:572-574)
+    # Inserting Love at x31 (Sol's panel) kills Hero but the card survives:
+    # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): card survives a
+    # wrong-panel insert (GBC menucmd3.c:959; LW UltimaMisc.c:2305-2350 card
+    # never consumed on wrong panel). A wipe raises PartyDeathException
+    # (Party.java:572-574)
     with pytest.raises(PartyDeathException):
         scr.insert_card("love", member_idx=0, pos=(31, 12))
     assert p.exodus_cards_status == 0
     assert not scr.victory
     assert c.status == Status.DEAD
     assert c.hp == 0
+    assert c.cards[0] == 1  # card survives the wrong insert
     assert scr.last_message != ""
 
 

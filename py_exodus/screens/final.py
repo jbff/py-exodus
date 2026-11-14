@@ -255,11 +255,16 @@ class FinalScreen(BaseScreen):
     ) -> bool:
         """Insert a card into the machine panel the party stands on.
 
-        Java truth: ``exodus/SecondaryInputProcessor.java:664-701`` — the card
-        is consumed first; the correct panel (Love x30, Sol x31, Moons x32,
-        Death x33, all y 12) sets the ``exodusCardsStatus`` bit, a wrong panel
-        costs the member ``health + 1`` (lethal, raises ``PartyDeathException``
-        when it kills the last living member). All four bits set => victory.
+        Java truth: ``exodus/SecondaryInputProcessor.java:664-701`` — the correct
+        panel (Love x30, Sol x31, Moons x32, Death x33, all y 12) sets the
+        ``exodusCardsStatus`` bit, a wrong panel costs the member ``health + 1``
+        (lethal, raises ``PartyDeathException`` when it kills the last living
+        member). All four bits set => victory.
+
+        USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): card survives a
+        wrong-panel insert (GBC menucmd3.c:959; LW UltimaMisc.c:2305-2350 card
+        never consumed on wrong panel) — ``cards[card_idx] -= 1`` runs in the
+        correct-panel branch only.
         """
         name = self._normalize_card(str(card_name))
         card_idx = CARD_NAME_TO_INDEX.get(name)
@@ -273,11 +278,12 @@ class FinalScreen(BaseScreen):
             return False
 
         char = getattr(member, "player", member)
-        char.cards[card_idx] -= 1
 
         panel_x, mask = CARD_PANELS[name]
         x, y = pos if pos is not None else (self.party.x, self.party.y)
         if x == panel_x and y == PANEL_Y:
+            # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): card survives a wrong-panel insert (GBC menucmd3.c:959; LW UltimaMisc.c:2305-2350 card never consumed on wrong panel)
+            char.cards[card_idx] -= 1
             self.party.exodus_cards_status = self.card_status | mask
             if self.audio is not None:
                 self.audio.play_sfx("DivineMed")

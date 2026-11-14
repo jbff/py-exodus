@@ -124,7 +124,12 @@ def test_insert_wildcard_no_forced_order():
 
 
 def test_wrong_panel_lethal_no_bit():
-    """Inserting Love while standing on another panel eats the card and kills."""
+    """Inserting Love while standing on another panel kills; the card survives.
+
+    USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): card survives a
+    wrong-panel insert (GBC menucmd3.c:959; LW UltimaMisc.c:2305-2350 card
+    never consumed on wrong panel).
+    """
     party = card_party(x=31, y=12)
     scr = FinalScreen(party=party)
 
@@ -135,11 +140,16 @@ def test_wrong_panel_lethal_no_bit():
     assert m.status == Status.DEAD
     assert m.hp == 0
     assert party.exodus_cards_status == 0  # no bit set
-    assert m.cards[3] == 0  # card consumed even on a wrong panel (SPP.java:680-682)
+    assert m.cards[3] == 1  # card survives the wrong insert
 
 
 def test_insert_non_panel_position_lethal_no_bit():
-    """x=29 at y=12 is a wrong panel too: card eaten, lethal damage, no bit."""
+    """x=29 at y=12 is a wrong panel too: lethal damage, no bit, card survives.
+
+    USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): card survives a
+    wrong-panel insert (GBC menucmd3.c:959; LW UltimaMisc.c:2305-2350 card
+    never consumed on wrong panel).
+    """
     party = card_party(x=29, y=12)
     scr = FinalScreen(party=party)
 
@@ -148,7 +158,7 @@ def test_insert_non_panel_position_lethal_no_bit():
 
     assert party.exodus_cards_status == 0
     assert party.members[0].status == Status.DEAD
-    assert party.members[0].cards[3] == 0
+    assert party.members[0].cards[3] == 1
 
 
 def test_wrong_panel_damages_only_selected_member():
@@ -163,6 +173,23 @@ def test_wrong_panel_damages_only_selected_member():
     assert party.members[0].status == Status.DEAD
     assert party.members[1].status == Status.GOOD
     assert party.exodus_cards_status == 0
+
+
+def test_wrong_panel_card_not_consumed():
+    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): card survives a
+    wrong-panel insert (GBC menucmd3.c:959; LW UltimaMisc.c:2305-2350 card
+    never consumed on wrong panel). The member is still killed."""
+    party = card_party(x=31, y=12, members=2)
+    scr = FinalScreen(party=party)
+
+    res = scr.insert_card("love", member_idx=0, pos=(31, 12))
+
+    assert res is False
+    assert party.exodus_cards_status == 0  # no bit set
+    assert party.members[0].status == Status.DEAD
+    assert party.members[0].cards[3] == 1  # card survives the wrong insert
+    assert party.members[1].cards[3] == 1
+    assert party.members[1].status == Status.GOOD
 
 
 def test_insert_none_owned():
