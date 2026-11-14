@@ -724,6 +724,13 @@ class CombatArena:
         )
         # Java: an effect that never calls finishPlayerTurn leaves the caster
         # active; failed casts fall back to consuming the turn attempt.
+        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): FAL_DIVI re-dispatches
+        # to the cleric spell menu (GBC menucmd.c:1519-1530; LW
+        # UltimaSpellCombat.c corroboration) — GBC's fal-divi battle variant
+        # was never wired (battle.c:1129-1160, the block is commented out), so
+        # the combat site consumes the followup as a no-op rather than
+        # re-opening a spell menu mid-round (LW's battle case 9 goes the other
+        # way, ClericChoose; the GBC referee source settles it).
         consumes = not (spell_res.success and resolved in NO_TURN_SPELLS)
         return ActionResult(
             success=spell_res.success,

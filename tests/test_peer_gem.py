@@ -353,3 +353,94 @@ def test_gem_view_party_on_wrapped_window_seam():
     px = (surf.get_width() // CELL // 2) * CELL
     py = (surf.get_height() // CELL // 2) * CELL
     assert surf.get_at((px, py))[:3] == EGA_YELLOW
+
+
+# --- Task 25 (D4): VIEDA cast routes to the same gem-view render path ---
+
+@pytest.fixture
+def cast_party():
+    """Fighter + Cleric, so the C command drives the flow without a type
+    prompt and the cleric can cast VIEDA ('L')."""
+    members = [
+        PartyMember(
+            Character("Hero", "M", Race.HUMAN, Profession.FIGHTER, strength=20, dexterity=20, hp=100)
+        ),
+        PartyMember(
+            Character("Cleric", "F", Race.BOBIT, Profession.CLERIC, wisdom=50, mp=60, hp=80)
+        ),
+    ]
+    return Party(members, x=10, y=10, transport=Transport.FOOT)
+
+
+@pytest.fixture
+def ow_vieda(asset_mgr, cast_party, monkeypatch):
+    o = OverworldScreen(
+        party=cast_party,
+        map_id=0,
+        asset_mgr=asset_mgr,
+        random_encounters=False,
+    )
+    o._check_moongates = lambda: None  # type: ignore[method-assign]
+    return o
+
+
+def test_vieda_cast_on_overworld_opens_peer_gem_view(ow_vieda, cast_party):
+    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): VIEDA renders the
+    peer-gem view through the same screen path as the P command (GBC
+    menucmd.c:1379-1390 — dopeergem(1) after the 55 MP deduction; the
+    spell branch skips choosechar2 and the gem decrement, so NO gem is
+    paid unlike the P command)."""
+    # Start with gems so the test proves they are NOT consumed by the spell.
+    cast_party.members[1].gems = 7
+    key(ow_vieda, pygame.K_c)
+    assert "Which member?" in ow_vieda.text_log.current_prompt
+    ow_vieda.text_log.handle_char("2")  # the Cleric
+    assert "Cleric Spell?" in ow_vieda.text_log.current_prompt
+    ow_vieda.text_log.handle_char("L")  # VIEDA
+
+    # The spell's success opened the same gem view the P command opens.
+    assert ow_vieda.gem_view_active is True
+    # GBC dopeergem(1) never reaches the gem payment (menucmd.c:695-712 only
+    # runs for dopeergem(0)) — the view costs no gem.
+    assert cast_party.members[1].gems == 7
+
+
+def test_fal_divi_cast_on_overworld_re_enters_cast_prompt(asset_mgr, cast_party):
+    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): FAL_DIVI re-dispatches
+    through the member+cleric-spell cast prompt once (GBC menucmd.c:1519-1530).
+    Run through the keyboard because the followup is consumed by the cast
+    handler, not by cast_spell."""
+    members = [
+        PartyMember(
+            Character("Mage", "M", Race.FUZZY, Profession.WIZARD, intelligence=50, mp=50)
+        ),
+    ]
+    party = Party(members, x=10, y=10, transport=Transport.FOOT)
+    o = OverworldScreen(
+        party=party,
+        map_id=0,
+        asset_mgr=asset_mgr,
+        random_encounters=False,
+    )
+    o._check_moongates = lambda: None  # type: ignore[method-assign]
+
+    key(o, pygame.K_c)
+    assert "Which member?" in o.text_log.current_prompt
+    o.text_log.handle_char("1")  # the Mage
+    assert "Wizard Spell?" in o.text_log.current_prompt
+    o.text_log.handle_char("J")  # FAL_DIVI
+
+    # The wizard's cast completes and the member prompt is re-opened once.
+    assert "Fal Divi" in "\n".join(str(line) for line in o.text_log.history)
+    assert "Which member?" in o.text_log.current_prompt
+    # One re-entry, no loop: re-answer the member prompt, pick a spell whose
+    # MP is unaffordable now (mage has 5 left after 45) — the stream ends and
+    # member prompt is NOT re-opened a second time.
+    o.text_log.handle_char("1")
+    assert "Wizard Spell?" in o.text_log.current_prompt
+    o.text_log.handle_char("P")  # wizard P costs 75 MP
+    assert not o.text_log.is_waiting_for_input
+    member_prompts = sum(
+        1 for line in o.text_log.history if "Which member?" in str(line)
+    )
+    assert member_prompts == 2

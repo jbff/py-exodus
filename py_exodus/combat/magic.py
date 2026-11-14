@@ -42,6 +42,16 @@ class SpellResult:
     # SEQUITU / SUR_ACRON-at-level-0 leave the dungeon; the owning screen
     # performs the transition (Java setScreen(dngScreen.gameScreen)).
     exit_dungeon: bool = False
+    # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): VIEDA renders the
+    # peer-gem view (GBC menucmd.c:1379-1390; LW UltimaSpellCombat.c
+    # corroboration) — the flag tells the calling screen to open it, the same
+    # convention as exit_dungeon.
+    open_gem_view: bool = False
+    # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): FAL_DIVI re-dispatches
+    # to the cleric spell menu (GBC menucmd.c:1519-1530; LW
+    # UltimaSpellCombat.c corroboration) — "cleric_menu" asks the calling
+    # handler for one re-entry; combat consumes it as a no-op.
+    followup: str | None = None
 
 
 # Spell name and synonym lookup table
@@ -789,6 +799,7 @@ def _apply_spell_effect(
             success=True,
             message="Vieda reveals an overhead vision of the surroundings.",
             spell=spell,
+            open_gem_view=True,
         )
 
     # Wizard Divine Blessing (FAL_DIVI)
@@ -797,6 +808,7 @@ def _apply_spell_effect(
             success=True,
             message="Fal Divi invokes clerical divination.",
             spell=spell,
+            followup="cleric_menu",
         )
 
     return SpellResult(success=True, message=f"{spell.name} cast successfully.", spell=spell)
@@ -1142,7 +1154,9 @@ def prompt_cast_party(
        APPAR_UNEM is exempt — USER RULING 2026-11-11: no direction prompt.
     5. If targeted restorative spell: On who? (1-4)
     6. Execute via cast_spell(...); VIEDA invokes ``view_callback`` and a
-       dungeon-exiting spell invokes ``exit_callback``.
+       dungeon-exiting spell invokes ``exit_callback``; a FAL_DIVI cast
+       re-opens this whole member+spell prompt once (USER-DIRECTED GBC-RULES
+       DEVIATION 2026-11-14, GBC menucmd.c:1519-1530).
     """
     def _on_member(m_str: str) -> None:
         try:
@@ -1197,10 +1211,22 @@ def prompt_cast_party(
                         text_log.add_message(res.message)
                     if res.success and audio is not None:
                         audio.play_sfx("magic")
-                    if res.success and found_spell == Spell.VIEDA and view_callback is not None:
+                    if res.success and res.open_gem_view and view_callback is not None:
                         view_callback()
                     if res.success and getattr(res, "exit_dungeon", False) and exit_callback is not None:
                         exit_callback()
+                    if res.success and res.followup == "cleric_menu":
+                        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14):
+                        # FAL_DIVI re-dispatches to the cleric spell menu
+                        # (GBC menucmd.c:1519-1530; LW UltimaSpellCombat.c
+                        # corroboration) — one re-entry at the member prompt,
+                        # the same flow the C command uses. No automatic
+                        # loop: the only followup emitter is FAL_DIVI (a
+                        # wizard spell), so a single-discipline cleric/wizard
+                        # re-entry cannot re-emit it; a druid choosing Wizard
+                        # there starts a new cast, exactly as GBC's re-entry
+                        # does.
+                        _open_cast_prompt()
 
                 if found_spell in TARGETED_MEMBER_SPELLS:
                     def _on_target(target_str: str) -> None:
@@ -1245,4 +1271,7 @@ def prompt_cast_party(
         else:
             _ask_spell_code(types[0])
 
-    text_log.prompt("Cast: Which member? (1-4):", callback=_on_member, single_char=True)
+    def _open_cast_prompt() -> None:
+        text_log.prompt("Cast: Which member? (1-4):", callback=_on_member, single_char=True)
+
+    _open_cast_prompt()

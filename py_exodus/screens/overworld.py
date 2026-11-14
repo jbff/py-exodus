@@ -695,11 +695,16 @@ class OverworldScreen(BaseScreen):
         )
 
     def _show_vieda_view(self) -> None:
-        """Java SpellUtil.spellView (SpellUtil.java:494-499) hands input to the
-        peer-gem adapter — the surrounding-area survey, without consuming a
-        gem (unlike the P command)."""
-        m_name = getattr(self.game_map, "name", "Sosaria")
-        self.text_log.add_message(f"Gem vision: {m_name} at X={self.party.x}, Y={self.party.y}.")
+        """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): VIEDA renders the
+        peer-gem view (GBC menucmd.c:1379-1390; LW UltimaSpellCombat.c
+        corroboration) through the SAME screen path as the P command —
+        dopeergem(1) skips the spell branch's choosechar2 and gem decrement
+        (menucmd.c:695-712 runs only for dopeergem(0)), so casting VIEDA
+        opens the view without consuming a gem and without the "Peer at a
+        Gem!" log. Java's spellView (SpellUtil.java:494-499) likewise hands
+        input straight to the peer-gem adapter."""
+        # The view owns input and the render override draws the gem picture.
+        self.gem_view_active = True
 
     def _get_chest(self) -> None:
         """GET: pick the opening member, then check ONLY the party's own tile
