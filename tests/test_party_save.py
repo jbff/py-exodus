@@ -1331,3 +1331,106 @@ def test_load_game_data_returns_unwrapped_payload():
     finally:
         if os.path.exists(tmp_name):
             os.remove(tmp_name)
+
+
+# --- dynamic_objects save cap (pending item 9) -----------------------------
+
+
+def _party_with_dynamic_objects(n: int) -> Party:
+    p = Party()
+    p.add_member(_roster_char("Ariel"))
+    for i in range(n):
+        p.dynamic_objects.append({"tile": "chest", "x": 10 + i, "y": 40})
+    return p
+
+
+def test_dynamic_objects_save_capped_at_24_oldest_kept():
+    """Java caps the saved dynamic-object block at 24, keeping the OLDEST
+    (first-appended) objects and losing the newest.
+
+    Cap value: SaveGame.java:38-40 holds three byte[24] blocks
+    (tileids/x/y), re-created as byte[24] at SaveGame.java:48-50.
+
+    Off-by-one verdict (Context.java:158-166): the fill loop writes
+    `objects[count] = d` BEFORE testing `if (count > 23) break;`, on a
+    24-length array. The guard is therefore dead code — when count reaches
+    24 (i.e. a 25th map object exists), `objects[24]` throws
+    ArrayIndexOutOfBoundsException before the break can fire, and the
+    exception escapes `saveGame` uncaught (GameScreen.java:559 Q-key path),
+    so Java never completes a save once a 25th object exists. Java could
+    never hold 25 entries — the effective cap is 24, first-24-in-insertion
+    order (BaseMap.objects is append-ordered, BaseMap.java:987), i.e. the
+    oldest 24; the newest objects at index 24+ are lost. Not a count that
+    includes the moving-party ship: while boarded the frigate is REMOVED
+    from map.objects (GameScreen.board, GameScreen.java:952-960) and
+    re-added on disembark (GameScreen.java:584-588), so map.objects at save
+    time holds only disembarked frigates, dropped chests, etc. There is no
+    crash to port (the py save must still complete), so the port replicates
+    Java's 24-cap + oldest-kept direction as a write-time truncation at the
+    save boundary (party to_dict, mirroring Context.java's block
+    assembly)."""
+    assert Party.DYNAMIC_OBJECTS_SAVE_CAP == 24
+
+    p = _party_with_dynamic_objects(26)
+    payload = p.to_dict()
+    objs = payload["dynamic_objects"]
+    # Exactly the Java cap value survives, oldest-first: the first 24
+    # appended objects stay (Context.java:161 fills in insertion order), the
+    # NEWEST two (x=34, x=35) are dropped.
+    assert len(objs) == 24
+    assert [{"tile": "chest", "x": 10 + i, "y": 40} for i in range(24)] == objs
+
+    # In-memory list untouched: the cap is a save-boundary (write-time)
+    # truncation, not a mutation of live state.
+    assert len(p.dynamic_objects) == 26
+
+
+def test_dynamic_objects_save_cap_roundtrip_through_save_system(tmp_path):
+    """A save write then load keeps exactly 24 of 26 objects (oldest kept)."""
+    p = _party_with_dynamic_objects(26)
+    path = tmp_path / "party.json"
+    SaveSystem.save_game(p, path)
+    loaded = SaveSystem.load_game(path)
+    assert len(loaded.dynamic_objects) == 24
+    assert loaded.dynamic_objects[0] == {"tile": "chest", "x": 10, "y": 40}
+    assert loaded.dynamic_objects[-1] == {"tile": "chest", "x": 33, "y": 40}
+
+
+def test_dynamic_objects_at_or_below_cap_roundtrip_unchanged(tmp_path):
+    """Regression: a save at/below the cap round-trips unchanged — the cap
+    must not touch legal saves."""
+    for n in (0, 1, 23, 24):
+        p = _party_with_dynamic_objects(n)
+        path = tmp_path / f"party{n}.json"
+        SaveSystem.save_game(p, path)
+        loaded = SaveSystem.load_game(path)
+        assert loaded.dynamic_objects == [
+            {"tile": "chest", "x": 10 + i, "y": 40} for i in range(n)
+        ], n
+
+
+def test_dynamic_objects_legacy_over_cap_load_unchanged(tmp_path):
+    """Backward compat: an old save written before the cap carried more than
+    24 objects; the cap applies at WRITE time only (Java loads the full
+    block back, GameScreen.java:280-284), so a legacy over-cap save still
+    loads with every object intact. Simulated by a hand-written pre-cap
+    save document (loads accept the non-envelope format unchanged) plus a
+    direct from_dict load of the same payload."""
+    import json as _json
+
+    legacy = [
+        {"tile": "frigate" if i % 2 else "chest", "x": 10 + i, "y": 40}
+        for i in range(26)
+    ]
+    party_dict = _party_with_dynamic_objects(0).to_dict()
+    party_dict["dynamic_objects"] = legacy
+    path = tmp_path / "legacy_party.json"
+    path.write_text(_json.dumps(party_dict), encoding="utf-8")
+
+    # Direct from_dict load: the in-memory list is never truncated.
+    p = Party.from_dict(party_dict)
+    assert p.dynamic_objects == legacy
+
+    # Full load path: everything comes back.
+    loaded = SaveSystem.load_game(path)
+    assert loaded.dynamic_objects == legacy

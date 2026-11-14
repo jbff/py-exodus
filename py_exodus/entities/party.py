@@ -190,6 +190,29 @@ class PartyMember:
 class Party:
     """Active player party (1-4 members) with coordinates, transport, and pooled resources."""
 
+    # Cap on the dynamic-objects list WRITTEN INTO SAVES (Java parity, item 9):
+    # SaveGame.java:38-40 holds three byte[24] blocks (tileids/x/y), so the
+    # saved block holds at most 24 objects.
+    #
+    # The "24 plus an off-by-one" question resolves as follows: Java's fill
+    # loop (Context.java:158-166) writes `objects[count] = d` BEFORE testing
+    # `if (count > 23) break;` against a 24-length array. The guard is dead
+    # code — on a 25th map object, `objects[24]` throws
+    # ArrayIndexOutOfBoundsException before the break can fire, and the
+    # exception escapes saveGame uncaught (GameScreen.java:559 Q-key path),
+    # so Java never completes a save once a 25th object exists. Java could
+    # never legitimately hold 25 entries; 24 is the cap, and it is NOT a
+    # count that includes the moving-party ship — while boarded, the
+    # frigate is removed from map.objects (GameScreen.java:952-960) and
+    # re-added on disembark (GameScreen.java:584-588), so the saved block
+    # covers only disembarked frigates, dropped chests, etc. Java keeps the
+    # FIRST 24 in insert order (BaseMap.objects is an append-ordered list,
+    # BaseMap.java:987) = the OLDEST 24; the newest are lost. Py has no
+    # crash to port (the py save must complete), so the cap is applied as a
+    # write-time truncation at the save boundary (to_dict) with the same
+    # oldest-first direction.
+    DYNAMIC_OBJECTS_SAVE_CAP = 24
+
     def __init__(
         self,
         members: list[Character | PartyMember] | None = None,
@@ -791,7 +814,13 @@ class Party:
             "active_member_index": self.active_member_index,
             "exodus_cards_status": self.exodus_cards_status,
             "members": [m.to_dict() for m in self.members],
-            "dynamic_objects": list(self.dynamic_objects),
+            # Java dynamic-object cap (see DYNAMIC_OBJECTS_SAVE_CAP): the
+            # saved block keeps the OLDEST 24 (Context.java:158-166 fills in
+            # insert order); write-time only — a loaded over-cap list is
+            # never truncated in memory or on legacy re-load.
+            "dynamic_objects": list(
+                self.dynamic_objects[: Party.DYNAMIC_OBJECTS_SAVE_CAP]
+            ),
             "dynamic_monsters": list(self.dynamic_monsters),
         }
 
