@@ -10,12 +10,19 @@ Java truth:
 - ``exodus.Party.applyEffect`` / ``PartyMember.applyEffect`` (Party.java:279-370) —
   FIRE/LAVA damage of ``16 + rand(32)`` skipped by Mark of Fire (``marks[1]``),
   POISON status, and dead members being immune.
+
+USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): chest ITEM DROPS after the gold
+credit (LW ``GetChestBooty`` UltimaMain.c:1736-1760; GBC menucmd.c:1148-1170) —
+~25% weapon find, else an independent ~25% armor find (see
+``_chest_item_drops``). Java never implemented them; the gold band stays
+py/Java (the refs' gold bands mutually diverge).
 """
 from __future__ import annotations
 
 import random
 from typing import TYPE_CHECKING
 
+from py_exodus import special_commands
 from py_exodus.constants import Status
 
 if TYPE_CHECKING:
@@ -27,14 +34,18 @@ class ChestNotFound(Exception):
 
 
 class ChestOpenResult(list):
-    """The chest's log lines, carrying the credited gold total (``result.gold``).
+    """The chest's log lines, carrying the credited gold total (``result.gold``)
+    and the item-drop lines (``result.item_lines``).
 
     A ``list`` subclass so existing callers that iterate or compare the lines
     keep working unchanged while the dungeon state reads the gold figure for
     its event payload.
     """
 
-    gold: int = 0
+    def __init__(self) -> None:
+        super().__init__()
+        self.gold: int = 0
+        self.item_lines: list[str] = []
 
 
 def take_chest_object(party: Party, x: int, y: int) -> dict:
@@ -61,7 +72,9 @@ def open_chest(
 
     Mutates ``member.gold`` / ``member.hp`` / ``member.status`` (and, for a Gas
     trap, the rest of the party) and returns the log lines the screen should add.
-    ``disarmed=True`` is the APPAR_UNEM path and skips the trap roll entirely.
+    ``disarmed=True`` is the APPAR_UNEM path and skips the trap roll entirely but
+    still rolls the item drops (LW's trap branches all fall into the same
+    GetChestBooty rolls, UltimaMain.c:1683-1733).
     ``dungeon`` distinguishes the caller: Java's dungeon and main-game getChest
     routes (DungeonScreen.java:1224-1252, GameScreen.java:1036-1074) share the
     same trap and gold rules.
@@ -74,7 +87,40 @@ def open_chest(
     member.gold = max(0, min(9999, member.gold + gold))
     lines.append(f"The Chest Holds: {gold} Gold")
     lines.gold = gold
+
+    lines.item_lines = _chest_item_drops(member)
+    lines.extend(lines.item_lines)
     return lines
+
+
+def _chest_item_drops(member: PartyMember) -> list[str]:
+    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): chest item drops (LW GetChestBooty UltimaMain.c:1736-1760; GBC menucmd.c:1148-1170 corrobates ~25% find)
+
+    After gold, a ~25% weapon find (index 1..7 -> DAGGER..SWORD_2H via
+    list(WeaponType), +1 to the opening member's stack), else an independent
+    ~25% armor find (index 1..3 -> CLOTH..CHAIN). LW's weapon grant returns
+    before the armor block (UltimaMain.c:1750-1755); a weapon stack already
+    at the 9 cap falls straight to the armor side, per the steal/dig stack
+    conventions (special_commands._bump_stack, cap 9). Names come from the
+    same enum tables the vendor/steal messages use.
+    """
+    item_lines: list[str] = []
+    weapon_side = random.randrange(4) == 0  # LW RandNum(0,255) <= 63 (~25%)
+    weapon_granted = False
+    if weapon_side:
+        weapon = special_commands._WEAPON_ORDER[random.randrange(7) + 1]
+        weapon_granted = special_commands._bump_stack(member.weapons, weapon)
+        if weapon_granted:
+            item_lines.append(f"You found a {weapon.name.capitalize()}!")
+    if weapon_granted:
+        return item_lines
+    if weapon_side or random.randrange(4) == 0:
+        # weapon side fired but the stack was capped: the armor side rolls
+        # directly; the weapon side missing: armor needs its own ~25% roll.
+        armor = special_commands._ARMOR_ORDER[random.randrange(3) + 1]
+        if special_commands._bump_stack(member.armors, armor):
+            item_lines.append(f"You found a {armor.name.capitalize()}!")
+    return item_lines
 
 
 def _chest_trap(party: Party, member: PartyMember) -> list[str]:

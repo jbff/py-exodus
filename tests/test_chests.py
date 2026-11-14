@@ -5,7 +5,14 @@ import re
 import pygame
 import pytest
 
-from py_exodus.constants import Profession, Race, Status, Transport
+from py_exodus.constants import (
+    ArmorType,
+    Profession,
+    Race,
+    Status,
+    Transport,
+    WeaponType,
+)
 from py_exodus.entities.character import Character
 from py_exodus.entities.party import Party, PartyMember
 from py_exodus.screens.dungeon_screen import DungeonScreen
@@ -66,8 +73,9 @@ def test_chest_gold_credits_member_not_party_pool(monkeypatch):
     other = make_member("Cleric", dexterity=15)
     party = make_party([member, other], gold=500)
 
-    # No trap (roll 1), then gold rolls: 25 of 50 + 6 of 8 + 10 = 41
-    monkeypatch.setattr(chests, "random", ScriptedRNG([1, 25, 6]))
+    # No trap (roll 1), then gold rolls: 25 of 50 + 6 of 8 + 10 = 41,
+    # then the drop rolls both miss (3, 3).
+    monkeypatch.setattr(chests, "random", ScriptedRNG([1, 25, 6, 3, 3]))
 
     lines = open_chest(party, member, dungeon=False)
 
@@ -89,7 +97,9 @@ def test_chest_gold_value_range_10_to_66(monkeypatch):
         lines = open_chest(party, member, dungeon=False)
         delta = member.gold - before
         assert 10 <= delta <= 66
-        assert lines[-1] == f"The Chest Holds: {delta} Gold"
+        gold_line = f"The Chest Holds: {delta} Gold"
+        assert gold_line in lines
+        assert lines.index(gold_line) == (1 if lines[0] == "Evaded!" else 0)
         assert member.gold <= 9999
         assert other.gold == 250  # non-opening members are never credited
 
@@ -126,8 +136,9 @@ def test_acid_trap_damages_opener(monkeypatch):
     other = make_member("Cleric")
     party = make_party([member, other])
 
-    # Trap present, evade roll 99 (hit for dex 15), acid, damage roll 5 -> 21, gold
-    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 0, 5, 25, 6]))
+    # Trap present, evade roll 99 (hit for dex 15), acid, damage roll 5 -> 21,
+    # gold, then the drop rolls both miss (3, 3)
+    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 0, 5, 25, 6, 3, 3]))
 
     lines = open_chest(party, member, dungeon=False)
 
@@ -142,8 +153,9 @@ def test_acid_trap_with_mark_of_fire_is_a_no_op(monkeypatch):
     member = make_member("Fighter", dexterity=0, marks=[0, 1, 0, 0])
     party = make_party([make_member("Cleric"), member])
 
-    # Trap present, hit, acid; NO damage roll is consumed, then gold rolls
-    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 0, 25, 6]))
+    # Trap present, hit, acid; NO damage roll is consumed, then gold rolls,
+    # then the drop rolls both miss (3, 3)
+    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 0, 25, 6, 3, 3]))
 
     lines = open_chest(party, member, dungeon=False)
 
@@ -163,8 +175,9 @@ def test_gas_trap_poisons_whole_party(monkeypatch):
     dead = make_member("Wizard")
     party = make_party([member, other, already, dead])
 
-    # Trap, hit, gas; no damage rolls exist under GBC rules, then gold
-    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 3, 25, 6]))
+    # Trap, hit, gas; no damage rolls exist under GBC rules, then gold, then
+    # the drop rolls both miss (3, 3)
+    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 3, 25, 6, 3, 3]))
     already.status = Status.POISONED
     dead.status = Status.DEAD
 
@@ -200,7 +213,7 @@ def test_poison_trap_poisons_opener(monkeypatch):
     member = make_member("Fighter")
     party = make_party([member])
 
-    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 2, 25, 6]))
+    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 2, 25, 6, 3, 3]))
 
     lines = open_chest(party, member, dungeon=False)
 
@@ -214,14 +227,15 @@ def test_disarmed_chest_yields_gold_and_no_trap_roll(monkeypatch):
     member = make_member("Fighter", dexterity=0)
     party = make_party([make_member("Cleric"), member])
 
-    # Only the two gold rolls exist in the script: the trap roll never happens.
-    rng = ScriptedRNG([25, 6])
+    # Only the gold rolls plus the drop rolls exist in the script: the trap
+    # roll never happens (both drop rolls miss — 4, 4).
+    rng = ScriptedRNG([25, 6, 3, 3])
     monkeypatch.setattr(chests, "random", rng)
 
     lines = open_chest(party, member, dungeon=False, disarmed=True)
 
     assert lines == ["The Chest Holds: 41 Gold"]
-    assert rng.rolls == []  # script fully consumed: only the gold rolls ran
+    assert rng.rolls == []  # script fully consumed: no trap roll ever ran
     assert member.hp == 100
     assert member.status == Status.GOOD
     assert member.gold == 150 + 41
@@ -291,7 +305,7 @@ def test_dungeon_get_opens_chest_on_party_tile(monkeypatch):
     screen.dungeon_map.set_tile(2, 2, 0, DungeonTile.CHEST)
     moves_before = party.moves
 
-    monkeypatch.setattr(chests, "random", ScriptedRNG([1, 25, 6]))
+    monkeypatch.setattr(chests, "random", ScriptedRNG([1, 25, 6, 3, 3]))
 
     press_and_answer(screen, ["1"])
 
@@ -335,3 +349,151 @@ def test_dungeon_get_checks_only_party_tile(monkeypatch):
 
     assert any("Not Here!" in msg for msg in screen.text_log.history)
     assert screen.dungeon_map.get_tile(2, 1, 0) == DungeonTile.CHEST
+
+
+# --- Step: chest item drops (LW GetChestBooty, UltimaMain.c:1736-1760) ---
+#
+# After gold: ~25% weapon find (index 1-7 -> DAGGER..SWORD_2H via
+# list(WeaponType)), else an independent ~25% armor find (index 1-3 ->
+# CLOTH..CHAIN). A capped (9) weapon stack falls straight to the armor side
+# per the steal/dig stack conventions (special_commands); a granted weapon
+# ends the loot there (LW's weapon-side return). Drops run on every open,
+# including the disarmed (APPAR_UNEM) path — LW's trap branches all fall
+# through to the same GetChestBooty rolls.
+
+
+def test_weapon_drop_line_and_stack(monkeypatch):
+    """A weapon-side hit grants +1 of the scripted weapon and logs the line."""
+    member = make_member("Fighter")
+    party = make_party([member])
+
+    # No trap, gold 41, weapon side hit (0), weapon idx 3 (+1 = AXE);
+    # the trailing 0 stays unconsumed — the armor side never rolled.
+    monkeypatch.setattr(chests, "random", ScriptedRNG([1, 25, 6, 0, 3, 0]))
+
+    lines = open_chest(party, member, dungeon=False)
+
+    assert lines == ["The Chest Holds: 41 Gold", "You found a Axe!"]
+    assert lines.item_lines == ["You found a Axe!"]
+    assert member.weapons[WeaponType.AXE] == 1
+    assert all(c == 0 for c in member.armors.values())
+    assert member.gold == 150 + 41
+
+
+def test_armor_drop_after_weapon_roll_misses(monkeypatch):
+    """The armor find is an independent 25% when the weapon side misses."""
+    member = make_member("Fighter")
+    party = make_party([member])
+
+    # No trap, gold 41, weapon side miss (3), armor side hit (0),
+    # armor idx 2 (+1 = CHAIN).
+    monkeypatch.setattr(chests, "random", ScriptedRNG([1, 25, 6, 3, 0, 2]))
+
+    lines = open_chest(party, member, dungeon=False)
+
+    assert lines == ["The Chest Holds: 41 Gold", "You found a Chain!"]
+    assert member.armors[ArmorType.CHAIN] == 1
+    assert all(c == 0 for c in member.weapons.values())
+
+
+def test_weapon_hit_skips_the_armor_side(monkeypatch):
+    """A granted weapon ends the loot rolls (LW weapon-side return)."""
+    member = make_member("Fighter")
+    party = make_party([member])
+
+    # Weapon side hit (0), idx 5 (+1 = SWORD). The trailing rolls are never
+    # consumed: no armor-side roll follows a granted weapon.
+    monkeypatch.setattr(chests, "random", ScriptedRNG([1, 25, 6, 0, 5, 0, 0]))
+
+    lines = open_chest(party, member, dungeon=False)
+
+    assert lines == ["The Chest Holds: 41 Gold", "You found a Sword!"]
+    assert all(c == 0 for c in member.armors.values())
+
+
+def test_capped_weapon_stack_falls_to_armor_side(monkeypatch):
+    """A 9/9 weapon stack gets no weapon; the armor side rolls directly."""
+    member = make_member("Fighter")
+    member.weapons[WeaponType.MACE] = 9  # weapon idx roll 1 (+1 = MACE) is capped
+    party = make_party([member])
+
+    # Weapon side hit (0), weapon idx 1 — capped → armor idx 2 (+1 = CHAIN)
+    # granted directly with no armor-side 25% roll (steal fall-through).
+    monkeypatch.setattr(chests, "random", ScriptedRNG([1, 25, 6, 0, 1, 2]))
+
+    lines = open_chest(party, member, dungeon=False)
+
+    assert lines == ["The Chest Holds: 41 Gold", "You found a Chain!"]
+    assert member.weapons[WeaponType.MACE] == 9  # capped: not granted
+    assert member.armors[ArmorType.CHAIN] == 1
+
+
+def test_capped_weapon_and_armor_stacks_grant_nothing(monkeypatch):
+    """Both stacks capped: the chest credits gold only."""
+    member = make_member("Fighter")
+    member.weapons[WeaponType.MACE] = 9
+    member.armors[ArmorType.CHAIN] = 9
+    party = make_party([member])
+
+    monkeypatch.setattr(chests, "random", ScriptedRNG([1, 25, 6, 3, 3]))
+
+    lines = open_chest(party, member, dungeon=False)
+
+    assert lines == ["The Chest Holds: 41 Gold"]
+    assert member.weapons[WeaponType.MACE] == 9
+    assert member.armors[ArmorType.CHAIN] == 9
+
+
+def test_disarmed_chest_yields_item_drops_too(monkeypatch):
+    """The APPAR_UNEM path opens the same booty rolls: gold + item, no trap.
+
+    LW's trap cases all fall through to the same GetChestBooty rolls (m5BDC=0
+    skips the TRAP, not the booty), so the disarmed path drops items too."""
+    member = make_member("Fighter")
+    party = make_party([member])
+
+    # Gold 41 (no trap roll), weapon side hit (0), weapon idx 1 (+1 = MACE).
+    monkeypatch.setattr(chests, "random", ScriptedRNG([25, 6, 0, 1]))
+
+    lines = open_chest(party, member, dungeon=False, disarmed=True)
+
+    assert lines == ["The Chest Holds: 41 Gold", "You found a Mace!"]
+    assert not any("Trap" in line for line in lines)
+    assert member.weapons[WeaponType.MACE] == 1
+
+
+def test_seeded_drop_trials_approx_25_each_and_gold_band(monkeypatch):
+    """Seeded trials: item lines ~25% each, named from the vendor tables,
+    gold band 10-66 per open (gold regression unchanged).
+
+    Each trial opens with a fresh member so the 9-cap fall-throughs (which
+    drain a persistent member's stacks into armor) don't skew the share."""
+    monkeypatch.setattr(chests, "random", random.Random(11))
+
+    weapon_names = {w.name.capitalize() for w in list(WeaponType)[1:8]}
+    armor_names = {a.name.capitalize() for a in list(ArmorType)[1:4]}
+    weapon_drops = armor_drops = 0
+    for _ in range(1000):
+        member = make_member("Fighter", dexterity=200, gold=100)  # always evades
+        party = make_party([member])
+        before = member.gold
+        lines = open_chest(party, member, dungeon=False)
+        delta = member.gold - before
+        assert 10 <= delta <= 66  # gold band regression unchanged
+        assert f"The Chest Holds: {delta} Gold" in lines
+        for line in lines:
+            if line.startswith("You found a "):
+                name = line[len("You found a ") : -1]
+                assert name in weapon_names | armor_names
+                if name in weapon_names:
+                    weapon_drops += 1
+                else:
+                    armor_drops += 1
+        assert sum(member.weapons.values()) == sum(
+            1 for c in member.weapons.values() if c == 1
+        )  # a fresh member gains at most one +1 weapon stack
+
+    # ~25% each over 1000 seeded trials; the armor side runs only when no
+    # weapon was granted, so its share is a bit under the weapon share.
+    assert 150 <= weapon_drops <= 350, weapon_drops
+    assert 100 <= armor_drops <= 350, armor_drops
