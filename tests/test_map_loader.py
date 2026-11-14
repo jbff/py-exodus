@@ -39,6 +39,22 @@ def test_load_sosaria(asset_mgr):
     assert sosaria.get_tile(64, 64) == sosaria.get_tile(0, 0)
 
 
+def test_sosaria_data_has_no_baked_moongate():
+    """The moongate tile (34) must never be baked into sosaria.json.
+
+    GBC sosaria.c has plain grass (0x04) at (15, 29); NES and LairWare also
+    have no gate there. Gates in this port are code-spawned from maps.xml
+    (game_map.moongates), so a baked tile-34 cell is dead data AND would
+    duplicate the gate model if it ever rendered from the grid.
+    """
+    import json
+
+    with open("assets/maps/sosaria.json") as f:
+        data = json.load(f)
+    flat = [v for row in data["tiles"] for v in row]
+    assert 34 not in flat
+
+
 def test_load_conflict_case_insensitive(asset_mgr):
     loader = MapLoader(asset_mgr)
     # Test canonical lowercase name
