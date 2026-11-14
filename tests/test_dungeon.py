@@ -5,6 +5,7 @@ import pygame
 import pytest
 
 from py_exodus.assets import AssetManager
+from py_exodus.aura import AuraType
 from py_exodus.constants import Direction, Profession, Race, Status
 from py_exodus.entities.character import Character
 from py_exodus.entities.party import Party, PartyDeathException
@@ -1077,3 +1078,122 @@ def test_torch_load_maps_old_boolean_saves(empty_dmap, test_party):
     state.apply_torch_state({"is_torch_on": False})
     assert state.torchtime == 0
     assert state.is_torch_on is False
+
+
+# --- Pending item 23: dungeon meal cadence (USER-DIRECTED GBC-RULES
+# DEVIATION, 2026-11-14). The original rules feed underground at the same
+# cadence ``end_turn(surface=False)`` already runs for towns/castles — the
+# per-member meal pipeline (GBC funcs5.c:1274; LW UltimaMisc.c:1428-1467
+# corroborates). Java DungeonScreen never calls Party.endTurn, so the move
+# counter and the ship-hull roll stay OUT of the dungeon tick; only the
+# meals ride it. A QUICKNESS (stop-time) aura freezes dungeon meals the
+# same way it freezes surface meals.
+
+
+class TestDungeonMealCadence:
+    @pytest.fixture
+    def state(self, empty_dmap, test_party):
+        return DungeonState(
+            empty_dmap,
+            start_x=6,
+            start_y=6,
+            start_z=0,
+            start_dir=Direction.NORTH,
+            party=test_party,
+            random_encounters=False,
+        )
+
+    def test_meal_crosses_every_41_dungeon_moves(self, state):
+        """Underground cadence: 10 submorsels per consumed dungeon move —
+        a fresh 400 pool sits at 0 after 40 moves (no crossing) and resets
+        on the 41st, spending one unit of food."""
+        m = state.party.members[0]
+        for _ in range(40):
+            state._tick_turn()
+        assert m.submorsels == 0
+        assert m.food == 150
+        state._tick_turn()
+        assert m.submorsels == 400
+        assert m.food == 149
+
+    def test_dungeon_tick_does_not_increment_party_moves(self, state):
+        state._tick_turn()
+        assert state.party.moves == 0
+
+    def test_dungeon_tick_does_not_repair_ship_hull(self, state):
+        """Hull repair is the sosaria end_turn roll — never the dungeon tick
+        (a party.tick_meals call carries no random roll at all)."""
+        state.party.ship_hull = 10
+        for _ in range(10):
+            state._tick_turn()
+        assert state.party.ship_hull == 10
+
+    def test_starvation_crossing_wipes_party_through_dungeon_tick(
+        self, empty_dmap
+    ):
+        """A food-0 member at a dungeon meal crossing takes the 5 HP blow
+        through apply_damage; a wiped party leaves is_party_dead() True —
+        the tick swallows PartyDeathException the same way the aura pass
+        does, and the screen's post-move check routes the wipe."""
+        party = Party()
+        for name in ("Hero", "Mage"):
+            char = Character(
+                name, "M", Race.HUMAN, Profession.FIGHTER, hp=4, max_hp=100
+            )
+            char.food = 0
+            char.submorsels = 9
+            party.add_member(char)
+        dungeon_state = DungeonState(
+            empty_dmap,
+            start_x=6,
+            start_y=6,
+            start_z=0,
+            start_dir=Direction.NORTH,
+            party=party,
+            random_encounters=False,
+        )
+        dungeon_state._tick_turn()
+        assert party.is_party_dead()
+
+    def test_quickness_freezes_dungeon_meals(self, state):
+        """The stop-time gate covers the dungeon tick too — no decrement,
+        no crossing, no starvation while QUICKNESS is up."""
+        m = state.party.members[0]
+        m.submorsels = 9
+        m.food = 0
+        state.party.aura.set(AuraType.QUICKNESS, 5)
+        state._tick_turn()
+        assert m.submorsels == 9
+        assert m.food == 0
+        assert m.hp == 100
+
+    def test_turn_meals_matches_end_turn_without_the_move_counter(
+        self,
+    ):
+        """Party.turn_meals(surface=False) alone reproduces the
+        end_turn(surface=False) meal block — same crossing, no move count."""
+        via_end_turn = Party()
+        via_end_turn.add_member(
+            Character("A", "M", Race.HUMAN, Profession.FIGHTER, hp=100, max_hp=100)
+        )
+        via_end_turn.add_member(
+            Character("B", "M", Race.HUMAN, Profession.FIGHTER, hp=100, max_hp=100)
+        )
+        via_end_turn.members[1].submorsels = 10
+        via_end_turn.end_turn(surface=False)
+
+        via_meals = Party()
+        via_meals.add_member(
+            Character("A", "M", Race.HUMAN, Profession.FIGHTER, hp=100, max_hp=100)
+        )
+        via_meals.add_member(
+            Character("B", "M", Race.HUMAN, Profession.FIGHTER, hp=100, max_hp=100)
+        )
+        via_meals.members[1].submorsels = 10
+        via_meals.turn_meals(surface=False)
+
+        for m1, m2 in zip(via_end_turn.members, via_meals.members):
+            assert m1.food == m2.food
+            assert m1.submorsels == m2.submorsels
+            assert m1.hp == m2.hp
+        assert via_meals.moves == 0

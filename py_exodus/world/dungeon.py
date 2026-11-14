@@ -1559,8 +1559,8 @@ class DungeonState:
         creatureCleanup + the spawn roll + moveDungeonCreatures ONLY.
         ``Party.endTurn`` is NEVER called while exploring a dungeon — it
         runs only from GameScreen.java:712 and CombatScreen.java:472 — so
-        submorsel drain, food loss and the move counter do not tick per
-        dungeon move, and the torch boolean needs no upkeep (no rounds to
+        the move counter and the ship-hull roll do not tick per dungeon
+        move, and the torch boolean needs no upkeep (no rounds to
         decrement, no expiry ever). After the aura pass this runs the
         wandering-creature upkeep and returns a COMBAT event when a
         creature reaches the avatar (battleWandering), else None.
@@ -1583,9 +1583,16 @@ class DungeonState:
         starvation are MEAL-BOUND — USER-DIRECTED GBC-RULES DEVIATION
         (2026-11-14, supersedes the 2026-11-10 interpretation for these two
         rules): both ride the meal crossing in Party.end_turn (GBC
-        funcs5.c:741-789; LW UltimaMisc.c:1428-1493), which the dungeon
-        never runs. Food still does NOT drain in the dungeon: no
-        submorsel decrement, no meal crossing (Java truth, kept).
+        funcs5.c:741-789; LW UltimaMisc.c:1428-1493). Pending item 23
+        (USER-DIRECTED GBC-RULES DEVIATION, 2026-11-14): the party DOES eat
+        underground now — this tick runs the per-member meal pipeline
+        (``Party.turn_meals(surface=False)``, the 10-submorsel cadence the
+        port already uses for towns; GBC funcs5.c:1274; LW
+        UltimaMisc.c:1428-1467 corroborates). A wipe raised at a
+        starvation crossing lands in the catch below and routes through
+        the screen's post-move ``check_party_death()`` (the pit-trap
+        death flow). The move counter and the ship-hull roll stay OUT —
+        Java DungeonScreen never calls Party.endTurn.
         """
         if self.torchtime > 0:
             self.torchtime -= 1
@@ -1602,6 +1609,13 @@ class DungeonState:
                 # slow cadence here (the move counter itself does not tick —
                 # Java truth, kept).
                 self.party.advance_moons(surface=False)
+                # USER-DIRECTED GBC-RULES DEVIATION (pending item 23,
+                # 2026-11-14): the original rules feed underground at the
+                # same cadence the port uses for towns (GBC funcs5.c:1274;
+                # LW UltimaMisc.c:1428-1467 corroborates). combat=False —
+                # the dungeon tick is not a combat round, so only the
+                # QUICKNESS gate can freeze the crossing.
+                self.party.turn_meals(surface=False)
                 self.party.aura.pass_turn()
             except PartyDeathException:
                 pass

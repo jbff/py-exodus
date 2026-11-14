@@ -337,13 +337,13 @@ def test_wandering_cleanup_on_level_change(open_dmap, test_party):
     assert state.wandering_creatures == []
 
 
-def test_dungeon_tick_never_drains_food_or_moves(open_dmap, test_party):
-    """Java DungeonScreen.finishTurn (1124-1142) runs aura.passTurn +
-    creature upkeep ONLY — Party.endTurn is never called in dungeons, so no
-    submorsel drain, food loss or move-counter increment per dungeon move
-    (Java truth, kept). Regeneration is NOT part of Java's dungeon tick,
-    but the original-rules tick applies there — see
-    test_dungeon_tick_regens_without_food_drain below."""
+def test_dungeon_tick_drains_food_and_never_ticks_moves(open_dmap, test_party):
+    """Pending item 23 (USER-DIRECTED GBC-RULES DEVIATION, 2026-11-14): the
+    dungeon tick runs the per-member meal pipeline at the underground
+    cadence (GBC funcs5.c:1274; LW UltimaMisc.c:1428-1467 corroborates) —
+    45 x 10-drain ticks cross the freshly reset 400 pool exactly once —
+    while ``Party.endTurn`` is still never called: the move counter stays
+    put (Java DungeonScreen.finishTurn, DungeonScreen.java:1124-1142)."""
     state = DungeonState(
         open_dmap,
         start_x=5,
@@ -354,26 +354,26 @@ def test_dungeon_tick_never_drains_food_or_moves(open_dmap, test_party):
         random_encounters=False,
     )
     m = test_party.members[0]
-    m.submorsels = 10
+    m.submorsels = 400
     m.food = 90
     moves_before = test_party.moves
-    for _ in range(45):  # 45 x 10-drain ticks would have crossed twice
+    for _ in range(45):  # 45 x 10-drain ticks cross the 400 pool once (tick 41)
         state._tick_turn()
-    assert m.submorsels == 10
-    assert m.food == 90
+    assert m.submorsels == 360  # reset 400 at the crossing, 4 more ticks of 10
+    assert m.food == 89
     assert test_party.moves == moves_before
 
 
-def test_dungeon_tick_regens_without_food_drain(open_dmap, test_party):
+def test_dungeon_tick_regens_mana_and_ticks_meals(open_dmap, test_party):
     """USER-DIRECTED: the dungeon tick regenerates mana per consumed turn
     even though Java's dungeon finishTurn never calls Party.endTurn
     (DungeonScreen.java:1124-1142 — creature upkeep only). The mana cadence
-    applies underground (+1 per 4 turns — 2026-11-10 interpretation kept),
-    but HP regen and starvation are MEAL-BOUND (GBC deviation 2026-11-14,
-    supersedes the 2026-11-10 interpretation for those two rules) — the
-    dungeon runs no meal crossing, so an injured member neither heals nor
-    starves, and food does NOT drain (no submorsel decrement, no crossing;
-    Java truth, kept)."""
+    applies underground (+1 per 4 turns — 2026-11-10 interpretation kept).
+    HP regen and starvation are MEAL-BOUND (GBC deviation 2026-11-14,
+    supersedes the 2026-11-10 interpretation for those two rules), and
+    pending item 23 routes the dungeon meals underground too: 4 dungeon
+    ticks move the pool 400 -> 360 — no crossing, so an injured member
+    neither heals nor starves, and no food is spent."""
     state = DungeonState(
         open_dmap,
         start_x=5,
@@ -390,9 +390,10 @@ def test_dungeon_tick_regens_without_food_drain(open_dmap, test_party):
     food_before = test_party.food
     for _ in range(4):
         state._tick_turn()
-    assert hero.hp == 50  # no HP regen in the dungeon (meal-bound, no crossing)
+    assert hero.hp == 50  # no crossing in 4 ticks → no meal-bound regen
     assert mage.mp == 1  # +1 mana on the 4th turn slot
-    assert test_party.food == food_before  # dungeon food does not drain
+    assert hero.submorsels == 360  # 10 submorsels/tick underground (item 23)
+    assert test_party.food == food_before  # no crossing → no food spent
 
 
 def test_dungeon_tick_passes_the_aura_turn(open_dmap, test_party):

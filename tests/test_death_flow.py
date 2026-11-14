@@ -299,10 +299,12 @@ def test_town_starvation_wipe_transitions_to_start_screen(sm, asset_mgr, monkeyp
 def test_dungeon_food_zero_never_starves_without_a_crossing(sm, asset_mgr):
     """Starvation is MEAL-BOUND (USER-DIRECTED GBC-RULES DEVIATION
     2026-11-14, supersedes the 2026-11-10 per-turn tick): the dungeon moves
-    run no submorsel crossing at all — Java DungeonScreen.finishTurn
-    (DungeonScreen.java:1124-1141) never calls Party.endTurn (Java truth,
-    kept) — so a food-0 party takes NO starvation blow per dungeon move and
-    never wipes from it. Food also does not drain in the dungeon."""
+    tick the meal pipeline at the underground cadence (pending item 23 —
+    GBC funcs5.c:1274; LW UltimaMisc.c:1428-1467 corroborates), 10
+    submorsels per consumed move — so ONE dungeon move at a fresh 400 pool
+    takes NO crossing and no starvation blow. Java DungeonScreen
+    (DungeonScreen.java:1124-1141) still never calls Party.endTurn: the
+    move counter and the ship-hull roll do not tick per dungeon move."""
 
     def member(name: str) -> Character:
         char = Character(name, "M", Race.HUMAN, Profession.FIGHTER, hp=6, max_hp=100)
@@ -333,10 +335,57 @@ def test_dungeon_food_zero_never_starves_without_a_crossing(sm, asset_mgr):
 
     assert not party.is_party_dead()
     assert sm.current_screen is dungeon
-    # No meal crossing in the dungeon → no 5 HP starvation blow (the
-    # supersedes note in Party.end_turn documents the cadence change).
+    # No meal crossing on this move (submorsels 400 -> 390 at the
+    # underground cadence) → no 5 HP starvation blow.
     assert party.get_member(1).hp == 6
     assert all(m.food == 0 for m in party.members)
+    assert all(m.submorsels == 390 for m in party.members)
+
+
+def test_dungeon_starvation_crossing_transitions_to_start_screen(sm, asset_mgr):
+    """Pending item 23: a dungeon meal crossing at food 0 starves the whole
+    party through the tick's apply_damage chokepoint, and the screen's
+    post-move check routes the wipe (the pit-trap death flow).
+
+    USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): the underground meal
+    cadence (GBC funcs5.c:1274; LW UltimaMisc.c:1428-1467 corroborates)
+    crosses this move with 9 submorsels pre-staged (pool must cross below
+    0); the 5 HP starvation blow (GBC funcs5.c:741-789) wipes both hp-4
+    members."""
+
+    def member(name: str) -> Character:
+        char = Character(name, "M", Race.HUMAN, Profession.FIGHTER, hp=4, max_hp=100)
+        char.food = 0
+        char.submorsels = 9
+        return char
+
+    party = Party(members=[], x=2, y=2, gold=0, food=0, transport=Transport.FOOT)
+    party.add_member(member("Hero"))
+    party.add_member(member("Mage"))
+
+    dmap = DungeonMap(id=99, name="TestDungeon", width=8, height=8, levels=8)
+    dmap.tiles = [
+        [
+            [
+                DungeonTile.WALL
+                if x == 0 or x == 7 or y == 0 or y == 7
+                else DungeonTile.FLOOR
+                for x in range(8)
+            ]
+            for y in range(8)
+        ]
+        for z in range(8)
+    ]
+    dungeon = DungeonScreen(party=party, dungeon_map=dmap, start_x=2, start_y=2, start_z=0)
+    sm.set_screen(dungeon)
+
+    dungeon.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_UP))
+
+    assert party.is_party_dead()
+    from py_exodus.screens.start import StartScreen
+
+    assert isinstance(sm.current_screen, StartScreen)
+    assert sm.current_screen.game_over is True
 
 
 def test_overworld_chest_acid_trap_wipe_transitions_to_start_screen(sm, asset_mgr, monkeypatch):

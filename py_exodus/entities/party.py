@@ -642,8 +642,8 @@ class Party:
         regen ride the MEAL CROSSING (GBC funcs5.c:741-789; LW
         UltimaMisc.c:1428-1493 — an hour tick heals +1 HP at food > 0 or,
         at food 0, takes 5 HP off the whole party via the same meal
-        underflow), inside the block below. The "not poisoned" heal gate py
-        had carries over. Mana and poison STAY on the per-turn tick
+        underflow), inside ``turn_meals`` below. The "not poisoned" heal
+        gate py had carries over. Mana and poison STAY on the per-turn tick
         (``tick_regen``, 2026-11-10 interpretation kept): mana +1/turn
         surface, +1 every 4 turns underground, Druids double; poison 1 HP
         per turn.
@@ -653,8 +653,8 @@ class Party:
         the turn (U3 Book of Play wording); the 2026-11-14 GBC ruling
         supersedes that for HP regen and starvation only. The QUICKNESS
         (stop-time) aura freezes the whole crossing — decrement, food and
-        both effects (GBC funcs5.c:1273-1278). Damage routes through
-        ``apply_damage`` (the Task 2 chokepoint), so a wipe raises
+        both effects (GBC funcs5.c:1273-1278) — see ``turn_meals``. Damage routes
+        through ``apply_damage`` (the Task 2 chokepoint), so a wipe raises
         ``PartyDeathException`` out of ``end_turn`` — every calling screen
         already catches it around the tick block and routes the game-over
         flow (Task 21 patterns). ``end_turn`` has no internal catch.
@@ -662,32 +662,70 @@ class Party:
         self.moves += 1
 
         # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): the QUICKNESS
-        # (stop-time) aura freezes food consumption — the submorsel
-        # decrement and its meal crossing both sit in the stoptime gate
-        # (GBC funcs5.c:1273-1278). The move counter above and the
-        # ship-hull roll below still tick while time is stopped.
-        if not combat and self.aura.get_type() != AuraType.QUICKNESS:
-            decr_interval = 40 if surface else 10
-
-            for m in self.members:
-                if m.is_dead():
-                    continue
-
-                m.submorsels -= decr_interval
-                if m.submorsels < 0:
-                    m.submorsels = 400
-                    m.food = max(0, m.food - 1)
-
-                    # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14, supersedes the 2026-11-10 interpretation for these two rules): starvation 5 HP per meal crossing; HP +1 regen at meal crossing (GBC funcs5.c:741-789; LW UltimaMisc.c:1428-1493)
-                    if m.food == 0:
-                        m.apply_damage(5, False)
-                    elif m.status != Status.POISONED:
-                        m.hp = min(m.max_hp, m.hp + 1)
+        # (stop-time) aura freezes food consumption — see ``turn_meals``.
+        # The move counter above and the ship-hull roll below still tick
+        # while time is stopped.
+        self.turn_meals(surface=surface, combat=combat)
 
         if sosaria and self.ship_hull < 50 and random.randint(0, 3) == 0:
             self.ship_hull += 1
             if self.ship_hull > 50:
                 self.ship_hull = 50
+
+    def turn_meals(self, surface: bool = True, combat: bool = False) -> None:
+        """Per-member meal pipeline: the submorsel decrement + meal crossing.
+
+        Extracted from ``end_turn`` (pending item 23) so the dungeon tick
+        can run the same crossing WITHOUT the move counter or the
+        ship-hull roll. ``end_turn`` passes its own flags here — zero
+        behavior change anywhere ``end_turn`` already ran;
+        ``DungeonState._tick_turn`` calls ``turn_meals(surface=False)`` on
+        every consumed dungeon move (USER-DIRECTED GBC-RULES DEVIATION
+        2026-11-14: the original rules feed underground at the same cadence
+        this method already uses for towns — the 10-submorsel interval; GBC
+        funcs5.c:1274; LW UltimaMisc.c:1428-1467 corroborates).
+
+        Java truth: ``exodus/Party.java:592-639`` — for every non-DEAD
+        member, decrement the member's ``submorsels`` by 40 on the surface
+        maps (Sosaria/Exodus) or 10 elsewhere (towns, castles, dungeons);
+        when the pool crosses below 0 it resets to 400 and one unit of
+        food is consumed.
+
+        At the crossing a member with food 0 takes 5 damage and a fed,
+        unpoisoned member heals +1 HP (USER-DIRECTED GBC-RULES DEVIATION
+        2026-11-14, supersedes the 2026-11-10 interpretation for these two
+        rules: GBC funcs5.c:741-789; LW UltimaMisc.c:1428-1493).
+
+        ``combat`` mirrors Java's gate at ``Party.java:600`` — a combat
+        round-finish caller counts the round but runs no meals. A QUICKNESS
+        (stop-time) aura freezes the whole crossing — decrement, food and
+        both effects (GBC funcs5.c:1273-1278). Damage routes through
+        ``apply_damage`` (the Task 2 chokepoint), so a wipe raises
+        ``PartyDeathException``; there is no internal catch.
+        """
+        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): the QUICKNESS
+        # (stop-time) aura freezes food consumption — the submorsel
+        # decrement and its meal crossing both sit in the stoptime gate
+        # (GBC funcs5.c:1273-1278).
+        if combat or self.aura.get_type() == AuraType.QUICKNESS:
+            return
+
+        decr_interval = 40 if surface else 10
+
+        for m in self.members:
+            if m.is_dead():
+                continue
+
+            m.submorsels -= decr_interval
+            if m.submorsels < 0:
+                m.submorsels = 400
+                m.food = max(0, m.food - 1)
+
+                # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14, supersedes the 2026-11-10 interpretation for these two rules): starvation 5 HP per meal crossing; HP +1 regen at meal crossing (GBC funcs5.c:741-789; LW UltimaMisc.c:1428-1493)
+                if m.food == 0:
+                    m.apply_damage(5, False)
+                elif m.status != Status.POISONED:
+                    m.hp = min(m.max_hp, m.hp + 1)
 
     def advance_moons(self, surface: bool = True) -> None:
         """Advance the moon clock by one consumed turn.
