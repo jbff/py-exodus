@@ -301,6 +301,10 @@ class FinalScreen(BaseScreen):
     def _trigger_victory(self) -> None:
         """Activate victory fanfare, screen shake, and epilogue narration."""
         self.victory = True
+        # LW truth: landing the final card sets the beat-Exodus flag
+        # (UltimaMisc.c:2359 — Party[16] = 1), which the shrine reads to
+        # lift race caps (UltimaMisc.c:1091).
+        self.party.exodus_defeated = 1
         self.screen_shake = True
         self.shake_timer = 6.0
         self.shake_intensity = 6.0

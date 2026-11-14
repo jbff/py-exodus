@@ -289,6 +289,90 @@ def test_book_screen_pagination():
     assert scr.page_index == 2
 
 
+def test_shrine_near_cap_over_debit_matches_lw():
+    """LW parity (pending item 24a): the shrine charges for the FULL amount
+    requested up front (UltimaMisc.c:1071-1080 — the gold check and debit
+    happen BEFORE the stat grant, with no pro-rating), then clamps the stat
+    to the race cap (UltimaMisc.c:1087-1092). Buying 9 points at 74/75 costs
+    900 gold and yields only 1 point; that over-debit IS the LW behavior.
+    """
+    p = Party()
+    c = Character("Hero", "M", Race.HUMAN, Profession.FIGHTER)
+    c.strength = 74  # one point of room to HUMAN.max_str == 75
+    p.add_member(c)
+    p.gold = 2000
+    scr = ShrineScreen(party=p, stat_name="strength", return_screen=None)
+    success = scr.donate(member_idx=0, amount=9)
+    assert success is True
+    assert c.strength == Race.HUMAN.max_str
+    assert p.gold == 2000 - 900  # charged for points not granted, per LW
+
+
+def test_shrine_post_exodus_race_cap_lifted_to_99():
+    """LW parity (pending item 24b): post-Exodus the race cap stops applying
+    (UltimaMisc.c:1091 — the maxval clamp only runs while Party[16] == 0), so
+    a beaten-party character can buy past the racial cap up to the absolute
+    99 ceiling (UltimaMisc.c:1089-1090).
+    """
+    p = Party()
+    c = Character("Hero", "M", Race.HUMAN, Profession.FIGHTER)
+    c.strength = 74  # HUMAN.max_str == 75
+    p.add_member(c)
+    p.gold = 2000
+    p.exodus_defeated = 1  # LW Party[16] beat-Exodus flag
+    scr = ShrineScreen(party=p, stat_name="strength", return_screen=None)
+    success = scr.donate(member_idx=0, amount=5)
+    assert success is True
+    assert c.strength == 79  # rides past the race cap...
+    assert c.strength <= 99  # ...but never past the absolute 99 ceiling
+
+
+def test_shrine_post_exodus_hard_ceiling_99():
+    """LW parity (pending item 24b): the 99 clamp runs BEFORE the race-cap
+    clamp (UltimaMisc.c:1089-1092) and applies even post-Exodus."""
+    p = Party()
+    c = Character("Hero", "M", Race.HUMAN, Profession.FIGHTER)
+    c.strength = 98
+    p.add_member(c)
+    p.gold = 2000
+    p.exodus_defeated = 1
+    scr = ShrineScreen(party=p, stat_name="strength", return_screen=None)
+    assert scr.donate(member_idx=0, amount=5) is True
+    assert c.strength == 99
+
+
+def test_party_exodus_defeated_roundtrip():
+    """The beat-Exodus flag (LW Party[16]) is persisted with the party."""
+    p = Party()
+    c = Character("Hero", "M", Race.HUMAN, Profession.FIGHTER)
+    p.add_member(c)
+    p.exodus_defeated = 1
+    data = p.to_dict()
+    assert data["exodus_defeated"] == 1
+    restored = Party.from_dict(data)
+    assert restored.exodus_defeated == 1
+    # Legacy save without the key loads the pre-win default.
+    legacy = Party.from_dict({k: v for k, v in data.items() if k != "exodus_defeated"})
+    assert legacy.exodus_defeated == 0
+
+
+def test_final_victory_sets_exodus_defeated():
+    """Inserting all four cards (LW UltimaMisc.c:2359 — Party[16] = 1) flips
+    the beat-Exodus flag on the party record."""
+    p = Party()
+    c = Character("Hero", "M", Race.HUMAN, Profession.FIGHTER)
+    c.cards = [1, 1, 1, 1]
+    p.add_member(c)
+    scr = FinalScreen(party=p, return_screen=None)
+    assert p.exodus_defeated == 0
+    for card, px in (("love", 30), ("sol", 31), ("moons", 32), ("death", 33)):
+        p.x = px
+        p.y = 12
+        assert scr.insert_card(card, member_idx=0, pos=(px, 12)) is True
+    assert scr.victory is True
+    assert p.exodus_defeated == 1
+
+
 def test_final_screen_card_from_any_party_member():
     """Verify any party member carrying a card can insert it via key event."""
     p = Party()

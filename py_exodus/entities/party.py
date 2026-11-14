@@ -234,6 +234,7 @@ class Party:
         torch_duration: int = 0,
         active_member_index: int = 0,
         exodus_cards_status: int = 0,
+        exodus_defeated: int = 0,
         dynamic_objects: list[dict[str, int]] | None = None,
         dynamic_monsters: list[dict[str, int]] | None = None,
     ) -> None:
@@ -310,6 +311,13 @@ class Party:
         # Exodus machine card-insertion status (SaveGame.exodusCardsStatus):
         # bit 0x1 love, 0x2 sol, 0x4 moons, 0x8 death.
         self.exodus_cards_status = exodus_cards_status & 0xF
+
+        # Beat-Exodus flag (LW Party[16]): set to 1 when the final Exodus
+        # card lands (LW UltimaMisc.c:2359); gates the post-Exodus shrine
+        # race-cap lift (UltimaMisc.c:1091 — the maxval clamp runs only
+        # while Party[16] == 0). Persisted with the party like LW's
+        # own-save Party array.
+        self.exodus_defeated = exodus_defeated
 
         # Dynamic overworld delta: up to 24 mutable objects on Sosaria (e.g. docked ships, horses, chests)
         self.dynamic_objects: list[dict[str, int]] = (
@@ -859,6 +867,7 @@ class Party:
             "torch_duration": self.torch_duration,
             "active_member_index": self.active_member_index,
             "exodus_cards_status": self.exodus_cards_status,
+            "exodus_defeated": self.exodus_defeated,
             "members": [m.to_dict() for m in self.members],
             # Java dynamic-object cap (see DYNAMIC_OBJECTS_SAVE_CAP): the
             # saved block keeps the OLDEST 24 (Context.java:158-166 fills in
@@ -910,6 +919,7 @@ class Party:
             torch_duration=p_data.get("torch_duration", 0),
             active_member_index=p_data.get("active_member_index", 0),
             exodus_cards_status=p_data.get("exodus_cards_status", 0),
+            exodus_defeated=p_data.get("exodus_defeated", 0),
             dynamic_objects=data.get("dynamic_objects", p_data.get("dynamic_objects", [])),
             dynamic_monsters=data.get("dynamic_monsters", p_data.get("dynamic_monsters", [])),
         )

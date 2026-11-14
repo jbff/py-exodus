@@ -118,7 +118,19 @@ class ShrineScreen(BaseScreen):
         max_stat = getattr(char.race, self.stat_cap_attr)
 
         char.adjust_gold(-cost)
-        new_stat = min(current_stat + amount, max_stat)
+        # LW truth (UltimaMisc.c:1087-1093): the grant applies the full
+        # amount, clamps at the ABSOLUTE 99 ceiling first, then at the race
+        # cap only while Party[16] == 0 — after beating Exodus the race cap
+        # stops applying and stats can ride to 99. The debit above is
+        # unconditionally the full requested amount (UltimaMisc.c:1071-1080,
+        # before the grant), so a near-cap buy is charged for points the
+        # clamp does not grant; that over-debit IS the LW behavior.
+        new_stat = current_stat + amount
+        if new_stat > 99:
+            new_stat = 99
+        exodus_beaten = getattr(self.party, "exodus_defeated", 0) != 0
+        if new_stat > max_stat and not exodus_beaten:
+            new_stat = max_stat
         setattr(char, self.stat_attr, new_stat)
 
         # Java truth: ShrineScreen.java:222 — the success message is exactly
@@ -254,6 +266,10 @@ class ShrineScreen(BaseScreen):
         for i, m in enumerate(self.party.members):
             cur = getattr(m, self.stat_attr)
             cap = getattr(m.race, self.stat_cap_attr)
+            # Post-Exodus the race cap stops applying (LW UltimaMisc.c:1091);
+            # the HUD shows the effective shrine ceiling.
+            if getattr(self.party, "exodus_defeated", 0):
+                cap = max(cap, 99)
             color = EGA_BRIGHT_GREEN if i == self.selected_member_idx else EGA_WHITE
             line = f"{i + 1}:{m.name[:5]} {cur}/{cap}"
             text_surf = small_font.render(line, True, color)
