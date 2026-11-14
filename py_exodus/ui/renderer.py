@@ -342,7 +342,11 @@ class WorldRenderer:
             npc_surf = self.asset_manager.get_tile_surface(tile_name, anim_frame)
             surface.blit(npc_surf, (ox + col * self.tile_size, oy + row * self.tile_size))
 
-        # 5. Render moongates if phase active
+        # 5. Render the visible moongate. The caller passes the SLOW moon's
+        # phase as ``moon_phase`` (USER-DIRECTED GBC-RULES DEVIATION,
+        # 2026-11-14): the gate is visible at site[slow] only and every other
+        # site renders nothing (GBC funcs5.c:1134-1152; LW UltimaMisc.c:1511-
+        # 1560; NES Bank0F MoonGateTbl:734-771).
         moon_phase = kwargs.get("moon_phase")
         if moon_phase is not None and game_map.moongates:
             for gate in game_map.moongates:

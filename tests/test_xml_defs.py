@@ -113,13 +113,18 @@ def test_maps_parsing():
     assert portal_to_british.start_x == 32
     assert portal_to_british.start_y == 61
 
-    # Moongates on Sosaria (8 moon phases)
+    # Moongates on Sosaria (8 moon phases). USER-DIRECTED GBC-RULES DEVIATION
+    # (2026-11-14): per-gate d1/d2/d3 destination tables (Java invention) are
+    # gone — the 8 sites themselves are the destination table
+    # (GBC funcs5.c:1134-1152; LW UltimaMisc.c:1511-1560; NES Bank0F MoonGateTbl:734-771).
     assert len(sosaria.moongates) == 8
     newmoon = next(m for m in sosaria.moongates if m.phase == 0)
     assert newmoon.name == "newmoon"
     assert newmoon.x == 7
     assert newmoon.y == 8
-    assert (newmoon.d1, newmoon.d2, newmoon.d3) == (0, 1, 2)
+    assert not hasattr(newmoon, "d1")
+    assert not hasattr(newmoon, "d2")
+    assert not hasattr(newmoon, "d3")
 
     # Labels on Sosaria
     exotic_armor_lbl = next(lbl for lbl in sosaria.labels if lbl.name == "EXOTIC_ARMOR")

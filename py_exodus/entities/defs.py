@@ -357,15 +357,19 @@ class PortalDef:
 
 @dataclass
 class MoongateDef:
-    """Moongate destination definition loaded from maps.xml."""
+    """One of the 8 fixed moongate sites loaded from maps.xml.
+
+    USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): the sites ARE the
+    destination table — the gate is visible at site[slow moon] and entry
+    teleports to site[fast moon]; the per-gate d1/d2/d3 tables (Java
+    invention) are gone (GBC funcs5.c:1134-1152; LW UltimaMisc.c:1511-1560;
+    NES Bank0F MoonGateTbl:734-771).
+    """
 
     name: str
     phase: int
     x: int
     y: int
-    d1: int = 0
-    d2: int = 0
-    d3: int = 0
 
 
 @dataclass

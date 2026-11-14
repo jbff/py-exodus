@@ -1641,10 +1641,23 @@ class OverworldScreen(BaseScreen):
     _toggle_board_transport = _board_transport
 
     def _check_moongates(self) -> None:
-        """Check if party stepped onto an active moongate."""
+        """Check if party stepped onto the visible moongate (site[slow moon]).
+
+        USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): moongate model per
+        refs — one visible gate at the slow-moon site, entry teleports to the
+        fast-moon site (GBC funcs5.c:1134-1152; LW UltimaMisc.c:1511-1560;
+        NES Bank0F MoonGateTbl:734-771). The 8 fixed gate sites ARE the
+        destination table: the gate is visible at site[trammel_phase] (the
+        SLOW moon) and stepping on it repositions the party to
+        site[felucca_phase] (the FAST moon) — GBC teleportsscreenx/y from
+        moongates[(moon2<<1)] — replacing the per-gate d1/d2/d3 tables (a
+        Java invention the refs do not have). Same-map teleport, overworld
+        only; Dawn's double-new-moon portal rule is separate (portal_entry).
+        """
         if self.game_map is None:
             return
 
+        # Only the slow-moon site is active (GBC moon1 gate; funcs5.c:1134-1152).
         active_gate = None
         for gate in self.game_map.moongates:
             if gate.phase == self.trammel_phase:
@@ -1655,29 +1668,21 @@ class OverworldScreen(BaseScreen):
             return
 
         if active_gate.x == self.party.x and active_gate.y == self.party.y:
-            if self.felucca_phase == active_gate.phase:
+            # Destination is site[fast moon]; equal moons means the gate
+            # teleports to itself, i.e. nothing happens.
+            dest_gate = None
+            for g in self.game_map.moongates:
+                if g.phase == self.felucca_phase:
+                    dest_gate = g
+                    break
+            if dest_gate is None or dest_gate is active_gate:
                 return
 
-            dest_gate_phase = -1
-            if self.felucca_phase == active_gate.d1:
-                dest_gate_phase = active_gate.d1
-            elif self.felucca_phase == active_gate.d2:
-                dest_gate_phase = active_gate.d2
-            elif self.felucca_phase == active_gate.d3:
-                dest_gate_phase = active_gate.d3
-
-            if dest_gate_phase >= 0:
-                dest_gate = None
-                for g in self.game_map.moongates:
-                    if g.phase == dest_gate_phase:
-                        dest_gate = g
-                        break
-                if dest_gate is not None:
-                    self.party.x = dest_gate.x
-                    self.party.y = dest_gate.y
-                    self.text_log.add_message("Stepped through mystical moongate!")
-                    if self.audio is not None:
-                        self.audio.play_sfx("moongate_flash")
+            self.party.x = dest_gate.x
+            self.party.y = dest_gate.y
+            self.text_log.add_message("Stepped through mystical moongate!")
+            if self.audio is not None:
+                self.audio.play_sfx("moongate_flash")
 
     def _spawn_wandering_creature(self) -> None:
         """Spawn a wandering creature near the edge of the viewport.
@@ -2225,6 +2230,10 @@ class OverworldScreen(BaseScreen):
                     party=self.party,
                     dest_pos=(0, 0),
                     monsters=self.creatures,
+                    # moongate model per refs (GBC funcs5.c:1134-1152; LW
+                    # UltimaMisc.c:1511-1560; NES Bank0F MoonGateTbl:734-771):
+                    # the kwarg is the SLOW phase — only site[trammel] renders.
+                    moon_phase=self.trammel_phase,
                 )
             scaled_v = pygame.transform.scale(temp_v, (v_size, v_size))
             surface.blit(scaled_v, (0, 0))
@@ -2254,6 +2263,8 @@ class OverworldScreen(BaseScreen):
                     party=self.party,
                     dest_pos=(0, 0),
                     monsters=self.creatures,
+                    # Same SLOW-phase gate visibility contract as above.
+                    moon_phase=self.trammel_phase,
                 )
             self._render_sky_strip(surface, pane_right=176, pane_top=0)
             self.stats_panel.render(

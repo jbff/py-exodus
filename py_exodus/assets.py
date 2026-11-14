@@ -748,9 +748,6 @@ class AssetManager:
                         phase=_parse_int(m_elem.get("phase")),
                         x=_parse_int(m_elem.get("x")),
                         y=_parse_int(m_elem.get("y")),
-                        d1=_parse_int(m_elem.get("d1")),
-                        d2=_parse_int(m_elem.get("d2")),
-                        d3=_parse_int(m_elem.get("d3")),
                     )
                 )
 

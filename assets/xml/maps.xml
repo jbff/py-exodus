@@ -22,14 +22,19 @@
         <portal x="58" y="44" destmapid="19" startx="32" starty="62" />
         <portal x="58" y="30" destmapid="20" startx="32" starty="62" />
 
-        <moongate name="newmoon" phase="0" x="7" y="8" d1="0" d2="1" d3="2" />
-        <moongate name="crescentwax" phase="1" x="57" y="46" d1="3" d2="4" d3="5" />
-        <moongate name="firstquarter" phase="2" x="15" y="27" d1="6" d2="7" d3="0" />
-        <moongate name="gibbouswax" phase="3" x="36" y="58" d1="1" d2="2" d3="3" />
-        <moongate name="fullmoon" phase="4" x="15" y="29" d1="4" d2="5" d3="6" />
-        <moongate name="gibbouswan" phase="5" x="12" y="55" d1="7" d2="0" d3="1" />
-        <moongate name="lastquarter" phase="6" x="31" y="31" d1="2" d2="3" d3="4" />
-        <moongate name="crescentwan" phase="7" x="58" y="31" d1="5" d2="6" d3="7" />
+        <!-- USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): the 8 sites ARE
+             the moongate table — the gate is visible at site[slow moon] and
+             entry teleports to site[fast moon]; per-gate d1/d2/d3 destination
+             tables (Java invention) removed (GBC funcs5.c:1134-1152; LW
+             UltimaMisc.c:1511-1560; NES Bank0F MoonGateTbl:734-771). -->
+        <moongate name="newmoon" phase="0" x="7" y="8" />
+        <moongate name="crescentwax" phase="1" x="57" y="46" />
+        <moongate name="firstquarter" phase="2" x="15" y="27" />
+        <moongate name="gibbouswax" phase="3" x="36" y="58" />
+        <moongate name="fullmoon" phase="4" x="15" y="29" />
+        <moongate name="gibbouswan" phase="5" x="12" y="55" />
+        <moongate name="lastquarter" phase="6" x="31" y="31" />
+        <moongate name="crescentwan" phase="7" x="58" y="31" />
 
         <label name="EXOTIC_ARMOR" x="79" y="176" />
         <label name="EXOTIC_WEAPON" x="134" y="14" />
