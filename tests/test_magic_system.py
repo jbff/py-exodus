@@ -1,4 +1,5 @@
 """Tests for Ultima III Magic & Spells System."""
+import contextlib
 import random as pyrandom
 
 import pytest
@@ -24,17 +25,21 @@ from py_exodus.world.map import DungeonMap
 
 
 @pytest.fixture
-def asset_mgr():
-    am = AssetManager(assets_dir="src/main/resources/assets")
-    am.load_tiles()
-    am.load_xml_definitions()
-    return am
-
-
-@pytest.fixture
 def conflict_map(asset_mgr):
     loader = MapLoader(asset_mgr)
     return loader.load_conflict_map("cnflct_a.json")
+
+
+@contextlib.contextmanager
+def seeded_random_state(seed):
+    """Seed the shared RNG for a test and restore its draw state afterwards,
+    so seeded tests never couple other tests through global random draws."""
+    state = pyrandom.getstate()
+    pyrandom.seed(seed)
+    try:
+        yield
+    finally:
+        pyrandom.setstate(state)
 
 
 def test_heal_spell():
@@ -97,8 +102,8 @@ def test_cleric_major_heal():
     c.mp = 60
 
     target = Character("Target", "M", Race.HUMAN, Profession.FIGHTER, hp=20, max_hp=150)
-    pyrandom.seed(101)
-    res = cast_spell(Spell.SANCTU_MANI, caster=c, target_member=target)
+    with seeded_random_state(101):
+        res = cast_spell(Spell.SANCTU_MANI, caster=c, target_member=target)
     assert res.success
     assert 20 <= res.healed <= 100
     assert target.hp == 20 + res.healed <= 120
@@ -300,6 +305,11 @@ def test_pontori_against_undead(asset_mgr, conflict_map, monkeypatch):
     party.add_member(cleric)
 
     arena = CombatArena(party, conflict_map, creature_tile="skeleton", asset_mgr=asset_mgr, monster_count=2)
+    # Spawn HP is rolled per battle (randint(0, basehp) | 0x0F) and can exceed
+    # basehp, while PONTORI kills via take_damage(m.basehp); pin the HP so the
+    # test is order-robust instead of depending on the spawn-roll lethality.
+    for monster in arena.monsters:
+        monster.hp = monster.max_hp = monster.basehp
     res = cast_spell(Spell.PONTORI, caster=party.members[0], arena=arena)
     assert res.success
     assert all(m.is_dead for m in arena.monsters)
@@ -315,6 +325,11 @@ def test_pontori_requires_turn_roll_at_low_level(asset_mgr, conflict_map, monkey
     party.add_member(cleric)  # level 1
 
     arena = CombatArena(party, conflict_map, creature_tile="skeleton", asset_mgr=asset_mgr, monster_count=2)
+
+    # Order-robustness: pin spawn HP so PONTORI's take_damage(basehp) kill is
+    # guaranteed regardless of how earlier tests shifted the spawn rolls.
+    for monster in arena.monsters:
+        monster.hp = monster.max_hp = monster.basehp
 
     # Roll 10 < 50 — no creature turns
     monkeypatch.setattr(magic.random, "randrange", lambda *a, **k: 10)
@@ -983,13 +998,13 @@ def test_sanctu_heal_band_10_to_30():
     """SANCTU heals randint(0,20)+10 = 10..30, never clamped when missing >= 30."""
     caster = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC, mp=9999, max_mp=9999)
     amounts = []
-    pyrandom.seed(7)
-    for _ in range(300):
-        target = Character("Target", "M", Race.HUMAN, Profession.FIGHTER, hp=1, max_hp=100)
-        res = cast_spell(Spell.SANCTU, caster=caster, target_member=target)
-        assert res.success
-        amounts.append(res.healed)
-        assert target.hp == 1 + res.healed
+    with seeded_random_state(7):
+        for _ in range(300):
+            target = Character("Target", "M", Race.HUMAN, Profession.FIGHTER, hp=1, max_hp=100)
+            res = cast_spell(Spell.SANCTU, caster=caster, target_member=target)
+            assert res.success
+            amounts.append(res.healed)
+            assert target.hp == 1 + res.healed
     assert all(10 <= a <= 30 for a in amounts)
     assert min(amounts) == 10
     assert max(amounts) == 30
@@ -998,27 +1013,27 @@ def test_sanctu_heal_band_10_to_30():
 def test_sanctu_heal_clamped_to_missing_hp():
     """SANCTU still clamps to missing HP (missing 5 → at most +5)."""
     caster = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC, mp=9999, max_mp=9999)
-    pyrandom.seed(11)
-    for _ in range(50):
-        target = Character("Target", "M", Race.HUMAN, Profession.FIGHTER, hp=95, max_hp=100)
-        res = cast_spell(Spell.SANCTU, caster=caster, target_member=target)
-        assert res.success
-        assert res.healed <= 5
-        assert target.hp <= 100
+    with seeded_random_state(11):
+        for _ in range(50):
+            target = Character("Target", "M", Race.HUMAN, Profession.FIGHTER, hp=95, max_hp=100)
+            res = cast_spell(Spell.SANCTU, caster=caster, target_member=target)
+            assert res.success
+            assert res.healed <= 5
+            assert target.hp <= 100
 
 
 def test_sanctum_mani_band_20_to_100():
     """SANCTU_MANI heals randint(0,80)+20 = 20..100, capped at max HP."""
     caster = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC, mp=9999, max_mp=9999)
     amounts = []
-    pyrandom.seed(13)
-    for _ in range(300):
-        caster.mp = 9999
-        target = Character("Target", "M", Race.HUMAN, Profession.FIGHTER, hp=1, max_hp=200)
-        res = cast_spell(Spell.SANCTU_MANI, caster=caster, target_member=target)
-        assert res.success
-        amounts.append(res.healed)
-        assert target.hp == 1 + res.healed
+    with seeded_random_state(13):
+        for _ in range(300):
+            caster.mp = 9999
+            target = Character("Target", "M", Race.HUMAN, Profession.FIGHTER, hp=1, max_hp=200)
+            res = cast_spell(Spell.SANCTU_MANI, caster=caster, target_member=target)
+            assert res.success
+            amounts.append(res.healed)
+            assert target.hp == 1 + res.healed
     assert all(20 <= a <= 100 for a in amounts)
     assert min(amounts) == 20
     assert max(amounts) == 100
@@ -1027,13 +1042,13 @@ def test_sanctum_mani_band_20_to_100():
 def test_sanctum_mani_clamped_to_missing_hp():
     """SANCTU_MANI clamps at max HP (missing 10 → at most +10)."""
     caster = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC, mp=9999, max_mp=9999)
-    pyrandom.seed(17)
-    for _ in range(50):
-        target = Character("Target", "M", Race.HUMAN, Profession.FIGHTER, hp=90, max_hp=100)
-        res = cast_spell(Spell.SANCTU_MANI, caster=caster, target_member=target)
-        assert res.success
-        assert res.healed <= 10
-        assert target.hp <= 100
+    with seeded_random_state(17):
+        for _ in range(50):
+            target = Character("Target", "M", Race.HUMAN, Profession.FIGHTER, hp=90, max_hp=100)
+            res = cast_spell(Spell.SANCTU_MANI, caster=caster, target_member=target)
+            assert res.success
+            assert res.healed <= 10
+            assert target.hp <= 100
 
 
 def test_surmandum_success_good_hp_one(monkeypatch):
@@ -1068,18 +1083,18 @@ def test_surmandum_failure_ashes_no_resurrect(monkeypatch):
 def test_surmandum_success_rate_seeded():
     """Seeded runs: 75% of SURMANDUM casts succeed."""
     caster = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC, mp=9999, max_mp=9999)
-    pyrandom.seed(23)
     successes = 0
     runs = 400
-    for _ in range(runs):
-        caster.mp = 9999
-        target = Character("Target", "M", Race.HUMAN, Profession.FIGHTER, hp=0, status=Status.DEAD)
-        res = cast_spell(Spell.SURMANDUM, caster=caster, target_member=target)
-        if res.success:
-            assert target.status == Status.GOOD and target.hp == 1
-            successes += 1
-        else:
-            assert target.status == Status.ASHES
+    with seeded_random_state(23):
+        for _ in range(runs):
+            caster.mp = 9999
+            target = Character("Target", "M", Race.HUMAN, Profession.FIGHTER, hp=0, status=Status.DEAD)
+            res = cast_spell(Spell.SURMANDUM, caster=caster, target_member=target)
+            if res.success:
+                assert target.status == Status.GOOD and target.hp == 1
+                successes += 1
+            else:
+                assert target.status == Status.ASHES
     assert 260 <= successes <= 340  # expected 300 (75%)
 
 
