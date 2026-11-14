@@ -377,10 +377,13 @@ class CombatScreen(BaseScreen):
         p_idx = self.arena.active_party_member_idx
         start_pos = self.arena.player_positions.get(p_idx, (5, 5))
 
-        # Snapshot living monsters to keep dying monsters visible during hit animations
+        # Snapshot living monsters to keep dying monsters visible during hit
+        # animations. Hidden camouflaged monsters are excluded: Java never
+        # draws an invisible creature (CombatScreen.java:236-238), so a death
+        # that was never seen cannot flash. Item 4.
         monsters_before = [
             {"tile": m.tile, "name": m.name, "x": m.x, "y": m.y, "obj": m}
-            for m in self.arena.monsters if not m.is_dead
+            for m in self.arena.monsters if not m.is_dead and m.visible
         ]
 
         res = self.arena.execute_turn(action)
@@ -663,7 +666,10 @@ class CombatScreen(BaseScreen):
     def _render_monsters(self, surface: pygame.Surface) -> None:
         font = get_hud_font(size=12)
         for m in self.arena.monsters:
-            if m.is_dead:
+            # Java CombatScreen.java:236-238 — the batch loop skips creatures
+            # whose getVisible() is false, so a still-hidden camouflaged
+            # monster draws nothing. Item 4.
+            if m.is_dead or not m.visible:
                 continue
             px = m.x * TILE_SIZE
             py = m.y * TILE_SIZE

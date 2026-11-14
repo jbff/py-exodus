@@ -163,7 +163,9 @@ class CombatMonster:
         self.exp = definition.exp
         self.x = x
         self.y = y
-        self.visible = True
+        # Java Creature copy-ctor (Creature.java:70-72): a camouflaged combat
+        # spawn lands on the board HIDDEN (isVisible = !camouflage). Item 4.
+        self.visible = not definition.camouflage
         self.ranged = definition.ranged
         self.ranged_hit_tile = definition.ranged_hit_tile
         self.poisons = definition.poisons
@@ -176,6 +178,11 @@ class CombatMonster:
         # monsterpower=10); the resolver halves a weakened creature's melee
         # damage.
         self.weakened = False
+
+    @property
+    def negates(self) -> bool:
+        """Java ``Creature.negates`` (Creature.java:441-442): casts == "negate"."""
+        return getattr(self.definition, "casts", None) == "negate"
 
     @property
     def is_dead(self) -> bool:
@@ -893,9 +900,18 @@ class CombatArena:
         distance — else ATTACK, which becomes ADVANCE when the (movement)
         distance exceeds 1.
         """
-        # Java creatureAction:692-694 — JINX leaves no targetable member, so
-        # the creature does nothing this round.
+        # Java creatureAction:692-694 — a negating creature sets the
+        # player-side NEGATE aura for 2 turns (context.setAura(AuraType
+        # .NEGATE, 2), Context.java:207) EVERY turn it acts, unconditionally:
+        # no HIT is required, and the set sits BEFORE the null-target return,
+        # so a JINX aura or a missing target does not spare it. Item 4.
         aura = getattr(self.party, "aura", None)
+        if monster.negates and aura is not None:
+            aura.set(AuraType.NEGATE, 2)
+
+        # Java creatureAction (implicit) — a JINX aura leaves no targetable
+        # member (nearestPartyMember yields nothing, CombatScreen.java:812),
+        # so the creature does nothing this round.
         if aura is not None and aura.get_type() == AuraType.JINX:
             return None
 
@@ -927,6 +943,21 @@ class CombatArena:
 
         # Java:711-713 — ATTACK with dist > 1 becomes ADVANCE.
         if movement_dist > 1:
+            action = "advance"
+        else:
+            action = "attack"
+
+        # Java creatureAction:714-716 + hideOrShow (CombatScreen.java:858-880)
+        # — every turn a camouflaged creature revises its visibility by
+        # movement distance to the nearest party member; a still-hidden
+        # creature takes NO action (Java `return true` — "hide and take no
+        # action!") but stays on the map. The gate runs AFTER the
+        # ATTACK→ADVANCE conversion, so a far creature that had chosen
+        # ADVANCE still sits out when its distance hides it. Item 4.
+        if getattr(monster.definition, "camouflage", False) and not self._hide_or_show(monster):
+            return None
+
+        if action == "advance":
             return self._monster_advance(monster, target_pos, from_pos)
 
         # Melee ATTACK against an adjacent target (Java:720-745).
@@ -946,6 +977,23 @@ class CombatArena:
             attack_res=attack_res,
             message=attack_res.message,
         )
+
+    def _hide_or_show(self, monster: CombatMonster) -> bool:
+        """Java ``CombatScreen.hideOrShow`` (CombatScreen.java:858-880).
+
+        Re-finds the nearest party member at MOVEMENT distance (ranged False,
+        its own scan — not the one the chosen action used): a creature within
+        distance 5 that is hidden shows itself ("show yourself"); at >= 5 it
+        hides ("hide and take no action!"). With no eligible member the
+        visibility is untouched. Returns the creature's visibility — the
+        caller takes no action while it stays hidden."""
+        idx, _, dist = self._find_nearest_player(monster.x, monster.y, ranged=False)
+        if idx is not None:
+            if dist < 5 and not monster.visible:
+                monster.visible = True
+            elif dist >= 5:
+                monster.visible = False
+        return monster.visible
 
     def _monster_teleport(self, monster: CombatMonster, from_pos: tuple[int, int]) -> MonsterTurnResult:
         """Java ``CombatScreen.creatureAction`` case TELEPORT (748-768): five

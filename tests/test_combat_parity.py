@@ -918,3 +918,175 @@ def test_teleport_step_never_lands_on_occupied_tile(asset_mgr, monkeypatch):
         arena._execute_single_monster_ai(arena.monsters[0])
         tiles = [arena.player_positions[0]] + [(m.x, m.y) for m in arena.monsters]
         assert len(set(tiles)) == len(tiles)
+
+
+# --- pending item 4 (Java CombatScreen creature specials) ---------------------
+
+
+def test_negating_creature_sets_player_negate_aura(asset_mgr, conflict_map, monkeypatch):
+    """Java CombatScreen.creatureAction:692-694 — every creature turn whose
+    creature has casts == "negate" (Creature.java:441-442) sets the
+    player-side NEGATE aura for 2 turns (Context.setAura, Context.java:207).
+    Passing a HIT is not required: the set is unconditional."""
+    monkeypatch.setattr(arena_mod.random, "randrange", lambda n: 99)  # no teleport/ranged
+    party = build_party(hp=1000)
+    arena = CombatArena(party, conflict_map, asset_mgr=asset_mgr, monster_count=1)
+    arena.monsters[0].definition = CreatureDef(
+        id=1, name="Negator", tile="wisp", basehp=48, casts="negate"
+    )
+    arena.player_positions[0] = (5, 5)
+    arena.monsters[0].x, arena.monsters[0].y = 5, 4
+    assert party.aura.get_type() == AuraType.NONE
+
+    res = arena._execute_single_monster_ai(arena.monsters[0])
+
+    assert res is not None  # it also still took its melee action
+    assert party.aura.get_type() == AuraType.NEGATE
+    assert party.aura.get_duration() == 2
+
+
+def test_non_negating_creature_leaves_aura_alone(asset_mgr, conflict_map, monkeypatch):
+    monkeypatch.setattr(arena_mod.random, "randrange", lambda n: 99)
+    party = build_party(hp=1000)
+    arena = CombatArena(party, conflict_map, asset_mgr=asset_mgr, monster_count=1)
+    arena.player_positions[0] = (5, 8)
+    arena.monsters[0].x, arena.monsters[0].y = 5, 4
+
+    arena._execute_single_monster_ai(arena.monsters[0])
+
+    assert party.aura.get_type() == AuraType.NONE
+
+
+def test_negating_creature_sets_aura_even_under_jinx(asset_mgr, conflict_map, monkeypatch):
+    """Java CombatScreen.java:692-694 sits BEFORE the no-target return (707-
+    709): a JINX aura (nearestPartyMember yields nothing, CombatScreen.java:
+    812) still lets the negater set the aura."""
+    monkeypatch.setattr(arena_mod.random, "randrange", lambda n: 99)
+    party = build_party(hp=1000)
+    arena = CombatArena(party, conflict_map, asset_mgr=asset_mgr, monster_count=1)
+    arena.monsters[0].definition = CreatureDef(
+        id=1, name="Negator", tile="wisp", basehp=48, casts="negate"
+    )
+    party.aura.set(AuraType.JINX, 4)
+    arena.player_positions[0] = (5, 8)
+    arena.monsters[0].x, arena.monsters[0].y = 5, 4
+
+    res = arena._execute_single_monster_ai(arena.monsters[0])
+
+    assert res is None  # no action under JINX
+    assert party.aura.get_type() == AuraType.NEGATE
+    assert party.aura.get_duration() == 2
+
+
+def test_negate_aura_survives_the_round_aura_tick(asset_mgr, conflict_map, monkeypatch):
+    """Round order (Java CombatScreen.finishTurn:472-502): aura.passTurn ticks
+    the aura down BEFORE the creature-action sequence, so a constant negater
+    re-arms it (2) every round — spellcasting stays blocked round after round."""
+    monkeypatch.setattr(arena_mod.random, "randrange", lambda n: 99)
+    party = build_party(hp=1000)
+    arena = CombatArena(party, conflict_map, asset_mgr=asset_mgr, monster_count=1)
+    arena.monsters[0].definition = CreatureDef(
+        id=1, name="Negator", tile="wisp", basehp=48, casts="negate"
+    )
+    arena.player_positions[0] = (5, 8)
+    arena.monsters[0].x, arena.monsters[0].y = 5, 3
+
+    for _ in range(3):
+        arena.execute_monster_turns()
+        # pass_turn ran first (tick to 1), then the negater re-set it to 2.
+        assert party.aura.get_type() == AuraType.NEGATE
+        assert party.aura.get_duration() == 2
+
+
+def test_camouflage_creature_spawns_hidden(asset_mgr):
+    """Java Creature copy-ctor (Creature.java:70-72): isVisible = !camouflage,
+    so camouflaged combat spawns land on the board hidden."""
+    from py_exodus.combat.arena import CombatMonster
+
+    visible = CombatMonster(
+        CreatureDef(id=2, name="Owl", tile="orc", basehp=48), 1, 1
+    )
+    camo = CombatMonster(
+        CreatureDef(id=3, name="Shade", tile="orc", basehp=48, camouflage=True), 1, 1
+    )
+    assert visible.visible is True
+    assert camo.visible is False
+
+
+def test_camouflage_hides_at_distance_and_takes_no_action(asset_mgr, conflict_map, monkeypatch):
+    monkeypatch.setattr(arena_mod.random, "randrange", lambda n: 99)  # ADVANCE path
+    party = build_party(hp=1000)
+    arena = CombatArena(party, conflict_map, asset_mgr=asset_mgr, monster_count=1)
+    arena.monsters[0].definition = CreatureDef(
+        id=4, name="Shade", tile="orc", basehp=48, camouflage=True
+    )
+    arena.monsters[0].visible = True  # started revealed; far now
+    arena.player_positions[0] = (5, 5)
+    arena.monsters[0].x, arena.monsters[0].y = 0, 0  # movement distance 10
+
+    res = arena._execute_single_monster_ai(arena.monsters[0])
+
+    assert res is None
+    assert arena.monsters[0].visible is False
+
+
+def test_camouflage_reveals_when_within_5_then_acts(asset_mgr, conflict_map, monkeypatch):
+    """Java CombatScreen.java:867-870 — dist < 5 reveals; the visible creature
+    then goes on to take its chosen action in the SAME turn."""
+    monkeypatch.setattr(resolver_mod, "roll_hit", lambda *a, **k: False)
+    monkeypatch.setattr(arena_mod.random, "randrange", lambda n: 99)
+    party = build_party(hp=1000)
+    arena = CombatArena(party, conflict_map, asset_mgr=asset_mgr, monster_count=1)
+    arena.monsters[0].definition = CreatureDef(
+        id=5, name="Shade", tile="orc", basehp=48, camouflage=True
+    )
+    arena.player_positions[0] = (5, 5)
+    arena.monsters[0].x, arena.monsters[0].y = 5, 4  # movement distance 1
+
+    res = arena._execute_single_monster_ai(arena.monsters[0])
+
+    assert arena.monsters[0].visible is True
+    assert res is not None and res.action_type == "attack"
+
+
+def test_hidden_camouflage_monster_is_never_rendered(asset_mgr, conflict_map, pygame_setup):
+    """Java CombatScreen.java:236-238 — the batch loop skips creatures whose
+    getVisible() is false, so a hidden camouflaged monster draws nothing; the
+    same loop still draws once it has revealed."""
+    import pygame as pg
+    from py_exodus.screens.combat_screen import CombatScreen
+
+    class _SpySurface(pg.Surface):
+        def __init__(self, size):
+            super().__init__(size)
+            self.blits = []
+
+        def blit(self, src, *a, **k):
+            self.blits.append(src)
+            return super().blit(src, *a, **k)
+
+    party = Party()
+    hero = Character("Hero", "M", hp=100, max_hp=100)
+    party.add_member(hero)
+    combat = CombatScreen(
+        party=party, combat_map=conflict_map, creature_tile="orc",
+        asset_mgr=asset_mgr, monster_count=1,
+    )
+    monster = combat.arena.monsters[0]
+    monster.definition = CreatureDef(
+        id=6, name="Shade", tile="orc", basehp=48, camouflage=True
+    )
+    combat.arena.creature_def = monster.definition
+    monster.visible = False
+
+    # A distinct marker tile image: blits of it stand out from HUD text.
+    marker = pg.Surface((24, 24))
+    asset_mgr.get_tile_surface = lambda name, _m=marker: _m
+
+    surface = _SpySurface((11 * 24, 11 * 24))
+    combat._render_monsters(surface)
+    assert marker not in surface.blits
+
+    monster.visible = True
+    combat._render_monsters(surface)
+    assert marker in surface.blits
