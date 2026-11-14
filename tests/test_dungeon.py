@@ -1,11 +1,13 @@
 """Tests for 3D wireframe dungeon corridor renderer and navigation."""
+import random
+
 import pygame
 import pytest
 
 from py_exodus.assets import AssetManager
 from py_exodus.constants import Direction, Profession, Race, Status
 from py_exodus.entities.character import Character
-from py_exodus.entities.party import Party
+from py_exodus.entities.party import Party, PartyDeathException
 from py_exodus.world.dungeon import (
     COLOR_BLACK,
     DungeonCamera,
@@ -437,6 +439,65 @@ def test_fountains(empty_dmap, test_party):
     empty_dmap.set_tile(5, 5, 0, DungeonTile.FOUNTAIN_PLAIN)
     ev_plain = state.drink_fountain(member_index=0)
     assert not ev_plain.success
+
+
+def test_fountain_poison_status_only(empty_dmap, test_party):
+    """GBC poison fountains inflict POISONED and NOTHING else.
+
+    USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): poison branch is
+    status-only — no damage roll (GBC dungfunc.c:1277-1310 sets status 0->1
+    and never touches HP).
+    """
+    m = test_party.members[0]
+    m.hp = 40
+    state = DungeonState(empty_dmap, start_x=5, start_y=5, start_z=0, party=test_party)
+    empty_dmap.set_tile(5, 5, 0, DungeonTile.FOUNTAIN_POISON)
+
+    ev = state.drink_fountain(member_index=0)
+    assert ev.type == DungeonEventType.FOUNTAIN
+    assert m.status == Status.POISONED
+    assert m.hp == 40
+    assert ev.damage == 0
+
+    # Already-poisoned drinker: no effect, again no damage.
+    ev2 = state.drink_fountain(member_index=0)
+    assert ev2.success is False
+    assert ev2.damage == 0
+    assert m.hp == 40
+
+
+def test_fountain_acid_flat_25_no_randomness(empty_dmap, test_party):
+    """GBC acid fountains deal exactly 25 — never a random roll.
+
+    USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): flat 25 damage through
+    apply_damage (GBC dungfunc.c:1277-1310; LairWare corroborates x&3 and
+    acid=25).
+    """
+    state = DungeonState(empty_dmap, start_x=5, start_y=5, start_z=0, party=test_party)
+    empty_dmap.set_tile(5, 5, 0, DungeonTile.FOUNTAIN_ACID)
+
+    for seed in (1, 2, 3, 99):
+        member = test_party.members[0]
+        member.status = Status.GOOD
+        member.hp = 80
+        random.seed(seed)
+        ev = state.drink_fountain(member_index=0)
+        assert ev.damage == 25
+        assert member.hp == 80 - 25
+        assert member.status == Status.GOOD
+
+
+def test_fountain_acid_kills_solo_drinker(empty_dmap):
+    """An acid fountain kill routes through the party-death chokepoint."""
+    solo = Party(food=100, gold=0)
+    c = Character("Solo", "M", Race.HUMAN, Profession.FIGHTER, hp=10, max_hp=10, torches=0)
+    solo.add_member(c)
+    state = DungeonState(empty_dmap, start_x=5, start_y=5, start_z=0, party=solo)
+    empty_dmap.set_tile(5, 5, 0, DungeonTile.FOUNTAIN_ACID)
+
+    with pytest.raises(PartyDeathException):
+        state.drink_fountain(member_index=0)
+    assert solo.members[0].is_dead()
 
 
 # --- Magical Marks & Orbs Tests ---

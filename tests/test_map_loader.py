@@ -203,6 +203,57 @@ def test_dungeon_tile_methods():
     assert DungeonTile.get_tile_by_value(0xFE) == DungeonTile.FLOOR
 
 
+def test_dungeon_fountain_typed_by_x_coordinate():
+    """A raw 0x02 dungeon byte is no longer a blanket FOUNTAIN_HEAL.
+
+    USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): the builder re-types
+    every untyped fountain by its tile x coordinate (x & 3: 0=poison,
+    1=heal, 2=acid, 3=cure) right after load (GBC dungfunc.c:1277-1310).
+    """
+    from py_exodus.world.map_build import build_dungeon_map
+
+    tiles = [
+        [[0x00 for _ in range(16)] for _ in range(16)] for _ in range(8)
+    ]
+    # Raw 0x02 fountain bytes on level 3 at consecutive x 3 and 4 per the
+    # brief, plus x 1 and 2 to cover the full x&3 table.
+    for x in (1, 2, 3, 4):
+        tiles[3][5][x] = 0x02
+    # Another raw 0x02 on level 6 at x=0 to cover the mod-0 case twice.
+    tiles[6][2][0] = 0x02
+
+    dmap = build_dungeon_map(
+        None,
+        {"source": "test.ult", "level_texts": [""], "tiles": tiles},
+        None,
+    )
+
+    assert dmap.get_tile(1, 5, 3) is DungeonTile.FOUNTAIN_HEAL  # x=1
+    assert dmap.get_tile(2, 5, 3) is DungeonTile.FOUNTAIN_ACID  # x=2
+    assert dmap.get_tile(3, 5, 3) is DungeonTile.FOUNTAIN_CURE  # x=3
+    assert dmap.get_tile(4, 5, 3) is DungeonTile.FOUNTAIN_POISON  # x=4
+    assert dmap.get_tile(0, 2, 6) is DungeonTile.FOUNTAIN_POISON  # x=0
+
+
+def test_dungeon_asset_fountains_typed_by_x(asset_mgr):
+    """The shipped dungeon JSON stores RAW bytes; no FOUNTAIN_UNTYPED leaks.
+
+    dardin.json has a raw 0x02 at (x=15, y=15, z=7) with no maps.xml label:
+    15 & 3 == 3 must type it FOUNTAIN_CURE (was FOUNTAIN_HEAL before the fix).
+    """
+    loader = MapLoader(asset_mgr)
+    dardin = loader.load_dungeon_map("dardin.json")
+
+    assert dardin.get_tile(15, 15, 7) is DungeonTile.FOUNTAIN_CURE
+    # Label-covered fountains keep their maps.xml typing (explicit data wins).
+    assert dardin.get_tile(4, 4, 4) is DungeonTile.FOUNTAIN_POISON
+
+    for z in dardin.tiles:
+        for row in z:
+            for tile in row:
+                assert tile is not DungeonTile.FOUNTAIN_UNTYPED
+
+
 def test_module_level_helpers(asset_mgr):
     sosaria = load_map(0, asset_mgr)
     assert sosaria.width == 64

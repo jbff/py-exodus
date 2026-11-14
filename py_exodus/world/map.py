@@ -46,6 +46,10 @@ class DungeonTile(Enum):
     FOUNTAIN_ACID = (0x0F_00, "Acid Fountain", "A", True)
     FOUNTAIN_CURE = (0x10_00, "Cure Fountain", "C", True)
     FOUNTAIN_POISON = (0x11_00, "Poison Fountain", "P", True)
+    #: Untyped raw 0x02 fountain: the loader maps every such byte here and
+    #: build_dungeon_map re-types it by x&3 immediately after load, because
+    #: the byte alone does not say which fountain it is.
+    FOUNTAIN_UNTYPED = (0x16_00, "Fountain", "Z", True)
     FIELD_POISON = (0x12_00, "Poison Field", "poison_field", False)
     FIELD_ENERGY = (0x13_00, "Energy Field", "energy_field", False)
     FIELD_FIRE = (0x14_00, "Fire Field", "fire_field", False)
@@ -80,7 +84,12 @@ class DungeonTile(Enum):
         mapping = {
             0x00: cls.NOTHING,
             0x01: cls.TIME_LORD,
-            0x02: cls.FOUNTAIN_HEAL,
+            # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): a raw 0x02
+            # fountain byte alone cannot carry its type — build_dungeon_map
+            # re-types the returned FOUNTAIN_UNTYPED by the tile's x&3
+            # (0=poison, 1=heal, 2=acid, 3=cure) right after load
+            # (GBC dungfunc.c:1277-1310; LairWare corroborates x&3).
+            0x02: cls.FOUNTAIN_UNTYPED,
             0x03: cls.WIND_TRAP,
             0x04: cls.PIT_TRAP,
             0x05: cls.MARK,

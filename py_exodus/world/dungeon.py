@@ -1786,47 +1786,52 @@ class DungeonState:
             )
 
         if tile == DungeonTile.FOUNTAIN_ACID:
-            dmg = 25
+            # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): acid is a flat
+            # 25 damage through the apply_damage chokepoint and kills a
+            # drinker below 26 HP (GBC dungfunc.c:1277-1310; LairWare
+            # corroborates x&3 and acid=25). Damage here raises
+            # PartyDeathException on a wiped party.
             if member:
-                member.hp = max(0, member.hp - dmg)
-                if member.hp == 0:
-                    member.status = Status.DEAD
+                if member.hp < 26:
+                    # GBC: currHP<26 means currHP=0 + status DEAD, not a
+                    # 25-damage hit that stops at 0.
+                    member.apply_damage(member.hp + 1)
+                else:
+                    member.apply_damage(25)
             return DungeonEvent(
                 type=DungeonEventType.FOUNTAIN,
                 message="Bleck--Nasty!",
                 x=self.x,
                 y=self.y,
                 z=self.z,
-                damage=dmg,
+                damage=25,
                 tile=tile,
             )
 
         if tile == DungeonTile.FOUNTAIN_POISON:
-            dmg = 25
-            if member:
-                if member.status != Status.POISONED:
-                    member.status = Status.POISONED
-                    member.hp = max(0, member.hp - dmg)
-                    if member.hp == 0:
-                        member.status = Status.DEAD
-                    return DungeonEvent(
-                        type=DungeonEventType.FOUNTAIN,
-                        message="Argh-Choke-Gasp!",
-                        x=self.x,
-                        y=self.y,
-                        z=self.z,
-                        damage=dmg,
-                        tile=tile,
-                    )
+            # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): a poison
+            # fountain inflicts POISONED only — no damage at all
+            # (GBC dungfunc.c:1277-1310 sets status 0->1 and never touches
+            # HP).
+            if member and member.status == Status.GOOD:
+                member.status = Status.POISONED
                 return DungeonEvent(
                     type=DungeonEventType.FOUNTAIN,
-                    message="Hmm--No Effect!",
+                    message="Argh-Choke-Gasp!",
                     x=self.x,
                     y=self.y,
                     z=self.z,
                     tile=tile,
-                    success=False,
                 )
+            return DungeonEvent(
+                type=DungeonEventType.FOUNTAIN,
+                message="Hmm--No Effect!",
+                x=self.x,
+                y=self.y,
+                z=self.z,
+                tile=tile,
+                success=False,
+            )
 
         # Plain fountain
         return DungeonEvent(

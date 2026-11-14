@@ -204,6 +204,25 @@ def build_dungeon_map(
             level_grid.append(row)
         tiles.append(level_grid)
 
+    # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): fountains typed by
+    # tile x&3 (0=poison, 1=heal, 2=acid, 3=cure) instead of the raw 0x02
+    # byte alone (GBC dungfunc.c:1277-1310; LairWare corroborates x&3 and
+    # acid=25). The assets/maps JSON stores the raw bytes, so this pass
+    # re-types every FOUNTAIN_UNTYPED before the maps.xml labels below are
+    # applied — labels keep their explicit (historically authored) typing
+    # and win where both exist.
+    fountain_by_x_mod = (
+        DungeonTile.FOUNTAIN_POISON,
+        DungeonTile.FOUNTAIN_HEAL,
+        DungeonTile.FOUNTAIN_ACID,
+        DungeonTile.FOUNTAIN_CURE,
+    )
+    for level_grid in tiles:
+        for row in level_grid:
+            for x in range(len(row)):
+                if row[x] is DungeonTile.FOUNTAIN_UNTYPED:
+                    row[x] = fountain_by_x_mod[x & 3]
+
     # Apply labels from maps.xml definitions (marks, special fountains, etc.)
     labels = list(m_def.labels) if m_def else []
     for label in labels:
