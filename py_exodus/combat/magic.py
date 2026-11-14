@@ -432,9 +432,11 @@ def _apply_spell_effect(
     """Dispatch and execute specific spell mechanics."""
     # --- Clerical Prayer Spells ---
     if spell == Spell.SANCTU:
-        # Java Party.java:417-419 — 75 + (rand.nextInt(256) % 25), capped at
-        # max health (Party.java:432-435).
-        amount = min(target_char.max_hp - target_char.hp, 75 + (random.randrange(256) % 25))
+        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): heal is
+        # randint(0, 20) + 10 (10-30), still clamped at missing HP, replacing
+        # the Java Party.java:417-419 dice 75 + (rand.nextInt(256) % 25).
+        # (GBC menucmd.c:1337-1420; LW UltimaSpellCombat.c:277-348)
+        amount = min(target_char.max_hp - target_char.hp, random.randint(0, 20) + 10)
         target_char.hp += amount
         return SpellResult(
             success=True,
@@ -452,22 +454,37 @@ def _apply_spell_effect(
         )
 
     if spell == Spell.SANCTU_MANI:
-        amount = target_char.max_hp - target_char.hp
-        target_char.hp = target_char.max_hp
+        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): heal is
+        # randint(0, 80) + 20 (20-100), capped at max HP, replacing the
+        # full-restore-to-max behaviour. (GBC menucmd.c:1337-1420; LW
+        # UltimaSpellCombat.c:277-348)
+        amount = min(target_char.max_hp - target_char.hp, random.randint(0, 80) + 20)
+        target_char.hp += amount
         return SpellResult(
             success=True,
-            message=f"{caster_char.name} casts Sanctu Mani! {target_char.name} fully restored (+{amount} HP).",
+            message=f"{caster_char.name} casts Sanctu Mani! {target_char.name} heals {amount} HP.",
             healed=amount,
             spell=spell,
         )
 
     if spell == Spell.SURMANDUM:
-        target_char.status = Status.GOOD
-        target_char.hp = 1
+        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): 75% success leaves
+        # the target GOOD at hp=1; on 25% failure the target crumbles to
+        # ASHES (no resurrect, no heal) instead of always resurrecting.
+        # (GBC menucmd.c:1337-1420; LW UltimaSpellCombat.c:277-348)
+        if random.random() < 0.75:
+            target_char.status = Status.GOOD
+            target_char.hp = 1
+            return SpellResult(
+                success=True,
+                message=f"{caster_char.name} casts Surmandum! {target_char.name} is resurrected!",
+                healed=1,
+                spell=spell,
+            )
+        target_char.status = Status.ASHES
         return SpellResult(
-            success=True,
-            message=f"{caster_char.name} casts Surmandum! {target_char.name} is resurrected!",
-            healed=1,
+            success=False,
+            message=f"The spell fails! {target_char.name} crumbles to ashes!",
             spell=spell,
         )
 

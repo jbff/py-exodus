@@ -87,27 +87,42 @@ def test_cleric_cure_poison():
 
 
 def test_cleric_major_heal():
-    """SANCTU_MANI (and alias SURMAND) restores character to max HP."""
+    """SANCTU_MANI (and alias SURMAND) heals 20-100, capped at max HP.
+
+    USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): no longer a full restore
+    to max HP; the heal is randint(0,80)+20 clamped at missing HP (GBC
+    menucmd.c:1337-1420; LW UltimaSpellCombat.c:277-348).
+    """
     c = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC)
     c.mp = 60
 
     target = Character("Target", "M", Race.HUMAN, Profession.FIGHTER, hp=20, max_hp=150)
+    pyrandom.seed(101)
     res = cast_spell(Spell.SANCTU_MANI, caster=c, target_member=target)
     assert res.success
-    assert target.hp == 150
-    assert res.healed == 130
+    assert 20 <= res.healed <= 100
+    assert target.hp == 20 + res.healed <= 120
 
 
 def test_cleric_resurrection():
-    """SURMANDUM (and alias ANCRON) resurrects DEAD character to GOOD."""
+    """SURMANDUM (and alias ANCRON) resurrects DEAD character to GOOD.
+
+    USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): success is a 75% roll,
+    not guaranteed; pinned high here to exercise the success path (GBC
+    menucmd.c:1337-1420; LW UltimaSpellCombat.c:277-348).
+    """
+    import py_exodus.combat.magic as magic
+
     c = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC)
     c.mp = 75
 
     target = Character("Target", "M", Race.HUMAN, Profession.FIGHTER, hp=0, status=Status.DEAD)
-    res = cast_spell(Spell.SURMANDUM, caster=c, target_member=target)
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(magic.random, "random", lambda: 0.5)
+        res = cast_spell(Spell.SURMANDUM, caster=c, target_member=target)
     assert res.success
     assert target.status == Status.GOOD
-    assert target.hp > 0
+    assert target.hp == 1
 
 
 def test_cleric_recall_ashes():
@@ -667,25 +682,30 @@ def test_appar_unem_prompt_flow_never_asks_direction():
 # --- Task 11: exact Java spell-table rows (audit Part 1) ---
 
 def test_sanctu_heals_java_range():
-    """Java Party.java:417 heal: health += 75 + (rand.nextInt(256) % 25);
-    capped at max health (Party.java:432-435)."""
+    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): the Java Party.java:417
+    heal (75 + rand.nextInt(256) % 25) is replaced by GBC's randint(0,20)+10,
+    still capped at missing HP (GBC menucmd.c:1337-1420; LW
+    UltimaSpellCombat.c:277-348)."""
     import py_exodus.combat.magic as magic
 
     c = Character("Cleric1", "F", Race.BOBIT, Profession.CLERIC, mp=20, hp=50, max_hp=200)
-    res = cast_spell(Spell.SANCTU, caster=c, party=None, target_member=c)
-    assert res.success
-    assert 125 <= c.hp <= 149  # 50 + 75..99
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(magic.random, "randint", lambda a, b: b)  # 20 → +10 = 30
+        res = cast_spell(Spell.SANCTU, caster=c, party=None, target_member=c)
+        assert res.success
+        assert res.healed == 30
+        assert c.hp == 80
 
     c2 = Character("Cleric2", "F", Race.BOBIT, Profession.CLERIC, mp=20, hp=50, max_hp=200)
     with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(magic.random, "randrange", lambda *a, **k: 255)
+        mp.setattr(magic.random, "randint", lambda a, b: a)  # 0 → +10 = 10
         cast_spell(Spell.SANCTU, caster=c2, party=None, target_member=c2)
-        assert c2.hp == 130  # 50 + 75 + (255 % 25)
+        assert c2.hp == 60  # 50 + 10
 
-    # Capped at max health
-    c3 = Character("Cleric3", "F", Race.BOBIT, Profession.CLERIC, mp=20, hp=80, max_hp=100)
+    # Capped at missing health
+    c3 = Character("Cleric3", "F", Race.BOBIT, Profession.CLERIC, mp=20, hp=95, max_hp=100)
     with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(magic.random, "randrange", lambda *a, **k: 0)
+        mp.setattr(magic.random, "randint", lambda a, b: b)
         cast_spell(Spell.SANCTU, caster=c3, party=None, target_member=c3)
         assert c3.hp == 100
 
@@ -955,3 +975,124 @@ def test_dag_acron_rejected_off_the_world_map():
     assert not res_dungeon.success
 
 
+# --- USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): heal/raise dice tests
+# (GBC menucmd.c:1337-1420; LW UltimaSpellCombat.c:277-348)
+
+
+def test_sanctu_heal_band_10_to_30():
+    """SANCTU heals randint(0,20)+10 = 10..30, never clamped when missing >= 30."""
+    caster = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC, mp=9999, max_mp=9999)
+    amounts = []
+    pyrandom.seed(7)
+    for _ in range(300):
+        target = Character("Target", "M", Race.HUMAN, Profession.FIGHTER, hp=1, max_hp=100)
+        res = cast_spell(Spell.SANCTU, caster=caster, target_member=target)
+        assert res.success
+        amounts.append(res.healed)
+        assert target.hp == 1 + res.healed
+    assert all(10 <= a <= 30 for a in amounts)
+    assert min(amounts) == 10
+    assert max(amounts) == 30
+
+
+def test_sanctu_heal_clamped_to_missing_hp():
+    """SANCTU still clamps to missing HP (missing 5 → at most +5)."""
+    caster = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC, mp=9999, max_mp=9999)
+    pyrandom.seed(11)
+    for _ in range(50):
+        target = Character("Target", "M", Race.HUMAN, Profession.FIGHTER, hp=95, max_hp=100)
+        res = cast_spell(Spell.SANCTU, caster=caster, target_member=target)
+        assert res.success
+        assert res.healed <= 5
+        assert target.hp <= 100
+
+
+def test_sanctum_mani_band_20_to_100():
+    """SANCTU_MANI heals randint(0,80)+20 = 20..100, capped at max HP."""
+    caster = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC, mp=9999, max_mp=9999)
+    amounts = []
+    pyrandom.seed(13)
+    for _ in range(300):
+        caster.mp = 9999
+        target = Character("Target", "M", Race.HUMAN, Profession.FIGHTER, hp=1, max_hp=200)
+        res = cast_spell(Spell.SANCTU_MANI, caster=caster, target_member=target)
+        assert res.success
+        amounts.append(res.healed)
+        assert target.hp == 1 + res.healed
+    assert all(20 <= a <= 100 for a in amounts)
+    assert min(amounts) == 20
+    assert max(amounts) == 100
+
+
+def test_sanctum_mani_clamped_to_missing_hp():
+    """SANCTU_MANI clamps at max HP (missing 10 → at most +10)."""
+    caster = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC, mp=9999, max_mp=9999)
+    pyrandom.seed(17)
+    for _ in range(50):
+        target = Character("Target", "M", Race.HUMAN, Profession.FIGHTER, hp=90, max_hp=100)
+        res = cast_spell(Spell.SANCTU_MANI, caster=caster, target_member=target)
+        assert res.success
+        assert res.healed <= 10
+        assert target.hp <= 100
+
+
+def test_surmandum_success_good_hp_one(monkeypatch):
+    """SURMANDUM 75% success: target GOOD with hp=1 (GBC keeps hp=1; NES 150 outvoted)."""
+    import py_exodus.combat.magic as magic
+
+    monkeypatch.setattr(magic.random, "random", lambda: 0.5)
+    caster = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC, mp=75)
+    target = Character("Target", "M", Race.HUMAN, Profession.FIGHTER, hp=0, status=Status.DEAD)
+    res = cast_spell(Spell.SURMANDUM, caster=caster, target_member=target)
+    assert res.success
+    assert target.status == Status.GOOD
+    assert target.hp == 1
+
+
+def test_surmandum_failure_ashes_no_resurrect(monkeypatch):
+    """SURMANDUM 25% failure: target becomes ASHES, message fires, no resurrect/heal."""
+    import py_exodus.combat.magic as magic
+
+    monkeypatch.setattr(magic.random, "random", lambda: 0.99)
+    caster = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC, mp=75)
+    target = Character("Target", "M", Race.HUMAN, Profession.FIGHTER, hp=0, status=Status.DEAD)
+    res = cast_spell(Spell.SURMANDUM, caster=caster, target_member=target)
+    assert not res.success
+    assert "ashes" in res.message.lower()
+    assert target.status == Status.ASHES
+    assert target.hp == 0
+    assert target.is_disabled()
+    assert not target.is_dead()
+
+
+def test_surmandum_success_rate_seeded():
+    """Seeded runs: 75% of SURMANDUM casts succeed."""
+    caster = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC, mp=9999, max_mp=9999)
+    pyrandom.seed(23)
+    successes = 0
+    runs = 400
+    for _ in range(runs):
+        caster.mp = 9999
+        target = Character("Target", "M", Race.HUMAN, Profession.FIGHTER, hp=0, status=Status.DEAD)
+        res = cast_spell(Spell.SURMANDUM, caster=caster, target_member=target)
+        if res.success:
+            assert target.status == Status.GOOD and target.hp == 1
+            successes += 1
+        else:
+            assert target.status == Status.ASHES
+    assert 260 <= successes <= 340  # expected 300 (75%)
+
+
+def test_ashes_member_save_round_trip(tmp_path):
+    """An ASHES roster member round-trips through save_roster/load_roster."""
+    from py_exodus.save_system import SaveSystem
+
+    ash = Character("Crumpled", "M", Race.HUMAN, Profession.FIGHTER, hp=0, status=Status.ASHES)
+    path = tmp_path / "roster.json"
+    SaveSystem.save_roster([ash], path)
+    loaded = SaveSystem.load_roster(path)[0]
+    # "A" byte round-trips; loaded as the shared-value ASH alias.
+    assert loaded.status in (Status.ASHES, Status.ASH)
+    assert loaded.status.value == "A"
+    assert loaded.is_disabled()
+    assert not loaded.is_dead()
