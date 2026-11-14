@@ -257,6 +257,10 @@ def test_free_combat_spell_limits(asset_mgr, cleric_party):
         asset_mgr=asset_mgr,
         monster_count=2,
     )
+    # Force the latch: this test pins the free-spell accounting, not the
+    # masskill gate; the successful res1 cast consumes the latch, so re-arm
+    # for caster2 (GBC battle.c:1050 — masskill=0 after a gated-in cast).
+    arena.masskill = True
 
     caster1 = cleric_party.members[0]
     caster2 = cleric_party.members[1]
@@ -278,6 +282,7 @@ def test_free_combat_spell_limits(asset_mgr, cleric_party):
     assert not res2.success
     assert "Can't!" in res2.message
 
+    arena.masskill = True  # re-arm: res1's successful cast consumed the latch
     res3 = cast_spell(
         spell=Spell.PONTORI,
         caster=caster2,
@@ -293,6 +298,7 @@ def test_free_combat_spell_limits(asset_mgr, cleric_party):
         asset_mgr=asset_mgr,
         monster_count=1,
     )
+    arena2.masskill = True  # force the latch again for res4
     res4 = cast_spell(
         spell=Spell.PONTORI,
         caster=caster1,

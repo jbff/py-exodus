@@ -222,6 +222,8 @@ class CombatArena:
         # condition is the party's transport at battle start — on a SHIP the
         # monster ranged branch becomes cannonfire (GBC battle3.c:507-536)
         self.ship_battle = getattr(party, "transport", None) == Transport.SHIP
+        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): per-battle 50% masskill flag gates PONTORI/REPOND (GBC funcs5.c:1354-1358; LW latch + cast-time roll is functionally equivalent)
+        self.masskill: bool = random.randrange(2) == 0
         # The encounter's overworld creature tile (Java GameScreen.endCombat's
         # currentEncounter.currentX/currentY): where the victory chest/frigate
         # lands (GameScreen.java:421-431).

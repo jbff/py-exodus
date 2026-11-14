@@ -502,29 +502,39 @@ def _apply_spell_effect(
     if spell == Spell.PONTORI:
         killed_count = 0
         if arena is not None:
-            level = caster_char.level
+            # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): per-battle 50% masskill flag gates PONTORI/REPOND (GBC funcs5.c:1354-1358; LW latch + cast-time roll is functionally equivalent)
+            if not arena.masskill:
+                # GBC faildat path: the gate fails the cast outright and the
+                # latch stays unconsumed; mana was spent before the effect.
+                # (GBC battle.c:1052; LW UltimaSpellCombat.c:192-268,475-495)
+                return SpellResult(success=False, message="FAILED", spell=spell)
+            # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): the Java
+            # 50/65/80/100% turn ladder is deleted — the kill is level-
+            # independent; each eligible undead dies on its own 75% roll
+            # ((rnd)&0x03 != 0) via lethal damage against its CURRENT hp (the
+            # rolled per-battle HP can exceed basehp). Kills keep the
+            # established death-pos/EXP path. (GBC battle.c:821-844,
+            # 1043-1053,1225-1239; LW UltimaSpellCombat.c:192-268,475-495)
             for m in list(arena.monsters):
-                # Java spellUndead (SpellUtil.java:387-438): the 50/65/80/100%
-                # roll runs for every creature; only the undead may turn.
-                turn = random.randrange(100) >= 50
-                if level > 5:
-                    turn = random.randrange(100) >= 35
-                if level > 10:
-                    turn = random.randrange(100) >= 20
-                if level > 15:
-                    turn = True
-
                 is_undead = (
                     getattr(getattr(m, "definition", None), "undead", False)
                     or getattr(m, "undead", False)
                 )
-                if turn and is_undead and not m.is_dead:
-                    m.take_damage(m.basehp)
+                if (
+                    is_undead
+                    and not m.is_dead
+                    and (random.randrange(256) & 0x03) != 0
+                ):
+                    m.take_damage(m.hp)
                     if m.is_dead:
                         arena.last_monster_death_pos = (m.x, m.y)
-                        # XP flows with the damage outcome (dealDamage path)
-                        caster_char.exp = min(9999, caster_char.exp + getattr(m, "exp", 0))
+                        # XP flows with the kill path (killbaddie)
+                        caster_char.exp = min(
+                            9999, caster_char.exp + getattr(m, "exp", 0)
+                        )
                         killed_count += 1
+            # GBC consumes the latch after a gated-in cast (battle.c:1050,1232)
+            arena.masskill = False
             return SpellResult(
                 success=True,
                 message=f"Holy power turns {killed_count} undead creatures!",
@@ -536,24 +546,30 @@ def _apply_spell_effect(
     if spell == Spell.REPOND:
         killed_count = 0
         if arena is not None:
-            level = caster_char.level
+            # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): per-battle 50% masskill flag gates PONTORI/REPOND (GBC funcs5.c:1354-1358; LW latch + cast-time roll is functionally equivalent)
+            if not arena.masskill:
+                # GBC faildat path (battle.c:1235); mana was already spent.
+                return SpellResult(success=False, message="FAILED", spell=spell)
+            # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): same masskill
+            # latch, same 75%-per-monster kill roll, level-independent — but
+            # only the single tile "orc" is eligible (the port's goblinoid set
+            # is kept). (GBC battle.c:821-844,1225-1239; LW
+            # UltimaSpellCombat.c:192-268,475-495)
             for m in list(arena.monsters):
-                # Java spellRepond (SpellUtil.java:440-492): same roll ladder,
-                # but only the single tile "orc" is eligible.
-                turn = random.randrange(100) >= 50
-                if level > 5:
-                    turn = random.randrange(100) >= 35
-                if level > 10:
-                    turn = random.randrange(100) >= 20
-                if level > 15:
-                    turn = True
-
-                if turn and m.tile == "orc" and not m.is_dead:
-                    m.take_damage(m.basehp)
+                if (
+                    m.tile == "orc"
+                    and not m.is_dead
+                    and (random.randrange(256) & 0x03) != 0
+                ):
+                    m.take_damage(m.hp)
                     if m.is_dead:
                         arena.last_monster_death_pos = (m.x, m.y)
-                        caster_char.exp = min(9999, caster_char.exp + getattr(m, "exp", 0))
+                        caster_char.exp = min(
+                            9999, caster_char.exp + getattr(m, "exp", 0)
+                        )
                         killed_count += 1
+            # GBC consumes the latch after a gated-in cast (battle.c:1232)
+            arena.masskill = False
             return SpellResult(
                 success=True,
                 message=f"Repond destroys {killed_count} goblinoid creatures!",

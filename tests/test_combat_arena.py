@@ -489,6 +489,7 @@ def test_casting_with_zero_mp_for_zero_cost_spells(asset_mgr, conflict_map):
     party.add_member(wiz)
 
     arena = CombatArena(party, conflict_map, creature_tile="giant", asset_mgr=asset_mgr, monster_count=3)
+    arena.masskill = True  # force the latch: this test pins MP gating only
     from py_exodus.constants import Spell
     # Wizard Spell A (REPOND) costs 0 MP and should succeed even with 0 MP
     res = arena.execute_player_action(0, Action.cast(Spell.REPOND))

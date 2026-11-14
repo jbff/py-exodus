@@ -102,6 +102,8 @@ def test_spell_not_negated_with_plain_aura(asset_mgr, conflict_map):
     party, caster = _negated_cast_setup(asset_mgr, conflict_map)
     arena = CombatArena(party=party, combat_map=conflict_map, creature_tile="skeleton",
                         asset_mgr=asset_mgr, monster_count=1)
+    # Force the latch: this test pins the aura check, not the masskill gate
+    arena.masskill = True
     party.aura.set(AuraType.QUICKNESS, 3)
     res = cast_spell(Spell.PONTORI, caster=caster, party=party, arena=arena)
     assert res.success
@@ -117,6 +119,8 @@ def test_free_spell_check_order(asset_mgr, conflict_map):
     party.add_member(caster)
     arena = CombatArena(party=party, combat_map=conflict_map, creature_tile="skeleton",
                         asset_mgr=asset_mgr, monster_count=1)
+    # Force the latch: this test pins cast ordering, not the masskill gate
+    arena.masskill = True
     res = cast_spell(Spell.REPOND, caster=caster, party=party, arena=arena)
     assert res.success  # cost 0 — the mana check passes even at 0 MP
     assert caster.used_free_spell_in_combat is True
