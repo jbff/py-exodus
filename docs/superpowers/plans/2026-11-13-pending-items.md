@@ -69,8 +69,11 @@ Original numbers kept for history against the 2026-11-13 list above.
 22. Thief-steal feedback — CLOSED (`144fd25`; GBC "PILFERED!" + "POISONED!"
     battle3.c:288/298/257).
 23. Dungeon meal cadence — CLOSED (`ef5e9da`; GBC/LW underground feed/regen).
-24. Shrine near-cap over-debit — CLOSED (`fd67773`; pro-rated buy at cap +
-    LW cap semantics).
+24. Shrine near-cap over-debit — CLOSED (`fd67773`; LW **deliberate
+    LUMP-SUM over-debit** kept: full ``amount*100`` debit before the grant,
+    race-cap clamp applied only after — so a near-cap buy is charged for
+    points the clamp does not grant, verified ``UltimaMisc.c:1071-1093``);
+    do NOT "fix" this to a pro-rated debit.
 
 ### Standing items (open, original numbers)
 
@@ -108,6 +111,15 @@ Original numbers kept for history against the 2026-11-13 list above.
     audit invented narration lines vs Java/GBC during spell casts and
     overworld moves.
 31. Group-damage kill lines — narration when one hit kills a whole group.
+32. Item-3 GBC-mechanic-string carve-out (ledger note; comments-only
+    today): "Magic Blast!" (resolver.py:207-209; GBC prints no text on that
+    branch — battle3.c:856-866, magiceffect2(3) + damageplayer, no
+    writegamemessage) and "Cannonball barrage!" (resolver.py:698; GBC
+    cannonfire prints no text — battle3.c:501-560, no writegamemessage;
+    Java's rangedAttackAt logs only Electrified!/Fiery Hit!/Poisoned!) are
+    kept as player feedback per the item-3 ruling to keep GBC-adopted
+    mechanic strings and note them; note landed in comments, logged here
+    so the disposition is documentable.
 
 ## How to resume
 
