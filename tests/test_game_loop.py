@@ -1384,6 +1384,52 @@ def test_combat_screen_flash_and_visual_fx(pygame_setup, asset_mgr, sample_party
     assert "Ready Weapon?" in combat.text_log.current_prompt
 
 
+def test_combat_fx_only_for_real_projectile_spells(pygame_setup, asset_mgr, sample_party):
+    """Tracer FX fires only for real projectile spells (Task 5).
+
+    The synthetic-path fallback (combat_screen.py) must not animate
+    non-projectile casts; a missed real bolt still animates via the same
+    fallback (Java's projectile animation runs on misses too).
+    """
+    from py_exodus.world.loader import MapLoader
+    loader = MapLoader(asset_mgr)
+    c_map = loader.load_conflict_map(37)
+    combat = CombatScreen(party=sample_party, combat_map=c_map, creature_tile="orc", asset_mgr=asset_mgr)
+
+    def spell_fx_count() -> int:
+        return sum(1 for fx in combat.combat_fx if fx["type"] == "spell" and fx["path"])
+
+    # Case 1: a real projectile spell (MITTAR) — the tracer path reaches
+    # _render_combat_fx whether the bolt hit (real projectile_path) or
+    # missed (synthetic fallback path); FX also draws without errors.
+    active = combat.active_party_member
+    active.mp = 50
+    before = spell_fx_count()
+    combat._execute_action(Action.cast(Spell.MITTAR, direction=Direction.NORTH))
+    assert spell_fx_count() > before
+    combat._render_combat_fx(pygame.Surface((100, 100)))
+
+    # Case 2: non-projectile directional cast that REFUSES (APPAR_UNEM with
+    # no mana) — nothing happened, so no tracer path may reach
+    # _render_combat_fx. Each site executes the (idempotent) refusal.
+    active = combat.active_party_member
+    active.mp = 0
+    before = spell_fx_count()
+    res = combat.arena.execute_turn(Action.cast(Spell.APPAR_UNEM, direction=Direction.NORTH))
+    combat._execute_action(res.action)  # refused casts are idempotent (mp stays 0)
+    assert res.success is False
+    assert spell_fx_count() == before
+
+    # Case 3: successful NON-projectile cast (REPOND, cost 0, no projectile
+    # animation in Java) with a direction supplied — still no tracer.
+    active = combat.active_party_member
+    active.mp = 50
+    if not combat.arena.is_finished:
+        before = spell_fx_count()
+        combat._execute_action(Action.cast(Spell.REPOND, direction=Direction.NORTH))
+        assert spell_fx_count() == before
+
+
 def test_zstats_displays_inventory(pygame_setup, asset_mgr, sample_party):
     """Verify Zstats displays non-zero weapon and armor inventory."""
     ow = OverworldScreen(party=sample_party, map_id=0, asset_mgr=asset_mgr)

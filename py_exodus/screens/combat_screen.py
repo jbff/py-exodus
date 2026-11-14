@@ -10,7 +10,9 @@ from py_exodus.combat.arena import Action, ActionType, CombatArena
 from py_exodus.combat.magic import (
     DIRECTIONAL_SPELLS,
     TARGETED_MEMBER_SPELLS,
+    _PROJECTILE_SPELLS,
     get_castable_spell_types,
+    resolve_spell,
 )
 from py_exodus.spell_menu import get_castables, spell_menu_prompt_lines
 from py_exodus.constants import (
@@ -485,7 +487,13 @@ class CombatScreen(BaseScreen):
                 target_pos = res.spell_res.target_pos
                 hit = res.spell_res.hit
 
-            if not path and action.direction:
+            # Java animates a projectile tracer ONLY for the directional bolt
+            # branch (SpellUtil.spellMagicAttack) — the five real projectile
+            # spells. A missed bolt still animates (the synthetic path is what
+            # carries it), but every other cast — refusals and effect-only
+            # spells — draws no tracer.
+            resolved_spell = resolve_spell(getattr(action, "spell", None))
+            if not path and resolved_spell in _PROJECTILE_SPELLS and action.direction:
                 d = action.direction
                 for step in range(1, 6):
                     step_x = start_pos[0] + d.dx * step
