@@ -5,7 +5,8 @@ Rows covered:
     double damage for fire/energy ranged),
 (b) arena map selection (Context.getCombatMap port),
 (c) exclusive-high dice (`rand.nextInt(high-low)+low`),
-(d) no monster-melee poison, no per-round combat poison tick, 0 damage legal,
+(d) monster-melee poison per GBC rule (2026-11-14 deviation), no per-round
+    combat poison tick, 0 damage legal,
 (e) weapon loss on ranged attacks ("Last One!"),
 (f) flee removed; off-edge moves blocked,
 (g) XP for every player-caused death, capped 9999 (spells included),
@@ -278,18 +279,21 @@ def test_steal_dice_are_next_int_10_and_40(monkeypatch):
 # --- (d) no melee poison / no round poison tick -----------------------------
 
 
-def test_monster_melee_never_poisons(asset_mgr, monkeypatch):
-    """Java melee ATTACK branch has no poison path (pincher poisons=True)."""
+def test_monster_melee_poisons_per_gbc_rule(asset_mgr, monkeypatch):
+    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): poisoner melee hits roll
+    1-in-4 poison (GBC battle3.c:267-277); Java's melee branch has no poison."""
     monkeypatch.setattr(resolver_mod, "roll_hit", lambda *a, **k: True)
     monkeypatch.setattr(resolver_mod, "calculate_monster_damage", lambda basehp=48: 1)
     monster = CombatMonster(
         CreatureDef(id=17, name="Pincher", tile="pincher", basehp=48, poisons=True), 0, 0
     )
-    for _ in range(300):
+    poisoned = 0
+    for _ in range(200):
         member = Character("Hero", "M", hp=999, max_hp=999)
         res = resolve_monster_attack(monster=monster, target_player=member)
-        assert not res.poisoned
-        assert member.status != Status.POISONED
+        assert res.poisoned == (member.status == Status.POISONED)
+        poisoned += bool(res.poisoned)
+    assert 25 <= poisoned <= 75  # 1-in-4 across 200 trials (expected 50)
 
 
 def test_combat_poison_tick_removed(asset_mgr, conflict_map):

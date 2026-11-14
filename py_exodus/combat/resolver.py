@@ -44,6 +44,7 @@ class AttackResolution:
     target_pos: tuple[int, int] | None = None
     projectile_path: list[tuple[int, int]] = field(default_factory=list)
     poisoned: bool = False
+    stolen_item: str | None = None
     stolen_food: int = 0
     stolen_gold: int = 0
     message: str = ""
@@ -323,6 +324,21 @@ def resolve_player_attack(
     )
 
 
+def _decrement_lowest_stack(counts: dict[Any, int] | None) -> bool:
+    """Decrement one owned stack, lowest index first (dict insertion order).
+
+    GBC ``((players[pnum].armors)[itemnum])--`` / ``weapons`` equivalent:
+    only a non-empty (owned) stack is decremented; nothing stolen otherwise.
+    """
+    if not counts:
+        return False
+    for item_type, count in counts.items():
+        if count > 0:
+            counts[item_type] = count - 1
+            return True
+    return False
+
+
 def resolve_monster_melee_attack(
     monster: Any,
     target_player: Any,
@@ -336,6 +352,11 @@ def resolve_monster_melee_attack(
     (CombatScreen.java:723). A hit deals ``Creature.getDamage`` through the
     ``PartyMember.applyDamage(_, True)`` chokepoint; a surviving target can be
     robbed (CombatScreen.java:733-743). Java logs nothing here (sounds only).
+
+    USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): on-hit specials follow the
+    GBC port — poisoner creatures roll 1-in-4 melee poison (battle3.c:267-277)
+    and the thief steals equipment (battle3.c:280-301) — instead of Java's
+    food/gold-only theft.
     """
     import py_exodus.assets as assets
 
@@ -369,13 +390,36 @@ def resolve_monster_melee_attack(
     killed = applied and getattr(target_player, "status", None) == Status.DEAD
 
     poisoned = False
+    stolen_item: str | None = None
     stolen_food = 0
     stolen_gold = 0
 
     if applied and not killed:
-        # Java CombatScreen.java:733-743 — the melee branch's only on-hit
-        # specials are the thefts (rand.nextInt(8) == 0 gate). NO poison: the
-        # melee creatureAction has no poison path.
+        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): poisoner melee hits
+        # roll 1-in-4 poison on a surviving, not-yet-poisoned target (GBC
+        # battle3.c:272-277); Java's melee branch has no poison path.
+        if (
+            getattr(monster, "poisons", False)
+            and random.randrange(4) == 0
+            and getattr(target_player, "status", None) != Status.POISONED
+        ):
+            target_player.status = Status.POISONED
+            poisoned = True
+        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): the thief steals
+        # equipment — a 50/50 pick then 1-in-8 armor slot or 1-in-16 weapon
+        # slot, decremented when owned (GBC battle3.c:280-303); Java robber is
+        # food/gold-only.
+        if getattr(monster, "steals", None) == "equipment" and random.randrange(2) == 0:
+            if (
+                random.randrange(8) == 0
+                and _decrement_lowest_stack(getattr(target_player, "armors", None))
+            ):
+                stolen_item = "armor"
+        elif getattr(monster, "steals", None) == "equipment" and random.randrange(16) == 0:
+            if _decrement_lowest_stack(getattr(target_player, "weapons", None)):
+                stolen_item = "weapon"
+        # Java CombatScreen.java:733-743 — the Java melee theft branches, kept
+        # for the food/gold robbers (rand.nextInt(8) == 0 gate).
         if getattr(monster, "steals", None) == "food" and random.randrange(8) == 0:
             # Java: adjustValue(food, -(rand.nextInt(10)), 9999, 0) — 0..9.
             stolen_food = random.randrange(10)
@@ -396,6 +440,7 @@ def resolve_monster_melee_attack(
         result=AttackResult.HIT,
         target_pos=(getattr(target_player, "x", 0), getattr(target_player, "y", 0)),
         poisoned=poisoned,
+        stolen_item=stolen_item,
         stolen_food=stolen_food,
         stolen_gold=stolen_gold,
         message=msg,
