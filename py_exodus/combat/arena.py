@@ -117,6 +117,10 @@ class ActionResult:
     # never call finishPlayerTurn — in combat the caster acts again. The turn
     # is consumed by every other successful combat spell (and by failures).
     consume_turn: bool = True
+    # True when the turn was an attack refused by the EXODUS non-exotic-weapon
+    # rule (SecondaryInputProcessor.java:345-347) — the screen then plays
+    # Sound.NEGATIVE_EFFECT instead of PC_ATTACK.
+    attack_refused: bool = False
 
 
 @dataclass
@@ -565,7 +569,11 @@ class CombatArena:
             weapon_val = getattr(member, "weapon", WeaponType.NONE)
             weapon_val = weapon_val.value if isinstance(weapon_val, WeaponType) else str(weapon_val)
             if weapon_val != WeaponType.EXOTIC.value:
-                return ActionResult(success=False, action=action, message="")
+                # Flag the refusal so the screen plays Java's cue
+                # (Sound.NEGATIVE_EFFECT — SecondaryInputProcessor.java:346)
+                # instead of PC_ATTACK.
+                return ActionResult(success=False, action=action, message="",
+                                    attack_refused=True)
 
         weapon_def = None
         if self.asset_mgr is not None and hasattr(member, "weapon"):

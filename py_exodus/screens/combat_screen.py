@@ -477,7 +477,15 @@ class CombatScreen(BaseScreen):
         # Play audio effects
         if self.audio is not None:
             if action.type == ActionType.ATTACK:
-                self.audio.play_sfx("pc_attack")
+                # Java SecondaryInputProcessor.java:345-347: the refusal of a
+                # non-exotic attack on the EXODUS map plays
+                # Sound.NEGATIVE_EFFECT, never PC_ATTACK; a real attack (the
+                # non-refused path, SecondaryInputProcessor.java:349) is what
+                # plays PC_ATTACK.
+                if res.attack_refused:
+                    self.audio.play_sfx("negative_effect")
+                else:
+                    self.audio.play_sfx("pc_attack")
             elif action.type == ActionType.CAST:
                 self.audio.play_sfx("magic")
             elif action.type == ActionType.MOVE:

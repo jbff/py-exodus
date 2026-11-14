@@ -575,6 +575,58 @@ def test_exodus_allows_exotic_player_attack(asset_mgr, conflict_map, monkeypatch
     assert monster.hp == 95
 
 
+class _SfxRecorder:
+    """Records play_sfx names; stand-in for AudioManager in screen tests."""
+
+    def __init__(self):
+        self.played = []
+
+    def play_sfx(self, name, volume=None):
+        self.played.append(name)
+        return True
+
+    def play_music(self, name, **kwargs):
+        return True
+
+    def stop_music(self, **kwargs):
+        return True
+
+
+def test_exodus_attack_refusal_plays_java_sfx(asset_mgr, conflict_map, pygame_setup):
+    """Java SecondaryInputProcessor.java:345-347 — on EXODUS a non-exotic
+    weapon attack is refused with Sound.NEGATIVE_EFFECT, not PC_ATTACK; a
+    normal (non-EXODUS) attack still plays PC_ATTACK."""
+    from py_exodus.screens.combat_screen import CombatScreen
+
+    party = Party()
+    hero = Character("Hero", "M", hp=100, max_hp=100, weapon=WeaponType.SWORD)
+    hero.weapons[WeaponType.SWORD] = 5
+    party.add_member(hero)
+
+    recorder = _SfxRecorder()
+    combat = CombatScreen(
+        party=party, combat_map=conflict_map, creature_tile="orc",
+        asset_mgr=asset_mgr, monster_count=1, context_map_id=2,
+        audio=recorder,
+    )
+    combat._execute_action(Action.attack(Direction.NORTH))
+    assert recorder.played == ["negative_effect"]
+
+    # Control: the same attack off-EXODUS still plays PC_ATTACK.
+    recorder.played.clear()
+    normal_party = Party()
+    normal_hero = Character("Hero", "M", hp=100, max_hp=100, weapon=WeaponType.SWORD)
+    normal_hero.weapons[WeaponType.SWORD] = 5
+    normal_party.add_member(normal_hero)
+    normal_combat = CombatScreen(
+        party=normal_party, combat_map=conflict_map, creature_tile="orc",
+        asset_mgr=asset_mgr, monster_count=1, context_map_id=0,
+        audio=recorder,
+    )
+    normal_combat._execute_action(Action.attack(Direction.NORTH))
+    assert recorder.played == ["pc_attack"]
+
+
 def test_exodus_monster_melee_auto_hits_non_exotic_defender(asset_mgr, conflict_map, monkeypatch):
     """Java CombatScreen.java:723 — EXODUS + armor != EXOTIC -> forced HIT."""
     monkeypatch.setattr(resolver_mod, "roll_hit", lambda *a, **k: False)  # would miss
