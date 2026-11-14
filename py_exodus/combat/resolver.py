@@ -565,8 +565,15 @@ def resolve_monster_melee_attack(
     # Java logs nothing for the creature melee ATTACK (sounds only). GBC does
     # post the equipment theft for the player (USER-DIRECTED DEVIATION,
     # 2026-11-14): writegamemessage(pilfered) — battle3.c:288/298 prints
-    # "PILFERED!", carried here so the arena log pipeline surfaces it.
-    msg = "PILFERED!" if stolen_item else ""
+    # "PILFERED!", carried here so the arena log pipeline surfaces it. The
+    # matching poison feedback (pending item 22) rides the same pipeline:
+    # writegamemessage(poisoned) — battle3.c:257 prints "POISONED!" after the
+    # 1-in-4 melee poison lands; Java's melee branch is message-silent there
+    # too (its own "Poisoned!" log is ranged-only, CombatScreen.java:664), so
+    # GBC wording is adopted per the PILFERED! precedent. No roster creature
+    # both poisons and steals (creatures.xml), so the two lines can never
+    # collide on the single message slot of one hit.
+    msg = "PILFERED!" if stolen_item else ("POISONED!" if poisoned else "")
     return AttackResolution(
         hit=True,
         damage=damage,

@@ -200,6 +200,73 @@ def test_melee_poison_only_from_poisoners_and_only_on_survivors(monkeypatch):
     assert victim.status == Status.DEAD
 
 
+def test_poisoner_melee_hit_carries_poisoned_message(monkeypatch):
+    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14), pending item 22: after
+    the 1-in-4 melee poison lands GBC posts writegamemessage(poisoned)
+    printing "POISONED!" (battle3.c:257); Java's melee branch logs nothing
+    (CombatScreen.java:720-748), so the GBC line is adopted like PILFERED!.
+    Only an actual poisoning carries the text: a non-poisoner's hit and a
+    poison roll that did not fire stay silent."""
+    _forced_hit(monkeypatch)
+    monster = CombatMonster(PINCHER, 0, 0)
+    real_randrange = resolver_mod.random.randrange
+
+    def forced_poison(n):
+        # Zero out every roll the code makes on this path — for the
+        # poisoner/ordinary monsters under test that is only the 1-in-4
+        # poison roll, so poison lands on every surviving hit.
+        return 0 if n == 4 else real_randrange(n)
+
+    monkeypatch.setattr(resolver_mod.random, "randrange", forced_poison)
+    member = Character("Hero", "M", hp=999, max_hp=999)
+    res = resolve_monster_attack(monster=monster, target_player=member)
+    assert res.poisoned
+    assert member.status == Status.POISONED
+    assert res.message == "POISONED!"
+
+    res = resolve_monster_attack(monster=CombatMonster(ORC, 0, 0), target_player=member)
+    assert res.hit and not res.poisoned
+    assert res.message == ""
+
+
+def test_already_poisoned_hit_stays_silent(monkeypatch):
+    """GBC battle3.c:272-277 suppresses the roll for an already-POISONED
+    target — no second poison, therefore no "POISONED!" line."""
+    _forced_hit(monkeypatch)
+    monkeypatch.setattr(resolver_mod.random, "randrange", lambda n: 0)
+    member = Character("Hero", "M", hp=999, max_hp=999)
+    member.status = Status.POISONED
+    res = resolve_monster_attack(monster=CombatMonster(PINCHER, 0, 0), target_player=member)
+    assert res.hit and not res.poisoned
+    assert member.status == Status.POISONED
+    assert res.message == ""
+
+
+def test_poisoning_blow_that_kills_carries_no_message(monkeypatch):
+    """A killing blow skips the on-hit specials (no poison, no PILFERED! or
+    POISONED! text — GBC evaluates poison only on a surviving hit)."""
+    _forced_hit(monkeypatch, damage=9999)
+    monkeypatch.setattr(resolver_mod.random, "randrange", lambda n: 0)
+    victim = Character("Hero", "M", hp=5, max_hp=5)
+    res = resolve_monster_attack(monster=CombatMonster(PINCHER, 0, 0), target_player=victim)
+    assert res.killed and not res.poisoned
+    assert res.message == ""
+
+
+def test_roster_never_pairs_poison_with_theft():
+    """Collision guard for the shared melee message slot: no creature in the
+    roster both poisons and steals, so POISONED! (battle3.c:257) and
+    PILFERED! (battle3.c:288/298) can never both fire on the same hit —
+    the single `message` field in AttackResolution is sound."""
+    import xml.etree.ElementTree as ET
+    from pathlib import Path
+
+    xml_path = Path(__file__).resolve().parent.parent / "assets" / "xml" / "creatures.xml"
+    for elem in ET.parse(xml_path).getroot().iter("creature"):
+        if (elem.get("poisons") or "").lower() == "true":
+            assert elem.get("steals") is None, elem.get("name")
+
+
 # --- Java food/gold theft regression ------------------------------------------
 
 
