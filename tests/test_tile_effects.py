@@ -67,17 +67,6 @@ class RemainderRng:
         return min(self.remainder, n - 1)
 
 
-class ScriptedRng:
-    """``randrange(n)`` driven by a scripted list of roll outcomes."""
-
-    def __init__(self, *values: int) -> None:
-        self.values = list(values)
-
-    def randrange(self, n: int) -> int:
-        value = self.values.pop(0) if self.values else 0
-        return value % n
-
-
 class FixedRollRng:
     """Stub for the GBC pit-trap rolls (Task 7 deviation).
 
@@ -214,9 +203,10 @@ def test_standing_tile_effect_applies_each_turn_on_the_2d_maps(
         tile_effects._rng = saved_rng
 
     # Moved off the lava onto grass; the turn spent on the lava tile applied
-    # the LAVA effect unconditionally: 16 + rand(32)==0 → 16 damage each.
+    # the LAVA effect unconditionally: flat 50 damage each (GBC funcs5.c:
+    # 1287-1310; the roll is gone).
     assert (party.x, party.y) == (44, 19)
-    assert all(m.hp == 100 - 16 for m in party.members)
+    assert all(m.hp == 100 - 50 for m in party.members)
 
 
 def test_overworld_pass_turn_applies_standing_effect_and_consumes_turn(
@@ -332,16 +322,18 @@ def test_town_pass_turn_applies_standing_effect_and_consumes_turn(
 
     assert (tw.avatar_x, tw.avatar_y) == (0, 0)
     assert party.moves == moves_before + 1
-    # Unconditional LAVA fan-out: 16 + rand(32)==0 → 16 damage each.
-    assert all(m.hp == 100 - 16 for m in party.members)
+    # Unconditional LAVA fan-out: flat 50 damage each (GBC funcs5.c:1287-1310).
+    assert all(m.hp == 100 - 50 for m in party.members)
 
 
 # --- applyEffect port (Party.java:279-283 + 342-368 unconditional;
 #     Party.java:285-306 rolled, combat-only) ---
 
 
-def test_lava_effect_damage_range_and_mark_of_fire_immunity():
-    """LAVA via the unconditional fan-out: 16-47 damage unless marks[1]."""
+def test_lava_effect_flat_50_and_mark_of_fire_immunity():
+    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): LAVA via the
+    unconditional fan-out is flat 50 damage unless marks[1]
+    (GBC funcs5.c:1287-1310; LW corroborates flat 50)."""
     party = make_party()
     party.members[0].marks[1] = 1  # Mark of Fire
     party.members[1].marks[1] = 0
@@ -349,12 +341,11 @@ def test_lava_effect_damage_range_and_mark_of_fire_immunity():
     tile_effects.apply_effect(party, TileEffect.LAVA)
     assert party.members[0].hp == 100
 
-    # Top of the range: 16 + 31 = 47.
     party = make_party()
     party.members[0].marks[1] = 0
     party.members[1].marks[1] = 0
-    tile_effects.apply_effect(party, TileEffect.LAVA, rng=ScriptedRng(31, 31))
-    assert all(m.hp == 100 - 47 for m in party.members)
+    tile_effects.apply_effect(party, TileEffect.LAVA)
+    assert all(m.hp == 100 - 50 for m in party.members)
 
 
 def test_lava_effect_100_turns_mark_of_fire_member_untouched():
@@ -416,11 +407,12 @@ def test_rolled_party_overload_keeps_the_java_dice():
     assert all(m.status == Status.POISONED for m in party.members)
 
     # LAVA: the mark gate still applies; the miss leaves hp untouched.
+    # The strike, when it lands, is flat 50 (GBC funcs5.c:1287-1310).
     party = make_party()
     party.members[0].marks[1] = 1
     tile_effects.apply_effect_rolled(party, TileEffect.LAVA, rng=RemainderRng(0))
     assert party.members[0].hp == 100
-    assert party.members[1].hp == 100 - 16
+    assert party.members[1].hp == 100 - 50
     party = make_party()
     tile_effects.apply_effect_rolled(party, TileEffect.LAVA, rng=RemainderRng(1))
     assert all(m.hp == 100 for m in party.members)
@@ -441,30 +433,105 @@ def test_none_and_electricity_effects_are_no_ops():
 # --- Energy-field passage (BaseMap.java:719-744) ---
 
 
-def test_energy_field_passable_only_with_mark_of_force(asset_mgr):
+def test_energy_field_passes_only_when_every_member_marked(asset_mgr):
+    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): the force field's
+    passage decision (GBC postexo1.c:1861-1880 ``forceOK``) demands EVERY
+    living member carry the Mark of Force — one marked member is no longer
+    enough."""
     grass = asset_mgr.get_tile_by_name("grass")
     energy = asset_mgr.get_tile_by_name("energy_field")
     gmap = GameMap(id=0, name="T", width=2, height=1, tiles=[grass, energy])
 
     party = make_party()
-    assert (
-        can_move_to(gmap, 1, 0, transport=Transport.FOOT, party=party) is False
-    )
-    party.members[0].marks[3] = 1  # Mark of Force
+    assert can_move_to(gmap, 1, 0, transport=Transport.FOOT, party=party) is False
+    party.members[0].marks[3] = 1  # one mark of Force
+    assert can_move_to(gmap, 1, 0, transport=Transport.FOOT, party=party) is False
+    party.members[1].marks[3] = 1  # every member marked
     assert can_move_to(gmap, 1, 0, transport=Transport.FOOT, party=party) is True
 
 
-def test_fire_field_is_dispelable_and_needs_mark_of_force(asset_mgr):
+def test_fire_field_keeps_any_marked_passage(asset_mgr):
     """Java gate is the rule attribute, not the walkable flag: fire fields
-    (walkable, dispelable) need the Mark of Force to enter on foot."""
+    (walkable, dispelable) keep the ANY-marked (BaseMap.java:719-744)
+    passage — the GBC all-marked refusal is the ENERGY field specifically."""
     grass = asset_mgr.get_tile_by_name("grass")
     fire = asset_mgr.get_tile_by_name("fire")
     gmap = GameMap(id=0, name="T", width=2, height=1, tiles=[grass, fire])
 
     party = make_party()
     assert can_move_to(gmap, 1, 0, transport=Transport.FOOT, party=party) is False
-    party.members[0].marks[3] = 1
+    party.members[0].marks[3] = 1  # any single mark opens a fire field
     assert can_move_to(gmap, 1, 0, transport=Transport.FOOT, party=party) is True
+
+
+# --- GBC force field: 99 damage on the refused entry
+#     (USER-DIRECTED GBC-RULES DEVIATION 2026-11-14,
+#     GBC postexo1.c:1861-1880) ---
+
+
+def _force_field_screen(pygame_setup, asset_mgr, n: int = 2, hp: int = 100):
+    grass = asset_mgr.get_tile_by_name("grass")
+    energy = asset_mgr.get_tile_by_name("energy_field")
+    gmap = GameMap(
+        id=0, name="T", width=2, height=1, border_behavior="wrap",
+        tiles=[grass, energy],
+    )
+    party = make_party(n=n, hp=hp)
+    for m in party.members:
+        m.food = 400
+    ow = OverworldScreen(
+        party=party, map_id=0, asset_mgr=asset_mgr, random_encounters=False
+    )
+    ow.game_map = gmap
+    party.x, party.y = 0, 0
+    return ow, party
+
+
+def test_force_field_refused_move_deals_99_to_unmarked_members(
+    pygame_setup, asset_mgr
+):
+    """A refused energy-field entry writes 'FORCE FIELD!' and strikes every
+    living member lacking the Mark of Force for 99; the marked member is
+    untouched and the party does not move."""
+    ow, party = _force_field_screen(pygame_setup, asset_mgr)
+    party.members[0].marks[3] = 1
+
+    ow._move_avatar(Direction.EAST)
+
+    assert any(m == "FORCE FIELD!" for m in ow.text_log.history)
+    assert party.members[0].hp == 100
+    assert party.members[0].status == Status.GOOD
+    assert party.members[1].hp == 100 - 99
+    assert party.members[1].status == Status.GOOD
+    assert (party.x, party.y) == (0, 0)
+
+
+def test_force_field_refusal_wipes_solo_party(pygame_setup, asset_mgr):
+    """The 99 strike routes a wiped party through the death flow
+    (PartyDeathException → check_party_death → StartScreen game over)."""
+    from py_exodus.screens.start import StartScreen
+
+    ow, party = _force_field_screen(pygame_setup, asset_mgr, n=1, hp=10)
+
+    ow._move_avatar(Direction.EAST)
+
+    assert party.members[0].status == Status.DEAD
+    assert party.members[0].hp == 0
+    assert party.is_party_dead()
+    assert isinstance(ow.next_screen, StartScreen)
+    assert (party.x, party.y) == (0, 0)
+
+
+def test_force_field_all_marked_party_passes(pygame_setup, asset_mgr):
+    """Every member marked: the entry succeeds and nobody takes the 99."""
+    ow, party = _force_field_screen(pygame_setup, asset_mgr)
+    for m in party.members:
+        m.marks[3] = 1
+
+    ow._move_avatar(Direction.EAST)
+
+    assert (party.x, party.y) == (1, 0)
+    assert all(m.hp == 100 for m in party.members)
 
 
 # --- Dungeon fields, pit traps (DungeonScreen.java:1040-1103) ---
@@ -572,7 +639,7 @@ def test_dungeon_field_fire_applies_lava():
     evt = state.move_forward()
     assert evt.type == DungeonEventType.MOVED
     assert party.members[0].hp == 100  # immune
-    assert party.members[1].hp == 100 - 16
+    assert party.members[1].hp == 100 - 50  # flat 50 (GBC funcs5.c:1287-1310)
     assert dmap.get_tile(5, 4, 0) is DungeonTile.FIELD_FIRE
 
 

@@ -743,7 +743,7 @@ def test_combat_move_applies_tile_effect_to_mover(asset_mgr, conflict_map, monke
 
     res = arena.execute_player_action(0, Action.move(Direction.NORTH))
     assert res.success
-    assert hero.hp == 100 - 16  # 16 + rand(32) with the scripted rng = 16
+    assert hero.hp == 100 - 50  # flat 50 (GBC funcs5.c:1287-1310)
     assert not hero.is_dead()
 
 

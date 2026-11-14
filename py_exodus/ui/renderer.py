@@ -67,7 +67,17 @@ def can_move_to(
         # (marks[3]). This gate precedes the walkability check, so an
         # unwalkable energy field opens with the mark and a walkable fire
         # field still demands it.
+        #
+        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): force field 99
+        # damage to members lacking the Mark of Force; passage only when all
+        # marked (GBC postexo1.c:1861-1880). The ENERGY (force) field
+        # specifically demands EVERY living member carry the mark; the other
+        # dispelable fields (fire, poison) keep Java's any-marked passage.
+        # The refused strike is applied by the overworld move handler
+        # (OverworldScreen._apply_force_field_block) on this blocked step.
         if tile.dispelable:
+            if tile.rule == "energy":
+                return tile_effects.all_members_mark_of_force(party)
             return tile_effects.party_has_mark_of_force(party)
         # Java BaseMap.java:786-793 hasShipObjectAt: an unwalkable (water)
         # tile holding a frigate object is enterable on foot, so the exact

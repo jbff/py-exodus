@@ -8,6 +8,9 @@ Java truth:
   through the ``apply_damage`` chokepoint (Task 2 death flow) unless the
   member carries the Mark of Fire (``marks[1]``); POISON/POISONFIELD set
   POISONED (no damage); ELECTRICITY is a no-op.
+  USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): the LAVA/FIRE damage in
+  ``apply_effect_to_member`` below is flat 50 (GBC funcs5.c:1287-1310; LW
+  corroborates flat 50); the Mark-of-Fire immunity is unchanged.
 - ``exodus/Party.java:285-306`` — the per-member-rolled overload
   ``Party.applyEffect(PartyMember, effect)`` (LAVA/FIRE/GREMLINS 1-in-2,
   POISON/POISONFIELD 1-in-5) belongs to exploration's cousin: Java's only
@@ -46,12 +49,6 @@ def _rolled(n: int, rng: random.Random | None) -> bool:
     return source.randrange(n) == 0
 
 
-def _next_int(n: int, rng: random.Random | None) -> int:
-    """Java ``rand.nextInt(n)``."""
-    source = rng if rng is not None else _rng
-    return source.randrange(n)
-
-
 # --- Tile speeds (Context.java:212-240 slowedByTile) ---
 #
 # Combat-only in Java (CombatScreen.java:937 is the sole caller); retained
@@ -77,7 +74,7 @@ def slowed_by_tile(tile: TileDef, rng: random.Random | None = None) -> bool:
     return False
 
 
-# --- Mark of Force passage (BaseMap.java:719-744) ---
+# --- Mark of Force passage (BaseMap.java:719-744; GBC postexo1.c:1861-1880) ---
 
 
 def party_has_mark_of_force(party: Party | None) -> bool:
@@ -89,6 +86,39 @@ def party_has_mark_of_force(party: Party | None) -> bool:
     if party is None:
         return False
     return any(m.marks[3] == 1 for m in party.members)
+
+
+def all_members_mark_of_force(party: Party | None) -> bool:
+    """GBC force-field passage: every living member carries ``marks[3]``.
+
+    GBC ``postexo1.c:1861-1880`` starts ``forceOK`` set and zeroes it once
+    for each unmarked member before returning it as the passage decision;
+    the per-member strike only reaches ``status < 2``, so DEAD members
+    neither take the 99 nor block the (vacuously) all-marked party.
+    """
+    if party is None:
+        return False
+    living = [m for m in party.members if not m.is_dead()]
+    return all(m.marks[3] == 1 for m in living)
+
+
+def force_field_blockers(party: Party | None, tile) -> list:
+    """Living members a refused GBC force-field entry would strike, else [].
+
+    Non-empty exactly when ``tile`` is the ENERGY (force) field and the
+    all-marked passage fails (``all_members_mark_of_force`` above) — the
+    same condition the walkability gate refuses on (renderer ``can_move_to``
+    foot branch).
+    """
+    if party is None or tile is None:
+        return []
+    if getattr(tile, "rule", "") != "energy":
+        return []
+    if all_members_mark_of_force(party):
+        return []
+    return [
+        m for m in list(party.members) if not m.is_dead() and m.marks[3] != 1
+    ]
 
 
 # --- Shared applyEffect port (Party.java:279-283, 342-368) ---
@@ -111,7 +141,10 @@ def apply_effect_to_member(
         member.food = max(0, member.food - 2)
     elif effect in (TileEffect.LAVA, TileEffect.FIRE):
         if member.marks[1] == 0:  # Mark of Fire absorbs the burn
-            member.apply_damage(16 + _next_int(32, rng), False)
+            # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): flat 50
+            # (GBC funcs5.c:1287-1310; LW corroborates flat 50), superseding
+            # Java's 16 + rand(32) roll.
+            member.apply_damage(50, False)
     elif effect in (TileEffect.POISON, TileEffect.POISONFIELD):
         if member.status != Status.POISONED:
             member.status = Status.POISONED
