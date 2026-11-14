@@ -252,6 +252,26 @@ class TestSosariaHullRepair:
         assert sample_party.ship_hull == 50
 
 
+class TestCombatRoundEndTurn:
+    """Pending item 2 — Java Party.endTurn's combat gate (Party.java:600):
+    under mapType == combat the meal block is skipped; only the move counter
+    (Party.java:594) and the Sosaria hull roll (Party.java:633-638) run. The
+    arena caller is CombatScreen.finishTurn's round-end endTurn
+    (CombatScreen.java:472)."""
+
+    def test_combat_end_turn_counts_the_move_and_skips_the_meal_block(
+        self, sample_party
+    ):
+        sample_party.members[0].submorsels = 45  # a surface turn would cross it
+        sample_party.members[0].food = 10
+        moves_before = sample_party.moves
+        sample_party.end_turn(surface=True, sosaria=False, combat=True)
+        assert sample_party.moves == moves_before + 1
+        assert sample_party.members[0].submorsels == 45
+        assert sample_party.members[0].food == 10
+        assert sample_party.members[0].hp == sample_party.members[0].max_hp
+
+
 class TestSailingFacing:
     """GameScreen.java:461-529 — on a ship an arrow first turns the ship
     (turn consumed, no motion); a matching arrow moves. Horses do not turn."""

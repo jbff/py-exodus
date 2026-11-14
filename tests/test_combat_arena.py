@@ -760,3 +760,127 @@ def test_successful_bolt_still_consumes_the_turn(asset_mgr, conflict_map):
     assert res.success
     assert res.consume_turn is True
     assert arena.active_party_member_idx == 1
+
+
+# --- Pending item 2: ship-combat rounds tick turns and hull ---
+# Java CombatScreen.java:470-496 finishTurn: every combat round-finish runs
+# party.endTurn (CombatScreen.java:472) — the round counts as a move and the
+# ship hull repairs 1-in-4 while the current map is SOSARIA
+# (Party.java:633-638); the meal block is skipped under mapType == combat
+# (Party.java:600). The port routes the tick through ship battles only
+# (pending item 2, ruled ship-once).
+
+def _ship_party() -> Party:
+    party = Party()
+    party.add_member(Character("Sailor", "M", Race.HUMAN, Profession.FIGHTER))
+    party.transport = Transport.SHIP
+    party.ship_hull = 40
+    return party
+
+
+def test_ship_battle_round_counts_a_move_and_skips_the_meal_block(
+    asset_mgr, conflict_map
+):
+    random.seed(500)
+    party = _ship_party()
+    # A plain turn would cross this pool (45 - 40 < 0) and burn one food.
+    party.members[0].submorsels = 45
+    party.members[0].food = 10
+    arena = CombatArena(
+        party, conflict_map, creature_tile="orc", asset_mgr=asset_mgr, monster_count=1
+    )
+    moves_before = party.moves
+
+    arena.execute_turn(Action.pass_turn())
+
+    assert party.moves == moves_before + 1
+    assert arena.round_count == 2  # the round itself advanced as before
+    assert party.members[0].submorsels == 45  # Java Party.java:600 gate
+    assert party.members[0].food == 10
+    assert party.members[0].hp == party.members[0].max_hp  # no meal regen
+
+
+def test_ship_battle_round_repairs_hull_1_in_4(asset_mgr, conflict_map, monkeypatch):
+    monkeypatch.setattr("py_exodus.entities.party.random.randint", lambda a, b: 0)
+    party = _ship_party()
+    random.seed(501)
+    arena = CombatArena(
+        party, conflict_map, creature_tile="orc", asset_mgr=asset_mgr, monster_count=1
+    )
+
+    arena.execute_turn(Action.pass_turn())
+
+    assert party.ship_hull == 41
+
+
+def test_ship_battle_round_hull_roll_miss_keeps_hull(asset_mgr, conflict_map, monkeypatch):
+    monkeypatch.setattr("py_exodus.entities.party.random.randint", lambda a, b: 1)
+    party = _ship_party()
+    random.seed(502)
+    arena = CombatArena(
+        party, conflict_map, creature_tile="orc", asset_mgr=asset_mgr, monster_count=1
+    )
+
+    arena.execute_turn(Action.pass_turn())
+
+    assert party.ship_hull == 40
+
+
+def test_ship_battle_round_off_sosaria_counts_without_hull(asset_mgr, conflict_map, monkeypatch):
+    """Java gates the hull roll on the CURRENT map being SOSARIA
+    (Party.java:633) — fighting on Ambrosia's water still counts the round
+    as a move but never repairs the hull."""
+    monkeypatch.setattr("py_exodus.entities.party.random.randint", lambda a, b: 0)
+    party = _ship_party()
+    party.map_id = MAP_NAME_TO_ID["AMBROSIA"]
+    random.seed(503)
+    arena = CombatArena(
+        party, conflict_map, creature_tile="orc", asset_mgr=asset_mgr, monster_count=1
+    )
+    moves_before = party.moves
+
+    arena.execute_turn(Action.pass_turn())
+
+    assert party.moves == moves_before + 1
+    assert party.ship_hull == 40
+
+
+def test_non_ship_combat_round_ticks_nothing(asset_mgr, conflict_map, monkeypatch):
+    """Pending item 2, ruled ship-once: plain combat rounds run no endTurn —
+    no move counter, no hull roll (the pinned 0 roll would repair if a tick
+    wrongly ran)."""
+    monkeypatch.setattr("py_exodus.entities.party.random.randint", lambda a, b: 0)
+    party = Party()
+    party.add_member(Character("Hero", "M", Race.HUMAN, Profession.FIGHTER))
+    party.ship_hull = 40
+    random.seed(504)
+    arena = CombatArena(
+        party, conflict_map, creature_tile="orc", asset_mgr=asset_mgr, monster_count=1
+    )
+    moves_before = party.moves
+
+    arena.execute_turn(Action.pass_turn())
+
+    assert party.moves == moves_before
+    assert party.ship_hull == 40
+
+
+def test_ship_battle_killing_action_counts_the_win_round(asset_mgr, conflict_map, monkeypatch):
+    """Java CombatScreen.java:448-465: the round that empties combatMap is
+    done at once (roundIsDone via getCreatures().isEmpty(), line 459) and
+    still runs endTurn before end() (CombatScreen.java:472-478) — the win
+    round ticks exactly once, from the action path."""
+    monkeypatch.setattr("py_exodus.entities.party.random.randint", lambda a, b: 0)
+    party = _ship_party()
+    random.seed(505)
+    arena = CombatArena(
+        party, conflict_map, creature_tile="orc", asset_mgr=asset_mgr, monster_count=1
+    )
+    arena.monsters[0].take_damage(9999)  # mortally wounded out-of-band
+    moves_before = party.moves
+
+    arena.execute_turn(Action.pass_turn())
+
+    assert arena.is_victory
+    assert party.moves == moves_before + 1
+    assert party.ship_hull == 41

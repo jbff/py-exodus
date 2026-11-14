@@ -620,7 +620,9 @@ class Party:
         self.members[target_index].gold = min(total, 9999)
         return self.members[target_index].gold
 
-    def end_turn(self, surface: bool = True, sosaria: bool = False) -> None:
+    def end_turn(
+        self, surface: bool = True, sosaria: bool = False, combat: bool = False
+    ) -> None:
         """Advance one movement turn: move counter, per-member submorsels.
 
         Java truth: ``exodus/Party.java:592-639`` ``Party.endTurn``. Increments
@@ -628,6 +630,12 @@ class Party:
         member's ``submorsels`` by 40 on the surface maps (Sosaria/Exodus) or
         10 elsewhere (towns, castles, dungeons); when the pool crosses below
         0 it resets to 400 and one unit of food is consumed.
+
+        ``combat`` mirrors Java's gate at ``Party.java:600`` — the per-member
+        submorsel/meal block sits behind ``mapType != MapType.combat``, so the
+        combat round-finish caller (``CombatScreen.finishTurn``,
+        ``CombatScreen.java:472``) counts the round as a move and runs the
+        ship-hull roll ONLY.
 
         USER-DIRECTED GBC-RULES DEVIATION (2026-11-14, supersedes the
         2026-11-10 interpretation for these two rules): starvation and HP
@@ -658,7 +666,7 @@ class Party:
         # decrement and its meal crossing both sit in the stoptime gate
         # (GBC funcs5.c:1273-1278). The move counter above and the
         # ship-hull roll below still tick while time is stopped.
-        if self.aura.get_type() != AuraType.QUICKNESS:
+        if not combat and self.aura.get_type() != AuraType.QUICKNESS:
             decr_interval = 40 if surface else 10
 
             for m in self.members:
