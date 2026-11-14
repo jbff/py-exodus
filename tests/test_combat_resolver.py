@@ -15,7 +15,9 @@ from py_exodus.combat.arena import CombatMonster
 from py_exodus.combat.resolver import (
     monster_damage_bonus,
     resolve_monster_attack,
+    resolve_monster_ranged_attack,
     resolve_player_attack,
+    try_monster_magic_poke,
 )
 from py_exodus.constants import ArmorType, Status, WeaponType
 from py_exodus.entities.character import Character
@@ -26,6 +28,9 @@ PINCHER = CreatureDef(id=17, name="Pincher", tile="pincher", basehp=144, poisons
 MUNCHER = CreatureDef(id=1, name="Muncher", tile="orc", basehp=48, steals="food")
 CUTPURSE = CreatureDef(id=2, name="Cutpurse", tile="orc", basehp=48, steals="gold")
 ORC = CreatureDef(id=3, name="Orc", tile="orc", basehp=48)
+
+WIZARD = CreatureDef(id=16, name="Wizard", tile="wizard", basehp=112,
+                     ranged=True, ranged_hit_tile="magic")
 
 GUARD = CreatureDef(id=6, name="Guard", tile="guard", basehp=128)
 LORD_BRITISH = CreatureDef(id=7, name="Lord British", tile="lord_british",
@@ -40,6 +45,14 @@ def _forced_hit(monkeypatch, damage=1):
 
 def _attacker():
     return Character("Hero", "M", hp=999, max_hp=999, dexterity=40)
+
+
+def _forced_hit_flat(monkeypatch, damage):
+    """_forced_hit with the GBC terrain bonus zeroed, so `damage` is exact."""
+    _forced_hit(monkeypatch, damage=damage)
+    monkeypatch.setattr(
+        resolver_mod, "monster_damage_bonus", lambda context_map_id=None: 0
+    )
 
 
 def _stocked_member():
@@ -272,3 +285,207 @@ def test_melee_damage_applies_terrain_bonus(monkeypatch):
         )
         assert res.damage == want, map_name
         assert member.hp == 999 - want, map_name
+
+
+# --- GBC no-LOS magic poke ----------------------------------------------------
+
+
+def _placed_member(x, y, hp=999):
+    member = Character("Hero", "M", hp=hp, max_hp=hp)
+    member.x, member.y = x, y
+    return member
+
+
+def _randrange_spy(monkeypatch, capture_n):
+    """Capture every randrange(<capture_n>) call while passing the rest through."""
+    real_randrange = resolver_mod.random.randrange
+    captured: list[int] = []
+
+    def spy(n):
+        value = real_randrange(n)
+        if n == capture_n:
+            captured.append(value)
+        return value
+
+    monkeypatch.setattr(resolver_mod.random, "randrange", spy)
+    return captured
+
+
+def _force_poke_success(monkeypatch, value=129):
+    """randrange(193) & 0x80 — 129 has the bit set, so the blast always fires."""
+    real_randrange = resolver_mod.random.randrange
+
+    def spy(n):
+        real_value = real_randrange(n)
+        return value if n == 193 else real_value
+
+    monkeypatch.setattr(resolver_mod.random, "randrange", spy)
+
+
+def test_magic_wizard_pokes_distant_members(monkeypatch):
+    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): with no adjacent member a
+    magic creature rolls make_rnd(0xC1)&0x80 (~34%) and, on success, hits a
+    RANDOM living member with the normal single-target roll; no bolt trace
+    (GBC battle3.c:856-866)."""
+    _forced_hit_flat(monkeypatch, damage=9)
+    _force_poke_success(monkeypatch)
+    random.seed(20261114)
+    for _ in range(25):
+        near_target = _placed_member(8, 8)
+        other = _placed_member(9, 9)
+        monster = CombatMonster(WIZARD, 0, 0)
+        res = try_monster_magic_poke(
+            monster=monster, members=[near_target, other], context_map_id=None
+        )
+        assert res is not None
+        assert res.message == "Magic Blast!"
+        assert res.hit
+        assert res.killed is False
+        # exactly one living member took the single-target 9 damage
+        damaged = [m for m in (near_target, other) if m.hp < m.max_hp]
+        assert len(damaged) == 1
+        assert damaged[0].hp == 999 - 9
+
+
+def test_magic_poke_rate_is_34_percent_of_193(monkeypatch):
+    """blasts === the count of randrange(193) draws with bit 0x80 set ~34%."""
+    _forced_hit(monkeypatch, damage=7)
+    rolls = _randrange_spy(monkeypatch, 193)
+    random.seed(4242)
+    blasts = 0
+    for _ in range(200):
+        res = try_monster_magic_poke(
+            monster=CombatMonster(WIZARD, 0, 0),
+            members=[_placed_member(8, 8), _placed_member(9, 9)],
+        )
+        blasts += res is not None
+    assert len(rolls) == 200  # one 34% roll per no-adjacent ranged action
+    assert blasts == sum(1 for r in rolls if r & 0x80)
+    assert 40 <= blasts <= 100  # ~34% of 200 (expected ~67)
+
+
+def test_failed_poke_roll_falls_through_to_bolt(monkeypatch):
+    """A failed make_rnd(0xC1)&0x80 draw leaves the plain bolt behavior."""
+    _forced_hit(monkeypatch, damage=7)
+    real_randrange = resolver_mod.random.randrange
+    monkeypatch.setattr(
+        resolver_mod.random,
+        "randrange",
+        lambda n: 0 if n == 193 else real_randrange(n),
+    )
+    member = _placed_member(8, 8)
+    monster = CombatMonster(WIZARD, 0, 0)
+    res = try_monster_magic_poke(
+        monster=monster, members=[member], context_map_id=None
+    )
+    assert res is None
+    # nothing happened here — the CALLER's bolt path is what acts instead, and
+    # it still deals its plain bolt with no blast message:
+    bolt = resolve_monster_ranged_attack(
+        monster=monster, target_player=member, members=[member]
+    )
+    assert bolt.message == ""
+    assert bolt.damage == 7
+    assert member.hp == 999 - 7
+
+
+def test_non_magic_creature_never_pokes(monkeypatch):
+    """Tile outside the magic set: the 34% roll is not even consumed."""
+    _forced_hit(monkeypatch, damage=6)
+    rolls = _randrange_spy(monkeypatch, 193)
+    monster = CombatMonster(ORC, 0, 0)
+    assert try_monster_magic_poke(
+        monster=monster, members=[_placed_member(8, 8), _placed_member(9, 9)]
+    ) is None
+    assert rolls == []
+
+
+def test_adjacent_member_blocks_the_poke(monkeypatch):
+    """A living member beside the monster: the bolt path stays untouched."""
+    _forced_hit(monkeypatch, damage=6)
+    rolls = _randrange_spy(monkeypatch, 193)
+    monster = CombatMonster(WIZARD, 0, 0)
+    adjacent = _placed_member(1, 0)
+    far = _placed_member(9, 9)
+    assert try_monster_magic_poke(
+        monster=monster, members=[adjacent, far], context_map_id=None
+    ) is None
+    assert rolls == []
+
+
+def test_magic_poke_skips_dead_members(monkeypatch):
+    """Dead members never take the blast and never soak the random pick."""
+    _forced_hit_flat(monkeypatch, damage=9)
+    _force_poke_success(monkeypatch)
+    random.seed(777)
+    for _ in range(25):
+        living_a = _placed_member(8, 8)
+        living_b = _placed_member(9, 9)
+        dead = _placed_member(3, 3, hp=0)
+        dead.status = Status.DEAD
+        res = try_monster_magic_poke(
+            monster=CombatMonster(WIZARD, 0, 0),
+            members=[living_a, dead, living_b],
+            context_map_id=None,
+        )
+        assert res is not None and res.message == "Magic Blast!"
+        assert dead.hp == 0 and dead.status == Status.DEAD
+        damaged = [m for m in (living_a, living_b) if m.hp < m.max_hp]
+        assert len(damaged) == 1
+        assert damaged[0].hp == 999 - 9
+
+
+# --- GBC ship-battle cannonfire -----------------------------------------------
+
+
+def test_ship_battle_cannonfire_hits_every_living_member(monkeypatch):
+    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): in a ship battle the
+    monster ranged branch is cannonfire — every living member takes one
+    randrange(78) blow through the damage chokepoint, dead members untouched
+    (GBC battle3.c:507-536)."""
+    rolls = _randrange_spy(monkeypatch, 78)
+    living_a = _placed_member(5, 5)
+    living_b = _placed_member(6, 5)
+    dead = _placed_member(7, 5, hp=0)
+    dead.status = Status.DEAD
+    res = resolve_monster_ranged_attack(
+        monster=CombatMonster(ORC, 0, 0),
+        target_player=living_a,
+        ship_battle=True,
+        members=[living_a, dead, living_b],
+    )
+    assert res.message == "Cannonball barrage!"
+    assert res.hit and res.result.name == "HIT"
+    assert len(rolls) == 2  # one roll per living member, none for the dead one
+    assert all(0 <= r < 78 for r in rolls)
+    assert living_a.hp == living_a.max_hp - rolls[0]
+    assert living_b.hp == living_b.max_hp - rolls[1]
+    assert dead.hp == 0 and dead.status == Status.DEAD
+    assert res.damage == sum(rolls)
+    assert res.killed is False
+
+
+def test_ship_battle_cannonfire_can_kill_and_reports_it(monkeypatch):
+    """A lethal barrage still routes through apply_damage and reports `killed`."""
+    rolls = _randrange_spy(monkeypatch, 78)
+    real_randrange = resolver_mod.random.randrange
+
+    def spy(n):
+        value = real_randrange(n)
+        if n == 78:
+            rolls.append(value)
+            return 77
+        return value
+
+    monkeypatch.setattr(resolver_mod.random, "randrange", spy)
+    victim = _placed_member(5, 5, hp=10)
+    res = resolve_monster_ranged_attack(
+        monster=CombatMonster(ORC, 0, 0),
+        target_player=victim,
+        ship_battle=True,
+        members=[victim],
+    )
+    assert res.message == "Cannonball barrage!"
+    assert res.killed
+    assert victim.status == Status.DEAD
+    assert victim.hp == 0

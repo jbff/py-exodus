@@ -14,6 +14,8 @@ from py_exodus.constants import (
     Transport,
     WeaponType,
 )
+from py_exodus.combat import arena as arena_mod
+from py_exodus.combat import resolver as resolver_mod
 from py_exodus.combat.arena import (
     Action,
     CombatArena,
@@ -577,3 +579,108 @@ def test_monster_hp_explicit_definition_override_kept():
     assert monster.hp == 100
     assert monster.max_hp == 100
 
+
+
+# --- GBC ship-battle cannonfire + no-LOS magic poke (2026-11-14) ---------------
+
+
+def test_ship_party_monster_ranged_is_cannonfire(asset_mgr, conflict_map, monkeypatch):
+    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): with the party's battle
+    transport a SHIP, the monster ranged branch is GBC cannonfire — every
+    living member takes one randrange(78) blow, no bolt trace
+    (GBC battle3.c:507-536)."""
+    real_randrange = random.randrange
+    rolls: list[int] = []
+
+    def fake(n):
+        value = real_randrange(n)
+        if n == 78:
+            rolls.append(value)
+        return 0 if n == 100 else value  # force the RANGED action
+
+    monkeypatch.setattr(arena_mod.random, "randrange", fake)
+    party = Party(transport=Transport.SHIP)
+    for i in range(2):
+        party.add_member(Character(f"Hero{i}", "M", hp=60, max_hp=60))
+    arena = CombatArena(party, conflict_map, asset_mgr=asset_mgr, monster_count=1)
+    arena.monsters[0].ranged = True
+    arena.monsters[0].ranged_hit_tile = "fire"
+    arena.player_positions[0] = (5, 5)
+    arena.player_positions[1] = (6, 5)
+    arena.monsters[0].x, arena.monsters[0].y = 5, 1
+    party.members[0].x, party.members[0].y = 5, 5
+    party.members[1].x, party.members[1].y = 6, 5
+
+    res = arena._execute_single_monster_ai(arena.monsters[0])
+    assert res is not None
+    assert res.action_type == "ranged"
+    assert res.message == "Cannonball barrage!"
+    assert len(rolls) == 2  # one roll per living member
+    for member, roll in zip(party.members, rolls):
+        assert member.hp == max(60 - roll, 0)
+
+
+def test_wizard_with_distant_party_magic_blasts(asset_mgr, conflict_map, monkeypatch):
+    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): no adjacent member and a
+    magic tile — the poke branch fires on make_rnd(0xC1)&0x80 success and hits
+    a random living member through the melee chokepoint
+    (GBC battle3.c:856-866)."""
+    real_randrange = random.randrange
+
+    def fake(n):
+        value = real_randrange(n)
+        return 0 if n == 100 else (129 if n == 193 else value)  # RANGED + blast
+
+    monkeypatch.setattr(arena_mod.random, "randrange", fake)
+    monkeypatch.setattr(resolver_mod, "calculate_monster_damage", lambda basehp=48: 7)
+    monkeypatch.setattr(resolver_mod, "monster_damage_bonus", lambda context_map_id=None: 0)
+    monkeypatch.setattr(resolver_mod, "roll_hit", lambda *a, **k: True)
+    party = Party()
+    hero = Character("Hero", "M", hp=999, max_hp=999)
+    party.add_member(hero)
+    arena = CombatArena(
+        party, conflict_map, creature_tile="wizard",
+        asset_mgr=asset_mgr, monster_count=1,
+    )
+    arena.player_positions[0] = (5, 5)
+    hero.x, hero.y = 5, 5
+    arena.monsters[0].x, arena.monsters[0].y = 0, 0
+
+    res = arena._execute_single_monster_ai(arena.monsters[0])
+    assert res is not None
+    assert res.action_type == "ranged"
+    assert res.message == "Magic Blast!"
+    assert hero.hp == 999 - 7  # single-target roll through the melee chokepoint
+
+
+def test_adjacent_wizard_keeps_the_bolt_path(asset_mgr, conflict_map, monkeypatch):
+    """Adjacency blocks the poke: the plain bolt behavior stays untouched."""
+    real_randrange = random.randrange
+    poke_rolls: list[int] = []
+
+    def fake(n):
+        value = real_randrange(n)
+        if n == 193:
+            poke_rolls.append(value)
+        return 0 if n == 100 else value  # force the RANGED action
+
+    monkeypatch.setattr(arena_mod.random, "randrange", fake)
+    monkeypatch.setattr(resolver_mod, "calculate_monster_damage", lambda basehp=48: 5)
+    monkeypatch.setattr(resolver_mod, "roll_hit", lambda *a, **k: True)
+    party = Party()
+    hero = Character("Hero", "M", hp=999, max_hp=999)
+    party.add_member(hero)
+    arena = CombatArena(
+        party, conflict_map, creature_tile="wizard",
+        asset_mgr=asset_mgr, monster_count=1,
+    )
+    arena.player_positions[0] = (5, 4)
+    hero.x, hero.y = 5, 4
+    arena.monsters[0].x, arena.monsters[0].y = 5, 5
+
+    res = arena._execute_single_monster_ai(arena.monsters[0])
+    assert res is not None
+    assert res.action_type == "ranged"
+    assert res.message != "Magic Blast!"
+    assert poke_rolls == []  # adjacent: the 34% roll is not even consumed
+    assert hero.hp == 999 - 5  # the plain bolt went through instead

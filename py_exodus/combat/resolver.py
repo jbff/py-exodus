@@ -1,7 +1,7 @@
 """Melee and ranged combat calculations, hit/damage rolls, and projectile path tracing."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace as _dc_replace
 from enum import Enum
 import random
 from typing import TYPE_CHECKING, Any
@@ -139,6 +139,70 @@ def monster_damage_bonus(context_map_id: int | None) -> int:
     ):
         return 30
     return 20
+
+
+# USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): the GBC magic-creature tiles
+# get a no-LOS "magic poke". The tile set mirrors creatures.xml: man-o-war is
+# tile="squid" there, so both spellings are accepted (GBC battle3.c:856-866)
+_MAGIC_POKE_TILES: frozenset[str] = frozenset(
+    {"serpent", "man-o-war", "squid", "wizard", "daemon", "dragon", "balron"}
+)
+
+
+def _member_is_dead(member: Any) -> bool:
+    is_dead = getattr(member, "is_dead", None)
+    if callable(is_dead):
+        return bool(is_dead())
+    if is_dead is not None:
+        return bool(is_dead)
+    return (
+        getattr(member, "status", None) == Status.DEAD
+        or getattr(member, "hp", 1) <= 0
+    )
+
+
+def member_is_adjacent_to_monster(member: Any, monster: Any) -> bool:
+    """Chebyshev distance 1 — a member standing beside the monster (or on it)."""
+    dx = abs(getattr(member, "x", 999) - getattr(monster, "x", 0))
+    dy = abs(getattr(member, "y", 999) - getattr(monster, "y", 0))
+    return max(dx, dy) <= 1
+
+
+def monster_has_magic_attribute(monster: Any) -> bool:
+    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): whether the creature's
+    tile is one of the six GBC magic-poke tiles (GBC battle3.c:856-866)."""
+    tile = str(getattr(monster, "tile", "") or "").strip().lower()
+    return tile in _MAGIC_POKE_TILES
+
+
+def try_monster_magic_poke(
+    monster: Any,
+    members: list[Any] | None,
+    context_map_id: int | None = None,
+) -> AttackResolution | None:
+    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): the GBC no-LOS magic
+    poke — a magic-creature monster with NO living party member adjacent rolls
+    make_rnd(0xC1)&0x80 (random.randrange(193) & 0x80: ~34% success) and, on
+    success, blasts a RANDOM living member directly with the normal
+    single-target (melee) damage roll through the apply_damage chokepoint;
+    no LOS check and no bolt trace. Returns None (and consumes nothing if the
+    tile or the adjacency gate fails) when the caller must fire its normal
+    bolt instead (GBC battle3.c:856-866)"""
+    if not monster_has_magic_attribute(monster):
+        return None
+    living = [m for m in (members or []) if not _member_is_dead(m)]
+    if not living or any(member_is_adjacent_to_monster(m, monster) for m in living):
+        return None
+    if (random.randrange(193) & 0x80) == 0:
+        return None  # failed the ~34% make_rnd(0xC1)&0x80 draw
+    victim = random.choice(living)
+    res = resolve_monster_melee_attack(
+        monster, victim, context_map_id=context_map_id
+    )
+    # The blast went off whatever the victim's individual save said: the
+    # damage lands through the melee roll (0 on a miss), and the caller's
+    # bolt trace is skipped.
+    return _dc_replace(res, hit=True, message="Magic Blast!")
 
 
 def get_relative_direction_mask(width: int, height: int, to_x: int, to_y: int, from_x: int, from_y: int) -> int:
@@ -510,6 +574,8 @@ def resolve_monster_ranged_attack(
     target_player: Any,
     armor_def: ArmorDef | None = None,
     context_map_id: int | None = None,
+    ship_battle: bool = False,
+    members: list[Any] | None = None,
 ) -> AttackResolution:
     """Resolve a monster's ranged bolt vs a party member (Java
     ``CombatScreen.rangedAttackAt``, CombatScreen.java:591-678).
@@ -522,8 +588,37 @@ def resolve_monster_ranged_attack(
       effect switch AND again on a hit → damage TWICE on a hit, once on a miss;
     - poison rolls 1-in-2 to set POISONED (hit or miss, no damage of its own);
     - magic/rocks/none deal a single damage roll, only on a hit.
+
+    ``ship_battle`` (the party's transport at battle start is a SHIP) replaces
+    the whole branch with the GBC cannonfire party-wide rules; ``members`` (the
+    living party roster) feeds the ship branch's party-wide damage roster.
     """
     import py_exodus.assets as assets
+
+    # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): in a ship battle the
+    # monster ranged branch is GBC cannonfire — no bolt trace; every living
+    # party member takes one random.randrange(78) blow through the
+    # _deal_monster_damage_to_member (PartyMember.applyDamage) chokepoint.
+    # damage totals the individual rolls; killed reports any member lost.
+    if ship_battle:
+        roster = members if members is not None else [target_player]
+        total = 0
+        killed = False
+        for member in roster:
+            if _member_is_dead(member):
+                continue
+            amount = random.randrange(78)
+            _deal_monster_damage_to_member(member, amount)
+            total += amount
+            killed = killed or getattr(member, "status", None) == Status.DEAD
+        return AttackResolution(
+            hit=True,
+            damage=total,
+            killed=killed,
+            result=AttackResult.HIT,
+            target_pos=(getattr(target_player, "x", 0), getattr(target_player, "y", 0)),
+            message="Cannonball barrage!",
+        )
 
     armor_name = getattr(getattr(target_player, "armor", None), "value", None)
     if context_map_id == assets.MAP_NAME_TO_ID["EXODUS"] and armor_name != "EXOTIC":
@@ -599,11 +694,18 @@ def resolve_monster_attack(
     armor_def: ArmorDef | None = None,
     is_ranged: bool = False,
     context_map_id: int | None = None,
+    ship_battle: bool = False,
+    members: list[Any] | None = None,
 ) -> AttackResolution:
     """Resolve an attack by a monster against a player character."""
     if is_ranged:
         return resolve_monster_ranged_attack(
-            monster, target_player, armor_def=armor_def, context_map_id=context_map_id
+            monster,
+            target_player,
+            armor_def=armor_def,
+            context_map_id=context_map_id,
+            ship_battle=ship_battle,
+            members=members,
         )
     return resolve_monster_melee_attack(
         monster, target_player, armor_def=armor_def, context_map_id=context_map_id

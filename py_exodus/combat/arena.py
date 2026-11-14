@@ -13,17 +13,20 @@ from py_exodus.constants import (
     Direction,
     TileAttrib,
     TileEffect,
+    Transport,
     WeaponType,
 )
 from py_exodus.combat.resolver import (
     AttackResolution,
     AttackResult,
     get_relative_direction_mask,
+    monster_has_magic_attribute,
     resolve_monster_attack,
     resolve_monster_ranged_attack,
     resolve_player_attack,
     trace_directional_path,
     trace_projectile_path,
+    try_monster_magic_poke,
 )
 from py_exodus.entities.defs import CreatureDef
 from py_exodus.world.tile_effects import apply_effect_rolled, slowed_by_tile
@@ -210,6 +213,10 @@ class CombatArena:
         self.context_map_id = (
             context_map_id if context_map_id is not None else getattr(party, "map_id", None)
         )
+        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): the GBC ship-battle
+        # condition is the party's transport at battle start — on a SHIP the
+        # monster ranged branch becomes cannonfire (GBC battle3.c:507-536)
+        self.ship_battle = getattr(party, "transport", None) == Transport.SHIP
         # The encounter's overworld creature tile (Java GameScreen.endCombat's
         # currentEncounter.currentX/currentY): where the victory chest/frigate
         # lands (GameScreen.java:421-431).
@@ -912,7 +919,50 @@ class CombatArena:
         """Java ``CombatScreen.creatureAction`` case RANGED (770-785) plus
         ``rangedAttackAt`` (591-678): the relative-direction mask may hold two
         bits, so the bolt can step diagonally; every party member standing on
-        a path tile takes the hit until one bolt HITS."""
+        a path tile takes the hit until one bolt HITS.
+
+        USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): the branch is first
+        replaced by GBC cannonfire in a ship battle and, for a magic-creature
+        monster with no adjacent member, by the no-LOS magic poke
+        (GBC battle3.c:856-866)
+        """
+        living_members = self._get_living_party_members()
+
+        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): a ship-battle monster
+        # shot is cannonfire — party-wide damage, no bolt trace
+        # (GBC battle3.c:507-536)
+        if self.ship_battle:
+            attack_res = resolve_monster_ranged_attack(
+                monster=monster,
+                target_player=self.party.members[target_idx],
+                context_map_id=self.context_map_id,
+                ship_battle=True,
+                members=living_members,
+            )
+            return MonsterTurnResult(
+                monster_name=monster.name,
+                action_type="ranged",
+                from_pos=from_pos,
+                to_pos=self.player_positions[target_idx],
+                attack_res=attack_res,
+                message=attack_res.message,
+            )
+
+        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): a magic creature with
+        # no adjacent living member may blast a random one directly — no LOS,
+        # no bolt (GBC battle3.c:856-866)
+        poke_res = try_monster_magic_poke(
+            monster, living_members, context_map_id=self.context_map_id
+        )
+        if poke_res is not None:
+            return MonsterTurnResult(
+                monster_name=monster.name,
+                action_type="ranged",
+                from_pos=from_pos,
+                to_pos=(poke_res.target_pos or (from_pos)),
+                attack_res=poke_res,
+                message=poke_res.message,
+            )
         tx, ty = self.player_positions[target_idx]
         dirmask = get_relative_direction_mask(
             self.combat_map.width,
