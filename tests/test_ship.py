@@ -176,6 +176,52 @@ class TestHullLifecycle:
         assert frigate["hull"] == 40
 
 
+class TestExactFrigateNameMatch:
+    """Java matches the exact tile name: ``"frigate".equals(
+    d.getTile().getName())`` in fireAt (util/Utils.java:538) and board
+    (GameScreen.java:955). "ship" is not a tile name Java can match — the
+    only ship-rule tile is "frigate" (assets/xml/tileset-base.xml:13) — so
+    the port's defensive "frigate" | "ship" superset is wrong."""
+
+    def test_board_ignores_ship_named_object(self, overworld, sample_party):
+        obj = {"tile": "ship", "x": 10, "y": 10}
+        sample_party.dynamic_objects.append(obj)
+        key(overworld, pygame.K_b)
+        assert sample_party.transport == Transport.FOOT
+        assert any(m == "Board What?" for m in overworld.text_log.history)
+        assert obj in sample_party.dynamic_objects
+
+    def test_cannons_ignore_ship_named_object(self, overworld, sample_party):
+        sample_party.transport = Transport.SHIP
+        obj = {"tile": "ship", "x": 11, "y": 10, "hull": 50}
+        sample_party.dynamic_objects.append(obj)
+        overworld._fire_cannons(Direction.EAST)
+        assert obj["hull"] == 50
+        assert not any("unmanned frigate" in m for m in overworld.text_log.history)
+
+    def test_enemy_broadside_ignores_ship_named_object(self, overworld, sample_party):
+        sample_party.x, sample_party.y = 30, 30
+        pirate = {"tile": "pirate", "x": 3, "y": 3}
+        obj = {"tile": "ship", "x": 4, "y": 3, "hull": 50}
+        sample_party.dynamic_objects.append(obj)
+        overworld._enemy_fire_cannons(pirate, Direction.EAST)
+        assert obj["hull"] == 50
+        assert not any("unmanned frigate" in m for m in overworld.text_log.history)
+
+    def test_town_board_ignores_ship_named_object(self, asset_mgr, sample_party):
+        from py_exodus.screens.town import TownScreen
+
+        town = TownScreen(
+            party=sample_party, map_id=1, asset_mgr=asset_mgr, start_x=10, start_y=10
+        )
+        obj = {"tile": "ship", "x": 10, "y": 10}
+        sample_party.dynamic_objects.append(obj)
+        town.board(10, 10)
+        assert sample_party.transport == Transport.FOOT
+        assert any(m == "Board What?" for m in town.text_log.history)
+        assert obj in sample_party.dynamic_objects
+
+
 class TestSosariaHullRepair:
     """Party.java:633-638 — 1-in-4 per endTurn on Sosaria while hull < 50."""
 

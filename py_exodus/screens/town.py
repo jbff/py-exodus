@@ -139,7 +139,10 @@ class TownScreen(BaseScreen):
         # Frigate object on the party's exact tile
         for idx, obj in enumerate(self.party.dynamic_objects):
             tile = str(obj.get("tile", "")).lower()
-            if tile in ("frigate", "ship") and obj.get("x") == x and obj.get("y") == y:
+            # Java matches the exact tile name: `"frigate".equals(
+            # d.getTile().getName())` (GameScreen.java:955) — no "ship"
+            # superset ("ship" is not a tile name Java can match).
+            if tile == "frigate" and obj.get("x") == x and obj.get("y") == y:
                 self.party.dynamic_objects.pop(idx)
                 self.party.transport = Transport.SHIP
                 if self.party.last_ship is not obj:

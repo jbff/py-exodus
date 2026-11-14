@@ -90,11 +90,12 @@ def can_move_to(
         # tile holding a frigate object is enterable on foot, so the exact
         # -tile board (GameScreen.board) can be reached on the dropped
         # post-battle frigate.
-        # deferred (review minors): the port matches the "frigate"|"ship"
-        # superset where Java matches the ship-rule tile (BaseMap.java:788).
+        # Java hasShipObjectAt (BaseMap.java:786-793) matches a tile carrying
+        # TileRule.ship; "frigate" is the only rule-"ship" tile
+        # (tileset-base.xml:13), so the exact name equals the rule check.
         if not tile.walkable:
             if party is not None and any(
-                str(obj.get("tile", "")).lower() in ("frigate", "ship")
+                str(obj.get("tile", "")).lower() == "frigate"
                 and obj.get("x") == target_x
                 and obj.get("y") == target_y
                 for obj in getattr(party, "dynamic_objects", [])
@@ -270,7 +271,9 @@ class WorldRenderer:
             # Java draws map objects from a single atlas region
             # (objects/Drawable.java:46-52) — a dropped frigate must not
             # cycle the ship's 4 atlas frames (the "toilet rotation" fix).
-            if str(tile_name).lower() in ("frigate", "ship"):
+            # Exact name (Utils.java:538 naming basis): "ship" is not a
+            # tile name in Java or in tileset-base.xml.
+            if str(tile_name).lower() == "frigate":
                 obj_surf = self.asset_manager.get_tile_surface(tile_name, 0)
             surface.blit(obj_surf, (ox + col * self.tile_size, oy + row * self.tile_size))
 

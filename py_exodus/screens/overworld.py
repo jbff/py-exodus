@@ -234,9 +234,11 @@ def can_creature_move_on(tile, creature) -> bool:
 
 def has_ship_object_at(party, x: int, y: int) -> bool:
     """Java ``objects/BaseMap.java:786-793`` ``hasShipObjectAt`` — a frigate
-    object sits on that tile (the frigate tile carries the ship rule)."""
+    object sits on that tile. Java matches a tile carrying TileRule.ship;
+    "frigate" is the only rule-"ship" tile (tileset-base.xml:13), so the
+    exact name equals the rule check."""
     return any(
-        str(obj.get("tile", "")).lower() in ("frigate", "ship")
+        str(obj.get("tile", "")).lower() == "frigate"
         and obj.get("x") == x
         and obj.get("y") == y
         for obj in party.dynamic_objects
@@ -864,7 +866,10 @@ class OverworldScreen(BaseScreen):
         # Frigate object on the party's exact tile
         for idx, obj in enumerate(self.party.dynamic_objects):
             tile = str(obj.get("tile", "")).lower()
-            if tile in ("frigate", "ship") and obj.get("x") == px and obj.get("y") == py:
+            # Java matches the exact tile name: `"frigate".equals(
+            # d.getTile().getName())` (GameScreen.java:955) — no "ship"
+            # superset ("ship" is not a tile name Java can match).
+            if tile == "frigate" and obj.get("x") == px and obj.get("y") == py:
                 self.party.dynamic_objects.pop(idx)
                 self.party.transport = Transport.SHIP
                 if self.party.last_ship is not obj:
@@ -1584,12 +1589,14 @@ class OverworldScreen(BaseScreen):
             ty = (cy + direction.dy * step) % self.game_map.height
 
             # Empty frigate in the path: hit, 10 hull damage, trace stops.
-            # Java truth: ``util/Utils.java:539-546`` ``fireAt`` — either
+            # Java truth: ``util/Utils.java:538-546`` ``fireAt`` — either
             # broadside striking an unmanned frigate damages it (10) and
-            # ends the volley before any creature check.
+            # ends the volley before any creature check. Java matches the
+            # exact tile name (`"frigate".equals(d.getTile().getName())`,
+            # Utils.java:538).
             for obj in self.party.dynamic_objects:
                 if (
-                    str(obj.get("tile", "")).lower() in ("frigate", "ship")
+                    str(obj.get("tile", "")).lower() == "frigate"
                     and obj.get("x") == tx
                     and obj.get("y") == ty
                 ):
@@ -1957,20 +1964,21 @@ class OverworldScreen(BaseScreen):
         if self.audio is not None:
             self.audio.play_sfx("cannon") or self.audio.play_sfx("enemy_magic_proj")
         self.text_log.add_message("The pirate ship fires its broadside!")
-        # deferred (review minors): the port matches frigate objects by the
-        # "frigate"|"ship" superset where Java matches the ship-rule tile
-        # (Utils.java:538), and Java's animateCannonFire (509-514) removes an
-        # unmanned frigate whose hull reaches 0 during the volley.
+        # deferred (review minors): Java's animateCannonFire (509-514)
+        # removes an unmanned frigate whose hull reaches 0 during the
+        # volley; the port leaves sunk hulls in place.
 
         sx, sy = pirate["x"], pirate["y"]
         for distance in range(1, 5):
             tx = (sx + fire_dir.dx * distance) % self.game_map.width
             ty = (sy + fire_dir.dy * distance) % self.game_map.height
 
-            # fireAt: unmanned frigate first (Utils.java:539-546).
+            # fireAt: unmanned frigate first (Utils.java:538-546). Java
+            # matches the exact tile name (`"frigate".equals(
+            # d.getTile().getName())`, Utils.java:538).
             for obj in self.party.dynamic_objects:
                 if (
-                    str(obj.get("tile", "")).lower() in ("frigate", "ship")
+                    str(obj.get("tile", "")).lower() == "frigate"
                     and obj.get("x") == tx
                     and obj.get("y") == ty
                 ):
