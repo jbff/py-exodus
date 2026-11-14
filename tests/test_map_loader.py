@@ -245,13 +245,52 @@ def test_dungeon_asset_fountains_typed_by_x(asset_mgr):
     dardin = loader.load_dungeon_map("dardin.json")
 
     assert dardin.get_tile(15, 15, 7) is DungeonTile.FOUNTAIN_CURE
-    # Label-covered fountains keep their maps.xml typing (explicit data wins).
+    # dardin (4,4,4) carries a FOUNTAIN_POISON label that agrees with x&3
+    # (4 & 3 == 0): same result either way.
     assert dardin.get_tile(4, 4, 4) is DungeonTile.FOUNTAIN_POISON
 
     for z in dardin.tiles:
         for row in z:
             for tile in row:
                 assert tile is not DungeonTile.FOUNTAIN_UNTYPED
+
+
+def test_dungeon_x3_arbitration_wins_over_transposed_labels(asset_mgr):
+    """The 10 raw-0x02 cells the 2015 labeler transposed: x&3 wins.
+
+    USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): controller ruling —
+    fountain typing on any raw 0x02 byte is governed by x&3
+    (GBC dungfunc.c:1277-1310; LW UltimaDngn.c:240-276; NES per-map
+    tables), overriding the transposed FOUNTAIN_* maps.xml labels.
+    """
+    loader = MapLoader(asset_mgr)
+    cases = [
+        ("mine.json", (7, 7, 6), DungeonTile.FOUNTAIN_CURE),
+        ("mine.json", (8, 7, 6), DungeonTile.FOUNTAIN_POISON),
+        ("mine.json", (7, 8, 0), DungeonTile.FOUNTAIN_CURE),
+        ("mine.json", (8, 7, 0), DungeonTile.FOUNTAIN_POISON),
+        ("fire.json", (12, 9, 7), DungeonTile.FOUNTAIN_POISON),
+        ("fire.json", (10, 9, 7), DungeonTile.FOUNTAIN_ACID),
+        ("m.json", (7, 2, 7), DungeonTile.FOUNTAIN_CURE),
+        ("m.json", (8, 2, 7), DungeonTile.FOUNTAIN_POISON),
+        ("p.json", (8, 2, 3), DungeonTile.FOUNTAIN_POISON),
+        ("p.json", (2, 8, 3), DungeonTile.FOUNTAIN_ACID),
+    ]
+    for fname, (x, y, z), expected in cases:
+        dmap = loader.load_dungeon_map(fname)
+        assert dmap.get_tile(x, y, z) is expected, (fname, x, y, z)
+
+
+def test_dungeon_label_only_fountain_keeps_label(asset_mgr):
+    """A label on a NON-0x02 raw byte keeps its maps.xml typing.
+
+    p.json (x=9, y=9, z=4) raw byte is 0x08 (a label-only fountain), not
+    a transposed 0x02 cell: FOUNTAIN_POISON there must survive the x&3
+    arbitration (controller ruling 2026-11-14).
+    """
+    loader = MapLoader(asset_mgr)
+    p = loader.load_dungeon_map("p.json")
+    assert p.get_tile(9, 9, 4) is DungeonTile.FOUNTAIN_POISON
 
 
 def test_module_level_helpers(asset_mgr):
