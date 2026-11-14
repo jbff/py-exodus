@@ -185,16 +185,18 @@ class CombatScreen(BaseScreen):
 
     def _negate_time(self) -> None:
         """Java CombatScreen.negateTime (CombatScreen.java:331-332, 503-514):
-        the first member holding powder burns one for a 6-turn QUICKNESS
-        aura; with none held the log reads "None!". N consumes no combat turn.
-        """
+        the first member holding powder burns one for a QUICKNESS aura; with
+        none held the log reads "None!". N consumes no combat turn. The
+        duration is 10 per USER-DIRECTED GBC-RULES DEVIATION (2026-11-14)
+        (GBC battle2.c:722-733; LW UltimaMain.c:2129-2139) — superseding the
+        old Java 6-turn reading."""
         from py_exodus.aura import AuraType
 
         for pm in self.party.members:
             if getattr(pm, "powder", 0) > 0:
                 pm.powder -= 1
                 self.text_log.add_message("Stop time with a powder!")
-                self.party.aura.set(AuraType.QUICKNESS, 6)
+                self.party.aura.set(AuraType.QUICKNESS, 10)
                 return
         self.text_log.add_message("None!")
 

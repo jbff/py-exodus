@@ -506,6 +506,15 @@ def resolve_monster_melee_attack(
     # towns/castles/other interiors, per the GBC inside/peermap table mapped to
     # py MAP_NAME_TO_ID (GBC battle3.c:337-350).
     damage = calculate_monster_damage(basehp) + monster_damage_bonus(context_map_id)
+    # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): a NECORP-weakened creature
+    # deals half its melee damage. GBC NECORP clamps the monster's hp to 5 AND
+    # sets monsterpower=10 (battle.c:1361-1373; LW UltimaSpellCombat.c:498-520
+    # sets MonsterHP[mon]=5 exactly); GBC's monsterpower field scales the
+    # creature's damage output, so the py-side approximation halves the
+    # terrain-bonused melee total — deterministic floor-halving, no randomness.
+    # Ranged bolts do not consult monsterpower in GBC and are not affected.
+    if getattr(monster, "weakened", False):
+        damage //= 2
     # Java: Utils.dealDamage(Creature, target) → applyDamage(damage, true);
     # False (no effect) when the member was already DEAD.
     applied = _deal_monster_damage_to_member(target_player, damage)

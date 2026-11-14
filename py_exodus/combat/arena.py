@@ -166,6 +166,11 @@ class CombatMonster:
         self.steals = definition.steals
         self.no_chest = definition.no_chest
         self.fled = False
+        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): set True by the
+        # NECORP branch in magic.py — the GBC weakens-clamp (hp=5 +
+        # monsterpower=10); the resolver halves a weakened creature's melee
+        # damage.
+        self.weakened = False
 
     @property
     def is_dead(self) -> bool:
@@ -760,7 +765,12 @@ class CombatArena:
         aura = getattr(self.party, "aura", None)
         if aura is not None:
             aura.pass_turn()
-            if aura.get_type() == AuraType.QUICKNESS:
+            # USER-DIRECTED GBC-RULES DEVIATION (ruled item 16, 2026-11-14,
+            # both referees): the QUICKNESS aura has NO effect during combat
+            # on the EXODUS map — stop time does not function on the Castle of
+            # Death, so the creature phase runs (GBC ult3.c:1024-1034; LW
+            # UltimaSpellCombat.c:1082,1102-1105). The aura still ticks down.
+            if aura.get_type() == AuraType.QUICKNESS and not self._is_exodus_map():
                 # The monster phase is skipped outright — no movement, no attack.
                 self._evaluate_party_status()
                 if len(self.monsters) == 0 and not self.is_finished:

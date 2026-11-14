@@ -209,7 +209,9 @@ def test_wizard_psionic_blast_in_combat(asset_mgr, conflict_map):
 
 
 def test_wizard_death_bolt_in_combat(asset_mgr, conflict_map):
-    """DECORP deals 128-255 damage."""
+    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): DECORP kills the struck
+    monster on a hit regardless of hp (GBC battle.c:1285-1296 kill=1) — the
+    128-255 roll is the displayed lethal damage."""
     party = Party()
     wiz = Character("Wiz", "M", Race.FUZZY, Profession.WIZARD, intelligence=75, mp=75)
     party.add_member(wiz)
@@ -220,15 +222,18 @@ def test_wizard_death_bolt_in_combat(asset_mgr, conflict_map):
     m.x = px
     m.y = py - 1
     m.hp = 200
+    m.max_hp = 200
 
     res = cast_spell(Spell.DECORP, caster=party.members[0], target_dir=Direction.NORTH, arena=arena)
     assert res.success
-    assert 128 <= res.damage <= 255
+    assert res.hit
+    assert m.hp == 0 and m.is_dead  # killed regardless of the 200 hp
 
 
 def test_wizard_stop_time_in_combat(asset_mgr, conflict_map):
-    """ALTAIR (ZOMM) sets the QUICKNESS aura for 5 turns (Java
-    SpellUtil.java:125-127 — context.getAura().set(AuraType.QUICKNESS, 5))."""
+    """ALTAIR (ZOMM) sets the QUICKNESS aura for 20 rounds (GBC menucmd.c:1551
+    — amended 2026-11-14: 20 rounds per LW UltimaSpellCombat.c:238 + NES
+    Bank0F.asm:3329 agreement)."""
     party = Party()
     wiz = Character("Wiz", "M", Race.FUZZY, Profession.WIZARD, intelligence=75, mp=75)
     party.add_member(wiz)
@@ -237,7 +242,7 @@ def test_wizard_stop_time_in_combat(asset_mgr, conflict_map):
     res = cast_spell(Spell.ALTAIR, caster=party.members[0], arena=arena)
     assert res.success
     assert party.aura.get_type() == AuraType.QUICKNESS
-    assert party.aura.get_duration() == 5
+    assert party.aura.get_duration() == 20
 
     # Monster turns are skipped while the QUICKNESS aura is live
     initial_positions = [(m.x, m.y) for m in arena.monsters]
@@ -1161,3 +1166,58 @@ def test_ashes_member_save_round_trip(tmp_path):
     assert loaded.status.value == "A"
     assert loaded.is_disabled()
     assert not loaded.is_dead()
+
+
+# --- Task 17 (GBC parity): NECORP weaken, DECORP kill, ALTAIR 20 rounds -------
+
+
+def test_necorp_sets_every_living_monster_to_five_hp(asset_mgr, conflict_map):
+    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): NECORP sets every LIVING
+    monster's hp to exactly 5 — it deals no damage and kills nothing, so a
+    40-hp orc and a 2-hp ghoul both end at 5 (GBC battle.c:1361-1373 sets the
+    monster hp=5 + monsterpower=10; LW UltimaSpellCombat.c:498-520 sets
+    MonsterHP[mon]=5). The monsterpower debuff maps to the py-side
+    CombatMonster.weakened flag, which halves melee damage in the resolver."""
+    party = Party()
+    wiz = Character("Wiz", "M", Race.FUZZY, Profession.WIZARD, intelligence=75, mp=999)
+    party.add_member(wiz)
+
+    arena = CombatArena(party, conflict_map, creature_tile="orc", asset_mgr=asset_mgr, monster_count=3)
+    hps = (40, 2, 100)
+    for monster, hp in zip(arena.monsters, hps):
+        monster.hp = hp
+        monster.max_hp = hp
+
+    res = cast_spell(Spell.NECORP, caster=party.members[0], arena=arena)
+    assert res.success
+    assert res.damage == 0  # no damage dealt
+    assert res.targets_affected == 3
+    for monster, hp in zip(arena.monsters, hps):
+        assert monster.hp == 5  # exactly 5 — up from 2, down from 40
+        assert not monster.is_dead
+        assert monster.weakened is True
+    assert wiz.exp == 0  # nothing died, no EXP
+
+
+def test_decorp_lands_a_guaranteed_kill(asset_mgr, conflict_map):
+    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): on a hit DECORP kills
+    the target regardless of hp (GBC battle.c:1285-1296 sets kill=1; LW
+    UltimaSpellCombat.c:237,456-472 ports it as damage=255) — not the old
+    128-255 damage roll. A miss still misses."""
+    party = Party()
+    wiz = Character("Wiz", "M", Race.FUZZY, Profession.WIZARD, intelligence=75, mp=999)
+    party.add_member(wiz)
+
+    arena = CombatArena(party, conflict_map, creature_tile="orc", asset_mgr=asset_mgr, monster_count=1)
+    m = arena.monsters[0]
+    px, py = arena.player_positions[0]
+    m.x = px
+    m.y = py - 1
+    m.hp = 200
+    m.max_hp = 200
+
+    res = cast_spell(Spell.DECORP, caster=party.members[0], target_dir=Direction.NORTH, arena=arena)
+    assert res.success
+    assert res.hit
+    assert m.is_dead  # killed regardless of the 200 hp
+    assert res.targets_affected == 1

@@ -151,8 +151,9 @@ def test_quickness_skips_monster_turns_in_combat(asset_mgr, conflict_map):
 
 def test_combat_negate_time_key_consumes_powder(asset_mgr, conflict_map, pygame_setup):
     """CombatScreen N: the first member holding powder burns one and sets
-    QUICKNESS 6 (Java CombatScreen.negateTime:503-514); with none held it
-    logs "None!" and the aura is untouched."""
+    QUICKNESS 10 (GBC battle2.c:722-733 — amended 2026-11-14; LW
+    UltimaMain.c:2129-2139); with none held it logs "None!" and the aura is
+    untouched."""
     from py_exodus.screens.combat_screen import CombatScreen
 
     m1 = Character("A", "M", Race.HUMAN, Profession.CLERIC, powder=0)
@@ -165,7 +166,7 @@ def test_combat_negate_time_key_consumes_powder(asset_mgr, conflict_map, pygame_
     assert m1.powder == 0
     assert m2.powder == 2
     assert party.aura.get_type() == AuraType.QUICKNESS
-    assert party.aura.get_duration() == 6
+    assert party.aura.get_duration() == 10
     assert any("Stop time with a powder!" in line for line in screen.text_log.lines)
 
     # Everyone out of powder → "None!", aura expired and untouched
@@ -225,6 +226,37 @@ def test_altair_does_not_consume_combat_turn_and_sets_aura(asset_mgr, conflict_m
     res = arena.execute_turn(Action.cast(Spell.ALTAIR))
     assert res.success
     assert party.aura.get_type() == AuraType.QUICKNESS
-    assert party.aura.get_duration() == 5
+    # GBC menucmd.c:1551 — amended 2026-11-14: 20 rounds per LW
+    # UltimaSpellCombat.c:238 + NES Bank0F.asm:3329 agreement.
+    assert party.aura.get_duration() == 20
     assert arena.active_party_member_idx == 0
     assert not arena.is_party_round_done
+
+
+# --- Task 17 (GBC parity): stop-time does not work on the EXODUS map ----------
+
+def test_exodus_map_quickness_does_not_skip_monster_turns(asset_mgr, conflict_map, monkeypatch):
+    """USER-DIRECTED GBC-RULES DEVIATION (ruled item 16, 2026-11-14, both
+    referees): the QUICKNESS (stop-time) aura has NO effect during combat on
+    the EXODUS map — the aura's creature-phase skip does not fire and the
+    monsters still act (GBC ult3.c:1024-1034; LW UltimaSpellCombat.c:1082,
+    1102-1105)."""
+    import py_exodus.combat.arena as arena_mod
+    from py_exodus.assets import MAP_NAME_TO_ID
+
+    party = Party()
+    wiz = Character("Wiz", "M", Race.FUZZY, Profession.WIZARD, intelligence=75, mp=75)
+    party.add_member(wiz)
+    arena = CombatArena(party=party, combat_map=conflict_map, creature_tile="orc",
+                        asset_mgr=asset_mgr, monster_count=1,
+                        context_map_id=MAP_NAME_TO_ID["EXODUS"])
+    monkeypatch.setattr(arena_mod.random, "randrange", lambda n: 99)  # no teleport/ranged bolt
+    monster = arena.monsters[0]
+    px, py = arena.player_positions[0]
+    monster.x, monster.y = min(px + 3, 10), py
+    monster.hp = monster.max_hp = 100
+
+    party.aura.set(AuraType.QUICKNESS, 20)
+    arena.execute_monster_turns()
+    # The monster advanced (creature phase ran) despite the live aura
+    assert monster.x < px + 3

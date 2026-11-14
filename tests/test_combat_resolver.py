@@ -489,3 +489,34 @@ def test_ship_battle_cannonfire_can_kill_and_reports_it(monkeypatch):
     assert res.killed
     assert victim.status == Status.DEAD
     assert victim.hp == 0
+
+# --- Task 17 (GBC parity): NECORP weakening halves melee damage ---------------
+
+
+def test_necorp_weakening_halves_monster_melee_damage(monkeypatch):
+    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): a NECORP-weakened
+    creature deals half its melee damage. GBC battle.c:1361-1373 sets the target
+    monster hp=5 AND monsterpower=10; GBC monsterpower scales the creature's
+    damage output, so the py-side approximation applies the debuff after the
+    terrain bonus — the total (roll + bonus) is halved, floor division, no
+    randomness. Ranged bolts are not affected (GBC's monsterpower feeds the
+    melee path)."""
+    _forced_hit_flat(monkeypatch, damage=11)
+    monster = CombatMonster(ORC, 0, 0)
+    monster.weakened = True
+    member = Character("Hero", "M", hp=999, max_hp=999)
+    res = resolve_monster_attack(monster=monster, target_player=member)
+    assert res.damage == 5  # (11 + 0) // 2 — halved after the terrain bonus
+    assert member.hp == 999 - 5
+    assert not res.killed
+
+
+def test_unweakened_monster_melee_damage_is_untouched(monkeypatch):
+    """The weakened flag defaults False and a plain monster never halves."""
+    _forced_hit_flat(monkeypatch, damage=11)
+    monster = CombatMonster(ORC, 0, 0)
+    assert monster.weakened is False
+    member = Character("Hero", "M", hp=999, max_hp=999)
+    res = resolve_monster_attack(monster=monster, target_player=member)
+    assert res.damage == 11
+    assert member.hp == 999 - 11

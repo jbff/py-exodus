@@ -3,7 +3,8 @@
 Java truth:
 - ``exodus/GameScreen.java:538-556`` (E on every map incl. towns), ``584-596``
   (X dismounts to FOOT and never leaves a town), ``1089-1100`` (negateTime —
-  "Stop time with a powder!" / "None!", first member's powder, QUICKNESS 6).
+  "Stop time with a powder!" / "None!", first member's powder,
+  QUICKNESS 10 — amended 2026-11-14 per GBC battle2.c:722-733).
 - ``exodus/SecondaryInputProcessor.java:152-277`` (T/L/U/S/J/G member and
   direction flows, ``308-311`` single-tile G), ``522-577`` (YellInputAdapter —
   EVOCARE snake replacement only with marks[2], "No effect." / "What?").
@@ -271,7 +272,8 @@ class TestJoinGold:
 
 
 class TestNegateTime:
-    """(d) N consumes the first member's powder → QUICKNESS aura for 6 turns."""
+    """(d) N consumes the first member's powder → QUICKNESS aura for 10 turns
+    (GBC battle2.c:722-733 — amended 2026-11-14; LW UltimaMain.c:2129-2139)."""
 
     def test_negate_time_first_member_powder(self, ow, sample_party):
         sample_party.members[0].powder = 1
@@ -281,10 +283,10 @@ class TestNegateTime:
         assert sample_party.members[0].powder == 0
         assert sample_party.members[1].powder == 2
         assert sample_party.aura.get_type() == AuraType.QUICKNESS
-        # Java GameScreen.java:604-628 — N runs negateTime (set 6) and the
+        # Java GameScreen.java:604-628 — N runs negateTime (set 10) and the
         # keyUp tail finishTurn immediately ticks aura.passTurn, so the
-        # effective duration right after the key is 5.
-        assert sample_party.aura.get_duration() == 5
+        # effective duration right after the key is 9.
+        assert sample_party.aura.get_duration() == 9
 
     def test_negate_time_none(self, ow, sample_party):
         key(ow, pygame.K_n)

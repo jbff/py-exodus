@@ -462,7 +462,10 @@ def test_projectile_spell_kill_awards_xp(asset_mgr, conflict_map):
     assert wiz.exp == 120
 
 
-def test_group_damage_spell_kill_awards_xp(asset_mgr, conflict_map):
+def test_necorp_weakens_without_killing_or_xp(asset_mgr, conflict_map):
+    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): NECORP sets living
+    monsters' hp to 5 and kills nothing — no EXP is paid (GBC battle.c:1361-1373;
+    LW UltimaSpellCombat.c:498-520)."""
     from py_exodus.constants import Profession, Spell
 
     party = Party()
@@ -478,7 +481,10 @@ def test_group_damage_spell_kill_awards_xp(asset_mgr, conflict_map):
     res = arena.execute_player_action(0, Action.cast(Spell.NECORP))
     assert res.success
     assert res.spell_res.targets_affected == 1
-    assert wiz.exp == 30
+    assert monster.hp == 5  # raised from 1 — the exact-set rule
+    assert not monster.is_dead
+    assert monster.weakened
+    assert wiz.exp == 0
 
 
 # --- (h) victory chest at the creature's overworld tile ----------------------

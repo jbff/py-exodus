@@ -948,13 +948,15 @@ class OverworldScreen(BaseScreen):
         prompt_modify_order(self.text_log, self.party, turn_callback=self._consume_pass_turn)
 
     def _negate_time(self) -> None:
-        """NEGATE TIME: consume the FIRST member's powder for a 6-turn
-        QUICKNESS aura (Java GameScreen.java:1089-1100 negateTime)."""
+        """NEGATE TIME: consume the FIRST member's powder for a QUICKNESS aura
+        (Java GameScreen.java:1089-1100 negateTime). The duration is 10 per
+        USER-DIRECTED GBC-RULES DEVIATION (2026-11-14) (GBC battle2.c:722-733;
+        LW UltimaMain.c:2129-2139) — superseding the old 6-turn reading."""
         for m in self.party.members:
             if getattr(m, "powder", 0) > 0:
                 m.powder -= 1
                 self.text_log.add_message("Stop time with a powder!")
-                self.party.aura.set(AuraType.QUICKNESS, 6)
+                self.party.aura.set(AuraType.QUICKNESS, 10)
                 self._consume_pass_turn()  # Java keyUp tail: N falls through
                 return
         self.text_log.add_message("None!")

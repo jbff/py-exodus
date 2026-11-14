@@ -573,10 +573,13 @@ def _apply_spell_effect(
 
     # Time Stop / Freeze (ALTAIR / ZOMM)
     if spell == Spell.ALTAIR:
-        # Java SpellUtil.java:125-127 — the QUICKNESS aura for 5 turns.
+        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): stop time lasts 20
+        # rounds (GBC menucmd.c:1551 — amended 2026-11-14: 20 rounds per LW
+        # UltimaSpellCombat.c:238 + NES Bank0F.asm:3329 agreement); the older
+        # Java 5-turn reading (SpellUtil.java:125-127) is superseded.
         aura = getattr(party, "aura", None)
         if aura is not None:
-            aura.set(AuraType.QUICKNESS, 5)
+            aura.set(AuraType.QUICKNESS, 20)
         return SpellResult(
             success=True,
             message="Altair stops time!",
@@ -853,6 +856,13 @@ def _apply_projectile_attack(
                     hit=False,
                 )
             dmg = _caster_damage(min_dmg, max_dmg)
+            # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): DECORP is a
+            # guaranteed kill on a hit regardless of hp (GBC battle.c:1285-1296
+            # sets kill=1; LW UltimaSpellCombat.c:237,456-472 ports it as
+            # damage=255). The 128-255 roll stays as the displayed lethal
+            # damage; the applied blow clamps hp to 0 whatever the roll says.
+            if spell == Spell.DECORP:
+                dmg = max(dmg, target_m.hp)
             target_m.take_damage(dmg)
             killed = target_m.is_dead
             if killed:
@@ -915,12 +925,23 @@ def _apply_group_damage(
         affected_count = 0
         for m in list(arena.monsters):
             if not m.is_dead:
+                if spell == Spell.NECORP:
+                    # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): NECORP
+                    # sets every LIVING monster's hp to exactly 5 — it deals no
+                    # damage and kills nothing, so a 40-hp orc and a 2-hp ghoul
+                    # both end at 5 (GBC battle.c:1361-1373 sets the monster
+                    # hp=5 + monsterpower=10; LW UltimaSpellCombat.c:498-520
+                    # sets MonsterHP[mon]=5). The monsterpower=10 debuff maps
+                    # to CombatMonster.weakened, which the resolver reads to
+                    # halve the creature's melee damage.
+                    m.hp = 5
+                    m.weakened = True
+                    affected_count += 1
+                    continue
                 if spell == Spell.NOXUM:
                     dmg = _get_random_between(24, caster_char.int)
                 elif spell == Spell.DAG_MENTAR:
                     dmg = _get_random_between(32, caster_char.int)
-                elif spell == Spell.NECORP:
-                    dmg = _get_random_between(64, 128)
                 elif spell == Spell.ZXKUQYB:
                     if random.randrange(3) == 0:
                         dmg = 255
@@ -954,9 +975,17 @@ def _apply_group_damage(
                 total_dmg += dmg
                 affected_count += 1
 
+        if spell == Spell.NECORP:
+            # No damage was dealt — NECORP only clamps hp to 5 and weakens.
+            message = f"Necorp weakens {affected_count} monsters to 5 hp!"
+        else:
+            message = (
+                f"{spell.name.capitalize()} blasts {affected_count} monsters "
+                f"for {total_dmg} total damage!"
+            )
         return SpellResult(
             success=True,
-            message=f"{spell.name.capitalize()} blasts {affected_count} monsters for {total_dmg} total damage!",
+            message=message,
             damage=total_dmg,
             targets_affected=affected_count,
             spell=spell,

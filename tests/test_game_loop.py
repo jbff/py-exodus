@@ -1270,14 +1270,15 @@ def test_all_overland_commands_a_to_z(pygame_setup, asset_mgr, sample_party):
         ow.text_log.submit_input("1")
     assert any("Search:" in msg or "searches" in msg or "Nothing here" in msg for msg in ow.text_log.history)
 
-    # N - Negate Time — Task 9 parity: powder → 6-turn QUICKNESS aura
+    # N - Negate Time — powder → 10-turn QUICKNESS aura
+    # (GBC battle2.c:722-733 — amended 2026-11-14; LW UltimaMain.c:2129-2139)
     sample_party.members[0].powder = 2
     ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_n))
     assert sample_party.members[0].powder == 1
     assert sample_party.aura.get_type() == AuraType.QUICKNESS
     # Java GameScreen.java:604-628 — N falls through to finishTurn, whose
-    # aura.passTurn ticks once at the press, so 6 becomes 5 immediately.
-    assert sample_party.aura.get_duration() == 5
+    # aura.passTurn ticks once at the press, so 10 becomes 9 immediately.
+    assert sample_party.aura.get_duration() == 9
     assert any("Stop time with a powder!" in msg for msg in ow.text_log.history)
 
     # V - Volume
