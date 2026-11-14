@@ -685,17 +685,43 @@ def _apply_spell_effect(
 
         is_dungeon = world_map is not None and hasattr(world_map, "dmap") and hasattr(world_map, "z")
 
+        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): APPAR_UNEM fails outright 25% of the time (GBC menucmd.c:1311-1313; LW UltimaSpellCombat.c:268-273 corrobates RandNum(0,255)&0x03)
+        # GBC order: the chest check runs inside dogetchest BEFORE the roll
+        # (menucmd.c:1054-1063), so a cast with no chest takes "Not Here!"
+        # without consuming a roll — the fizzle only rolls when a chest IS
+        # present. GBC clears the chest tile after the roll passes
+        # (menucmd.c:1219-1233), so a failed cast leaves the chest in place,
+        # and mana is spent on every cast either way (GBC deducts it at the
+        # cast site before dogetchest, menucmd.c:1309 — the py pipeline
+        # already charges mana unconditionally before the effect dispatch).
+        def _appar_unem_fizzle() -> bool:
+            # make_rnd(0) is a 0-255 draw: a 25%-of-words "0 after &0x03".
+            return (random.randrange(256) & 0x03) == 0
+
         if is_dungeon:
             # DungeonScreen.getChest: the party's own dungeon tile only.
             dx = getattr(world_map, "x", px)
             dy = getattr(world_map, "y", py)
             if world_map.dmap.get_tile(dx, dy, world_map.z) == DungeonTile.CHEST:
+                if _appar_unem_fizzle():
+                    # GBC faildat2 (menucmd.c:153-156) prints "FAILED" and
+                    # returns without opening; the chest tile is untouched.
+                    return SpellResult(success=False, message="FAILED", spell=spell)
                 world_map.dmap.set_tile(dx, dy, world_map.z, DungeonTile.NOTHING)
                 lines.extend(open_chest(party, member, dungeon=True, disarmed=True))
                 opened = True
         else:
             # GameScreen.getChest: chest object exactly at the party's tile.
             if party is not None and hasattr(party, "dynamic_objects"):
+                # Peek presence without mutating it: the fizzle must roll
+                # before the chest object is taken (same GBC ordering as the
+                # tile path above).
+                chest_object_present = any(
+                    o.get("tile") == "chest" and o.get("x", -1) == px and o.get("y", -1) == py
+                    for o in party.dynamic_objects
+                )
+                if chest_object_present and _appar_unem_fizzle():
+                    return SpellResult(success=False, message="FAILED", spell=spell)
                 try:
                     take_chest_object(party, px, py)
                     lines.extend(open_chest(party, member, dungeon=False, disarmed=True))
@@ -711,6 +737,8 @@ def _apply_spell_effect(
                     getattr(tile, "name", "") == "chest"
                     or str(getattr(tile, "rule", "")).lower() == "chest"
                 ):
+                    if _appar_unem_fizzle():
+                        return SpellResult(success=False, message="FAILED", spell=spell)
                     from py_exodus.assets import TileDef
 
                     world_map.set_tile(px, py, TileDef(index=3, name="floor"))

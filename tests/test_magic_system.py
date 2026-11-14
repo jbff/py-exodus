@@ -654,17 +654,67 @@ def test_appar_unem_disarms_and_gets_chest():
     party.dynamic_objects.append({"tile": "chest", "x": 10, "y": 10})
     assert len(party.dynamic_objects) == 1
 
-    # Cast APPAR_UNEM (direction prompted then ignored by Java)
-    res = cast_spell(Spell.APPAR_UNEM, caster=cleric, party=party, target_dir=Direction.SOUTH)
-    assert res.success is True
-    assert "The Chest Holds" in res.message
-    assert party.gold > 100
-    assert len(party.dynamic_objects) == 0
+    # Seeded so the GBC 25% fizzle roll (menucmd.c:1311-1313) is a pass:
+    # seed 19's first randrange(256) draw is 22 (22 & 0x03 != 0).
+    with seeded_random_state(19):
+        # Cast APPAR_UNEM (direction prompted then ignored by Java)
+        res = cast_spell(Spell.APPAR_UNEM, caster=cleric, party=party, target_dir=Direction.SOUTH)
+        assert res.success is True
+        assert "The Chest Holds" in res.message
+        assert party.gold > 100
+        assert len(party.dynamic_objects) == 0
 
-    # Cast again when no chest is nearby
-    res2 = cast_spell(Spell.APPAR_UNEM, caster=cleric, party=party, target_dir=Direction.NORTH)
-    assert res2.success is False
-    assert "Not Here!" in res2.message
+        # Cast again when no chest is nearby ("Not Here!" consumes no roll)
+        res2 = cast_spell(Spell.APPAR_UNEM, caster=cleric, party=party, target_dir=Direction.NORTH)
+        assert res2.success is False
+        assert "Not Here!" in res2.message
+
+
+def test_appar_unem_gbc_25pct_failure_seeded():
+    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): with a chest present,
+    APPAR_UNEM fails outright ~25% of the time (GBC menucmd.c:1311-1313,
+    `(make_rnd(0))&0x03)==0`; LW UltimaSpellCombat.c:268-273 corroborates
+    `RandNum(0,255)&0x03`). GBC checks the chest first (menucmd.c:1054-1063),
+    so the "Not Here!" path consumes no roll; the tile clear runs after the
+    roll passes (menucmd.c:1219-1233), so a failed cast leaves the chest in
+    place. Mana is spent on every cast either way (GBC deducts before
+    dogetchest, menucmd.c:1309)."""
+    party = Party(x=10, y=10, gold=100)
+    cleric = Character(
+        "Bishop", "M", Race.BOBIT, Profession.CLERIC, wisdom=50, mp=50, hp=100, max_hp=100
+    )
+    party.add_member(cleric)
+
+    failures = 0
+    with seeded_random_state(2026):
+        for _ in range(100):
+            party.dynamic_objects.clear()
+            party.dynamic_objects.append({"tile": "chest", "x": 10, "y": 10})
+            gold_before = party.gold
+            cleric.mp = 50
+
+            res = cast_spell(
+                Spell.APPAR_UNEM, caster=cleric, party=party, target_dir=Direction.SOUTH
+            )
+
+            if res.success:
+                assert "The Chest Holds" in res.message
+                assert len(party.dynamic_objects) == 0
+                assert party.gold > gold_before
+            else:
+                failures += 1
+                # GBC faildat2 (menucmd.c:153-156): "FAILED".
+                assert "FAILED" in res.message
+                assert "Chest Holds" not in res.message
+                # The chest survives a failed spell.
+                assert len(party.dynamic_objects) == 1
+                assert party.gold == gold_before
+            # Mana spent whatever the roll said.
+            assert cleric.mp == 45
+
+    # ~25% outright failure, ~75% open normally.
+    assert 18 <= failures <= 32
+    assert 68 <= 100 - failures <= 82
 
 
 def test_appar_unem_prompt_flow_never_asks_direction():

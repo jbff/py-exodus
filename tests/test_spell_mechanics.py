@@ -1,6 +1,8 @@
 """Tests for APPAR_UNEM chest pipeline (Java GameScreen.getChest
 / DungeonScreen.getChest with disarmed=true) and the dungeon spells
 (Java SpellUtil.spellYup/spellZdown/spellLibRec/spellXit)."""
+import contextlib
+import random as pyrandom
 import re
 
 import pytest
@@ -13,6 +15,19 @@ from py_exodus.entities.party import Party, PartyMember
 from py_exodus.world.dungeon import DungeonState
 from py_exodus.world.map import DungeonMap, DungeonTile
 from py_exodus.world.loader import MapLoader
+
+
+@contextlib.contextmanager
+def seeded_random_state(seed):
+    """Seed the shared RNG for a test and restore its draw state afterwards
+    (same hygiene convention as tests/test_magic_system.py): needed since the
+    GBC 25% APPAR_UNEM fizzle (menucmd.c:1311-1313) rolls before open_chest."""
+    state = pyrandom.getstate()
+    pyrandom.seed(seed)
+    try:
+        yield
+    finally:
+        pyrandom.setstate(state)
 
 
 @pytest.fixture
@@ -58,19 +73,20 @@ def test_appar_unem_overworld_dynamic_chest(cleric_party):
     initial_gold = cleric_party.gold
     initial_hp = cleric_party.members[0].hp
 
-    res = cast_spell(
-        spell=Spell.APPAR_UNEM,
-        caster=cleric_party.members[0],
-        target_dir=Direction.NORTH,
-        party=cleric_party,
-    )
+    with seeded_random_state(3):
+        res = cast_spell(
+            spell=Spell.APPAR_UNEM,
+            caster=cleric_party.members[0],
+            target_dir=Direction.NORTH,
+            party=cleric_party,
+        )
 
-    assert res.success
-    assert len(cleric_party.dynamic_objects) == 0
-    assert cleric_party.gold > initial_gold  # rand(50)+rand(8)+10 credited
-    assert "The Chest Holds" in res.message
-    # disarmed=True — no trap ever fires
-    assert cleric_party.members[0].hp == initial_hp
+        assert res.success
+        assert len(cleric_party.dynamic_objects) == 0
+        assert cleric_party.gold > initial_gold  # rand(50)+rand(8)+10 credited
+        assert "The Chest Holds" in res.message
+        # disarmed=True — no trap ever fires
+        assert cleric_party.members[0].hp == initial_hp
 
 
 def test_appar_unem_world_chest_tile_at_party_position(asset_mgr, cleric_party):
@@ -85,19 +101,20 @@ def test_appar_unem_world_chest_tile_at_party_position(asset_mgr, cleric_party):
 
     initial_gold = cleric_party.gold
     initial_hp = cleric_party.members[0].hp
-    res = cast_spell(
-        spell=Spell.APPAR_UNEM,
-        caster=cleric_party.members[0],
-        target_dir=Direction.SOUTH,
-        party=cleric_party,
-        world_map=town_map,
-    )
+    with seeded_random_state(5):
+        res = cast_spell(
+            spell=Spell.APPAR_UNEM,
+            caster=cleric_party.members[0],
+            target_dir=Direction.SOUTH,
+            party=cleric_party,
+            world_map=town_map,
+        )
 
-    assert res.success
-    assert cleric_party.gold > initial_gold
-    assert cleric_party.members[0].hp == initial_hp
-    new_tile = town_map.get_tile(px, py)
-    assert new_tile.name != "chest"
+        assert res.success
+        assert cleric_party.gold > initial_gold
+        assert cleric_party.members[0].hp == initial_hp
+        new_tile = town_map.get_tile(px, py)
+        assert new_tile.name != "chest"
 
 
 def test_appar_unem_world_no_chest_nearby(cleric_party):
@@ -126,18 +143,19 @@ def test_appar_unem_dungeon_chest(cleric_party):
     initial_gold = cleric_party.gold
     initial_hp = cleric_party.members[0].hp
 
-    res = cast_spell(
-        spell=Spell.APPAR_UNEM,
-        caster=cleric_party.members[0],
-        target_dir=Direction.NORTH,
-        party=cleric_party,
-        world_map=state,
-    )
+    with seeded_random_state(7):
+        res = cast_spell(
+            spell=Spell.APPAR_UNEM,
+            caster=cleric_party.members[0],
+            target_dir=Direction.NORTH,
+            party=cleric_party,
+            world_map=state,
+        )
 
-    assert res.success
-    assert cleric_party.gold > initial_gold
-    assert cleric_party.members[0].hp == initial_hp
-    assert dmap.get_tile(2, 2, 0) == DungeonTile.NOTHING
+        assert res.success
+        assert cleric_party.gold > initial_gold
+        assert cleric_party.members[0].hp == initial_hp
+        assert dmap.get_tile(2, 2, 0) == DungeonTile.NOTHING
 
 
 def test_appar_unem_dungeon_never_opens_the_overworld_chest(cleric_party):
@@ -178,27 +196,28 @@ def test_appar_unem_dungeon_chest_opens_exactly_once(cleric_party):
     state = DungeonState(dmap, start_x=2, start_y=2, start_z=0, party=cleric_party)
     dmap.set_tile(2, 2, 0, DungeonTile.CHEST)
 
-    res = cast_spell(
-        spell=Spell.APPAR_UNEM,
-        caster=cleric_party.members[0],
-        party=cleric_party,
-        world_map=state,
-    )
-    assert res.success
-    gold_after_first = cleric_party.gold
-    m = re.search(r"Chest Holds: (\d+) Gold", res.message)
-    assert m is not None
-    assert 10 <= int(m.group(1)) < 70
+    with seeded_random_state(11):
+        res = cast_spell(
+            spell=Spell.APPAR_UNEM,
+            caster=cleric_party.members[0],
+            party=cleric_party,
+            world_map=state,
+        )
+        assert res.success
+        gold_after_first = cleric_party.gold
+        m = re.search(r"Chest Holds: (\d+) Gold", res.message)
+        assert m is not None
+        assert 10 <= int(m.group(1)) < 70
 
-    res2 = cast_spell(
-        spell=Spell.APPAR_UNEM,
-        caster=cleric_party.members[1],
-        party=cleric_party,
-        world_map=state,
-    )
-    assert not res2.success
-    assert "Not Here!" in res2.message
-    assert cleric_party.gold == gold_after_first
+        res2 = cast_spell(
+            spell=Spell.APPAR_UNEM,
+            caster=cleric_party.members[1],
+            party=cleric_party,
+            world_map=state,
+        )
+        assert not res2.success
+        assert "Not Here!" in res2.message
+        assert cleric_party.gold == gold_after_first
 
 
 def test_appar_unem_dungeon_opens_nothing_at_a_neighbouring_chest(cleric_party):
