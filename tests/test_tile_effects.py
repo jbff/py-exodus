@@ -19,9 +19,14 @@ Java truth:
 - ``exodus/DungeonScreen.java:1040-1103`` — dungeons block only WALL +
   FIELD_ENERGY, apply POISONFIELD/LAVA on FIELD_POISON/FIELD_FIRE, and pit
   traps log "Pit!", apply the LAVA effect, and clear the tile with no level
-  change (no invented z+1, no flat 25).
+  change (no invented z+1, no flat 25). Tasks 5-7 carry the port's GBC-rule
+  deviations on top of this Java truth — notably the pit (Task 7): see the
+  deviation comments in the pit tests below; ``tile_effects`` keeps the Java
+  parity semantics for the 2D-map and chest callers.
 """
 from __future__ import annotations
+
+import random
 
 import pygame
 import pytest
@@ -71,6 +76,25 @@ class ScriptedRng:
     def randrange(self, n: int) -> int:
         value = self.values.pop(0) if self.values else 0
         return value % n
+
+
+class FixedRollRng:
+    """Stub for the GBC pit-trap rolls (Task 7 deviation).
+
+    ``randrange(100)`` always returns a fixed high remainder so a zero-dex
+    member fails the ``dex + 25 >= randrange(100)`` evade; ``randint(a, b)``
+    returns a fixed remainder inside the range for the damage roll.
+    """
+
+    def __init__(self, randrange_value: int = 99, randint_value: int = 1) -> None:
+        self.randrange_value = randrange_value
+        self.randint_value = randint_value
+
+    def randrange(self, n: int) -> int:
+        return min(max(self.randrange_value, 0), n - 1)
+
+    def randint(self, low: int, high: int) -> int:
+        return min(max(self.randint_value, low), high)
 
 
 class SpeedTile:
@@ -552,36 +576,89 @@ def test_dungeon_field_fire_applies_lava():
     assert dmap.get_tile(5, 4, 0) is DungeonTile.FIELD_FIRE
 
 
-def test_dungeon_pit_trap_java_behavior():
-    """Pit!: LAVA effect per member, tile cleared to NOTHING, no level change."""
-    dmap = make_dmap()
-    dmap.set_tile(5, 4, 0, DungeonTile.PIT_TRAP)
-    party = make_party()
-    state = DungeonState(
-        dmap,
-        start_x=5,
-        start_y=5,
-        start_z=0,
-        start_dir=Direction.NORTH,
-        party=party,
-        rng=RemainderRng(0),
-        random_encounters=False,
-    )
-    evt = state.move_forward()
-    assert evt.type == DungeonEventType.PIT_TRAP
-    assert evt.message == "Pit!"
-    assert (state.x, state.y) == (5, 4)
-    assert state.z == 0  # no invented level change
-    assert party.dungeon_level == 0
-    assert all(m.hp == 100 - 16 for m in party.members)
-    assert dmap.get_tile(5, 4, 0) is DungeonTile.NOTHING
+# USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): pit trap dex-evade +
+# per-member rnd(level+1)<<3 (GBC dungfunc.c:1190-1232) — supersedes the
+# Java unconditional LAVA fan-out below.
 
 
-def test_dungeon_pit_trap_mark_of_fire_immune():
+def test_dungeon_pit_trap_gbc_high_dex_evades():
+    """GBC pit: a high-dex member evades every level; no damage, tile cleared.
+
+    The evade convention is the chest-trap roll (dex + 25 >= randrange(100)):
+    dex 99 succeeds against any roll, so damage never lands on any dungeon
+    level and the pit tile still clears to NOTHING.
+    """
+    for z in range(8):
+        dmap = make_dmap()
+        dmap.set_tile(5, 4, z, DungeonTile.PIT_TRAP)
+        party = make_party()
+        for m in party.members:
+            m.dex = 99
+        state = DungeonState(
+            dmap,
+            start_x=5,
+            start_y=5,
+            start_z=z,
+            start_dir=Direction.NORTH,
+            party=party,
+            rng=FixedRollRng(99, 1),
+            random_encounters=False,
+        )
+        evt = state.move_forward()
+        assert evt.type == DungeonEventType.PIT_TRAP
+        assert evt.message == "Pit!"
+        assert all(m.hp == 100 for m in party.members)
+        assert dmap.get_tile(5, 4, z) is DungeonTile.NOTHING
+
+
+def test_dungeon_pit_trap_gbc_zero_dex_damage_bounded():
+    """GBC pit: zero-dex fails the evade ~always; failures take <= (z+1)*8.
+
+    Each living member rolls its own evade; a failure deals
+    randint(0, z + 1) << 3 — zero damage is possible per roll, so the assert
+    is a bound (hp within [100 - (z+1)*8, 100]) across seeded runs, with some
+    run actually taking damage.
+    """
+    for z in (0, 3):
+        damage_seen = False
+        for seed in range(20):
+            dmap = make_dmap()
+            dmap.set_tile(5, 4, z, DungeonTile.PIT_TRAP)
+            party = make_party()
+            for m in party.members:
+                m.dex = 0
+            state = DungeonState(
+                dmap,
+                start_x=5,
+                start_y=5,
+                start_z=z,
+                start_dir=Direction.NORTH,
+                party=party,
+                rng=random.Random(seed),
+                random_encounters=False,
+            )
+            evt = state.move_forward()
+            assert evt.type == DungeonEventType.PIT_TRAP
+            assert dmap.get_tile(5, 4, z) is DungeonTile.NOTHING
+            for m in party.members:
+                assert 100 - (z + 1) * 8 <= m.hp <= 100
+                if m.hp < 100:
+                    damage_seen = True
+        assert damage_seen
+
+
+def test_dungeon_pit_trap_gbc_mark_of_fire_no_protection():
+    """Mark of Fire absorbs lava, not pits: a marked member takes the fall.
+
+    GBC dungfunc.c:1190-1232 gives the pit no mark immunity — the Java
+    LAVA-effect Mark-of-Fire branch does not apply here.
+    """
     dmap = make_dmap()
     dmap.set_tile(5, 4, 0, DungeonTile.PIT_TRAP)
     party = make_party()
     party.members[0].marks[1] = 1
+    for m in party.members:
+        m.dex = 0
     state = DungeonState(
         dmap,
         start_x=5,
@@ -589,11 +666,11 @@ def test_dungeon_pit_trap_mark_of_fire_immune():
         start_z=0,
         start_dir=Direction.NORTH,
         party=party,
-        rng=RemainderRng(1),  # rand(32)==1 → 17 damage without the mark
+        rng=FixedRollRng(99, 1),  # evade fails for dex 0; damage 1<<3 = 8
         random_encounters=False,
     )
     evt = state.move_forward()
     assert evt.type == DungeonEventType.PIT_TRAP
-    assert party.members[0].hp == 100  # Mark of Fire absorbs the pit
-    assert party.members[1].hp == 100 - 17
+    assert party.members[0].hp == 100 - 8  # the mark does not protect a pit
+    assert party.members[1].hp == 100 - 8
     assert dmap.get_tile(5, 4, 0) is DungeonTile.NOTHING

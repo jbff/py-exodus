@@ -128,7 +128,12 @@ def test_dungeon_drink_fountain_poison_and_cure(asset_mgr, party, test_dmap):
 
 
 def test_dungeon_hazard_wind_trap_and_gremlins(asset_mgr, party, test_dmap):
-    """Stepping into wind trap turns off torch; gremlins take 2 food per member."""
+    """Wind trap turns off the torch; gremlins drain 100 food from one member.
+
+    USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): gremlins drain 100 food
+    from one member (GBC dungfunc.c:1177-1189; LW corroborates) — the Java
+    -2-per-member fan-out no longer applies to this branch.
+    """
     test_dmap.set_tile(1, 2, 0, DungeonTile.WIND_TRAP)
     test_dmap.set_tile(1, 3, 0, DungeonTile.GREMLINS)
     state = DungeonState(test_dmap, start_x=1, start_y=1, start_z=0, start_dir=Direction.SOUTH, party=party)
@@ -141,12 +146,21 @@ def test_dungeon_hazard_wind_trap_and_gremlins(asset_mgr, party, test_dmap):
     assert state.is_torch_on is False
     assert not hasattr(state, "torch_rounds")
 
-    # Java Party.applyEffect (Party.java:279-283, 347-352): food -2 per
-    # non-DEAD member, floored at 0 — there is no party-sum halving.
+    # GBC rule: one random LIVING member loses 100 food, floored at 0; the
+    # tile still clears. Exactly one member's food changes.
+    party.members[0].food = 90
+    party.members[1].food = 110
     foods_before = [m.food for m in party.members]
 
     # Step forward onto (1, 3) GREMLINS
     evt2 = state.move_forward()
     assert evt2.type == DungeonEventType.GREMLINS
-    for i, m in enumerate(party.members):
-        assert m.food == max(0, foods_before[i] - 2)
+    drained = [
+        i
+        for i, m in enumerate(party.members)
+        if m.food != foods_before[i]
+    ]
+    assert len(drained) == 1
+    i = drained[0]
+    assert party.members[i].food == max(0, foods_before[i] - 100)
+    assert test_dmap.get_tile(1, 3, 0) == DungeonTile.NOTHING

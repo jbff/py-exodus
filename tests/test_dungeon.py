@@ -351,17 +351,35 @@ class RemainingRng:
         return min(self.remainder, n - 1)
 
 
-def test_pit_trap(empty_dmap, test_party):
-    """Pit! deals the LAVA tile effect per member; no level change; tile cleared.
+class _GbcPitRng:
+    """Stub RNG for the GBC pit rolls.
 
-    Java truth: DungeonScreen.checkTileAffects (DungeonScreen.java:1090-1095)
-    applies TileEffect.LAVA, clears the tile to NOTHING and never changes
-    level. The old z+1 and flat-25 behaviors were invented.
+    randrange(100) always returns 99 so the dex + 25 >= randrange(100) evade
+    fails at dex 0 (25 < 99); randint(a, b) always returns its high bound so
+    the damage roll lands.
+    """
+
+    def randrange(self, n: int) -> int:
+        return min(99, n - 1)
+
+    def randint(self, low: int, high: int) -> int:
+        return high
+
+
+def test_pit_trap(empty_dmap, test_party):
+    """Pit! rolls a per-member dex evade, then rnd(dunglevel+1)<<3 damage.
+
+    USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): pit trap dex-evade +
+    per-member rnd(level+1)<<3 (GBC dungfunc.c:1190-1232) — supersedes the
+    Java LAVA fan-out this test asserted previously. No level change; the
+    tile still clears to NOTHING.
     """
     empty_dmap.set_tile(5, 4, 0, DungeonTile.PIT_TRAP)
+    for m in test_party.members:
+        m.dex = 0
     state = DungeonState(
         empty_dmap, start_x=5, start_y=5, start_z=0, start_dir=Direction.NORTH,
-        party=test_party, rng=RemainingRng(0),
+        party=test_party, rng=_GbcPitRng(),
     )
 
     ev = state.move_forward()
@@ -370,9 +388,9 @@ def test_pit_trap(empty_dmap, test_party):
     assert ev.message == "Pit!"
     assert state.z == 0  # no level change
     assert test_party.dungeon_level == 0
-    # LAVA effect: 16 + rand(32)==0 → 16 damage to each living member.
-    assert test_party.members[0].hp == test_party.members[0].max_hp - 16
-    assert test_party.members[1].hp == test_party.members[1].max_hp - 16
+    # Evade failed for every member: randint(0, z+1) == 1 → (0+1)<<3 damage.
+    assert test_party.members[0].hp == test_party.members[0].max_hp - 8
+    assert test_party.members[1].hp == test_party.members[1].max_hp - 8
     # Trap tile consumed/replaced with NOTHING
     assert empty_dmap.get_tile(5, 4, 0) == DungeonTile.NOTHING
 
@@ -391,15 +409,30 @@ def test_wind_trap(empty_dmap, test_party):
 
 
 def test_gremlins_trap(empty_dmap, test_party):
+    """Gremlins drain 100 food from ONE random LIVING member (floor 0).
+
+    USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): gremlins drain 100 food
+    from one member (GBC dungfunc.c:1177-1189; LW corroborates) — supersedes
+    the Java -2-per-member fan-out this test asserted previously.
+    """
     empty_dmap.set_tile(5, 4, 0, DungeonTile.GREMLINS)
     state = DungeonState(empty_dmap, start_x=5, start_y=5, start_z=0, start_dir=Direction.NORTH, party=test_party)
-    test_party.food = 200
+    test_party.members[0].food = 90
+    test_party.members[1].food = 110
+    foods_before = [m.food for m in test_party.members]
 
     ev = state.move_forward()
-    # Java Party.applyEffect fan-out: food -2 per non-DEAD member, "Gremlins!".
+
     assert ev.type == DungeonEventType.GREMLINS
     assert ev.message == "Gremlins!"
-    assert test_party.food == 200 - 2 * len(test_party.members)
+    drained = [
+        i
+        for i, m in enumerate(test_party.members)
+        if m.food != foods_before[i]
+    ]
+    assert len(drained) == 1
+    i = drained[0]
+    assert test_party.members[i].food == max(0, foods_before[i] - 100)
     assert empty_dmap.get_tile(5, 4, 0) == DungeonTile.NOTHING
 
 

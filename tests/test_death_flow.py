@@ -58,6 +58,21 @@ class _AlwaysHitRng:
         return 0
 
 
+class _GbcPitRng:
+    """Stub RNG for the GBC pit-trap rolls (Task 7 deviation).
+
+    randrange(100) always returns 99 so the dex + 25 >= randrange(100) evade
+    fails even at the Fighter's default dex 15 (40 < 99); randint(a, b)
+    always returns its high bound so the damage roll lands.
+    """
+
+    def randrange(self, n: int) -> int:
+        return min(99, n - 1)
+
+    def randint(self, low: int, high: int) -> int:
+        return high
+
+
 # --- PartyMember.apply_damage: the Java-parity damage chokepoint ---
 
 
@@ -396,9 +411,10 @@ def test_overworld_chest_gas_trap_wipe_transitions_to_start_screen(sm, asset_mgr
 def test_dungeon_pit_trap_wipe_transitions_to_start_screen(sm, asset_mgr):
     """A dungeon pit trap killing the whole party routes to game over.
 
-    Java truth: the pit applies TileEffect.LAVA (1-in-2 per member, 16+
-    rand(32) damage); the stubbed RNG makes every roll hit so the wipe is
-    deterministic.
+    USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): pit trap dex-evade +
+    per-member rnd(level+1)<<3 (GBC dungfunc.c:1190-1232) — a member that
+    fails the dex evade takes randint(0, z + 1) << 3; the stubbed RNG fails
+    the evade and lands the damage, so the wipe is deterministic.
     """
     dmap = DungeonMap(id=99, name="TestDungeon", width=16, height=16, levels=8)
     tiles = []
@@ -417,7 +433,7 @@ def test_dungeon_pit_trap_wipe_transitions_to_start_screen(sm, asset_mgr):
     dmap.level_texts = ["" for _ in range(8)]
     dmap.set_tile(8, 7, 0, DungeonTile.PIT_TRAP)
 
-    party = single_member_party(hp=10)
+    party = single_member_party(hp=5)
     dungeon = DungeonScreen(
         party=party,
         dungeon_map=dmap,
@@ -428,9 +444,9 @@ def test_dungeon_pit_trap_wipe_transitions_to_start_screen(sm, asset_mgr):
         manager=sm,
     )
     sm.set_screen(dungeon)
-    # Java rand.nextInt(2) == 0 on every roll: the LAVA effect always fires
-    # and 16 + rand(32)==0 == 16 damage kills the 10 hp member.
-    dungeon.state.rng = _AlwaysHitRng()
+    # The evade (dex 15 + 25 < 99) fails and randint(0, 1) == 1 lands
+    # (0 + 1) << 3 == 8 damage, killing the 5 hp member → PartyDeathException.
+    dungeon.state.rng = _GbcPitRng()
 
     dungeon.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_UP))
 

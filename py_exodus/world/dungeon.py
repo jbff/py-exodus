@@ -1299,15 +1299,25 @@ class DungeonState:
         self.x = target_x
         self.y = target_y
 
-        # Pit trap: Java DungeonScreen.checkTileAffects (1090-1095) — log
-        # "Pit!", apply the LAVA effect through the unconditional
-        # Party.applyEffect fan-out (16+rand(32) unless the Mark of Fire),
-        # clear the tile to NOTHING. No level change and no flat damage:
-        # those were invented here.
+        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): pit trap dex-evade
+        # + per-member rnd(level+1)<<3 (GBC dungfunc.c:1190-1232) — each
+        # LIVING member rolls the port's chest-trap evade convention
+        # (dex + 25 >= randrange(100); GBC's testplayerdex maps onto that
+        # roll) and failures take randint(0, self.z + 1) << 3
+        # (rnd(dunglevel+1)<<3) through the apply_damage chokepoint;
+        # LairWare's extra party-wide rnd255&0x77 term is NOT adopted. Mark
+        # of Fire does NOT protect a pit — that is the lava rule, and GBC
+        # gives the pit no mark immunity. Tile still clears to NOTHING.
         if target_tile == DungeonTile.PIT_TRAP:
             self.dmap.set_tile(self.x, self.y, self.z, DungeonTile.NOTHING)
             try:
-                tile_effects.apply_effect(self.party, TileEffect.LAVA, rng=self.rng)
+                if self.party is not None:
+                    for member in list(self.party.members):
+                        if member.is_dead():
+                            continue
+                        if member.dex + 25 >= self.rng.randrange(100):
+                            continue  # evaded
+                        member.apply_damage(self.rng.randint(0, self.z + 1) << 3)
             except PartyDeathException:
                 # Java catches PartyDeathException around the move; the
                 # owning DungeonScreen's post-check routes the wipe.
@@ -1346,16 +1356,21 @@ class DungeonState:
                 combat_evt,
             )
 
-        # Gremlins: Java checkTileAffects (DungeonScreen.java:1092-1097) logs
-        # "Gremlins!" and applies the unconditional Party.applyEffect
-        # (Party.java:279-283, 347-352) fan-out — food -2 per non-DEAD
-        # member, tile cleared to NOTHING.
+        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): gremlins drain 100
+        # food from one member (GBC dungfunc.c:1177-1189; LW corroborates) —
+        # ONE random LIVING member, floored at 0. The Java -2-per-member
+        # fan-out stays in tile_effects for Java-parity callers; this branch
+        # applies the GBC rule in-dungeon. Tile still clears to NOTHING.
         if target_tile == DungeonTile.GREMLINS:
             self.dmap.set_tile(self.x, self.y, self.z, DungeonTile.NOTHING)
-            try:
-                tile_effects.apply_effect(self.party, TileEffect.GREMLINS, rng=self.rng)
-            except PartyDeathException:
-                pass
+            living = (
+                [m for m in self.party.members if not m.is_dead()]
+                if self.party is not None
+                else []
+            )
+            if living:
+                victim = living[self.rng.randrange(len(living))]
+                victim.food = max(0, victim.food - 100)
             combat_evt = self._tick_turn()
             return self._with_combat(
                 DungeonEvent(
