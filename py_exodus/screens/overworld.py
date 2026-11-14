@@ -1115,13 +1115,19 @@ class OverworldScreen(BaseScreen):
         if self.game_map is None:
             self.text_log.add_message("Can't!")
             return
-        if getattr(member, "keys", 0) > 0 and door_module.unlock_door(
-            self.game_map, self.party.x + d.dx, self.party.y + d.dy
+        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): unlocking consumes one key (GBC menucmd2.c:1595-1650)
+        # — the acting member is the member 1-4 the U flow already prompts for,
+        # and unlock_door itself checks and decrements its keys. A keyless
+        # member is refused with "You need a key!" (GBC refusal message).
+        if door_module.unlock_door(
+            self.game_map, self.party.x + d.dx, self.party.y + d.dy, member=member
         ):
             self.text_log.add_message("Unlocked!")
-            member.keys -= 1
         else:
-            self.text_log.add_message("Can't!")
+            if getattr(member, "keys", 0) <= 0:
+                self.text_log.add_message("You need a key!")
+            else:
+                self.text_log.add_message("Can't!")
 
     def _toggle_volume(self) -> None:
         """Toggle game music and sound effects on/off."""

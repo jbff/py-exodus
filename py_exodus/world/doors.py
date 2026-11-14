@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 from py_exodus.assets import TileAttrib, TileDef
 
 if TYPE_CHECKING:
+    from py_exodus.entities.party import PartyMember
     from py_exodus.world.map import GameMap
 
 
@@ -38,10 +39,24 @@ def open_door(game_map: GameMap, x: int, y: int) -> bool:
     return True
 
 
-def unlock_door(game_map: GameMap, x: int, y: int) -> bool:
+def unlock_door(
+    game_map: GameMap, x: int, y: int, member: PartyMember | None = None
+) -> bool:
     """Java ``BaseMap.unlockDoor`` — a door state (locked or not) exists at
     (x, y) (BaseMap.java:804-811); this port unlocks the ``locked_door`` tile
-    (a door state Java marks ``ds.locked = False``)."""
+    (a door state Java marks ``ds.locked = False``).
+
+    GBC acting member: the U screen prompts for the acting member 1-4 (the
+    existing member-selection flow), then passes that member here — the key
+    check and decrement are done below against its ``keys``.
+
+    USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): unlocking consumes one key (GBC menucmd2.c:1595-1650)
+    — with ``member`` provided, success requires ``member.keys > 0`` and
+    decrements it by one (one key per successful unlock only; NES refunds the
+    key on failure, GBC does not and GBC governs). ``member=None`` keeps the
+    legacy Java behavior (no key check — legacy/test callers)."""
+    if member is not None and getattr(member, "keys", 0) <= 0:
+        return False
     tile = game_map.get_tile(x, y)
     if tile is None:
         return False
@@ -49,4 +64,6 @@ def unlock_door(game_map: GameMap, x: int, y: int) -> bool:
         return False
     if getattr(tile, "rule", "") == "locked_door":
         game_map.set_tile(x, y, _door_tile())
+    if member is not None:
+        member.keys -= 1
     return True
