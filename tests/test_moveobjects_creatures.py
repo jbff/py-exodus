@@ -14,9 +14,11 @@ Java truth:
 - ``objects/BaseMap.java:505-509`` — a creature whose movement distance
   exceeds ``MAX_CREATURE_DISTANCE`` (Constants.java:44 = 24) is removed,
   except whirlpools.
-- ``objects/BaseMap.java:540-558`` — wontattack creatures never battle;
-  whirlpools engulf at distance <= 1 (ported in Task 9, unchanged) and
-  random-walk like the rest of the wontattack set.
+- ``objects/BaseMap.java:540-558`` — wontattack creatures never battle and
+  random-walk like the rest of the wontattack set. The whirlpool engulf is a
+  USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): ships only, same-tile
+  contact (GBC ult3.c:2418; LW UltimaMain.c:2959-3003) — it supersedes Java's
+  distance <= 1 radius scan.
 - ``objects/BaseMap.java:633-717`` — ``getValidMovesMask``/``canCreatureMoveOn``
   govern legality: sailing creatures need SAILABLE, swimming need SWIMMABLE,
   walkers need non-UNWALKABLE; a creature never steps onto the avatar's tile
@@ -110,6 +112,14 @@ def water_tile(asset_mgr):
     t = asset_mgr.get_tile_by_name("water")
     assert t is not None and t.sailable and t.swimmable
     return t
+
+
+ENGULF_LINES = (
+    "A huge swirling Whirlpool engulfs you and your ship dragging both to a watery grave!",
+    "As the water enters your lungs you pass into Darkness!",
+    "You awaken on the shores of a forgotten Land.",
+    "Your ship and crew lost to the sea!",
+)
 
 
 def key_move(screen, direction):
@@ -423,8 +433,11 @@ class TestShorelineStall:
 
 
 class TestWhirlpoolEngulf:
-    """Task 9's engulf scan stays: distance <= 1 wraps, and the new adjacency
-    rule must not turn the whirlpool into a combat encounter."""
+    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): the whirlpool engulfs
+    a SHIP only on same-tile contact (GBC ult3.c:2418; LW UltimaMain.c:2959-3003
+    engulf on tile equality — ships-only per GBC ruling), superseding Java's
+    distance <= 1 radius scan (objects/BaseMap.java:540-553). The adjacency
+    rule above must not turn the whirlpool into a combat encounter."""
 
     def test_whirlpool_adjacent_is_not_combat(self, ow, sample_party, combat_trigger):
         ow.creatures = [
@@ -434,9 +447,39 @@ class TestWhirlpoolEngulf:
         assert combat_trigger == []
         assert len(ow.creatures) == 1
 
-    def test_engulf_triggers_at_distance_one(self, ow, sample_party):
+    def test_ship_adjacent_no_engulf(self, ow, sample_party):
+        """Chebyshev 1 off the whirlpool is close but safe — the Java radius
+        ring is gone (GBC ult3.c:2418: same-tile contact only)."""
         sample_party.transport = Transport.SHIP
         sample_party.x, sample_party.y = 11, 10
+        ow.creatures = [
+            {"tile_name": "whirlpool", "tile": "whirlpool", "x": 12, "y": 10, "wontattack": True}
+        ]
+        ow._check_whirlpool_engulf()
+        assert sample_party.transport == Transport.SHIP
+        assert (sample_party.x, sample_party.y) == (11, 10)
+        assert ow.map_id == 0
+        assert not any("Whirlpool" in m for m in ow.text_log.history)
+
+    def test_foot_on_whirlpool_tile_no_engulf(self, ow, sample_party):
+        """Ships-only: a FOOT party standing on the whirlpool tile is
+        unharmed (GBC ruling — the Java scan engulfed every transport)."""
+        sample_party.transport = Transport.FOOT
+        sample_party.x, sample_party.y = 12, 10
+        ow.creatures = [
+            {"tile_name": "whirlpool", "tile": "whirlpool", "x": 12, "y": 10, "wontattack": True}
+        ]
+        ow._check_whirlpool_engulf()
+        assert sample_party.transport == Transport.FOOT
+        assert (sample_party.x, sample_party.y) == (12, 10)
+        assert ow.map_id == 0
+        assert not any("Whirlpool" in m for m in ow.text_log.history)
+
+    def test_ship_on_whirlpool_tile_engulfs(self, ow, sample_party):
+        """Same tile + SHIP: 4 log lines, transport FOOT, ferried to
+        Ambrosia (32, 54), map 13 (objects/BaseMap.java:540-553)."""
+        sample_party.transport = Transport.SHIP
+        sample_party.x, sample_party.y = 12, 10
         ow.creatures = [
             {"tile_name": "whirlpool", "tile": "whirlpool", "x": 12, "y": 10, "wontattack": True}
         ]
@@ -444,6 +487,9 @@ class TestWhirlpoolEngulf:
         assert sample_party.transport == Transport.FOOT
         assert (sample_party.x, sample_party.y) == (32, 54)
         assert ow.map_id == 13
+        joined = " ".join(ow.text_log.history)
+        for line in ENGULF_LINES:
+            assert line in joined
 
 
 class TestFrigateBoarding:

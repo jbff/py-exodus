@@ -1359,24 +1359,21 @@ class OverworldScreen(BaseScreen):
     )
 
     def _check_whirlpool_engulf(self) -> None:
-        """Sailing within one tile of a whirlpool engulfs the party's ship.
+        """Sailing onto a whirlpool tile engulfs the party's ship.
 
-        Java truth: the whirlpool creature branch of ``moveObjects`` at
-        ``dist <= 1`` (``objects/BaseMap.java:540-553``) — four log lines,
-        transport set to FOOT (ship and crew lost), and the party ferried to
-        Ambrosia (32, 54). The two Sosaria whirlpools live at (50, 13) and
-        (17, 48) (``GameScreen.java:111-121``). Under a QUICKNESS aura
+        The engulf sequence stays Java's whirlpool branch
+        (``objects/BaseMap.java:540-553``): four log lines, transport set to
+        FOOT (ship and crew lost), and the party ferried to Ambrosia (32, 54).
+        The two Sosaria whirlpools live at (50, 13) and (17, 48)
+        (``GameScreen.java:111-121``). Under a QUICKNESS aura
         ``moveObjects`` is skipped entirely (``GameScreen.java:728-731``), so
         no engulf happens while time is quick.
         """
-        # deferred (review minors): this scan uses Chebyshev distance while
-        # Java's engulf branch sits behind movementDistance (Utils.java:314-357)
-        # — the two agree at distance <= 1.
         if self.game_map is None:
             return
         if self.party.aura.get_type() == AuraType.QUICKNESS:
             return
-
+        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): whirlpool engulfs ships only on same-tile contact (GBC ult3.c:2418; LW UltimaMain.c:2959-3003 engulf on tile equality — ships-only per GBC ruling; supersedes Java distance<=1 fan-out)
         for c in self.creatures:
             if c.get("tile_name") != "whirlpool":
                 continue
@@ -1386,11 +1383,10 @@ class OverworldScreen(BaseScreen):
                 # (GameScreen.java:111-121); never engulf from an off-map
                 # fixture position.
                 continue
-            dx = abs(wx - self.party.x)
-            dy = abs(wy - self.party.y)
-            dx = min(dx, self.game_map.width - dx)
-            dy = min(dy, self.game_map.height - dy)
-            if max(dx, dy) <= 1:
+            if wx != self.party.x or wy != self.party.y:
+                # Same-tile contact only: no wrap-aware distance ring.
+                continue
+            if self.party.transport == Transport.SHIP:
                 if self.audio is not None:
                     self.audio.play_sfx("wave")
                 for line in self.ENGULF_LINES:

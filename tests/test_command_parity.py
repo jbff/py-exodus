@@ -8,7 +8,10 @@ Java truth:
   direction flows, ``308-311`` single-tile G), ``522-577`` (YellInputAdapter —
   EVOCARE snake replacement only with marks[2], "No effect." / "What?").
 - ``exodus/objects/BaseMap.java:540-553`` (whirlpool engulf — 4 log lines,
-  transport FOOT, party to Ambrosia (32,54)), ``804-831`` (doors).
+  transport FOOT, party to Ambrosia (32,54)), ``804-831`` (doors). The engulf
+  TRIGGER is a USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): ships only, on
+  same-tile contact (GBC ult3.c:2418; LW UltimaMain.c:2959-3003) — it
+  supersedes Java's distance <= 1 radius scan.
 - ``exodus/GameScreen.java:111-121`` (the two Sosaria whirlpools at (50,13)
   and (17,48)); ``exodus/HandDialog.java:114-146`` (hand dialog moves any
   unequipped weapon OR armor — there is no gold transfer).
@@ -129,10 +132,11 @@ class TestEnterAndWhirlpool:
     """(a) E in town + whirlpool engulf on step-in; Ambrosia return portal."""
 
     def test_whirlpool_engulf_on_step_in(self, ow, sample_party):
-        """Java GameScreen.java:661-670 / BaseMap.java:540-553 — Sailing within
-        one tile of a whirlpool engulfs the ship: 4 log lines, transport FOOT,
-        party ferried to Ambrosia (32,54)."""
+        """GBC same-tile rule (ult3.c:2418): sailing ONTO the whirlpool tile
+        engulfs the ship — 4 log lines, transport FOOT, party ferried to
+        Ambrosia (32,54)."""
         sample_party.transport = Transport.SHIP
+        ow.heading = Direction.EAST  # already facing: the press sails
         ow.creatures.append({"tile_name": "whirlpool", "tile": "whirlpool", "x": 11, "y": 10})
         move(ow, Direction.EAST)
         assert sample_party.transport == Transport.FOOT
@@ -189,9 +193,10 @@ class TestEnterAndWhirlpool:
     def test_whirlpool_fixtures_reseeded_after_ambrosia_round_trip(self, ow, sample_party):
         """Fix round 3: the two Sosaria whirlpools are re-seeded on every map
         load — otherwise Ambrosia's only sea route dies after one return."""
-        # Round 1: the (50, 13) fixture engulfs the party at (49, 13)
+        # Round 1: the (50, 13) fixture engulfs the ship that sails onto it
         sample_party.transport = Transport.SHIP
         sample_party.x, sample_party.y = 49, 13
+        ow.heading = Direction.EAST  # already facing: the press sails
         move(ow, Direction.EAST)
         assert sample_party.transport == Transport.FOOT
         assert (sample_party.x, sample_party.y) == (32, 54)
@@ -208,6 +213,7 @@ class TestEnterAndWhirlpool:
         # Round 2: the re-seeded fixture engulfs again
         sample_party.transport = Transport.SHIP
         sample_party.x, sample_party.y = 49, 13
+        ow.heading = Direction.EAST  # already facing: the press sails
         move(ow, Direction.EAST)
         assert (sample_party.x, sample_party.y) == (32, 54)
         assert ow.map_id == 13
