@@ -32,7 +32,13 @@ DEBUG_MODE: bool = False
 
 @dataclass
 class CheatState:
-    """The six GBC cheat toggles (``cheat.c:40-46`` extern bytes)."""
+    """The six GBC cheat toggles (``cheat.c:40-46`` extern bytes).
+
+    Deliberately NOT frozen: effect sites and tests mutates the singleton's
+    fields in place (GBC flips its ``cheat_*`` bytes the same way); the
+    test fixture restores the saved field values in teardown instead of
+    re-binding the module attribute, so held references stay valid.
+    """
 
     xray: bool = False  #: SEE THROUGH ANY TILE
     nofight: bool = False  #: AUTO WIN EVERY BATTLE (no random battles)
@@ -106,8 +112,8 @@ def max_all(party: Any) -> str:
     gold 9999, keys/gems/powders/torches 99, currHP/maxHP 9999, the four
     stats 99, food/exp 9999, level 99, every weapon and armor stack at 9,
     and the marks + cards flags all set (``markcard = 0xFF`` plus the
-    ``party_specials = 0x0F`` special-item bits). The MP table is NOT
-    changed — each caster's mp is left at its existing maximum.
+    ``party_specials = 0x0F`` special-item bits). No mp field is touched:
+    GBC's domaxall (cheat.c:441-479) never writes one.
     """
     for member in getattr(party, "members", []) or []:
         char = getattr(member, "character", member)
@@ -137,9 +143,6 @@ def max_all(party: Any) -> str:
             char.marks = [1, 1, 1, 1]
         if getattr(char, "cards", None) is not None:
             char.cards = [1, 1, 1, 1]
-        max_mp = getattr(char, "max_mp", None)
-        if max_mp:
-            char.mp = max_mp
     exodus_cards = getattr(party, "exodus_cards_status", None)
     if exodus_cards is not None:
         party.exodus_cards_status = 0xF

@@ -90,7 +90,9 @@ class PartyMember:
         # harness (GBC cheat.c:414-825) — NOHURT: HP NEVER DECREASES. The
         # guard sits at this earliest chokepoint so no death/wipe check can
         # misfire downstream; the hit is reported as applied (True) but
-        # hp/status stay untouched.
+        # hp/status stay untouched. Cheat path only: an already-DEAD member
+        # returns True here too (the normal is_dead() -> False path below
+        # is bypassed, so callers must not read this as a revive).
         if debug.CHEATS.nohurt:
             return True
 

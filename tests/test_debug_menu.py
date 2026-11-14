@@ -402,9 +402,11 @@ class TestMaxAll:
                 assert stack == 9
             for stack in char.armors.values():
                 assert stack == 9
-            # No MP table change: mp sits at its (unchanged) maximum.
-            if pm.character.max_mp is not None:
-                assert pm.character.mp == pm.character.max_mp
+            # No mp field is touched: GBC's domaxall (cheat.c:441-479)
+            # writes no mp; the mage keeps its pre-cheat mp/max_mp values.
+            if char.name == "Mage":
+                assert char.max_mp == 30
+                assert char.mp == 5
 
     def test_max_all_reported_to_text_log(self, text_log: TextLog, cheat_state: Any) -> None:
         party = make_party()
