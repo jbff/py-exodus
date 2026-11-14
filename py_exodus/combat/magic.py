@@ -737,7 +737,7 @@ def _apply_spell_effect(
 
         is_dungeon = world_map is not None and hasattr(world_map, "dmap") and hasattr(world_map, "z")
 
-        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): APPAR_UNEM fails outright 25% of the time (GBC menucmd.c:1311-1313; LW UltimaSpellCombat.c:268-273 corrobates RandNum(0,255)&0x03)
+        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): APPAR_UNEM fails outright 25% of the time (GBC menucmd.c:1311-1313; LW UltimaSpellCombat.c:268-273 corroborates RandNum(0,255)&0x03)
         # GBC order: the chest check runs inside dogetchest BEFORE the roll
         # (menucmd.c:1054-1063), so a cast with no chest takes "Not Here!"
         # without consuming a roll — the fizzle only rolls when a chest IS

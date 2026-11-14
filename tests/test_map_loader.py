@@ -28,9 +28,6 @@ def test_load_sosaria(asset_mgr):
     assert sosaria.map_type == MapType.WORLD
     assert len(sosaria.tiles) == 64 * 64
     assert sosaria.get_tile(0, 0) is not None
-    # Verify moongate replacement at (15, 29) to grass (index 1)
-    tile_at_moongate = sosaria.get_tile(15, 29)
-    assert tile_at_moongate.index == 1
     # Check portals and moongates loaded from maps.xml
     assert len(sosaria.portals) > 0
     assert len(sosaria.moongates) > 0

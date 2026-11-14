@@ -98,6 +98,27 @@ def test_thief_steals_armor_or_weapon_from_inventory(monkeypatch):
     assert set(thefts) <= {"weapon", "armor"}
 
 
+def test_thief_theft_carries_pilfered_message(monkeypatch):
+    """GBC battle3.c:288/298 — the writegamemessage(pilfered) text. The
+    resolution carries "PILFERED!" on an applied equipment theft so the
+    arena log pipeline surfaces it; every other melee outcome stays silent
+    (Java CombatScreen.java:723-743 logs nothing for the melee branch)."""
+    _forced_hit(monkeypatch)
+    random.seed(20261114)
+    saw_theft = False
+    for _ in range(300):
+        member = _stocked_member()
+        res = resolve_monster_attack(
+            monster=CombatMonster(THIEF, 0, 0), target_player=member
+        )
+        if res.stolen_item is not None:
+            assert res.message == "PILFERED!"
+            saw_theft = True
+        else:
+            assert res.message == ""
+    assert saw_theft
+
+
 def test_thief_does_not_take_food_or_gold(monkeypatch):
     """The equipment branch must not also trigger the Java food/gold paths."""
     _forced_hit(monkeypatch)

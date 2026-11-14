@@ -562,8 +562,11 @@ def resolve_monster_melee_attack(
             gold = getattr(target_player, "gold", 0)
             setattr(target_player, "gold", max(0, gold - stolen_gold))
 
-    # Java logs nothing for the creature melee ATTACK (sounds only).
-    msg = ""
+    # Java logs nothing for the creature melee ATTACK (sounds only). GBC does
+    # post the equipment theft for the player (USER-DIRECTED DEVIATION,
+    # 2026-11-14): writegamemessage(pilfered) — battle3.c:288/298 prints
+    # "PILFERED!", carried here so the arena log pipeline surfaces it.
+    msg = "PILFERED!" if stolen_item else ""
     return AttackResolution(
         hit=True,
         damage=damage,

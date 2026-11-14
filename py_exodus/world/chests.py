@@ -94,22 +94,22 @@ def open_chest(
 
 
 def _chest_item_drops(member: PartyMember) -> list[str]:
-    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): chest item drops (LW GetChestBooty UltimaMain.c:1736-1760; GBC menucmd.c:1148-1170 corrobates ~25% find)
+    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): chest item drops (LW GetChestBooty UltimaMain.c:1736-1760; GBC menucmd.c:1148-1170 corroborates ~25% find)
 
     After gold, a ~25% weapon find (index 1..7 -> DAGGER..SWORD_2H via
     list(WeaponType), +1 to the opening member's stack), else an independent
     ~25% armor find (index 1..3 -> CLOTH..CHAIN). LW's weapon grant returns
     before the armor block (UltimaMain.c:1750-1755); a weapon stack already
     at the 9 cap falls straight to the armor side, per the steal/dig stack
-    conventions (special_commands._bump_stack, cap 9). Names come from the
+    conventions (special_commands.bump_stack, cap 9). Names come from the
     same enum tables the vendor/steal messages use.
     """
     item_lines: list[str] = []
     weapon_side = random.randrange(4) == 0  # LW RandNum(0,255) <= 63 (~25%)
     weapon_granted = False
     if weapon_side:
-        weapon = special_commands._WEAPON_ORDER[random.randrange(7) + 1]
-        weapon_granted = special_commands._bump_stack(member.weapons, weapon)
+        weapon = special_commands.WEAPON_ORDER[random.randrange(7) + 1]
+        weapon_granted = special_commands.bump_stack(member.weapons, weapon)
         if weapon_granted:
             item_lines.append(f"You found a {weapon.name.capitalize()}!")
     if weapon_granted:
@@ -117,8 +117,8 @@ def _chest_item_drops(member: PartyMember) -> list[str]:
     if weapon_side or random.randrange(4) == 0:
         # weapon side fired but the stack was capped: the armor side rolls
         # directly; the weapon side missing: armor needs its own ~25% roll.
-        armor = special_commands._ARMOR_ORDER[random.randrange(3) + 1]
-        if special_commands._bump_stack(member.armors, armor):
+        armor = special_commands.ARMOR_ORDER[random.randrange(3) + 1]
+        if special_commands.bump_stack(member.armors, armor):
             item_lines.append(f"You found a {armor.name.capitalize()}!")
     return item_lines
 

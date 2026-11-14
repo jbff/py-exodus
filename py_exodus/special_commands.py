@@ -81,8 +81,8 @@ _STEAL_DOOR_TILE = TileDef(index=35, name="door", rule="door", attribs=TileAttri
 # GBC weapon/armor lists index their stacks 1..7 / 1..3; py list(...) order
 # matches (list(WeaponType)[1..7] = DAGGER..SWORD_2H,
 # list(ArmorType)[1..3] = CLOTH..CHAIN).
-_WEAPON_ORDER = list(WeaponType)
-_ARMOR_ORDER = list(ArmorType)
+WEAPON_ORDER = list(WeaponType)
+ARMOR_ORDER = list(ArmorType)
 
 _STACK_CAP = 9
 _GOLD_CAP = 9999
@@ -195,11 +195,11 @@ def do_dig(party: Party, member: PartyMember, x: int, y: int, game_map) -> str:
         return NO_EFFECT  # GBC noeffectdat for ``inside != 0``
 
     if (x, y) == (33, 3):
-        if _bump_stack(member.weapons, WeaponType.EXOTIC):
+        if bump_stack(member.weapons, WeaponType.EXOTIC):
             pass  # GBC silently skips the grant at the stack cap (:1130)
         return EXOTICS
     if (x, y) == (19, 44):
-        if _bump_stack(member.armors, ArmorType.EXOTIC):
+        if bump_stack(member.armors, ArmorType.EXOTIC):
             pass
         return EXOTICS
     return NO_EFFECT
@@ -469,16 +469,16 @@ def _steal_bonus_item(member, roll) -> str | None:
     armor index 1..3 when the weapon stack is capped (GBC menucmd2.c:
     1521-1560 rolls the weapon first; the 2026-11-14 amendment fixes the
     LW GetChestBooty-style widths). None when both stacks are capped."""
-    weapon = _WEAPON_ORDER[roll(7) + 1]
-    if _bump_stack(member.weapons, weapon):
+    weapon = WEAPON_ORDER[roll(7) + 1]
+    if bump_stack(member.weapons, weapon):
         return f"and {weapon.name.capitalize()}!"
-    armor = _ARMOR_ORDER[roll(3) + 1]
-    if _bump_stack(member.armors, armor):
+    armor = ARMOR_ORDER[roll(3) + 1]
+    if bump_stack(member.armors, armor):
         return f"and {armor.name.capitalize()}!"
     return None
 
 
-def _bump_stack(stacks: dict, kind) -> bool:
+def bump_stack(stacks: dict, kind) -> bool:
     """Increment an equipment stack up to GBC's 9 cap; False when capped."""
     current = int(stacks.get(kind, 0))
     if current >= _STACK_CAP:

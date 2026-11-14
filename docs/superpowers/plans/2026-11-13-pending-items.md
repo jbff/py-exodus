@@ -49,6 +49,10 @@ Written 2026-11-13, after master `718aec1` (774 tests green, pushed). Read this 
 18. Gamepad support — keyboard only today.
 19. Two comment nits: whirlpool deferred comment claims Chebyshev/movementDistance "agree at ≤1" (false on diagonals); doubled `# deferred` markers at overworld.py:1645/1663.
 20. Combat spell-cast letter mapping is discipline-first (Java reassigns A–P over the filtered list) — presentation-only, unscheduled.
+21. Chest Bomb trap deferred: the fourth chest trap (Java's Bomb) is unported; GBC reuses its cannon-fire damage formula there — LW-verify before wiring.
+22. Thief-steal combat feedback wired (2026-11-14 polish wave): melee equipment theft now surfaces GBC's "PILFERED!" (battle3.c:288/298) via the attack-res log pipeline; still missing the matching POISONED! line (battle3.c:257) if wanted.
+23. Dungeon meal cadence: dungeons don't run `end_turn`, so the original rules' underground feed/regen (GBC/LW) never ticks below level 1 — model the dungeon tick as a future item.
+24. Shrine near-cap over-debit: shrinking a stat to its near-cap edge debits more gold than it raises (off-by-one at the cap boundary); likewise post-Exodus stats over 99 — LW-verify first.
 
 ## How to resume
 

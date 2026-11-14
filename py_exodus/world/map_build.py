@@ -50,12 +50,6 @@ def build_grid_map(m_def: MapDef, struct: dict, asset_mgr: AssetManager) -> Game
             if idx < len(tiles):
                 tiles[idx] = locked_door
 
-    # Reset moongate tile to grass on Sosaria (map ID 0)
-    if m_def.id == 0:
-        grass = asset_mgr.tile_defs.get(1)
-        if grass is not None:
-            tiles[29 * width + 15] = grass
-
     # City NPCs (32 characters placed at 0x1180, 0x11A0, 0x11C0, 0x11E0, 0x1200)
     npcs: list[MapNpc] = []
     if m_def.map_type.lower() == "city" and struct["npcs"]:

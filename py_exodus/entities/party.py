@@ -272,8 +272,7 @@ class Party:
         # Per-turn regen counter (Party.tick_regen, user-directed deviation
         # 2026-11-10): counts consumed turns for the underground 1-in-4
         # mana cadence (HP regen is meal-bound — GBC deviation 2026-11-14).
-        # Persisted so a save/load does not reset the count-based slot. Persisted so a save/load does not reset the
-        # count-based slot.
+        # Persisted so a save/load does not reset the count-based slot.
         self.regen_turns = regen_turns
 
         # Move-driven moon clock (user-directed GBC-rules deviation
