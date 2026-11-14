@@ -1226,7 +1226,9 @@ def test_all_overland_commands_a_to_z(pygame_setup, asset_mgr, sample_party):
     ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_o))
     assert ow.text_log.is_waiting_for_input
     ow.text_log.submit_input("PRAY")
-    assert any("calmness and silence" in msg for msg in ow.text_log.history)
+    # GBC dopray's miss branch is noeffectdat (menucmd3.c:1207) — Task 26
+    # superseded the old stub's "A calmness and silence of the soul."
+    assert any("No effect." in msg for msg in ow.text_log.history)
 
     # Y - Yell — Task 9 parity: member prompt, then word prompt
     ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_y))

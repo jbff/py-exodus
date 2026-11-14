@@ -13,6 +13,7 @@ from py_exodus.constants import (
     Spell,
 )
 from py_exodus.entities.party import PartyDeathException
+from py_exodus import special_commands
 from py_exodus.screens.base import BaseScreen
 from py_exodus.screens.member_prompts import (
     prompt_modify_order,
@@ -203,6 +204,16 @@ class DungeonScreen(BaseScreen):
         elif event.key == pygame.K_c:
             self._consume_turn()
             self._cast_spell()
+        elif event.key == pygame.K_o:
+            # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): functional
+            # Other command (GBC menucmd3.c:1019-1236; menucmd2.c:1440-1540)
+            # — GBC's bribe/steal/dig are only offered OUTSIDE, so from a
+            # dungeon they take the GBC noeffectdat refusal; pray/search/
+            # score still run through the shared special_commands flows.
+            # Like the other dungeon command prompts, the press consumes a
+            # turn before the prompt opens.
+            self._consume_turn()
+            self._prompt_other()
         elif event.key == pygame.K_s:
             self._consume_turn()
             self._search()
@@ -227,6 +238,44 @@ class DungeonScreen(BaseScreen):
             # a turn. The dungeon `extra` save block was removed with it.
             self.text_log.add_message("Pass")
             self._consume_turn()
+
+    def _prompt_other(self) -> None:
+        """Other command from a dungeon (GBC menucmd3.c:1019-1236 subset).
+
+        USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): GBC's bribe/steal/
+        dig are OUTSIDE-only, so the dungeon refuses them with the GBC
+        noeffectdat message; pray/search/score delegate to the shared
+        py_exodus.special_commands flows.
+        """
+        def _on_other(cmd: str) -> None:
+            c = cmd.strip().upper()
+            if not c:
+                return
+            if c in ("BRIBE", "STEAL", "DIG"):
+                self.text_log.add_message(special_commands.NO_EFFECT)
+            elif c == "PRAY":
+                self.text_log.add_message(
+                    special_commands.do_pray(
+                        self.state.x,
+                        self.state.y,
+                        self.map_id,
+                        str(getattr(self.dungeon_map, "name", "") or ""),
+                    )
+                )
+            elif c == "SEARCH":
+                special_commands.search_flow(
+                    self.text_log,
+                    self.party,
+                    self.state.x,
+                    self.state.y,
+                    self.dungeon_map,
+                )
+            elif c == "SCORE":
+                self.text_log.add_message(special_commands.do_score(self.party))
+            else:
+                self.text_log.add_message(f"'{c}': Nothing happened.")
+
+        self.text_log.prompt("Other Command? ", callback=_on_other)
 
     def _consume_turn(self) -> None:
         """Java DungeonScreen.finishTurn (DungeonScreen.java:1124) — the

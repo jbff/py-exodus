@@ -24,6 +24,7 @@ from py_exodus.screens.final import (
     prompt_insert_card,
 )
 from py_exodus.screens.vendor_dialog import start_vendor_dialog
+from py_exodus import special_commands
 from py_exodus.ui.renderer import WorldRenderer, can_move_to
 from py_exodus.ui.stats_panel import StatsPanel
 from py_exodus.ui.text_log import (
@@ -924,24 +925,52 @@ class TownScreen(BaseScreen):
             self.text_log.add_message("Disembarked frigate.")
 
     def _prompt_other(self) -> None:
-        """Prompt for custom other command (PRAY, BRIBE, STEAL, DIG, etc.)."""
+        """Prompt for custom other command (PRAY, BRIBE, STEAL, DIG, etc.).
+
+        USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): functional Other
+        command (GBC menucmd3.c:1019-1236; menucmd2.c:1440-1540; LW
+        UltimaMisc.c:2262-2503) — both this and the overworld prompt delegate
+        to py_exodus.special_commands so the commands share one
+        implementation. KISS is NOT in U3 (K is Klimb; the LW menu lacks it
+        too — user ruling 2026-11-14): it falls through to the generic
+        "Nothing happened.".
+        """
         def _on_other(cmd: str) -> None:
             c = cmd.strip().upper()
             if not c:
                 return
             if c == "PRAY":
-                if str(self.map_id) in ("10", "yew") and 44 <= self.avatar_x <= 52 and 44 <= self.avatar_y <= 52:
-                    self.text_log.add_message("A vision appears: Yell 'EVOCARE'!")
-                else:
-                    self.text_log.add_message("A calmness and silence of the soul.")
+                self.text_log.add_message(
+                    special_commands.do_pray(
+                        self.avatar_x,
+                        self.avatar_y,
+                        self.map_id,
+                        str(getattr(self.game_map, "name", "") or ""),
+                    )
+                )
             elif c == "BRIBE":
-                self.text_log.add_message("The guards glare at thee: 'Bribe us not!'")
+                special_commands.bribe_flow(
+                    self.text_log,
+                    self.party,
+                    self.avatar_x,
+                    self.avatar_y,
+                    self.game_map,
+                    creatures=self.creatures,
+                )
             elif c == "STEAL":
-                self.text_log.add_message("Thou art caught in the act! 'Thief!'")
+                special_commands.steal_flow(
+                    self.text_log, self.party, self.avatar_x, self.avatar_y, self.game_map
+                )
             elif c == "DIG":
-                self.text_log.add_message("Cobblestones are too hard to dig here.")
-            elif c == "KISS":
-                self.text_log.add_message("A citizen smiles and waves.")
+                special_commands.dig_flow(
+                    self.text_log, self.party, self.avatar_x, self.avatar_y, self.game_map
+                )
+            elif c == "SEARCH":
+                special_commands.search_flow(
+                    self.text_log, self.party, self.avatar_x, self.avatar_y, self.game_map
+                )
+            elif c == "SCORE":
+                self.text_log.add_message(special_commands.do_score(self.party))
             elif c == "INSERT":
                 prompt_insert_card(self, self.avatar_x, self.avatar_y)
             else:

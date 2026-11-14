@@ -19,6 +19,7 @@ from py_exodus.constants import (
     Transport,
 )
 from py_exodus.entities.party import PartyDeathException
+from py_exodus import special_commands
 from py_exodus.screens.base import BaseScreen
 from py_exodus.screens.member_prompts import (
     prompt_modify_order,
@@ -1008,24 +1009,51 @@ class OverworldScreen(BaseScreen):
         self._consume_pass_turn()  # Java keyUp tail: N falls through
 
     def _prompt_other(self) -> None:
-        """Prompt for custom other command (PRAY, BRIBE, STEAL, DIG, etc.)."""
+        """Prompt for custom other command (PRAY, BRIBE, STEAL, DIG, etc.).
+
+        USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): functional Other
+        command (GBC menucmd3.c:1019-1236; menucmd2.c:1440-1540; LW
+        UltimaMisc.c:2262-2503) — both this and the town prompt delegate to
+        py_exodus.special_commands so the commands share one implementation.
+        KISS is NOT in U3 (K is Klimb; the LW menu lacks it too — user ruling
+        2026-11-14): it falls through to the generic "Nothing happened.".
+        """
         def _on_other(cmd: str) -> None:
             c = cmd.strip().upper()
             if not c:
                 return
             if c == "PRAY":
-                if str(self.map_id) in ("10", "yew") and 44 <= self.party.x <= 52 and 44 <= self.party.y <= 52:
-                    self.text_log.add_message("A vision appears: Yell 'EVOCARE'!")
-                else:
-                    self.text_log.add_message("A calmness and silence of the soul.")
+                self.text_log.add_message(
+                    special_commands.do_pray(
+                        self.party.x,
+                        self.party.y,
+                        self.map_id,
+                        str(getattr(self.game_map, "name", "") or ""),
+                    )
+                )
             elif c == "BRIBE":
-                self.text_log.add_message("Thou hast no one to bribe here.")
+                special_commands.bribe_flow(
+                    self.text_log,
+                    self.party,
+                    self.party.x,
+                    self.party.y,
+                    self.game_map,
+                    creatures=self.creatures,
+                )
             elif c == "STEAL":
-                self.text_log.add_message("Thou art an honest traveler; nothing to steal.")
+                special_commands.steal_flow(
+                    self.text_log, self.party, self.party.x, self.party.y, self.game_map
+                )
             elif c == "DIG":
-                self.text_log.add_message("Thou diggest into the earth, but findest nothing.")
-            elif c == "KISS":
-                self.text_log.add_message("Thou kissest the gentle breeze.")
+                special_commands.dig_flow(
+                    self.text_log, self.party, self.party.x, self.party.y, self.game_map
+                )
+            elif c == "SEARCH":
+                special_commands.search_flow(
+                    self.text_log, self.party, self.party.x, self.party.y, self.game_map
+                )
+            elif c == "SCORE":
+                self.text_log.add_message(special_commands.do_score(self.party))
             elif c == "INSERT":
                 prompt_insert_card(self, self.party.x, self.party.y)
             else:
