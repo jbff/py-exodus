@@ -558,6 +558,8 @@ class Party:
         Java truth: ``exodus/Party.java:88-97`` — ``poolGold(index)`` zeroes
         every member's purse and credits the whole sum to ``members[index]``.
         There is no party-level pool to pool into in the per-member model.
+
+        USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): pooled gold clamps to the 9999 cap (GBC menucmd2.c:965-987; LW UltimaMain.c:1982-2000)
         """
         if target_index >= len(self.members) or target_index < 0:
             return None
@@ -566,8 +568,8 @@ class Party:
         for m in self.members:
             total += m.gold
             m.gold = 0
-        self.members[target_index].gold = total
-        return total
+        self.members[target_index].gold = min(total, 9999)
+        return self.members[target_index].gold
 
     def end_turn(self, surface: bool = True, sosaria: bool = False) -> None:
         """Advance one movement turn: move counter, per-member submorsels.

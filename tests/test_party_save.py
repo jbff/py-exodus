@@ -597,6 +597,34 @@ def test_pool_gold_no_duplication():
     assert p.members[1].gold == 0
 
 
+def test_pool_gold_clamps_to_9999_cap():
+    """GBC menucmd2.c:965-987 clamps the JOIN GOLD total to 9999
+    (LW UltimaMain.c:1982-2000 corroborates the cap)."""
+    p = Party()
+    p.add_member(Character(name="C1", gold=4000))
+    p.add_member(Character(name="C2", gold=4000))
+    p.add_member(Character(name="C3", gold=2500))
+
+    total = p.pool_gold(0)
+    assert total == 9999
+    assert p.members[0].gold == 9999
+    assert p.members[1].gold == 0
+    assert p.members[2].gold == 0
+    assert p.gold == 9999  # clamped excess is not in play
+
+
+def test_pool_gold_below_cap_unclamped():
+    """Pools under the 9999 cap are unchanged (no clamping side effects)."""
+    p = Party()
+    p.add_member(Character(name="C1", gold=100))
+    p.add_member(Character(name="C2", gold=50))
+
+    total = p.pool_gold(0)
+    assert total == 150
+    assert p.members[0].gold == 150
+    assert p.members[1].gold == 0
+
+
 def test_party_member_unwrap_order():
     """Verify PartyMember wrapping does not double-wrap an existing PartyMember."""
     char = Character(name="Original", gold=50)
