@@ -416,9 +416,11 @@ class CombatArena:
         act = self._normalize_action(action)
 
         if not self._is_member_eligible_for_turn(member_idx):
-            # Member cannot act - advance and return
+            # Member cannot act - advance and return. Java's keyUp logs the
+            # same "Pass" line for a disabled member as for SPACE
+            # (CombatScreen.java:291-292).
             self._advance_player_turn(member_idx)
-            return ActionResult(success=False, action=act, message="Character is unable to act.")
+            return ActionResult(success=False, action=act, message="Pass")
 
         member = self.party.members[member_idx]
         cur_pos = self.player_positions[member_idx]
@@ -431,9 +433,13 @@ class CombatArena:
         elif act.type == ActionType.CAST:
             res = self._handle_player_cast(member_idx, member, act)
         elif act.type == ActionType.PASS:
-            res = ActionResult(success=True, action=act, message=f"{member.name} passes.")
+            # Java CombatScreen.java:292: the SPACE keypress logs "Pass" —
+            # no member named, no turn summary.
+            res = ActionResult(success=True, action=act, message="Pass")
         else:
-            # Other actions (READY, WEAR, USE)
+            # Other actions (READY, WEAR, USE). Java routes these through the
+            # ReadyWearInputAdapter (CombatScreen.java:959-999) rather than
+            # the turn log, so this fallback stays a py UI-adaptation shim.
             res = ActionResult(success=True, action=act, message=f"{member.name} acts.")
 
         if res.message:
@@ -626,7 +632,11 @@ class CombatArena:
                     break
                 dist += 1
 
-            message = f"{member.name} fired {direction.name.lower()} - Missed!"
+            # Message parity (item 3): Java's `attackAt` logs NOTHING when the
+            # shot's path carries no creature (Utils.java:841-845 returns NONE
+            # silently) — the miss line is reserved for a rolled miss on a
+            # reached target.
+            message = ""
             attack_res = AttackResolution(
                 hit=False, result=AttackResult.MISS, projectile_path=path
             )
@@ -667,7 +677,11 @@ class CombatArena:
                     target_monster = m
                     break
 
-            message = f"{member.name} swings {direction.name.lower()} into empty space."
+            # Message parity (item 3): with no creature on the melee tile
+            # Java's `attackAt` also returns NONE silently (Utils.java:837-839
+            # — no creature found, no log); the invented "swings into empty
+            # space" line is gone.
+            message = ""
             attack_res = AttackResolution(
                 hit=False, result=AttackResult.MISS, target_pos=(tx, ty)
             )

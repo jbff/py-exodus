@@ -1090,3 +1090,192 @@ def test_hidden_camouflage_monster_is_never_rendered(asset_mgr, conflict_map, py
     monster.visible = True
     combat._render_monsters(surface)
     assert marker in surface.blits
+
+
+# --- (l) canonical combat strings — pending item 3 ----------------------------
+# Java truth table (log/hud sites):
+#   Utils.java:853            "Missed!"
+#   Utils.java:841-845        (wrong range: silent — returns NONE)
+#   Utils.java:837-839        (no creature on the traced tile: silent — NONE)
+#   Utils.java:628            "%s Killed! Exp. %d"   (byplayer kill)
+#   Utils.java:634-650        "%s Fleeing!" / "%s Critical!" /
+#                             "%s Heavily Wounded!" / "%s Lightly Wounded!" /
+#                             "%s Barely Wounded!"   (surviving hit)
+#   Creature.java:390-401     wound tiers vs basehp//4, basehp//2, 3*basehp//4
+#   CombatScreen.java:292     "Pass"
+#   SpellUtil.java:58         "Thou dost not have enough magic points!"
+#   CombatScreen.java:995-997 ready/wear "Failed!" / "Success!"
+#   GameScreen.java:423/434   "Victory!" / "Battle is lost!"
+#   GameScreen.java:433-446   party wipe: NO string (straight to partyDeath)
+# Java names the creature only — the attacker and the raw damage number are
+# never printed.
+
+
+def _string_monster(name="Orc", basehp=48, exp=7, **extra):
+    return CombatMonster(
+        CreatureDef(id=99, name=name, tile="orc", basehp=basehp, exp=exp),
+        0,
+        0,
+    )
+
+
+def test_wound_string_table_matches_java(monkeypatch):
+    """Utils.java:634-650 + Creature.java:390-401 tier table, hp vs basehp."""
+    m = _string_monster(name="Orc", basehp=48, exp=7)
+    # Creature.java:391-393, strict < comparisons: crit<12, heavy<24,
+    # light<36.
+    for hp, expected in [
+        (48, "Orc Barely Wounded!"),
+        (36, "Orc Barely Wounded!"),
+        (35, "Orc Lightly Wounded!"),
+        (24, "Orc Lightly Wounded!"),
+        (23, "Orc Heavily Wounded!"),
+        (12, "Orc Heavily Wounded!"),
+        (11, "Orc Critical!"),
+    ]:
+        m.hp = hp
+        assert resolver_mod.creature_wound_message(m) == expected
+
+
+def test_player_attack_kill_string(monkeypatch):
+    """Kill: `"%s Killed! Exp. %d"` (Utils.java:628) — no damage number, no
+    attacker name (the old `struck ... for N dmg - Killed! (+N EXP)` lines are
+    invented)."""
+    from py_exodus.combat.resolver import resolve_player_attack
+
+    m = _string_monster(name="Orc", basehp=8, exp=7)
+    m.hp = 3
+    hero = Character("Hero", "M", hp=100, max_hp=100)
+    hero.dex = 30
+    monkeypatch.setattr(resolver_mod, "roll_hit", lambda *a, **k: True)
+    monkeypatch.setattr(resolver_mod, "calculate_player_damage", lambda *a, **k: 10)
+    res = resolve_player_attack(character=hero, weapon_def=None, target_monster=m)
+    assert res.killed
+    assert res.message == "Orc Killed! Exp. 7"
+
+
+def test_player_attack_miss_and_range_strings(monkeypatch):
+    """MISS prints exactly "Missed!" (Utils.java:853); a wrong-range shot is
+    silent (Utils.java:841-845)."""
+    from py_exodus.combat.resolver import resolve_player_attack
+    from py_exodus.entities.defs import WeaponDef
+
+    m = _string_monster(name="Orc")
+    m.hp = m.max_hp
+    hero = Character("Hero", "M", hp=100, max_hp=100)
+    hero.dex = 30
+    monkeypatch.setattr(resolver_mod, "roll_hit", lambda *a, **k: False)
+    res = resolve_player_attack(character=hero, weapon_def=None, target_monster=m)
+    assert res.message == "Missed!"
+
+    sword = WeaponDef(type="sword", name="Sword", dmin=4, dmax=8, range=1)
+    res = resolve_player_attack(
+        character=hero, weapon_def=sword, target_monster=m, distance=3
+    )
+    assert res.result.name == "MISS"
+    assert res.message == ""
+
+
+def test_guard_hit_cites_wound_tier(monkeypatch):
+    """The 0-damage guard/LB branch (GBC battle.c:646-648) has NO GBC text —
+    battle.c:640 only plays showmonsterhit's "HIT" sprite — so Java governs:
+    damageCreature's wound-status line (Utils.java:650, HP write skipped)."""
+    from py_exodus.combat.resolver import resolve_player_attack
+
+    guard = CombatMonster(
+        CreatureDef(id=98, name="Guard", tile="guard", basehp=40, exp=10), 0, 0
+    )
+    guard.hp = max_hp = 40
+    hero = Character("Hero", "M", hp=100, max_hp=100)
+    hero.dex = 30
+    monkeypatch.setattr(resolver_mod, "roll_hit", lambda *a, **k: True)
+    res = resolve_player_attack(
+        character=hero, weapon_def=None, target_monster=guard
+    )
+    assert res.hit and res.damage == 0 and not res.killed
+    assert res.message == "Guard Barely Wounded!"
+    assert guard.hp == max_hp
+
+
+def test_arena_pass_string(asset_mgr, conflict_map):
+    """CombatScreen.java:292 — the SPACE pass logs exactly "Pass"."""
+    party = build_party(1)
+    arena = CombatArena(party, conflict_map, asset_mgr=asset_mgr, monster_count=1)
+    res = arena.execute_turn(Action.pass_turn())
+    assert res.message == "Pass"
+
+
+def test_swing_at_nothing_is_silent(asset_mgr, conflict_map):
+    """A traced shot / melee step with no creature on its tile logs nothing
+    (Utils.java:837-845: attackAt returns NONE without a hud.add)."""
+    party = build_party(1)
+    arena = CombatArena(party, conflict_map, asset_mgr=asset_mgr, monster_count=1)
+    member = party.members[0]
+    arena.player_positions[0] = (5, 7)
+    # No monster adjacent to (5,7): the melee tile is empty.
+    for m in arena.monsters:
+        m.x, m.y = (10, 10)
+    res = arena.execute_turn(Action.attack(Direction.EAST))
+    # (5,8) may hold a wall/other tile — as long as no monster was reached,
+    # Java logs nothing.
+    assert not any(m.x == 5 and m.y == 8 for m in arena.monsters)
+    assert res.message == ""
+
+
+def test_spell_hit_uses_wound_string(monkeypatch, asset_mgr, conflict_map):
+    """Java castAt has no own text — the spell kill goes through the same
+    dealDamage → damageCreature line (Utils.java:628)."""
+    from py_exodus.combat import magic
+    from py_exodus.combat.magic import _apply_projectile_attack, Spell
+
+    arena = CombatArena(build_party(1), conflict_map, asset_mgr=asset_mgr, monster_count=1)
+    m = arena.monsters[0]
+    m.definition = CreatureDef(id=97, name="Orc", tile="orc", basehp=8, exp=7)
+    m.exp = 7
+    # The caster sits one tile below the monster: FULGAR (NORTH) rays it.
+    arena.player_positions[0] = (m.x, m.y + 1)
+    m.hp = 3
+    caster = arena.party.members[0]
+    caster.character.name = "Hero"
+    monkeypatch.setattr(magic, "_caster_damage", lambda low, high: low)
+    res = _apply_projectile_attack(
+        spell=Spell.FULGAR,
+        caster_char=caster.character,
+        caster_entity=caster,
+        target_dir=Direction.NORTH,
+        arena=arena,
+    )
+    assert res.hit and m.is_dead
+    assert res.message == "Orc Killed! Exp. 7"
+
+
+def test_wipe_logs_no_game_event_string(asset_mgr, conflict_map, monkeypatch):
+    """GameScreen.java:433-446: a party wipe branches straight to
+    partyDeath() with NO log line (the old `DEFEAT! Thy party has fallen.`
+    was invented). py keeps only its `"Press Enter to continue."` dismissal
+    prompt. Java's win line ("Victory!", GameScreen.java:423) is pinned by
+    test_game_loop; "Battle is lost!" (GameScreen.java:434) belongs to the
+    town-return path, not the combat log."""
+    from py_exodus.screens.combat_screen import CombatScreen
+
+    combat = CombatScreen(
+        party=build_party(1),
+        combat_map=conflict_map,
+        creature_tile="orc",
+        asset_mgr=asset_mgr,
+        monster_count=1,
+    )
+
+    def _wipe(action):
+        combat.arena.is_defeat = True
+        combat.arena.is_finished = True
+        combat.log_messages = []
+        return ActionResult(success=True, action=action, message="Pass")
+
+    from py_exodus.combat.arena import ActionResult
+
+    monkeypatch.setattr(combat.arena, "execute_turn", _wipe)
+    monkeypatch.setattr(combat, "check_party_death", lambda: None)
+    combat._execute_action(Action.pass_turn())
+    assert not any("DEFEAT" in msg for msg in combat.text_log.history)
+    assert "Press Enter to continue." in combat.text_log.history

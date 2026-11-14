@@ -563,7 +563,9 @@ def test_directional_spell_miss_in_combat(asset_mgr, conflict_map):
     res = cast_spell(Spell.MITTAR, caster=party.members[0], target_dir=Direction.EAST, arena=arena)
     assert res.success
     assert res.damage == 0
-    assert "empty space" in res.message.lower()
+    # Java castAt: no creature on the ray → NONE silently (Utils.java:813-820);
+    # the old "{spell} fired east into empty space." line was invented.
+    assert res.message == ""
 
 
 def test_incapacitated_caster_cannot_cast():

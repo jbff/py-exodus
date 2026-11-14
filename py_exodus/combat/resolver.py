@@ -201,7 +201,11 @@ def try_monster_magic_poke(
     )
     # The blast went off whatever the victim's individual save said: the
     # damage lands through the melee roll (0 on a miss), and the caller's
-    # bolt trace is skipped.
+    # bolt trace is skipped. Item 3 note: GBC prints no text on this branch
+    # (battle3.c:856-866 — magiceffect2(3) + damageplayer, no
+    # writegamemessage) and Java's ranged magic bolt logs nothing; the
+    # "Magic Blast!" line stays as the branch's player feedback per the
+    # item-3 ruling to keep GBC-adopted mechanic strings and note them.
     return _dc_replace(res, hit=True, message="Magic Blast!")
 
 
@@ -365,6 +369,39 @@ def _deal_monster_damage_to_member(target_player: Any, damage: int) -> bool:
     return True
 
 
+def creature_wound_message(creature: Any) -> str:
+    """Java's single canonical per-hit creature status line.
+
+    ``Utils.damageCreature`` (Utils.java:617-653) runs after every
+    player-caused damage application: on a kill it prints
+    ``"%s Killed! Exp. %d"`` (Utils.java:628, the byplayer branch), otherwise
+    the wound tier of ``Creature.getDamageStatus`` (Creature.java:390-401)
+    formatted by ``Utils.java:634-650``. Java names the creature, never the
+    attacker, and prints nothing about the raw damage number.
+
+    Tier thresholds are integer divisions of the creature's ``basehp``
+    (Creature.java:391-393): critical < basehp/4, heavily < basehp/2, lightly
+    < crit+heavy; everything above is "Barely Wounded!".
+    """
+    name = getattr(creature, "name", "Creature")
+    hp = getattr(creature, "hp", 0)
+    if hp <= 0:
+        return f"{name} Killed! Exp. {getattr(creature, 'exp', 0)}"  # Utils.java:628
+    basehp = getattr(creature, "basehp", 48) or 48
+    crit_threshold = basehp // 4
+    heavy_threshold = basehp // 2
+    light_threshold = crit_threshold + heavy_threshold
+    if hp < crit_threshold:
+        status = "Critical!"  # Utils.java:638
+    elif hp < heavy_threshold:
+        status = "Heavily Wounded!"  # Utils.java:642
+    elif hp < light_threshold:
+        status = "Lightly Wounded!"  # Utils.java:646
+    else:
+        status = "Barely Wounded!"  # Utils.java:650
+    return f"{name} {status}"  # "{name} {status}" per Utils.java:634-650
+
+
 def resolve_player_attack(
     character: Character,
     weapon_def: WeaponDef | None,
@@ -372,7 +409,10 @@ def resolve_player_attack(
     distance: int = 1,
 ) -> AttackResolution:
     """Resolve an attack by a player character against a monster."""
-    # Check weapon range constraint
+    # Check weapon range constraint.
+    # Java `attackAt` (Utils.java:841-845): an absolute-range weapon fired at
+    # the wrong distance returns NONE and logs NOTHING — the range check is
+    # silent, so this is an empty message (the arena skips writing it).
     if weapon_def is not None and distance > weapon_def.range:
         return AttackResolution(
             hit=False,
@@ -380,7 +420,7 @@ def resolve_player_attack(
             killed=False,
             result=AttackResult.MISS,
             target_pos=(target_monster.x, target_monster.y),
-            message=f"{character.name} is out of effective weapon range!",
+            message="",
         )
 
     # Attack bonus: if DEX >= 40, auto-hit cap (255)
@@ -389,13 +429,16 @@ def resolve_player_attack(
 
     is_hit = roll_hit(attack_bonus, defense)
     if not is_hit:
+        # Java's miss line (Utils.java:853): just `"Missed!"` — the GBC miss
+        # message is the same terse form (battle.c missmsg, battle.c:96-99;
+        # printed at battle.c:657-659).
         return AttackResolution(
             hit=False,
             damage=0,
             killed=False,
             result=AttackResult.MISS,
             target_pos=(target_monster.x, target_monster.y),
-            message=f"{character.name} attacked {target_monster.name} - Missed!",
+            message="Missed!",
         )
 
     # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): a landed player hit vs
@@ -404,13 +447,19 @@ def resolve_player_attack(
     # py-exodus has no GBC extragame hard-mode flag (GBC battle.c:646-648).
     target_tile = (getattr(target_monster, "tile", "") or "").lower()
     if target_tile in ("guard", "lord_british"):
+        # Message parity (item 3): GBC prints no text on that zero-damage
+        # branch (battle.c:640-657 shows showmonsterhit → "HIT" and the
+        # damage=0 write with no writegamemessage), so Java governs: a landed
+        # hit runs the wound-status line through damageCreature with the HP
+        # write skipped (the Utils.java:621 lord_british exemption), i.e. the
+        # creature's current tier.
         return AttackResolution(
             hit=True,
             damage=0,
             killed=False,
             result=AttackResult.HIT,
             target_pos=(target_monster.x, target_monster.y),
-            message=f"{character.name} struck {target_monster.name} - No effect!",
+            message=creature_wound_message(target_monster),
         )
 
     # Hit succeeds - calculate damage
@@ -428,9 +477,13 @@ def resolve_player_attack(
             award(exp_award)
         else:
             character.exp = min(9999, character.exp + exp_award)
-        msg = f"{character.name} struck {target_monster.name} for {damage} dmg - Killed! (+{exp_award} EXP)"
-    else:
-        msg = f"{character.name} struck {target_monster.name} for {damage} dmg."
+
+    # Message parity (item 3): whatever the outcome, Java's
+    # ``Utils.damageCreature`` (Utils.java:617-653) is the only player
+    # visible line — "{name} Killed! Exp. {n}" on death (Utils.java:628),
+    # else the wound tier (Utils.java:634-650). No damage number, no
+    # attacker name.
+    msg = creature_wound_message(target_monster)
 
     return AttackResolution(
         hit=True,
@@ -636,6 +689,12 @@ def resolve_monster_ranged_attack(
             killed=killed,
             result=AttackResult.HIT,
             target_pos=(getattr(target_player, "x", 0), getattr(target_player, "y", 0)),
+            # Item 3 note: this mechanic is GBC-adopted (cannonfire);
+            # GBC prints no text for it (cannonfire3, battle3.c:501-560,
+            # calls no writegamemessage) and Java's rangedAttackAt logs only
+            # "Electrified!"/"Fiery Hit!"/"Poisoned!" — this one-line barrage
+            # report stays as the branch's player feedback per the item-3
+            # ruling to keep GBC-adopted mechanic strings and note them.
             message="Cannonball barrage!",
         )
 

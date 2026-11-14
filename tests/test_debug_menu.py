@@ -332,7 +332,10 @@ class TestNoClass:
         prompt_cast_party(text_log, party)
         text_log.submit_input("1")
         blob = "\n".join(text_log.history)
-        assert "cannot cast" in blob
+        # Item 3: the empty-castables refusal uses Java's canonical line
+        # (SecondaryInputProcessor.java:285/445; CombatScreen.java:326) —
+        # the old "{name} ({prof}) cannot cast spells!" was invented.
+        assert "No spells to cast!" in blob
 
 
 class TestCheatMenuViaF10:

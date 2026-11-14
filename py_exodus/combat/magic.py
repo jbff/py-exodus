@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from py_exodus import debug
 from py_exodus.aura import AuraType
-from py_exodus.combat.resolver import trace_projectile_path
+from py_exodus.combat.resolver import creature_wound_message, trace_projectile_path
 from py_exodus.constants import (
     Direction,
     MapType,
@@ -928,7 +928,13 @@ def _apply_projectile_attack(
                     caster_char.exp = min(
                         9999, caster_char.exp + getattr(target_m, "exp", 0)
                     )
-            msg = f"{spell.name.capitalize()} strikes {target_m.name} for {dmg} damage!{' Killed!' if killed else ''}"
+            # Message parity (item 3): Java's ``castAt`` logs nothing about
+            # the spell or the raw damage — the only player-visible line is
+            # the same wound-status line melee prints, through
+            # ``dealDamage`` → ``damageCreature`` (Utils.java:617-653):
+            # "{name} Killed! Exp. {n}" on death (Utils.java:628), else the
+            # tier text (Utils.java:634-650).
+            msg = creature_wound_message(target_m)
             return SpellResult(
                 success=True,
                 message=msg,
@@ -939,9 +945,11 @@ def _apply_projectile_attack(
                 projectile_path=path,
                 hit=True,
             )
+        # Message parity (item 3): Java's ``castAt`` returns NONE silently
+        # with no creature on the ray (Utils.java:813-820) — no text.
         return SpellResult(
             success=True,
-            message=f"{spell.name.capitalize()} fired {target_dir.name.lower()} into empty space.",
+            message="",
             damage=0,
             targets_affected=0,
             spell=spell,
@@ -950,10 +958,14 @@ def _apply_projectile_attack(
             hit=False,
         )
 
+    # Message parity (item 3): Java prints no per-cast damage narration
+    # (SpellUtil.java has no hud.add beside its 10 canonical strings) — the
+    # wound-status text below is the entire output the cast deserves. No
+    # arena + non-directional spell has no Java analog at all: silent.
     dmg = _caster_damage(min_dmg, max_dmg)
     return SpellResult(
         success=True,
-        message=f"{spell.name.capitalize()} unleashed for {dmg} damage.",
+        message="",
         damage=dmg,
         spell=spell,
     )
@@ -1189,8 +1201,10 @@ def prompt_cast_party(
         debug.apply_full_mp(caster_m)
         types = get_castable_spell_types(char.profession)
         if not types:
-            prof_name = char.profession.value.capitalize() if hasattr(char.profession, "value") else str(char.profession)
-            text_log.add_message(f"{char.name} ({prof_name}) cannot cast spells!")
+            # Java's canonical no-castables line: the same empty-castables
+            # branch prints "No spells to cast!" in the overworld C-key flow
+            # too (SecondaryInputProcessor.java:285,445).
+            text_log.add_message("No spells to cast!")
             return
 
         def _ask_spell_code(discipline: str) -> None:
@@ -1208,7 +1222,9 @@ def prompt_cast_party(
                     return
 
                 if char.mp < found_spell.mp_cost:
-                    text_log.add_message(f"Not enough MP! Need {found_spell.mp_cost} MP.")
+                    # Java's canonical MP refusal (SpellUtil.java:58); the
+                    # specific cost is never named.
+                    text_log.add_message("Thou dost not have enough magic points!")
                     return
 
                 def _dispatch(target: Any | None = None, direction: Direction | None = None) -> None:

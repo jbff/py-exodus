@@ -88,9 +88,10 @@ class CombatScreen(BaseScreen):
         self.stats_panel = StatsPanel(asset_mgr=self.asset_mgr)
         self.text_log = TextLog(max_lines=5, wrap_width=28)
 
-        # Seed initial combat message
-        c_name = self.arena.creature_def.name
-        self.text_log.add_message(f"Ambushed by {c_name}s!")
+        # Message parity (item 3): Java logs NOTHING when a combat opens
+        # (the encounter tile spawns the CombatScreen silently) — the
+        # invented "Ambushed by ..." seed line is gone; only arena-produced
+        # messages are mirrored below.
         for msg in self.arena.log_messages:
             self.text_log.add_message(msg)
         self.arena.log_messages.clear()
@@ -236,8 +237,9 @@ class CombatScreen(BaseScreen):
         debug.apply_full_mp(active)
         types = get_castable_spell_types(char.profession)
         if not types:
-            prof_name = char.profession.value.capitalize() if hasattr(char.profession, "value") else str(char.profession)
-            self.text_log.add_message(f"{char.name} ({prof_name}) cannot cast spells!")
+            # Java's canonical no-castables line (CombatScreen.java:326 —
+            # the pressed-C branch with an empty getCastables map).
+            self.text_log.add_message("No spells to cast!")
             return
 
         def _ask_spell_code(discipline: str) -> None:
@@ -255,7 +257,9 @@ class CombatScreen(BaseScreen):
                     return
 
                 if char.mp < found_spell.mp_cost:
-                    self.text_log.add_message(f"Not enough MP! Need {found_spell.mp_cost} MP.")
+                    # Java's canonical MP refusal (SpellUtil.java:58); the
+                    # specific cost is never named.
+                    self.text_log.add_message("Thou dost not have enough magic points!")
                     return
 
                 if found_spell in DIRECTIONAL_SPELLS:
@@ -325,13 +329,19 @@ class CombatScreen(BaseScreen):
             w_idx = ord(c[0]) - ord('A')
             if 0 <= w_idx < len(weapon_types):
                 success = active.ready_weapon(w_idx, self.asset_mgr)
+                # Java's ReadyWearInputAdapter result lines
+                # (CombatScreen.java:995-997): exactly "Success!" /
+                # "Failed!" — no member or item named. An out-of-range
+                # letter is a non-A..P key: Java's keyUp handles A..P only
+                # (CombatScreen.java:967) and falls through silently.
                 if success:
-                    self.text_log.add_message(f"Success! {active.name} readied {active.weapon.name}.")
+                    self.text_log.add_message("Success!")
                     self._execute_action(Action.pass_turn())
                 else:
-                    self.text_log.add_message("Cannot ready that weapon!")
-            else:
-                self.text_log.add_message("Invalid weapon selection!")
+                    self.text_log.add_message("Failed!")
+            # Beyond the enum list is a non-A..P key: Java's keyUp only
+            # handles A..P (CombatScreen.java:967) and falls through
+            # silently, so no message here.
 
         self.text_log.prompt("Ready Weapon? (A-P): ", callback=_on_weap, single_char=True)
 
@@ -361,13 +371,16 @@ class CombatScreen(BaseScreen):
             a_idx = ord(c[0]) - ord('A')
             if 0 <= a_idx < len(armor_types):
                 success = active.wear_armor(a_idx, self.asset_mgr)
+                # Java CombatScreen.java:995-997: "Success!" / "Failed!" are
+                # the only result lines; nothing names the member or item.
                 if success:
-                    self.text_log.add_message(f"Success! {active.name} wears {active.armor.name}.")
+                    self.text_log.add_message("Success!")
                     self._execute_action(Action.pass_turn())
                 else:
-                    self.text_log.add_message("Cannot wear that armor!")
-            else:
-                self.text_log.add_message("Invalid armor selection!")
+                    self.text_log.add_message("Failed!")
+            # Beyond the enum list is a non-A..H-equivalent key: Java's keyUp
+            # only handles A..P (CombatScreen.java:967) and falls through
+            # silently, so no message here.
 
         self.text_log.prompt("Wear Armor? (A-H): ", callback=_on_arm, single_char=True)
 
@@ -516,7 +529,10 @@ class CombatScreen(BaseScreen):
                     # sting.)
                     self.audio.play_music("fanfare", loops=0)
             elif self.arena.is_defeat:
-                self.text_log.add_message("DEFEAT! Thy party has fallen.")
+                # Message parity (item 3): Java writes NO string on a wipe —
+                # endCombat branches straight to partyDeath()
+                # (GameScreen.java:433-446), which logs nothing. The "Press
+                # Enter to continue." line stays as py's dismissal UI only.
                 self.text_log.add_message("Press Enter to continue.")
 
     def _notify_end_combat(self) -> None:
