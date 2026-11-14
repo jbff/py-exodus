@@ -39,7 +39,7 @@ Explore Sosaria (and Ambrosia) on foot, horseback, or by frigate; visit towns an
 
 ### Characters & Magic
 - Create characters from 5 races × 11 professions with a personal 50-point stat allocation; per-member food, gold, keys, gems, and quest marks/cards are tracked individually.
-- 16 cleric and 16 wizard spells with Java-faithful dice and requirements; casting runs in combat, towns, dungeons, and the overworld, with the aura system (quickness/negate) gating spells and monster actions.
+- 16 cleric and 16 wizard spells with Java-faithful dice; casting needs only MP — the original Ultima III has no reagent system — and runs in combat, towns, dungeons, and the overworld, with the aura system (quickness/negate) gating spells and monster actions.
 
 ---
 
