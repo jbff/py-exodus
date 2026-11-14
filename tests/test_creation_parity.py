@@ -293,6 +293,31 @@ class TestLordBritish:
         assert other.level == 1
         assert any("advanced" in h.lower() for h in town.text_log.history)
 
+    def test_multi_level_gain_leaves_stats_untouched(self):
+        """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): no random stat
+        gains on level-up — stats increase only at shrines (ruling; GBC/NES/LW
+        all agree no gains; LW UltimaMisc.c:442-456 AddExp mutates no stats).
+
+        Two level advances in a row; no seed needed because once the random
+        gain loop is gone level-up is deterministic."""
+        c = Character(name="Hero", profession=Profession.FIGHTER, level=1, exp=450)
+        c.marks = [1, 0, 0, 0]
+
+        # First advance: exp 450 (expLvl 4) jumps level 1 -> 5 (multi-level gain)
+        assert c.meet_lord_british() is True
+        assert c.level == 5
+        assert (c.str, c.dex, c.int, c.wis) == (15, 15, 10, 10)
+
+        # Second advance: exp 650 (expLvl 6) jumps level 5 -> 7
+        c.exp = 650
+        assert c.meet_lord_british() is True
+        assert c.level == 7
+        assert (c.str, c.dex, c.int, c.wis) == (15, 15, 10, 10)
+        # Advancement invariants still hold per level gained
+        assert c.max_hp == 7 * 100 + 50
+        assert c.hp == c.max_hp
+        assert c.status == Status.GOOD
+
 
 # --------------------------------------------------------------------------- #
 # (c) Remove-from-party returns the member to a roster slot

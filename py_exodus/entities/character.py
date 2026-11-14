@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import builtins
-import random
 from typing import Any
 
 from py_exodus.constants import ArmorType, Profession, Race, Sex, Status, WeaponType
@@ -347,18 +346,12 @@ class Character(metaclass=CharacterMeta):
         if self.exp // 100 >= 5 and (not self.marks or self.marks[0] == 0):
             return False
 
-        levels_gained = eligible_level - self.level
         self.level = eligible_level
         self.status = Status.GOOD
         self.max_hp = self.level * 100 + 50
         self.hp = self.max_hp
 
-        # Stat gains per level gained (up to race caps)
-        for _ in range(levels_gained):
-            self.str = min(self.str + random.randint(1, 8), self.race.max_str)
-            self.dex = min(self.dex + random.randint(1, 8), self.race.max_dex)
-            self.int = min(self.int + random.randint(1, 8), self.race.max_int)
-            self.wis = min(self.wis + random.randint(1, 8), self.race.max_wis)
+        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): no random stat gains on level-up — stats increase only at shrines (ruling; GBC/NES/LW all agree no gains; LW UltimaMisc.c:442-456)
 
         return True
 
