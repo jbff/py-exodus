@@ -726,7 +726,13 @@ def test_appar_unem_prompt_flow_never_asks_direction():
     """USER RULING 2026-11-11: APPAR_UNEM gets no direction prompt. Java asks
     "Direction?" then ignores the answer (SpellInputProcessor.java:52-61) —
     the ruling removes the prompt, so selecting the spell dispatches straight
-    to the caster's-tile chest effect (SpellUtil.java:140-148)."""
+    to the caster's-tile chest effect (SpellUtil.java:140-148).
+
+    The chest is at the party's tile, so the GBC 25% fizzle roll
+    (menucmd.c:1311-1313, rand(256) & 0x03) would fire stochastically; the
+    randrange stub (1 & 0x03 == 1) pins the fizzle off so the test is purely
+    about the prompt flow (mirrors test_sanctu_heals_java_range)."""
+    import py_exodus.combat.magic as magic
     from py_exodus.combat.magic import prompt_cast_party
     from py_exodus.ui.text_log import TextLog
 
@@ -735,10 +741,12 @@ def test_appar_unem_prompt_flow_never_asks_direction():
     party.add_member(cleric)
     party.dynamic_objects.append({"tile": "chest", "x": 10, "y": 10})
 
-    log = TextLog()
-    prompt_cast_party(log, party)
-    log.handle_char("1")  # member 1
-    log.handle_char("B")  # APPAR_UNEM
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(magic.random, "randrange", lambda n: 1)  # never fizzles
+        log = TextLog()
+        prompt_cast_party(log, party)
+        log.handle_char("1")  # member 1
+        log.handle_char("B")  # APPAR_UNEM
 
     # The flow completed without any further prompt — no Direction? step.
     assert not log.is_waiting_for_input
