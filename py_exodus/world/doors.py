@@ -51,19 +51,26 @@ def unlock_door(
     check and decrement are done below against its ``keys``.
 
     USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): unlocking consumes one key (GBC menucmd2.c:1595-1650)
-    — with ``member`` provided, success requires ``member.keys > 0`` and
-    decrements it by one (one key per successful unlock only; NES refunds the
-    key on failure, GBC does not and GBC governs). ``member=None`` keeps the
-    legacy Java behavior (no key check — legacy/test callers)."""
+    — with ``member`` provided, success requires ``member.keys > 0`` AND a
+    locked door: the spend+convert runs only in the 0x45 branch
+    (GBC menucmd2.c:1655-1657); any other tile (already-unlocked ``door``
+    included) takes dounlock's else branch — no conversion, no key spent.
+    ``member=None`` keeps the legacy Java behavior (any door state unlocks,
+    no key check — legacy/test callers)."""
     if member is not None and getattr(member, "keys", 0) <= 0:
         return False
     tile = game_map.get_tile(x, y)
     if tile is None:
         return False
-    if getattr(tile, "rule", "") not in ("door", "locked_door"):
-        return False
-    if getattr(tile, "rule", "") == "locked_door":
-        game_map.set_tile(x, y, _door_tile())
+    rule = getattr(tile, "rule", "")
     if member is not None:
+        if rule != "locked_door":
+            return False
+        game_map.set_tile(x, y, _door_tile())
         member.keys -= 1
+        return True
+    if rule not in ("door", "locked_door"):
+        return False
+    if rule == "locked_door":
+        game_map.set_tile(x, y, _door_tile())
     return True

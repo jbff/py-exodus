@@ -632,7 +632,9 @@ class TownScreen(BaseScreen):
             return
         # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): unlocking consumes one key (GBC menucmd2.c:1595-1650)
         # — the acting member is the member 1-4 the U flow already prompts for,
-        # and unlock_door itself checks and decrements its keys. A keyless
+        # and unlock_door itself checks its keys and spends one ONLY on the
+        # locked-door conversion (GBC menucmd2.c:1655-1657; anything else is
+        # dounlock's else: no conversion, no spend). A keyless
         # member is refused with "You need a key!" (GBC refusal message).
         if door_module.unlock_door(
             self.game_map, self.avatar_x + d.dx, self.avatar_y + d.dy, member=member
