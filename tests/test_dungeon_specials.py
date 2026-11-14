@@ -365,14 +365,15 @@ def test_dungeon_tick_never_drains_food_or_moves(open_dmap, test_party):
 
 
 def test_dungeon_tick_regens_without_food_drain(open_dmap, test_party):
-    """USER-DIRECTED ORIGINAL-RULES DEVIATION (2026-11-10): the dungeon
-    tick regenerates mana/HP and applies poison/starvation per consumed
-    turn even though Java's dungeon finishTurn never calls Party.endTurn
-    (DungeonScreen.java:1124-1142 — creature upkeep only). The U3 Book of
-    Play regen cadence applies everywhere, so the original tick runs here
-    at the underground rate (+1 per 4 turns); food still does NOT drain —
-    no submorsel decrement, no meal crossing, no starvation from new
-    eating (Java truth, kept)."""
+    """USER-DIRECTED: the dungeon tick regenerates mana per consumed turn
+    even though Java's dungeon finishTurn never calls Party.endTurn
+    (DungeonScreen.java:1124-1142 — creature upkeep only). The mana cadence
+    applies underground (+1 per 4 turns — 2026-11-10 interpretation kept),
+    but HP regen and starvation are MEAL-BOUND (GBC deviation 2026-11-14,
+    supersedes the 2026-11-10 interpretation for those two rules) — the
+    dungeon runs no meal crossing, so an injured member neither heals nor
+    starves, and food does NOT drain (no submorsel decrement, no crossing;
+    Java truth, kept)."""
     state = DungeonState(
         open_dmap,
         start_x=5,
@@ -389,7 +390,7 @@ def test_dungeon_tick_regens_without_food_drain(open_dmap, test_party):
     food_before = test_party.food
     for _ in range(4):
         state._tick_turn()
-    assert hero.hp == 51  # +1 HP on the 4th turn slot
+    assert hero.hp == 50  # no HP regen in the dungeon (meal-bound, no crossing)
     assert mage.mp == 1  # +1 mana on the 4th turn slot
     assert test_party.food == food_before  # dungeon food does not drain
 

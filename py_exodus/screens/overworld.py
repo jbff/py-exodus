@@ -1435,16 +1435,13 @@ class OverworldScreen(BaseScreen):
             self._check_hull_integrity()
             # Java order (GameScreen.java:710-714): endTurn, then aura.passTurn.
             self.party.end_turn(surface=map_id in ("0", "2"), sosaria=sosaria)
-            # USER-DIRECTED ORIGINAL-RULES DEVIATION (2026-11-10): Java's
-            # Party.endTurn regenerated mana/HP/poison only at the meal
-            # crossing (Party.java:612-617). The U3 Book of Play ties those
-            # to the TURN ("A character replenishes that energy at a rate of
-            # one point per turn on the surface, and one point every four
-            # turns in a town or dungeon"; "Every step the character takes,
-            # lowers the character's hit level by one" for poison), so the
-            # regen tick runs every consumed turn here. Surface means the
-            # overworld screen — Sosaria AND Ambrosia; the map_id in
-            # ("0","2") decision above is the food interval only.
+            # USER-DIRECTED ORIGINAL-RULES DEVIATION (2026-11-10): mana
+            # (+1/turn surface, Druids double) and poison (-1 HP per turn)
+            # run every consumed turn here. HP regen and starvation are
+            # meal-bound — USER-DIRECTED GBC-RULES DEVIATION (2026-11-14,
+            # supersedes the 2026-11-10 interpretation for these two rules):
+            # both ride the meal crossing inside Party.end_turn (GBC
+            # funcs5.c:741-789; LW UltimaMisc.c:1428-1493).
             self.party.tick_regen(surface=True)
             # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): moons advance
             # per 4 moves surface / 16 elsewhere; stop-time freezes moons

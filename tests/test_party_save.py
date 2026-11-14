@@ -235,20 +235,20 @@ def test_party_gold_food_and_transport():
         m.hp = 100
     p.end_turn(surface=False)
     assert p.food == 18
-    # Meal crossing decrements food ONLY — heal/poison/mana regen moved to
-    # the per-turn original-rules tick (Party.tick_regen, user-directed
-    # deviation 2026-11-10), so no heal lands at the crossing.
-    assert c1.hp == 100
-    assert c2.hp == 100
+    # Meal crossing: food decrements and the GBC meal-bound regen
+    # (2026-11-14, supersedes the 2026-11-10 interpretation for HP regen)
+    # heals +1 at the crossing. Mana stays on the per-turn tick.
+    assert c1.hp == 101
+    assert c2.hp == 101
 
-    # Starvation: food 0 → 2 damage per turn on the regen tick
+    # Starvation is MEAL-BOUND (GBC user-directed deviation 2026-11-14,
+    # supersedes the per-turn 2/turn tick): food 0 AT a crossing → 5 HP.
     for m in p.members:
         m.food = 0
         m.submorsels = 5
-    p.end_turn(surface=False)  # crossing decrements food only (stays 0)
-    p.tick_regen(surface=False)  # first underground turn: -2 HP
-    assert c1.hp == 98
-    assert c2.hp == 98
+    p.end_turn(surface=False)  # crossing on a food-0 member → -5 HP
+    assert c1.hp == 96
+    assert c2.hp == 96
 
     # Transport & Ship hull
     assert p.transport == Transport.FOOT

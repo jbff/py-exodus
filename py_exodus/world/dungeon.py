@@ -1495,10 +1495,14 @@ class DungeonState:
         creature reaches the avatar (battleWandering), else None.
 
         USER-DIRECTED ORIGINAL-RULES DEVIATION (2026-11-10): Java's dungeon
-        tick regenerates NOTHING, but the original-rules regen
-        (``Party.tick_regen`` — mana +1 per 4 turns underground, HP +1 per
-        4 turns, poison -1 HP per turn, starvation 2/turn) applies here
-        every consumed turn. Food still does NOT drain in the dungeon: no
+        tick regenerates NOTHING, but the mana tick
+        (``Party.tick_regen`` — mana +1 per 4 turns underground, poison
+        -1 HP per turn) applies here every consumed turn. HP regen and
+        starvation are MEAL-BOUND — USER-DIRECTED GBC-RULES DEVIATION
+        (2026-11-14, supersedes the 2026-11-10 interpretation for these two
+        rules): both ride the meal crossing in Party.end_turn (GBC
+        funcs5.c:741-789; LW UltimaMisc.c:1428-1493), which the dungeon
+        never runs. Food still does NOT drain in the dungeon: no
         submorsel decrement, no meal crossing (Java truth, kept).
         """
         if self.party is not None:

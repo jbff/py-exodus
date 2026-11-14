@@ -1,16 +1,16 @@
-"""Per-turn tick — submorsels, per-member food/gold, original-rules regen.
+"""Per-turn tick — submorsels, per-member food/gold, regen rules.
 
 Java truth: ``exodus/Party.java:592-639`` (``Party.endTurn``) and
 ``objects/SaveGame.java:190-192,390-392`` (per-member ``food``/``gold`` and
 ``adjustGold`` capping a member's purse at 9999).
 
-Original-rules regen (user-directed deviation, 2026-11-10): the meal crossing
-(submorsel block) decrements food ONLY. Mana, HP, poison and starvation move
-to a per-turn tick (``Party.tick_regen``) following the U3 Book of Play:
-mana +1/turn on the surface, +1 every 4 turns in town/dungeon (Druids
-regenerate double the local rate); poisoned members lose 1 HP per turn;
-healthy members regain +1 HP per turn on the surface, +1 per 4 turns
-underground when food > 0; food 0 starves 2 HP per turn.
+Rule split (USER-DIRECTED GBC-RULES DEVIATION, 2026-11-14, supersedes the
+2026-11-10 interpretation for the HP-regen and starvation rules ONLY): at
+each meal crossing a member with food 0 takes 5 damage and a fed, unpoisoned
+member heals +1 HP (GBC funcs5.c:741-789; LW UltimaMisc.c:1428-1493).
+Mana (+1/turn surface, +1 per 4 turns underground, Druids double the local
+rate) and poison (-1 HP per turn) stay on the per-turn tick
+(``Party.tick_regen``, 2026-11-10 interpretation kept).
 """
 from __future__ import annotations
 
@@ -194,24 +194,17 @@ class TestManaRegenTick:
         assert party.members[0].mp == 1
 
 
-class TestHpRegenTick:
-    """Original-rules HP regen: +1 per turn on the surface, +1 per 4 turns
-    in towns/castles/dungeons when food > 0 and not poisoned (controller
-    interpretation documented in Party.tick_regen — the manual quantifies
-    only mana; the NES guide says regen is slower underground)."""
+class TestMealCrossingRegen:
+    """GBC meal-bound HP rules — USER-DIRECTED GBC-RULES DEVIATION
+    (2026-11-14, supersedes the 2026-11-10 interpretation for these two
+    rules): at each meal crossing (the ``submorsels < 0`` block in
+    ``end_turn``) a member with food 0 takes 5 damage and a member with
+    food > 0 heals +1 HP unless POISONED (GBC funcs5.c:741-789; LW
+    UltimaMisc.c:1428-1493). Both route through ``apply_damage`` — a wipe
+    raises ``PartyDeathException``.
 
-    def test_surface_one_hp_per_turn(self):
-        party = make_party(hero(hp=50, max_hp=100))
-        for _ in range(5):
-            party.tick_regen(surface=True)
-        assert party.members[0].hp == 55
-
-    def test_town_one_hp_per_four_turns(self):
-        party = make_party(hero(hp=50, max_hp=100))
-        m = party.members[0]
-        for _ in range(4):
-            party.tick_regen(surface=False)
-        assert m.hp == 51
+    The ship-hull 1-in-4 roll is pinned on every test that lets ``end_turn``
+    run (RNG hygiene): ``py_exodus.entities.party.random.randint``."""
 
     def test_heal_caps_at_max_health(self):
         party = make_party(hero(hp=100, max_hp=100))
@@ -239,32 +232,77 @@ class TestHpRegenTick:
 
 
 class TestStarvation:
-    def test_food_zero_is_two_damage_per_turn_no_regen(self):
-        """food <= 0: 2 damage per turn (everywhere), no HP regen."""
+    def test_starvation_is_meal_bound_not_turn_bound(self, monkeypatch):
+        """No crossing this turn → no starvation blow at all: the per-turn
+        2-damage tick is gone (superseded); 5 HP lands ONLY at the crossing."""
+        monkeypatch.setattr("py_exodus.entities.party.random.randint", lambda a, b: 1)
         party = make_party(hero(hp=50, food=0))
         m = party.members[0]
-        party.tick_regen(surface=True)
-        assert m.hp == 48
+        party.end_turn(surface=True)  # submorsels 400: no crossing on move 1
+        assert m.hp == 50
+        party.tick_regen(surface=True)  # mana/poison tick: no starvation
+        assert m.hp == 50
 
-    def test_starvation_wipe_raises_party_death(self):
+    def test_meal_crossing_at_food_zero_takes_5(self, monkeypatch):
+        monkeypatch.setattr("py_exodus.entities.party.random.randint", lambda a, b: 1)
+        party = make_party(hero(hp=20, food=0))
+        m = party.members[0]
+        m.submorsels = 5
+        party.end_turn(surface=True)
+        assert m.hp == 15
+
+    def test_two_meal_crossings_take_exactly_two_5_damage_events(self, monkeypatch):
+        monkeypatch.setattr("py_exodus.entities.party.random.randint", lambda a, b: 1)
+        party = make_party(hero(hp=20, food=0))
+        m = party.members[0]
+        m.submorsels = 5
+        party.end_turn(surface=True)  # crossing #1: 20 → 15
+        assert m.hp == 15
+        m.submorsels = 5
+        party.end_turn(surface=True)  # crossing #2
+        assert m.hp == 10
+
+    def test_starvation_wipe_at_crossing_raises_party_death(self, monkeypatch):
+        monkeypatch.setattr("py_exodus.entities.party.random.randint", lambda a, b: 1)
         party = make_party(
             hero(hp=1, food=0),
             hero(name="B", hp=1, food=0),
         )
+        for m in party.members:
+            m.submorsels = 5
         with pytest.raises(PartyDeathException):
-            party.tick_regen(surface=True)
+            party.end_turn(surface=True)
 
-    def test_meal_crossing_decrements_food_only(self):
-        """The meal crossing no longer heals/poisons/regs mana — the
-        per-turn tick owns those (original-rules deviation; the old
-        meal-crossing regen is removed, no double regen)."""
+    def test_fed_member_heals_one_per_crossing_capped_at_max(self, monkeypatch):
+        monkeypatch.setattr("py_exodus.entities.party.random.randint", lambda a, b: 1)
+        party = make_party(hero(hp=98, max_hp=100))
+        m = party.members[0]
+        m.submorsels = 5
+        party.end_turn(surface=True)
+        assert m.hp == 99
+        m.submorsels = 5
+        party.end_turn(surface=True)
+        assert m.hp == 100
+
+    def test_poisoned_member_gets_no_crossing_heal(self, monkeypatch):
+        monkeypatch.setattr("py_exodus.entities.party.random.randint", lambda a, b: 1)
+        party = make_party(hero(hp=50, max_hp=100, status=Status.POISONED))
+        m = party.members[0]
+        m.submorsels = 5
+        party.end_turn(surface=True)
+        assert m.hp == 50  # GBC "not poisoned" gate: no +1 heal at the crossing
+        assert m.status == Status.POISONED
+
+    def test_meal_crossing_regen_lands_there_not_on_the_tick(self):
+        """The crossing heals +1 (GBC meal-bound regen); mana and poison
+        stay on the per-turn tick — no mana at the crossing."""
         party = make_party(hero(hp=50, max_hp=100, mp=0, max_mp=10))
         m = party.members[0]
         m.submorsels = 5
         party.end_turn(surface=True)
         assert m.food == 149
-        assert m.hp == 50  # no heal at meal crossing
-        assert m.mp == 0  # no mana at meal crossing
+        assert m.hp == 51  # +1 heal AT the meal crossing
+        assert m.mp == 0  # mana stays on the per-turn tick
 
 
 class TestPerMemberGold:
@@ -304,10 +342,11 @@ class TestPerMemberGold:
 
 class TestScreenTickRouting:
     """Every consumed turn on every screen routes through the regen tick
-    (user-directed deviation): the overworld move AND pass, the town move
-    and pass, and the dungeon move/blocked-move tick. Surface for regen
-    means the overworld SCREEN (Sosaria AND Ambrosia) — the map_id in
-    ("0","2") 40-submorsel decision is the food rule, not the regen rule."""
+    (user-directed deviation) — mana and poison only, since the GBC
+    2026-11-14 ruling moved HP regen and starvation onto the meal crossing.
+    Surface for regen means the overworld SCREEN (Sosaria AND Ambrosia) —
+    the map_id in ("0","2") 40-submorsel decision is the food rule, not the
+    regen rule."""
 
     @pytest.fixture
     def ow(self, pygame_setup, asset_mgr, monkeypatch):
@@ -350,23 +389,28 @@ class TestScreenTickRouting:
             ow.handle_event(
                 pygame.event.Event(pygame.KEYDOWN, key=pygame.K_SPACE, unicode=" ")
             )
-        assert m.hp == hp_before + 5  # pass consumes a turn → regen ran each turn
+        # No per-turn HP regen (GBC meal-bound rules); 5 passes at 40
+        # submorsels each do not reach a crossing (200 of 400).
+        assert m.hp == hp_before
 
-    def test_move_counts_as_a_turn(self, ow, monkeypatch):
+    def test_move_crossing_heals_and_pass_does_not_starve(self, ow, monkeypatch):
         import pygame
 
+        # Pin the ship-hull roll it must not fire into the assertion.
+        monkeypatch.setattr("py_exodus.entities.party.random.randint", lambda a, b: 1)
         m = ow.party.members[0]
+        m.submorsels = 5
         hp_before = m.hp
         ow.handle_event(
             pygame.event.Event(pygame.KEYDOWN, key=pygame.K_UP, unicode="")
         )
-        assert m.hp == hp_before + 1
+        assert m.hp == hp_before + 1  # the move crossed a meal: +1 HP, fed member
 
-    def test_ambrosia_regen_runs_at_surface_rate(self, pygame_setup, asset_mgr, ow):
+    def test_ambrosia_food_drains_at_the_town_interval_no_regen(self, pygame_setup, asset_mgr, ow):
         """map_id 13 (Ambrosia) drains food at the 10-submorsel town
-        interval but regenerates mana/HP at the SURFACE rate: original-rule
-        surface means the overworld screen, not the 40-interval map set
-        (user-directed deviation, 2026-11-10)."""
+        interval (Java truth); the crossing regen has NO surface cadence
+        split (GBC meal-bound rules supersede the 2026-11-10 HP rule), and
+        11 passes at 10 submorsels never cross (110 of 400)."""
         m = ow.party.members[0]
         ow.map_id = 13
         ow.party.map_id = 13
@@ -375,9 +419,6 @@ class TestScreenTickRouting:
             ow.handle_event(
                 pygame.event.Event(pygame.KEYDOWN, key=pygame.K_SPACE, unicode=" ")
             )
-        assert m.hp == 61  # +1 per turn — surface rate
-        # Ambrosia's town food interval: 11 x 10 submorsels = 110 — no
-        # crossing, food unchanged (Sosaria's 40-interval would have
-        # crossed on move 11 and eaten one unit).
+        assert m.hp == 50  # no per-turn regen, no crossing this turn count
         assert m.food == 150
         assert m.submorsels == 400 - 110

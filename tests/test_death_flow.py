@@ -214,8 +214,12 @@ def test_journey_onward_without_game_over_reads_disk_save(pygame_setup, monkeypa
 # --- Screen-level game-over routing ---
 
 
-def test_overworld_starvation_wipe_transitions_to_start_screen(sm, asset_mgr):
-    """Starving with one living member wipes the party → StartScreen game over."""
+def test_overworld_starvation_wipe_transitions_to_start_screen(sm, asset_mgr, monkeypatch):
+    """A meal crossing at food 0 lands the 5 HP starvation blow
+    (USER-DIRECTED GBC-RULES DEVIATION, 2026-11-14, supersedes the
+    2026-11-10 per-tick starvation): one surviving member dies → StartScreen
+    game over. The ship-hull roll is pinned."""
+    monkeypatch.setattr("py_exodus.entities.party.random.randint", lambda a, b: 1)
     party = single_member_party(hp=0)
     party.food = 0
     party.moves = 40
@@ -236,8 +240,9 @@ def test_overworld_starvation_wipe_transitions_to_start_screen(sm, asset_mgr):
     assert party.is_party_dead()
 
 
-def test_overworld_starvation_leaving_survivor_no_transition(sm, asset_mgr):
+def test_overworld_starvation_leaving_survivor_no_transition(sm, asset_mgr, monkeypatch):
     """Damage that leaves one member alive must NOT end the game."""
+    monkeypatch.setattr("py_exodus.entities.party.random.randint", lambda a, b: 1)
     party = Party(members=[], gold=0, food=0)
     party.add_member(Character("Hero", "M", Race.HUMAN, Profession.FIGHTER, hp=100, max_hp=100))
     party.add_member(Character("Mage", "F", Race.ELF, Profession.WIZARD, hp=6, max_hp=100))
@@ -245,10 +250,9 @@ def test_overworld_starvation_leaving_survivor_no_transition(sm, asset_mgr):
     ow = OverworldScreen(party=party, map_id=0, asset_mgr=asset_mgr, manager=sm)
     sm.set_screen(ow)
 
-    # Original-rules tick order (user-directed deviation 2026-11-10): a
-    # food-0 member gets NO heal — the per-turn starvation blow of 2 lands
-    # alone (the old Java meal crossing healed +1 first, net −1; the
-    # original tick is 2/turn, no regen at food <= 0).
+    # Meal-bound starvation (GBC deviation 2026-11-14, supersedes the
+    # 2026-11-10 per-turn tick): the crossing lands a single 5 HP blow —
+    # the 6-HP Mage survives it at 1.
     for m in party.members:
         m.food = 0
         m.submorsels = 5
@@ -256,19 +260,22 @@ def test_overworld_starvation_leaving_survivor_no_transition(sm, asset_mgr):
 
     assert not party.is_party_dead()
     assert sm.current_screen is ow
-    assert party.get_member(1).hp == 4
+    assert party.get_member(1).hp == 1
 
 
-def test_town_starvation_wipe_transitions_to_start_screen(sm, asset_mgr):
-    """The town counterpart of the overworld/dungeon starvation wipes: a
-    food-0 member passes turns in town (SPACE — Java GameScreen.java:624-628
-    pass key; towns drain the 10-submorsel pool per turn, Party.endTurn
-    Party.java:592-639) while the per-turn regen tick applies the 2-HP
-    starvation blow (Party.tick_regen — user-directed original-rules
-    deviation), and the wipe routes to the StartScreen game over."""
+def test_town_starvation_wipe_transitions_to_start_screen(sm, asset_mgr, monkeypatch):
+    """The town counterpart of the overworld starvation wipe: a food-0
+    member passes a turn in town (SPACE — Java GameScreen.java:624-628 pass
+    key; towns drain the 10-submorsel pool per turn, Party.endTurn
+    Party.java:592-639) and the MEAL CROSSING lands the 5 HP starvation blow
+    (USER-DIRECTED GBC-RULES DEVIATION 2026-11-14, supersedes the 2026-11-10
+    per-turn tick), routing the wipe to the StartScreen game over. The
+    ship-hull roll is pinned."""
+    monkeypatch.setattr("py_exodus.entities.party.random.randint", lambda a, b: 1)
     party = single_member_party(hp=1)
     for m in party.members:
         m.food = 0
+        m.submorsels = 5  # first pass crosses → the meal-bound blow fires
 
     from py_exodus.screens.town import TownScreen
 
@@ -289,59 +296,13 @@ def test_town_starvation_wipe_transitions_to_start_screen(sm, asset_mgr):
     assert party.is_party_dead()
 
 
-def test_dungeon_starvation_wipe_transitions_to_start_screen(sm, asset_mgr):
-    """USER-DIRECTED ORIGINAL-RULES DEVIATION (2026-11-10): the dungeon tick
-    regenerates AND starves per consumed turn — Java DungeonScreen.finishTurn
-    (DungeonScreen.java:1124-1141) never called Party.endTurn, but the
-    original rules starve a food-0 party 2 HP per turn everywhere. Food
-    still does not DRAIN in the dungeon (no meal crossing — Java truth,
-    kept); members whose food is ALREADY 0 take the starvation blow on the
-    dungeon move and a wiped party routes to game over."""
-
-    def member(name: str) -> Character:
-        char = Character(name, "M", Race.HUMAN, Profession.FIGHTER, hp=0, max_hp=100)
-        char.food = 0
-        return char
-
-    party = Party(members=[], x=2, y=2, gold=0, food=0, transport=Transport.FOOT)
-    party.add_member(member("Hero"))
-    party.add_member(member("Mage"))
-
-    dmap = DungeonMap(id=99, name="TestDungeon", width=8, height=8, levels=8)
-    dmap.tiles = [
-        [
-            [
-                DungeonTile.WALL
-                if x == 0 or x == 7 or y == 0 or y == 7
-                else DungeonTile.FLOOR
-                for x in range(8)
-            ]
-            for y in range(8)
-        ]
-        for z in range(8)
-    ]
-    dungeon = DungeonScreen(party=party, dungeon_map=dmap, start_x=2, start_y=2, start_z=0)
-    sm.set_screen(dungeon)
-
-    dungeon.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_UP))
-
-    assert party.is_party_dead()
-    from py_exodus.screens.start import StartScreen
-
-    assert isinstance(sm.current_screen, StartScreen)
-    assert sm.current_screen.game_over is True
-    # Dungeon food drain stays off (Java truth): food was already 0 and no
-    # submorsel crossing ran.
-    assert all(m.food == 0 for m in party.members)
-
-
-def test_dungeon_tick_starves_food_zero_but_is_count_based(sm, asset_mgr):
-    """USER-DIRECTED ORIGINAL-RULES DEVIATION (2026-11-10): the dungeon
-    tick applies the original per-turn starvation (food 0 → 2 damage per
-    turn) even though Java's dungeon finishTurn never touched the party
-    (DungeonScreen.java:1124-1141). A food-0 member is NOT healed (+1
-    requires food > 0) and fighters regen no mana (max_mp 0); food does
-    not drain on its own."""
+def test_dungeon_food_zero_never_starves_without_a_crossing(sm, asset_mgr):
+    """Starvation is MEAL-BOUND (USER-DIRECTED GBC-RULES DEVIATION
+    2026-11-14, supersedes the 2026-11-10 per-turn tick): the dungeon moves
+    run no submorsel crossing at all — Java DungeonScreen.finishTurn
+    (DungeonScreen.java:1124-1141) never calls Party.endTurn (Java truth,
+    kept) — so a food-0 party takes NO starvation blow per dungeon move and
+    never wipes from it. Food also does not drain in the dungeon."""
 
     def member(name: str) -> Character:
         char = Character(name, "M", Race.HUMAN, Profession.FIGHTER, hp=6, max_hp=100)
@@ -372,8 +333,9 @@ def test_dungeon_tick_starves_food_zero_but_is_count_based(sm, asset_mgr):
 
     assert not party.is_party_dead()
     assert sm.current_screen is dungeon
-    # One consumed dungeon turn: −2 starvation, no heal, no mana regen.
-    assert party.get_member(1).hp == 4
+    # No meal crossing in the dungeon → no 5 HP starvation blow (the
+    # supersedes note in Party.end_turn documents the cadence change).
+    assert party.get_member(1).hp == 6
     assert all(m.food == 0 for m in party.members)
 
 

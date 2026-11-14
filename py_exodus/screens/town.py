@@ -347,11 +347,14 @@ class TownScreen(BaseScreen):
         GameScreen.java:706-754 — endTurn, then aura.passTurn). Towns drain
         submorsels at 10 per move (non-surface map).
 
-        USER-DIRECTED ORIGINAL-RULES DEVIATION (2026-11-10): mana/HP regen
-        and poison/starvation run every consumed turn (Party.tick_regen) at
-        the underground cadence (+1 per 4 turns — "one point every four
-        turns in a town or dungeon"), not at Java's meal crossing
-        (Party.java:612-617)."""
+        USER-DIRECTED ORIGINAL-RULES DEVIATION (2026-11-10): mana
+        (+1/turn surface, +1 per 4 turns underground — "one point every
+        four turns in a town or dungeon") and poison run every consumed
+        turn (Party.tick_regen). HP regen and starvation are meal-bound —
+        USER-DIRECTED GBC-RULES DEVIATION (2026-11-14, supersedes the
+        2026-11-10 interpretation for these two rules): both ride the meal
+        crossing in Party.end_turn (GBC funcs5.c:741-789; LW
+        UltimaMisc.c:1428-1493)."""
         try:
             self.party.end_turn(surface=False)
             self.party.tick_regen(surface=False)
