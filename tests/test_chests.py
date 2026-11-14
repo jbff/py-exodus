@@ -227,7 +227,8 @@ def test_poison_trap_poisons_opener(monkeypatch):
 def test_bomb_trap_damages_whole_party_living_only(monkeypatch):
     """The Bomb trap hits every living member through apply_damage with the
     LW formula (rnd255 & 0x77) + (dungeon_level + 1) * 8; dead members stay
-    untouched and gold still credits after a non-wipe blast."""
+    untouched, and LW case 2's early return (UltimaMain.c:1655-1663) credits
+    NO gold or item drops — even when nobody dies."""
     member = make_member("Fighter")
     other = make_member("Cleric")
     dead = make_member("Wizard")
@@ -235,19 +236,21 @@ def test_bomb_trap_damages_whole_party_living_only(monkeypatch):
     dead.hp = 0
     party = make_party([member, other, dead])
     party.dungeon_level = 2  # dungeon level 3: bonus term (2 + 1) * 8 = 24
+    member_gold, other_gold = member.gold, other.gold
 
     # Trap present, evade hit, Bomb; member roll 0x33 (51), other roll 0
-    # (0x77 & roll), then gold, then the drop rolls both miss (3, 3).
-    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 2, 0x33, 0, 25, 6, 3, 3]))
+    # (0x77 & roll). The script ends there: no gold or drop rolls exist.
+    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 2, 0x33, 0]))
 
     lines = open_chest(party, member, dungeon=True)
 
-    assert lines == ["Bomb Trap!", "The Chest Holds: 41 Gold"]
+    assert lines == ["Bomb Trap!"]
     assert member.hp == 100 - (51 + 24)
     assert other.hp == 100 - 24
     assert dead.status == Status.DEAD
     assert dead.hp == 0  # never resurrected, never damaged
     assert member.status == Status.GOOD
+    assert member.gold == member_gold and other.gold == other_gold  # no booty
 
 
 def test_bomb_trap_surface_band_8_to_127(monkeypatch):
@@ -262,12 +265,11 @@ def test_bomb_trap_surface_band_8_to_127(monkeypatch):
         member.hp = 1000
         other.hp = 1000
         # Bomb roll for the opener walks 0..199; the Cleric always rolls 0x77.
-        monkeypatch.setattr(
-            chests, "random", ScriptedRNG([0, 99, 2, i % 200, 0x77, 25, 6, 3, 3])
-        )
+        monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 2, i % 200, 0x77]))
         m_hp, o_hp = member.hp, other.hp
         m_damage = (i % 200) & 0x77  # the mask folds bit-3 rolls onto others
-        open_chest(party, member, dungeon=False)
+        lines = open_chest(party, member, dungeon=False)
+        assert lines == ["Bomb Trap!"]  # LW early return: no booty rolls at all
         assert member.hp == m_hp - (m_damage + 8)
         assert other.hp == o_hp - 127
 
@@ -287,7 +289,7 @@ def test_bomb_trap_dungeon_band_includes_level_term(monkeypatch):
         monkeypatch.setattr(
             chests,
             "random",
-            ScriptedRNG([0, 99, 2, (i * 119 // 199) & 0x77, 0x77, 25, 6, 3, 3]),
+            ScriptedRNG([0, 99, 2, (i * 119 // 199) & 0x77, 0x77]),
         )
         m_hp, o_hp = member.hp, other.hp
         open_chest(party, member, dungeon=True)
@@ -315,18 +317,20 @@ def test_bomb_trap_wipes_through_apply_damage(monkeypatch):
 
 def test_bomb_trap_single_death_does_not_raise(monkeypatch):
     """One member dying to the Bomb in a larger party does not raise: the
-    party is not wiped and gold still credits (LW only skips the booty when
-    the whole trap branch returns early for a wipe at the screen layer)."""
+    party is not wiped. Per LW case 2's unconditional early return, the
+    survivors get NO gold or item drops either — the booty path is skipped
+    whenever the bomb springs, dead party or not."""
     member = make_member("Fighter", hp=10)
     other = make_member("Cleric")
     party = make_party([member, other])
 
     # member roll 0x77 -> 119 + 8 = 127 > 10: dead; other roll 0 -> 8: alive.
-    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 2, 0x77, 0, 25, 6, 3, 3]))
+    # The script ends there: no gold or drop rolls exist after the bomb.
+    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 2, 0x77, 0]))
 
     lines = open_chest(party, member, dungeon=False)
 
-    assert lines == ["Bomb Trap!", "The Chest Holds: 41 Gold"]
+    assert lines == ["Bomb Trap!"]
     assert member.status == Status.DEAD
     assert other.status == Status.GOOD
     assert other.hp == 92
