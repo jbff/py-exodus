@@ -264,6 +264,32 @@ def test_party_gold_food_and_transport():
     assert p.wind_direction == Direction.EAST
 
 
+def test_wind_direction_calm_round_trip():
+    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): None = becalmed/calm
+    wind — the becalmed state round-trips through to_dict/from_dict (and
+    therefore through SaveSystem's JSON), while an explicit old-save
+    direction string keeps loading as before."""
+    p = Party()
+    p.wind_direction = None
+    d = p.to_dict()
+    assert d["wind_direction"] is None
+    p2 = Party.from_dict(d)
+    assert p2.wind_direction is None
+
+    # A JSON round-trip through SaveSystem keeps the calm state too.
+    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+        tmp_name = f.name
+    try:
+        SaveSystem.save_game(p2, tmp_name)
+        loaded = SaveSystem.load_game(tmp_name)
+        assert loaded.wind_direction is None
+    finally:
+        os.unlink(tmp_name)
+
+    # Constructor accepts None directly (fresh game start becalmed).
+    assert Party(wind_direction=None).wind_direction is None
+
+
 def test_save_system_full_delta():
     """Verify JSON persistence with dynamic overworld delta (24 objects, 8 monsters)."""
     p = Party()

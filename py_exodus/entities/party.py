@@ -190,7 +190,7 @@ class Party:
         dungeon_level: int = 0,
         transport: Transport | str = Transport.FOOT,
         ship_hull: int = 50,
-        wind_direction: Direction | str = Direction.NORTH,
+        wind_direction: Direction | str | None = Direction.NORTH,
         gold: int | None = None,
         food: int | None = None,
         moves: int = 0,
@@ -229,8 +229,13 @@ class Party:
 
         self.active_member_index = active_member_index
 
-        # Wind direction resolution
-        if isinstance(wind_direction, Direction):
+        # Wind direction resolution. None is the becalmed/calm state —
+        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): sailing is BLOCKED
+        # while becalmed (GBC postexo1.c:1848-1852; menucmd3.c:1449-1467),
+        # and the re-roll can land on calm as one of the 5 outcomes.
+        if wind_direction is None:
+            self.wind_direction: Direction | None = None
+        elif isinstance(wind_direction, Direction):
             self.wind_direction = wind_direction
         else:
             w_str = str(wind_direction).strip().upper()
@@ -753,7 +758,9 @@ class Party:
             "dungeon_level": self.dungeon_level,
             "transport": self.transport.value,
             "ship_hull": self.ship_hull,
-            "wind_direction": self.wind_direction.name,
+            "wind_direction": (
+                self.wind_direction.name if self.wind_direction is not None else None
+            ),
             "gold": self.gold,
             "food": self.food,
             "moves": self.moves,

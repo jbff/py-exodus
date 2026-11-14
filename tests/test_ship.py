@@ -251,3 +251,93 @@ class TestSailingFacing:
         sample_party.transport = Transport.SHIP
         key(overworld, pygame.K_RIGHT)  # already facing east: moves
         assert (sample_party.x, sample_party.y) == (12, 10)
+
+
+class TestWindRules:
+    """Task 20: GBC wind rules — becalmed blocks sailing, headwind blocks
+    sailing, and the wind re-rolls to a DIFFERENT outcome every 20th
+    consumed move.
+
+    USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): wind blocks when
+    becalmed/against headwind; forced re-roll per 20 moves (GBC
+    postexo1.c:1848-1852; menucmd3.c:1449-1467). Supersedes py's
+    "Sailing against headwinds slows thee!" and the 4-second wall-clock
+    wind timer (wind is move-driven now, like the moons since Task 19).
+
+    The move-driven counter is Party.moves itself (GBC's ``moves`` modulo,
+    Party.end_turn's counter), checked on the overworld turn end.
+    """
+
+    def _sailing_party(self, sample_party):
+        sample_party.transport = Transport.SHIP
+        sample_party.ship_hull = 50
+        sample_party.moves = 7  # clear of the 20-move re-roll slots
+        return sample_party
+
+    def test_becalmed_blocks_sailing(self, overworld, sample_party):
+        self._sailing_party(sample_party)
+        sample_party.wind_direction = None  # calm/becalmed
+        overworld.heading = Direction.EAST
+        key(overworld, pygame.K_RIGHT)
+        assert (sample_party.x, sample_party.y) == (10, 10)
+        assert any(
+            m == "The ship is becalmed!" for m in overworld.text_log.history
+        )
+
+    def test_headwind_blocks_sailing(self, overworld, sample_party):
+        self._sailing_party(sample_party)
+        sample_party.wind_direction = Direction.NORTH
+        overworld.heading = Direction.SOUTH
+        key(overworld, pygame.K_DOWN)
+        assert (sample_party.x, sample_party.y) == (10, 10)
+        assert any(
+            m == "Headwinds block thy ship!"
+            for m in overworld.text_log.history
+        )
+        # The old slow-down message is gone, not just amended.
+        assert not any(m == "Sailing against headwinds slows thee!" for m in overworld.text_log.history)
+
+    def test_non_headwind_still_sails(self, overworld, sample_party):
+        self._sailing_party(sample_party)
+        sample_party.wind_direction = Direction.EAST
+        overworld.heading = Direction.NORTH
+        key(overworld, pygame.K_UP)
+        assert (sample_party.x, sample_party.y) == (10, 9)
+
+    def test_wind_rerolls_every_20th_move_never_repeating(self, overworld, sample_party):
+        import random as _random
+
+        _random.seed(319)
+        changes = []
+        before = sample_party.wind_direction
+        for _ in range(100):
+            overworld._finish_turn()
+            wind = sample_party.wind_direction
+            if wind != before:
+                changes.append(sample_party.moves)
+                # Forced re-roll: never repeats the outgoing value.
+                assert wind != before
+                before = wind
+        # 100 moves → exactly the multiples of 20 re-roll.
+        assert len(changes) == 5
+        assert all(m % 20 == 0 for m in changes)
+
+    def test_display_sites_tolerate_calm(self, asset_mgr, sample_party):
+        from py_exodus.screens.overworld import sky_strip_texts
+
+        sample_party.wind_direction = None
+        o = OverworldScreen(
+            party=sample_party,
+            map_id=0,
+            asset_mgr=asset_mgr,
+            start_x=10,
+            start_y=10,
+            random_encounters=False,
+        )
+        # Screen-entry message names the calm instead of crashing on .name.
+        assert any("The wind is calm." in m for m in o.text_log.history)
+        # Sky strip renders the calm wind (no arrow).
+        strip = o.sky_strip_texts()
+        assert any(t == "Wind CALM" for t in strip)
+        # Full render path must not crash on the None wind.
+        o.render(pygame.Surface((320, 200)))

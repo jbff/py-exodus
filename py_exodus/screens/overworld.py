@@ -256,19 +256,35 @@ WIND_ARROWS: dict[Direction, str] = {
     Direction.WEST: "<",
 }
 
+# The 5 wind outcomes of a re-roll (4 directions + the becalmed None):
+# GBC menucmd3.c:1449-1467 picks among directions plus calm and never
+# repeats the outgoing value.
+WIND_OUTCOMES: list["Direction | None"] = [
+    Direction.NORTH,
+    Direction.SOUTH,
+    Direction.EAST,
+    Direction.WEST,
+    None,
+]
+
 
 def sky_strip_texts(
-    wind_direction: Direction,
+    wind_direction: "Direction | None",
     trammel_phase: int,
     felucca_phase: int,
     aura: "AuraType | None" = None,
 ) -> list[str]:
     """Text lines of the sky strip (wind + moons, plus the aura label first
-    when active — Java GameScreen.java:184,188-189)."""
+    when active — Java GameScreen.java:184,188-189). USER-DIRECTED GBC-RULES
+    DEVIATION (2026-11-14): a None (becalmed) wind displays as "Wind CALM"
+    with no arrow."""
     texts: list[str] = []
     if aura is not None and aura != AuraType.NONE:
         texts.append(aura.name)
-    texts.append(f"Wind {wind_direction.name} {WIND_ARROWS[wind_direction]}")
+    if wind_direction is None:
+        texts.append("Wind CALM")
+    else:
+        texts.append(f"Wind {wind_direction.name} {WIND_ARROWS[wind_direction]}")
     texts.append(f"T:{trammel_phase} F:{felucca_phase}")
     return texts
 
@@ -350,10 +366,10 @@ class OverworldScreen(BaseScreen):
         # Peer Gem (P) view state (Java PeerGemInputAdapter, see gem_view).
         self.gem_view_active = False
         self.anim_timer = 0.0
-        # Wind keeps a wall-clock shift timer (Task 20 owns the wind rules);
-        # the moon phase lives on the party record now — the clock is
-        # move-driven (Party.advance_moons, GBC funcs5.c:1272-1279).
-        self.wind_timer = 0.0
+        # The wind is move-driven now (Task 20, USER-DIRECTED GBC-RULES
+        # DEVIATION 2026-11-14: re-roll per 20 consumed moves) — like the
+        # moon clock the wall-clock timer block is gone from here; see
+        # _finish_turn / _reroll_wind.
 
         self.world_renderer = (
             WorldRenderer(asset_mgr) if asset_mgr is not None else None
@@ -370,7 +386,15 @@ class OverworldScreen(BaseScreen):
 
         map_name = getattr(self.game_map, "name", "Sosaria")
         self.text_log.add_message(f"Entering the realm of {map_name}...")
-        self.text_log.add_message(f"Wind blows {self.party.wind_direction.name}.")
+        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): the wind can be
+        # becalmed (None) — the entry message names the calm instead of
+        # crashing on a missing direction name.
+        if self.party.wind_direction is None:
+            self.text_log.add_message("The wind is calm.")
+        else:
+            self.text_log.add_message(
+                f"Wind blows {self.party.wind_direction.name}."
+            )
 
     @property
     def moon_phase(self) -> int:
@@ -435,7 +459,11 @@ class OverworldScreen(BaseScreen):
             y += f.get_linesize()
 
         wind = self.party.wind_direction
-        wind_txt = f"Wind {wind.name} {WIND_ARROWS[wind]}"
+        wind_txt = (
+            "Wind CALM"
+            if wind is None
+            else f"Wind {wind.name} {WIND_ARROWS[wind]}"
+        )
         surface.blit(f.render(wind_txt, False, EGA_LIGHT_GRAY), (margin, y))
         moon_txt = f"T:{self.trammel_phase} F:{self.felucca_phase}"
         surface.blit(
@@ -1271,9 +1299,21 @@ class OverworldScreen(BaseScreen):
 
         # Frigate sailing rules
         if self.party.transport == Transport.SHIP:
-            # Check headwind
-            if direction == self.party.wind_direction.reverse():
-                self.text_log.add_message("Sailing against headwinds slows thee!")
+            # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): wind blocks when
+            # becalmed/against headwind; forced re-roll per 20 moves (GBC
+            # postexo1.c:1848-1852; menucmd3.c:1449-1467). LW is silent on
+            # blocking and NES slows-but-moves, so GBC governs: a becalmed
+            # ship cannot sail at all, and sailing into the wind's reverse is
+            # refused — both supersede the old slow-down behavior. The move
+            # is refused without consuming a turn, like any other blocked
+            # step.
+            wind = self.party.wind_direction
+            if wind is None:
+                self.text_log.add_message("The ship is becalmed!")
+                return
+            if direction == wind.reverse():
+                self.text_log.add_message("Headwinds block thy ship!")
+                return
 
         nx = (self.party.x + direction.dx) % self.game_map.width
         ny = (self.party.y + direction.dy) % self.game_map.height
@@ -1309,6 +1349,18 @@ class OverworldScreen(BaseScreen):
         else:
             if self.audio is not None:
                 self.audio.play_sfx("blocked")
+
+    def _reroll_wind(self) -> None:
+        """Re-roll the wind to a DIFFERENT outcome every 20th consumed move
+        (Party.moves modulo — see _finish_turn for the citation comments).
+
+        GBC's dowinds re-rolls per ~20 moves among the 4 directions plus
+        becalmed and never repeats the outgoing value, so the candidate pool
+        excludes whatever the wind currently is (a Direction or None).
+        """
+        current = self.party.wind_direction
+        choices = [o for o in WIND_OUTCOMES if o != current]
+        self.party.wind_direction = random.choice(choices)
 
     def _check_hull_integrity(self) -> None:
         """Sink a ship whose hull has reached 0, killing the whole party.
@@ -1362,6 +1414,16 @@ class OverworldScreen(BaseScreen):
             # (GBC funcs5.c:1272-1279). Every overland map is the fast
             # (outdoor) cadence here.
             self.party.advance_moons(surface=True)
+            # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): wind blocks
+            # when becalmed/against headwind; forced re-roll per 20 moves
+            # (GBC postexo1.c:1848-1852; menucmd3.c:1449-1467). Move-driven
+            # like the moon clock (the 4-second wall-clock timer is gone):
+            # every 20th consumed move — Party.moves, the counter end_turn
+            # just advanced, GBC's ``moves`` modulo — the wind re-rolls to a
+            # DIFFERENT outcome among the 4 directions plus becalmed (GBC
+            # dowinds avoids repeating).
+            if self.party.moves % 20 == 0:
+                self._reroll_wind()
             self.party.aura.pass_turn()
             tile_effects.apply_rule_effect(self.party, effect_tile)
         except PartyDeathException:
@@ -2047,18 +2109,10 @@ class OverworldScreen(BaseScreen):
             self.anim_timer = 0.0
             self.anim_frame = (self.anim_frame + 1) % 4
 
-        # Wall-clock wind shift only (Task 20 owns the wind rules): the
-        # moon phase is move-driven — Party.advance_moons runs from
-        # _finish_turn per consumed turn (GBC funcs5.c:1272-1279) — so the
-        # old moon timer block is gone from here.
-        self.wind_timer += dt
-        if self.wind_timer >= 4.0:
-            self.wind_timer = 0.0
-            # Random wind shift
-            if random.random() < 0.15:
-                dirs = list(Direction)
-                self.party.wind_direction = random.choice(dirs)
-
+        # The moon phase is move-driven — Party.advance_moons runs from
+        # _finish_turn per consumed turn (GBC funcs5.c:1272-1279) — and the
+        # wind is move-driven too (Task 20: re-roll per 20 consumed moves
+        # out of _finish_turn), so both wall-clock timer blocks are gone.
         self.party.moons = self.moons
 
     def render(self, surface: pygame.Surface) -> None:
