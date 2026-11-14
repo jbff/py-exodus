@@ -534,6 +534,107 @@ def test_force_field_all_marked_party_passes(pygame_setup, asset_mgr):
     assert all(m.hp == 100 for m in party.members)
 
 
+def test_force_field_strike_skips_dead_and_strikes_living_unmarked(asset_mgr):
+    """A DEAD unmarked member neither blocks the gate nor takes the strike —
+    the living, unmarked members take the 99 (strike-helper pin)."""
+    energy = asset_mgr.get_tile_by_name("energy_field")
+    party = make_party(n=3)
+    party.members[0].status = Status.DEAD
+    party.members[0].hp = 0
+    lines: list[str] = []
+
+    refused = tile_effects.apply_force_field_strike(party, energy, lines.append)
+
+    assert refused is True
+    assert lines == ["FORCE FIELD!"]
+    assert party.members[0].hp == 0
+    assert party.members[0].status == Status.DEAD
+    assert party.members[1].hp == 100 - 99
+    assert party.members[1].status == Status.GOOD
+    assert party.members[2].hp == 100 - 99
+    assert party.members[2].status == Status.GOOD
+
+
+def test_force_field_dead_member_does_not_block_passage(asset_mgr):
+    """Vacuous-gate pin: a DEAD unmarked member does not block the all-marked
+    passage; every LIVING member marked opens the field."""
+    grass = asset_mgr.get_tile_by_name("grass")
+    energy = asset_mgr.get_tile_by_name("energy_field")
+    gmap = GameMap(id=0, name="T", width=2, height=1, tiles=[grass, energy])
+    party = make_party(n=3)
+    party.members[0].status = Status.DEAD
+    party.members[0].hp = 0
+    party.members[1].marks[3] = 1
+    party.members[2].marks[3] = 1
+
+    assert can_move_to(gmap, 1, 0, transport=Transport.FOOT, party=party) is True
+
+
+# --- GBC force field, town-screen move path (review fix round 1) ---------
+
+
+def _british_screen(asset_mgr, party):
+    """TownScreen on the real british.json map, avatar on the floor west of
+    the energy field at (42, 17) (tile index 32)."""
+    from py_exodus.screens.town import TownScreen
+
+    tw = TownScreen(
+        party=party, map_id=1, asset_mgr=asset_mgr, start_x=41, start_y=17
+    )
+    energy = tw.game_map.get_tile(42, 17)
+    assert tw.game_map is not None and energy is not None
+    assert energy.rule == "energy" and energy.dispelable
+    return tw
+
+
+def test_town_force_field_refusal_strikes_unmarked(pygame_setup, asset_mgr):
+    """The movement validator fires in any context: a refused energy-field
+    entry on the town screen writes "FORCE FIELD!" and strikes the living
+    unmarked members for 99; the move is refused."""
+    tw = _british_screen(asset_mgr, make_party())
+
+    tw._try_move(Direction.EAST)
+
+    assert any(m == "FORCE FIELD!" for m in tw.text_log.history)
+    assert (tw.avatar_x, tw.avatar_y) == (41, 17)
+    assert all(m.hp == 100 - 99 for m in tw.party.members)
+    assert all(m.status == Status.GOOD for m in tw.party.members)
+
+
+def test_town_force_field_refusal_skips_dead_and_strikes_living(
+    pygame_setup, asset_mgr
+):
+    """Same vacuous-gate case from the town angle: a DEAD unmarked member
+    takes nothing; the living unmarked members take the 99."""
+    party = make_party(n=3)
+    party.members[0].status = Status.DEAD
+    party.members[0].hp = 0
+    tw = _british_screen(asset_mgr, party)
+
+    tw._try_move(Direction.EAST)
+
+    assert any(m == "FORCE FIELD!" for m in tw.text_log.history)
+    assert (tw.avatar_x, tw.avatar_y) == (41, 17)
+    assert tw.party.members[0].hp == 0
+    assert tw.party.members[1].hp == 100 - 99
+    assert tw.party.members[2].hp == 100 - 99
+
+
+def test_town_force_field_all_marked_passes(pygame_setup, asset_mgr):
+    """Every living member marked: the town entry onto the real british.json
+    energy cell (42, 17) succeeds and nobody takes the 99."""
+    party = make_party()
+    for m in party.members:
+        m.marks[3] = 1
+        m.food = 400  # the stepped turn's town regen/meal tick stays clean
+    tw = _british_screen(asset_mgr, party)
+
+    tw._try_move(Direction.EAST)
+
+    assert (tw.avatar_x, tw.avatar_y) == (42, 17)
+    assert all(m.hp == 100 for m in tw.party.members)
+
+
 # --- Dungeon fields, pit traps (DungeonScreen.java:1040-1103) ---
 
 

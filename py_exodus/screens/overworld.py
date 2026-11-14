@@ -1353,8 +1353,7 @@ class OverworldScreen(BaseScreen):
             # step strikes the unmarked before the block plays out; no sfx
             # change (the blocked step keeps its usual sound, per Task 20's
             # refusal shape).
-            if self.party.transport == Transport.FOOT:
-                self._apply_force_field_block(nx, ny)
+            self._apply_force_field_block(nx, ny)
             if self.audio is not None:
                 self.audio.play_sfx("blocked")
 
@@ -1363,26 +1362,21 @@ class OverworldScreen(BaseScreen):
 
         USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): force field 99
         damage to members lacking the Mark of Force; passage only when all
-        marked (GBC postexo1.c:1861-1880). With atile == 0x26, GBC zeroes
-        ``forceOK`` once per unmarked member, writes the FORCE FIELD
-        message, and deals 99 to each of them (``status < 2`` only) — the
-        move is refused because ``forceOK`` came back clear. The walkability
-        gate (renderer ``can_move_to``) refuses the energy-field step unless
-        every living member is marked; this applies the 99 strike to the
-        unmarked on exactly that refused attempt and routes a wipe through
-        the death flow (``check_party_death``).
+        marked (GBC postexo1.c:1861-1880). The strike is the shared
+        ``tile_effects.apply_force_field_strike`` (the movement validator
+        fires in any context, town screens included); a wipe raises
+        ``PartyDeathException`` from the strike, which this catches and
+        routes through the death flow (``check_party_death``) — never
+        swallowed without it.
         """
         if self.game_map is None:
             return
-        unmarked = tile_effects.force_field_blockers(
-            self.party, self.game_map.get_tile(nx, ny)
-        )
-        if not unmarked:
-            return
-        self.text_log.add_message("FORCE FIELD!")
         try:
-            for member in unmarked:
-                member.apply_damage(99, False)
+            tile_effects.apply_force_field_strike(
+                self.party,
+                self.game_map.get_tile(nx, ny),
+                self.text_log.add_message,
+            )
         except PartyDeathException:
             pass
         self.check_party_death()

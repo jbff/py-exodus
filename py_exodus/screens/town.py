@@ -338,6 +338,21 @@ class TownScreen(BaseScreen):
                 self.audio.play_sfx("walk_normal")
             self._finish_turn(start_tile)
         else:
+            # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): force field 99
+            # damage to members lacking the Mark of Force; passage only when
+            # all marked (GBC postexo1.c:1861-1880). The movement validator
+            # fires in ANY context, so the town-blocked energy-field entry
+            # strikes too (british/exodus/death carry energy cells); a wipe
+            # routes through check_party_death like _finish_turn.
+            try:
+                tile_effects.apply_force_field_strike(
+                    self.party,
+                    self.game_map.get_tile(nx, ny),
+                    self.text_log.add_message,
+                )
+            except PartyDeathException:
+                pass
+            self.check_party_death()
             if self.audio is not None:
                 self.audio.play_sfx("blocked")
 

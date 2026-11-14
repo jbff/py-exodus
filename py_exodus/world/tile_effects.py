@@ -121,6 +121,30 @@ def force_field_blockers(party: Party | None, tile) -> list:
     ]
 
 
+def apply_force_field_strike(party: Party | None, tile, message_logger=None) -> bool:
+    """Refuse a GBC force-field entry and strike the unmarked, then True.
+
+    USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): force field 99 damage to
+    members lacking the Mark of Force; passage only when all marked
+    (GBC postexo1.c:1861-1880). The movement validator fires in ANY context
+    — overworld, town, wherever a step into tile 0x26 is refused — so every
+    blocked-branch caller funnels here: the FORCE FIELD message goes to
+    ``message_logger`` (when given) and each living member lacking
+    ``marks[3]`` takes 99 through ``apply_damage`` (a DEAD member neither
+    blocks nor takes the strike). ``PartyDeathException`` from a wipe
+    PROPAGATES — the caller catches it and routes its own death check
+    (``check_party_death``).
+    """
+    unmarked = force_field_blockers(party, tile)
+    if not unmarked:
+        return False
+    if message_logger is not None:
+        message_logger("FORCE FIELD!")
+    for member in unmarked:
+        member.apply_damage(99, False)
+    return True
+
+
 # --- Shared applyEffect port (Party.java:279-283, 342-368) ---
 
 
