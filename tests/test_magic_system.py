@@ -812,12 +812,6 @@ def test_fal_divi_re_enters_member_cleric_spell_prompt_once():
         "Cast: Which member? (1-4):",
         "Wizard Spell? (A-P):",
     ]
-    assert prompts == [
-        "Cast: Which member? (1-4):",
-        "Wizard Spell? (A-P):",
-        "Cast: Which member? (1-4):",
-        "Wizard Spell? (A-P):",
-    ]
 
 
 def test_fal_divi_in_combat_consumes_followup_as_noop(asset_mgr, conflict_map):

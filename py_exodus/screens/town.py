@@ -762,7 +762,26 @@ class TownScreen(BaseScreen):
 
     def _prompt_cast(self) -> None:
         """Cast non-combat spells while in town."""
-        prompt_cast_party(self.text_log, self.party, world_map=self.game_map, audio=self.audio)
+        prompt_cast_party(
+            self.text_log,
+            self.party,
+            world_map=self.game_map,
+            audio=self.audio,
+            view_callback=self._show_vieda_view,
+        )
+
+    def _show_vieda_view(self) -> None:
+        """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): VIEDA renders the
+        peer-gem view (GBC menucmd.c:1379-1390; LW UltimaSpellCombat.c
+        corroboration) — town-site GBC casts route through the same
+        dopeergem(1) as any other non-battle site, and the town already owns
+        the full gem-view machinery (own Peer Gem state, render override). The
+        spell branch skips the choosechar2/gem decrement (menucmd.c:695-712
+        runs only for dopeergem(0)), so no gem and no turn is paid by the
+        view itself; the overworld's identical handler is
+        OverworldScreen._show_vieda_view."""
+        # The view owns input; the render override draws the gem picture.
+        self.gem_view_active = True
 
     def _prompt_hand_equipment(self) -> None:
         """Hand an unequipped weapon or armor item between party members."""

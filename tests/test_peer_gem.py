@@ -444,3 +444,33 @@ def test_fal_divi_cast_on_overworld_re_enters_cast_prompt(asset_mgr, cast_party)
         1 for line in o.text_log.history if "Which member?" in str(line)
     )
     assert member_prompts == 2
+
+
+def test_vieda_cast_in_town_opens_peer_gem_view(asset_mgr):
+    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): VIEDA in a town goes
+    through the same dopeergem(1) as any other non-battle site (GBC
+    menucmd.c:1379-1390) and the town already owns the gem-view machinery —
+    the spell branch consumes no gem (menucmd.c:695-712 runs only for
+    dopeergem(0)), so the gems stay put."""
+    members = [
+        PartyMember(
+            Character("Hero", "M", Race.HUMAN, Profession.FIGHTER, strength=20, dexterity=20, hp=100)
+        ),
+        PartyMember(
+            Character("Cleric", "F", Race.BOBIT, Profession.CLERIC, wisdom=50, mp=60, hp=80)
+        ),
+    ]
+    party = Party(members, x=10, y=10, transport=Transport.FOOT)
+    members[1].gems = 7
+    town = TownScreen(party=party, map_id=1, asset_mgr=asset_mgr, start_x=10, start_y=10)
+
+    key(town, pygame.K_c)
+    assert "Which member?" in town.text_log.current_prompt
+    town.text_log.handle_char("2")  # the Cleric
+    assert "Cleric Spell?" in town.text_log.current_prompt
+    town.text_log.handle_char("L")  # VIEDA
+
+    # The spell's success opened the same gem view the town P command opens,
+    # with no gem paid.
+    assert town.gem_view_active is True
+    assert members[1].gems == 7
