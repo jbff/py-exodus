@@ -27,6 +27,7 @@ from py_exodus.combat.arena import (
 from py_exodus.combat.resolver import (
     calculate_monster_damage,
     calculate_player_damage,
+    monster_damage_bonus,
     resolve_monster_attack,
 )
 from py_exodus.constants import (
@@ -302,7 +303,12 @@ def test_combat_poison_tick_removed(asset_mgr, conflict_map):
 
 
 def test_monster_damage_zero_possible_through_chokepoint(asset_mgr, conflict_map):
-    """Small monsters deal 0 damage (no max(1, _) floor)."""
+    """Small monsters roll 0 base damage (no max(1, _) floor).
+
+    USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): the GBC terrain bonus is
+    added to the roll even when it lands 0, so on the Castle of Death context
+    (EXODUS, tier +20) the member takes the bonus, not zero
+    (GBC battle3.c:337-350)."""
     party = Party()
     hero = Character("Hero", "M", hp=100, max_hp=100)
     party.add_member(hero)
@@ -314,7 +320,7 @@ def test_monster_damage_zero_possible_through_chokepoint(asset_mgr, conflict_map
 
     res = arena._execute_single_monster_ai(arena.monsters[0])
     assert res is not None and res.action_type == "attack"
-    assert hero.hp == 100  # 0 damage
+    assert hero.hp == 100 - monster_damage_bonus(2)  # base roll 0 + terrain bonus
     assert not arena.is_finished
 
 
@@ -577,7 +583,9 @@ def test_exodus_monster_melee_auto_hits_non_exotic_defender(asset_mgr, conflict_
 
     res = arena._execute_single_monster_ai(arena.monsters[0])
     assert res.attack_res.hit
-    assert hero.hp == 91
+    # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): 9 rolled + EXODUS terrain
+    # tier +20 (GBC battle3.c:337-350).
+    assert hero.hp == 100 - (9 + monster_damage_bonus(2))
 
 
 def test_exodus_monster_melee_respects_exotic_armor(asset_mgr, conflict_map, monkeypatch):

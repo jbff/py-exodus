@@ -102,6 +102,45 @@ def calculate_monster_damage(basehp: int) -> int:
     return damage
 
 
+# USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): GBC battle3.c:337-350 adds a
+# terrain bonus to monster melee damage (+10 dungeon, +30 surface
+# Sosaria/Ambrosia, +20 towns/castles/other interiors). The GBC
+# inside/peermap table maps onto py map ids; the dungeon maps are the
+# maps.xml type="dungeon" rows.
+_DUNGEON_MAP_IDS: frozenset | None = None
+
+
+def _dungeon_map_ids() -> frozenset:
+    """Lazily resolved ids of the maps.xml type="dungeon" rows."""
+    global _DUNGEON_MAP_IDS
+    if _DUNGEON_MAP_IDS is None:
+        import py_exodus.assets as assets
+
+        _DUNGEON_MAP_IDS = frozenset(
+            assets.MAP_NAME_TO_ID[name]
+            for name in ("PERINIAN", "DARDIN", "MINE", "FIRE", "DOOM", "SNAKE", "TIME")
+        )
+    return _DUNGEON_MAP_IDS
+
+
+def monster_damage_bonus(context_map_id: int | None) -> int:
+    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): terrain tier for monster
+    melee damage — +10 on a dungeon map, +30 on the surface worlds (Sosaria,
+    Ambrosia), +20 in towns, castles and other interiors; an unknown context
+    (None) falls to the interior tier (GBC battle3.c:337-350)
+    """
+    if context_map_id is not None and context_map_id in _dungeon_map_ids():
+        return 10
+    import py_exodus.assets as assets
+
+    if context_map_id in (
+        assets.MAP_NAME_TO_ID["SOSARIA"],
+        assets.MAP_NAME_TO_ID["AMBROSIA"],
+    ):
+        return 30
+    return 20
+
+
 def get_relative_direction_mask(width: int, height: int, to_x: int, to_y: int, from_x: int, from_y: int) -> int:
     """Java ``Utils.getRelativeDirection`` (Utils.java:359-401), fixed border
     (every combat map is MapBorderBehavior.fixed): the bitmask of the single
@@ -295,6 +334,21 @@ def resolve_player_attack(
             message=f"{character.name} attacked {target_monster.name} - Missed!",
         )
 
+    # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): a landed player hit vs
+    # the guard tile (0x18) or Lord British tile (0x19) deals damage 0 and
+    # never kills; the guard exemption applies in normal mode too, since
+    # py-exodus has no GBC extragame hard-mode flag (GBC battle.c:646-648).
+    target_tile = (getattr(target_monster, "tile", "") or "").lower()
+    if target_tile in ("guard", "lord_british"):
+        return AttackResolution(
+            hit=True,
+            damage=0,
+            killed=False,
+            result=AttackResult.HIT,
+            target_pos=(target_monster.x, target_monster.y),
+            message=f"{character.name} struck {target_monster.name} - No effect!",
+        )
+
     # Hit succeeds - calculate damage
     damage = calculate_player_damage(character, weapon_def)
     target_monster.hp = max(0, target_monster.hp - damage)
@@ -383,7 +437,11 @@ def resolve_monster_melee_attack(
         )
 
     basehp = getattr(monster, "basehp", 48)
-    damage = calculate_monster_damage(basehp)
+    # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): monster melee damage adds
+    # the terrain bonus — +10 dungeon, +30 surface Sosaria/Ambrosia, +20
+    # towns/castles/other interiors, per the GBC inside/peermap table mapped to
+    # py MAP_NAME_TO_ID (GBC battle3.c:337-350).
+    damage = calculate_monster_damage(basehp) + monster_damage_bonus(context_map_id)
     # Java: Utils.dealDamage(Creature, target) → applyDamage(damage, true);
     # False (no effect) when the member was already DEAD.
     applied = _deal_monster_damage_to_member(target_player, damage)

@@ -131,6 +131,12 @@ def test_wizard_magic_missile_in_combat(asset_mgr, conflict_map):
 
     arena = CombatArena(party, conflict_map, creature_tile="orc", asset_mgr=asset_mgr, monster_count=1)
     m = arena.monsters[0]
+    # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): spawn HP is now rolled
+    # per battle, floor 15, cap basehp|0x0F (GBC funcs5.c:1546-1554); the old
+    # fixed hp=48 sat above MITTAR's 16-24 window, so pin the HP and keep the
+    # test purely about the damage dice.
+    m.hp = 50
+    m.max_hp = 50
     # Place monster directly North of player
     px, py = arena.player_positions[0]
     m.x = px
@@ -230,6 +236,13 @@ def test_repond_against_orcs_free_spell(asset_mgr, conflict_map, monkeypatch):
     party.add_member(wiz)
 
     arena = CombatArena(party, conflict_map, creature_tile="orc", asset_mgr=asset_mgr, monster_count=3)
+    # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): spawn HP is now rolled
+    # per battle, cap basehp|0x0F, so it can exceed basehp (GBC
+    # funcs5.c:1546-1554); REPOND kills with take_damage(m.basehp), which the
+    # old fixed hp=basehp always satisfied — pin the HP so the test stays
+    # purely about the turn-roll ladder and the free-spell gate.
+    for monster in arena.monsters:
+        monster.hp = monster.max_hp = monster.basehp
     # Pin the turn rolls above every threshold (60 >= 50/35/20)
     monkeypatch.setattr(magic.random, "randrange", lambda n: 60)
     res = cast_spell(Spell.REPOND, caster=party.members[0], arena=arena)
