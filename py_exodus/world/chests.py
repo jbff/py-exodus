@@ -124,7 +124,23 @@ def _chest_item_drops(member: PartyMember) -> list[str]:
 
 
 def _chest_trap(party: Party, member: PartyMember) -> list[str]:
-    """Java Context.getChestTrapHandler: 50% trap with a dexterity evade check."""
+    """Java Context.getChestTrapHandler: 50% trap with a dexterity evade check.
+
+    OUTCOME TABLE — 4-way per LairWare (pending item 21; the trap ODDS and
+    the dex+25 evade above stay the port's Java-parity ladder, the typing
+    roll stays the port's uniform randrange(4)):
+      0 Acid  — the Java FIRE/LAVA opener damage (LW case 0, UltimaMain.c:1637-1646,
+                damages the opener only)         -> "Acid Trap!"
+      1 Poison— single-member POISONED write (LW case 1, UltimaMain.c:1647-1656)
+      2 Bomb  — LW BombTrap (UltimaMain.c:1662 + 1728-1740): party-wide blast
+                through apply_damage, per living member (rnd255 & 0x77) +
+                (dungeon_level + 1) * 8; 0x77 = 119, dungeon_level 0 = surface
+                (LW reads the emulated zp[0x13]; the C sources never write it,
+                so surface chests sit at 0 and the band is 8-127, 8-119+level*8
+                below)                            -> "Bomb Trap!"
+      3 Gas   — party-wide POISONED write, no damage (LW case 3, UltimaMain.c:1718-1734)
+    LW message strings (Messages.plist 41-44) read "ACID/POISON/BOMB/GAS TRAP!".
+    """
     if random.randrange(2) != 0:  # hasTrap = rand.nextInt(2) == 0
         return []
 
@@ -132,10 +148,24 @@ def _chest_trap(party: Party, member: PartyMember) -> list[str]:
         return ["Evaded!"]
 
     which_trap = random.randrange(4)
-    if which_trap == 2:  # POISON
+    if which_trap == 1:  # POISON
         if member.status != Status.POISONED:
             member.status = Status.POISONED
         return ["Poison Trap!"]
+
+    if which_trap == 2:  # BOMB (LW BombTrap, UltimaMain.c:1728-1740)
+        # Party-wide through the apply_damage chokepoint, living members only
+        # (LW checks CheckAlive per member); a wipe raises PartyDeathException
+        # out of open_chest for the calling screen's try/except, mirroring the
+        # Gas branch's shape (no internal catch). Gold still credits after a
+        # non-wipe blast (the port's post-trap flow; LW's case 2 returns early,
+        # the screen layer owns that difference elsewhere).
+        level_term = (party.dungeon_level + 1) * 8
+        for m in party.members:
+            if m.is_dead():
+                continue
+            m.apply_damage((random.randrange(256) & 0x77) + level_term)
+        return ["Bomb Trap!"]
 
     if which_trap == 3:  # GAS: poisons the whole party, no damage
         # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): Gas trap poisons every living member (GBC menucmd.c:1077-1147; LW UltimaMain.c:1718-1734 case 3)
@@ -144,7 +174,6 @@ def _chest_trap(party: Party, member: PartyMember) -> list[str]:
         for m in party.members:
             if m.status != Status.DEAD and m.status != Status.POISONED:
                 m.status = Status.POISONED
-        # deferred: GBC Bomb trap is a party-wide cannonfire blast — pending-items ledger; GBC's bomb reuses cannonfire which py's trap path lacks
         return ["Gas Trap!"]
 
     _apply_fire_lava(member)  # FIRE (Acid Trap): the opening member only

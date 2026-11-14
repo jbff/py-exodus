@@ -14,7 +14,7 @@ from py_exodus.constants import (
     WeaponType,
 )
 from py_exodus.entities.character import Character
-from py_exodus.entities.party import Party, PartyMember
+from py_exodus.entities.party import Party, PartyDeathException, PartyMember
 from py_exodus.screens.dungeon_screen import DungeonScreen
 from py_exodus.world import chests
 from py_exodus.world.chests import ChestNotFound, open_chest
@@ -213,13 +213,123 @@ def test_poison_trap_poisons_opener(monkeypatch):
     member = make_member("Fighter")
     party = make_party([member])
 
-    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 2, 25, 6, 3, 3]))
+    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 1, 25, 6, 3, 3]))
 
     lines = open_chest(party, member, dungeon=False)
 
     assert lines == ["Poison Trap!", "The Chest Holds: 41 Gold"]
     assert member.status == Status.POISONED
     assert member.hp == 100
+
+
+# --- Step: chest Bomb trap (LW BombTrap, UltimaMain.c:1662-1669 + 1728-1740) ---
+
+def test_bomb_trap_damages_whole_party_living_only(monkeypatch):
+    """The Bomb trap hits every living member through apply_damage with the
+    LW formula (rnd255 & 0x77) + (dungeon_level + 1) * 8; dead members stay
+    untouched and gold still credits after a non-wipe blast."""
+    member = make_member("Fighter")
+    other = make_member("Cleric")
+    dead = make_member("Wizard")
+    dead.status = Status.DEAD
+    dead.hp = 0
+    party = make_party([member, other, dead])
+    party.dungeon_level = 2  # dungeon level 3: bonus term (2 + 1) * 8 = 24
+
+    # Trap present, evade hit, Bomb; member roll 0x33 (51), other roll 0
+    # (0x77 & roll), then gold, then the drop rolls both miss (3, 3).
+    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 2, 0x33, 0, 25, 6, 3, 3]))
+
+    lines = open_chest(party, member, dungeon=True)
+
+    assert lines == ["Bomb Trap!", "The Chest Holds: 41 Gold"]
+    assert member.hp == 100 - (51 + 24)
+    assert other.hp == 100 - 24
+    assert dead.status == Status.DEAD
+    assert dead.hp == 0  # never resurrected, never damaged
+    assert member.status == Status.GOOD
+
+
+def test_bomb_trap_surface_band_8_to_127(monkeypatch):
+    """On the surface (dungeon_level 0) each hit is (rnd255 & 0x77) + 8: band
+    8-127, and every living member takes the same roll independently."""
+    member = make_member("Fighter", dexterity=0, max_hp=1000)
+    other = make_member("Cleric", dexterity=0, max_hp=1000)
+    party = make_party([member, other])
+    party.dungeon_level = 0
+
+    for i in range(200):
+        member.hp = 1000
+        other.hp = 1000
+        # Bomb roll for the opener walks 0..199; the Cleric always rolls 0x77.
+        monkeypatch.setattr(
+            chests, "random", ScriptedRNG([0, 99, 2, i % 200, 0x77, 25, 6, 3, 3])
+        )
+        m_hp, o_hp = member.hp, other.hp
+        m_damage = (i % 200) & 0x77  # the mask folds bit-3 rolls onto others
+        open_chest(party, member, dungeon=False)
+        assert member.hp == m_hp - (m_damage + 8)
+        assert other.hp == o_hp - 127
+
+
+def test_bomb_trap_dungeon_band_includes_level_term(monkeypatch):
+    """At dungeon_level 7 the band is (0 + 64) to (0x77 + 64) = 64-183."""
+    member = make_member("Fighter", dexterity=0, max_hp=1000)
+    other = make_member("Cleric", dexterity=0, max_hp=1000)
+    party = make_party([member, other])
+    party.dungeon_level = 7
+
+    for i in range(200):
+        member.hp = 1000
+        other.hp = 1000
+        # Opener walks the full &0x77 spread (0..119 steps of 1 via 200 rolls
+        # capped at 0x77), Cleric 0x77: both get the +64 level term.
+        monkeypatch.setattr(
+            chests,
+            "random",
+            ScriptedRNG([0, 99, 2, (i * 119 // 199) & 0x77, 0x77, 25, 6, 3, 3]),
+        )
+        m_hp, o_hp = member.hp, other.hp
+        open_chest(party, member, dungeon=True)
+        m_damage = (i * 119 // 199) & 0x77
+        assert member.hp == m_hp - (m_damage + 64)
+        assert other.hp == o_hp - 183
+
+
+def test_bomb_trap_wipes_through_apply_damage(monkeypatch):
+    """A Bomb big enough to kill the whole party raises PartyDeathException
+    out of open_chest through the apply_damage chokepoint (the screen layer
+    catches it; DungeonScreen._finish_dungeon_chest has the try/except)."""
+    member = make_member("Fighter", hp=10)
+    party = make_party([member])
+
+    # Blast at level 0: (0x77 & 0x77) + 8 = 127 > 10 hp.
+    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 2, 0x77]))
+
+    with pytest.raises(PartyDeathException):
+        open_chest(party, member, dungeon=False)
+
+    assert member.status == Status.DEAD
+    assert member.hp == 0
+
+
+def test_bomb_trap_single_death_does_not_raise(monkeypatch):
+    """One member dying to the Bomb in a larger party does not raise: the
+    party is not wiped and gold still credits (LW only skips the booty when
+    the whole trap branch returns early for a wipe at the screen layer)."""
+    member = make_member("Fighter", hp=10)
+    other = make_member("Cleric")
+    party = make_party([member, other])
+
+    # member roll 0x77 -> 119 + 8 = 127 > 10: dead; other roll 0 -> 8: alive.
+    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 2, 0x77, 0, 25, 6, 3, 3]))
+
+    lines = open_chest(party, member, dungeon=False)
+
+    assert lines == ["Bomb Trap!", "The Chest Holds: 41 Gold"]
+    assert member.status == Status.DEAD
+    assert other.status == Status.GOOD
+    assert other.hp == 92
 
 
 def test_disarmed_chest_yields_gold_and_no_trap_roll(monkeypatch):
