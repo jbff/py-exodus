@@ -22,11 +22,18 @@ GBC truth:
   vision; else "NO EFFECT.". The pre-existing Yew-area hint is kept (union of
   references, user ruling).
 - ``dosearch`` (menucmd3.c:1151-1197): ONLY on Ambrosia — (4,36) love,
-  (45,52) sol, (6,6) moons, (55,27) death; the card is credited per member.
+  (45,52) sol, (6,6) moons, (55,27) death; the card is credited per member
+  (markcard |= is idempotent — coordinator fix round: a repeat grants
+  nothing). STEAL's +64 set: thief +128; Barbarian/Illusionist/Ranger +64 —
+  the Alchemist takes NO bonus (USER RULING 2026-11-14 fix round: the
+  original-U3/Apple-II roster, LW UltimaMisc.c:500-526, Alchemist explicitly
+  non-Apple-II at :523-530).
 - ``doscore`` (menucmd3.c:872-876) is a "NO EFFECT." stub in GBC; the move
   counter message is the user-directed amendment (2026-11-14).
 """
 from __future__ import annotations
+
+from unittest.mock import MagicMock
 
 import pygame
 import pytest
@@ -43,10 +50,12 @@ from py_exodus.constants import (
 )
 from py_exodus.entities.character import Character
 from py_exodus.entities.party import Party, PartyMember
+from py_exodus.screens.dungeon_screen import DungeonScreen
 from py_exodus.screens.overworld import OverworldScreen
 from py_exodus.screens import overworld as overworld_module
 from py_exodus.screens.town import TownScreen
-from py_exodus.world.map import GameMap, MapNpc
+from py_exodus.world.dungeon import DungeonTile
+from py_exodus.world.map import DungeonMap, GameMap, MapNpc
 import py_exodus.special_commands as special_commands
 
 
@@ -87,6 +96,24 @@ def guard_npc(x, y):
     return person_npc(x, y, name="guard", index=18)
 
 
+def make_dungeon():
+    """An 8x8 single-view dungeon grid (borders walled), party at (2,2)."""
+    dmap = DungeonMap(id=14, name="TEST DUNGEON", width=8, height=8, levels=8)
+    dmap.tiles = [
+        [
+            [
+                DungeonTile.WALL
+                if x in (0, 7) or y in (0, 7)
+                else DungeonTile.FLOOR
+                for x in range(8)
+            ]
+            for y in range(8)
+        ]
+        for z in range(8)
+    ]
+    return dmap
+
+
 def make_member(prof=Profession.FIGHTER, dex=50, gold=200):
     return PartyMember(
         Character("Hero", "M", Race.HUMAN, prof, dexterity=dex, gold=gold)
@@ -114,12 +141,11 @@ class TestBribe:
 
     def test_insufficient_gold_refuses_before_anything(self):
         member = make_member(gold=99)
-        party = make_party(member)
         npc = guard_npc(11, 10)
         game_map = make_map(npcs=[npc])
 
         message = special_commands.do_bribe(
-            party, member, 10, 10, Direction.EAST, game_map
+            member, 10, 10, Direction.EAST, game_map
         )
 
         assert message == "Cannot pay."  # cantpay (menucmd3.c:1028)
@@ -128,12 +154,11 @@ class TestBribe:
 
     def test_guard_target_removed_and_gold_deducted(self):
         member = make_member(gold=250)
-        party = make_party(member)
         npc = guard_npc(11, 10)
         game_map = make_map(npcs=[npc])
 
         message = special_commands.do_bribe(
-            party, member, 10, 10, Direction.EAST, game_map
+            member, 10, 10, Direction.EAST, game_map
         )
 
         # GBC bribe success has NO message (menucmd3.c:1079-1101)
@@ -147,11 +172,10 @@ class TestBribe:
 
     def test_guard_tile_without_a_guard_is_silent_no_effect(self):
         member = make_member(gold=250)
-        party = make_party(member)
         game_map = make_map()  # no NPCs at all
 
         message = special_commands.do_bribe(
-            party, member, 10, 10, Direction.EAST, game_map
+            member, 10, 10, Direction.EAST, game_map
         )
 
         assert message == "No effect."  # noeffectdat (menucmd3.c:1092-1099)
@@ -159,12 +183,11 @@ class TestBribe:
 
     def test_creature_dict_guard_is_removed(self):
         member = make_member(gold=100)
-        party = make_party(member)
         game_map = make_map()
         creatures = [{"tile": "guard", "x": 9, "y": 10}]
 
         message = special_commands.do_bribe(
-            party, member, 10, 10, Direction.WEST, game_map, creatures=creatures
+            member, 10, 10, Direction.WEST, game_map, creatures=creatures
         )
 
         assert message == ""
@@ -173,11 +196,10 @@ class TestBribe:
 
     def test_wrong_direction_tile_not_guard(self):
         member = make_member(gold=600)
-        party = make_party(member)
         game_map = make_map(npcs=[guard_npc(11, 10)])  # guard EAST, not NORTH
 
         message = special_commands.do_bribe(
-            party, member, 10, 10, Direction.NORTH, game_map
+            member, 10, 10, Direction.NORTH, game_map
         )
 
         assert message == "No effect."
@@ -326,6 +348,23 @@ class TestSteal:
 
         assert lines == ["Failed."]
 
+    def test_alchemist_gets_no_bonus(self):
+        # USER RULING (2026-11-14 fix round): no Alchemist bonuses — the
+        # original-U3 set is Barbarian/Illusionist/Ranger (LW UltimaMisc.c:
+        # 500-526, Alchemist marked non-Apple-II at :523-530).
+        alch = make_member(prof=Profession.ALCHEMIST, dex=10)  # skill = 10
+        party = make_party(alch)
+        game_map = make_map(npcs=[person_npc(11, 10)])
+        game_map.tiles[10 * 64 + 12] = DOOR
+        game_map.tiles[10 * 64 + 13] = CHEST
+        rng = SeqRandom(74, 1)  # 74 >= 10: fails — the +0x40 set excludes Alchemist
+
+        lines = special_commands.do_steal(
+            party, alch, 10, 10, Direction.EAST, game_map, rng=rng
+        )
+
+        assert lines == ["Failed."]
+
     def test_illusionist_in_the_plus_64_set(self):
         ill = make_member(prof=Profession.ILLUSIONIST, dex=10)  # 74
         party = make_party(ill)
@@ -456,11 +495,16 @@ class TestSearch:
             assert message == "You found a Card with Strange Marks."
             assert member.cards[card_index] == 1
 
-    def test_second_card_increments(self):
+    def test_repeat_grant_refused(self):
         member = make_member()
         member.cards[3] = 1
-        special_commands.do_search(member, 4, 36, MAP_NAME_TO_ID["AMBROSIA"])
-        assert member.cards[3] == 2
+        # GBC markcard |= is idempotent (menucmd3.c:1195): the port's
+        # search.py convention applies — nothing regrants, no message.
+        assert (
+            special_commands.do_search(member, 4, 36, MAP_NAME_TO_ID["AMBROSIA"])
+            is None
+        )
+        assert member.cards[3] == 1
 
     def test_wrong_ambrosia_spot(self):
         member = make_member()
@@ -583,3 +627,35 @@ class TestScreenWiring:
         messages = "\n".join(str(m) for m in ow.text_log.history)
         assert "Only inside." in messages
         assert not ow.text_log.is_waiting_for_input
+
+    def test_dungeon_other_refuses_outside_only_commands(self, pygame_setup):
+        """Dungeon K_o prompts; BRIBE/STEAL/DIG take the GBC noeffectdat
+        refusal (dungeon_screen.py _prompt_other) and SCORE passes through."""
+        dungeon = DungeonScreen(
+            party=make_party(make_member(gold=500)),
+            dungeon_map=make_dungeon(),
+            map_id=14,
+            asset_mgr=None,
+            audio=MagicMock(),
+        )
+        dungeon.party.moves = 12
+
+        self._key(dungeon, pygame.K_o)
+        assert dungeon.text_log.is_waiting_for_input
+        self._answer(dungeon, "BRIBE")
+        assert not dungeon.text_log.is_waiting_for_input
+        messages = "\n".join(str(m) for m in dungeon.text_log.history)
+        assert "No effect." in messages
+
+        for cmd in ("STEAL", "DIG"):
+            self._key(dungeon, pygame.K_o)
+            self._answer(dungeon, cmd)
+            # no member prompt opens for the refused commands
+            assert not dungeon.text_log.is_waiting_for_input
+        joined = "\n".join(str(m) for m in dungeon.text_log.history)
+        assert joined.count("No effect.") == 3
+
+        self._key(dungeon, pygame.K_o)
+        self._answer(dungeon, "SCORE")
+        joined = " ".join(str(m) for m in dungeon.text_log.history).replace("\n", " ")
+        assert "score of 12!" in joined

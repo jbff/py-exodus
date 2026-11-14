@@ -57,20 +57,16 @@ CARD_MESSAGE = "You found a Card with Strange Marks."  # card1..3 (menucmd3.c:11
 VISION = "A vision appears: Yell 'EVOCARE'!"  # yellevo (menucmd3.c:1011-1013)
 
 # GBC dosteal skill bonus: ``players[pnum].skill`` is the class index and
-# grants +0x80 to the thief (index 9) and +0x40 to indices {0, 1, 5, 8}
-# (menucmd2.c:1489-1500, same set at dungfunc.c:573-579). GBC's class order
-# is its ``classes[]`` display array (u3tiles2.c:667-689):
-# 0=Alchemist, 1=Barbarian, 2=Cleric, 3=Druid, 4=Fighter, 5=Illusionist,
-# 6=Lark, 7=Paladin, 8=Ranger, 9=Thief, 10=Wizard — so the +0x64 set maps to
-# ALCHEMIST, BARBARIAN, ILLUSIONIST, RANGER (per the 2026-11-14 controller
-# ruling the py thieves alone take +128; the py Profession thief is GBC
-# skill==9). Alchemist stands at GBC index 0 in that 4-profession set —
-# the "no Alchemist" ruling voids the later remake additions, not GBC's set.
+# grants +0x80 to the thief (index 9) and +0x40 to other classes (menucmd2.c:
+# 1489-1500). USER RULING (2026-11-14, coordinator fix round): the +64 set is
+# the ORIGINAL U3 roster per the Apple-II-derived table (LW UltimaMisc.c:
+# 500-526, which marks the Alchemist non-Apple-II at :523-530) mapped to the
+# py Profession enum — thief +128; BARBARIAN, ILLUSIONIST, RANGER +64; the
+# Alchemist takes NO steal bonus.
 _STEAL_PLUS_64: tuple[Profession, ...] = (
-    Profession.ALCHEMIST,  # GBC skill index 0
-    Profession.BARBARIAN,  # GBC skill index 1
-    Profession.ILLUSIONIST,  # GBC skill index 5
-    Profession.RANGER,  # GBC skill index 8
+    Profession.BARBARIAN,
+    Profession.ILLUSIONIST,
+    Profession.RANGER,
 )
 
 # GBC dist-0 chain tile 0x3C..0x56 is the town people/vendor range; the py
@@ -93,7 +89,6 @@ _GOLD_CAP = 9999
 
 
 def do_bribe(
-    party: Party,
     member: PartyMember,
     x: int,
     y: int,
@@ -103,8 +98,8 @@ def do_bribe(
 ) -> str:
     """BRIBE: pay a town guard 100 gold to leave (GBC menucmd3.c:1019-1103).
 
-    ``party`` is accepted for the brief's signature but unused: GBC checks and
-    deducts the ACTING member's own purse (``players[pnum].gold``). Success is
+    GBC checks and deducts the ACTING member's own purse
+    (``players[pnum].gold``), so only ``member`` is needed. Success is
     silent in GBC — "" means no message. Removing the py guard NPC restores
     the underlying tile for free: the map grid already carries the
     ``underlying`` byte (map_build writes it at load), which is the py
@@ -226,11 +221,14 @@ def do_pray(x: int, y: int, map_id, map_name: str = "") -> str:
     return NO_EFFECT
 
 
-def do_search(member: PartyMember, x: int, y: int, map_id, map_name: str = "") -> str:
+def do_search(member: PartyMember, x: int, y: int, map_id, map_name: str = "") -> str | None:
     """SEARCH (O-menu): the Ambrosia card sites (GBC menucmd3.c:1151-1197).
 
     GBC gates the four sites on ``peermap==12`` (Ambrosia — py map id 13)
-    and credits ``players[pnum].markcard`` per member; py credits the
+    and credits ``players[pnum].markcard`` per member — an idempotent bit
+    ``|=``, so a repeat visit grants nothing (coordinator fix round 2026-11-14:
+    the port's ``world/search.py:63-65`` convention is adopted — an owned
+    card returns None and the site answers NO message). py credits the
     member's ``cards`` slots (0=Death, 1=Sol, 2=Moons, 3=Love). The existing
     'S' search command is untouched.
     """
@@ -240,6 +238,8 @@ def do_search(member: PartyMember, x: int, y: int, map_id, map_name: str = "") -
     if card_index is None:
         return NO_EFFECT
     player = getattr(member, "player", member)
+    if player.cards[card_index] > 0:
+        return None  # already carries the card — GBC markcard |= is idempotent
     player.cards[card_index] = player.cards[card_index] + 1
     return CARD_MESSAGE
 
@@ -283,9 +283,7 @@ def bribe_flow(text_log: TextLog, party: Party, x: int, y: int, game_map, creatu
             if direction is None:
                 text_log.add_message(CANCELLED if not d.strip() else INVALID_DIRECTION)
                 return
-            message = do_bribe(
-                party, member, x, y, direction, game_map, creatures=creatures
-            )
+            message = do_bribe(member, x, y, direction, game_map, creatures=creatures)
             if message:
                 text_log.add_message(message)
 
