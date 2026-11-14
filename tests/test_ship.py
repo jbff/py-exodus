@@ -387,3 +387,102 @@ class TestWindRules:
         assert any(t == "Wind CALM" for t in strip)
         # Full render path must not crash on the None wind.
         o.render(pygame.Surface((320, 200)))
+
+
+class TestCannonTraceStopsAtMapEdge:
+    """util/Utils.java:484-490 getDirectionalActionPath — a traced tile off
+    the map (``nx > width-1 || nx < 0 || ny > height-1 || ny < 0``) breaks
+    the trace before it is used. Cannonballs never wrap across a map seam,
+    on either the avatar's or the pirate's volley."""
+
+    def test_player_broadside_does_not_wrap_across_west_seam(self, overworld, sample_party):
+        sample_party.transport = Transport.SHIP
+        sample_party.x = 2
+        sample_party.y = 10
+        overworld.heading = Direction.SOUTH  # broadside: WEST is valid
+        frigate = {"tile": "frigate", "x": 63, "y": 10, "hull": 50}
+        sample_party.dynamic_objects.append(frigate)
+        overworld._fire_cannons(Direction.WEST)
+        # Wrap would place step 3 on x=63; Java breaks the trace at x=-1.
+        assert frigate["hull"] == 50
+        assert frigate in sample_party.dynamic_objects
+
+    def test_player_broadside_does_not_wrap_across_east_seam(self, overworld, sample_party):
+        sample_party.transport = Transport.SHIP
+        sample_party.x = 62
+        sample_party.y = 10
+        overworld.heading = Direction.SOUTH  # broadside: EAST is valid
+        frigate = {"tile": "frigate", "x": 0, "y": 10, "hull": 50}
+        sample_party.dynamic_objects.append(frigate)
+        overworld._fire_cannons(Direction.EAST)
+        # Wrap would place step 3 on x=0; Java breaks the trace past x=63.
+        assert frigate["hull"] == 50
+        assert frigate in sample_party.dynamic_objects
+
+    def test_enemy_broadside_does_not_wrap_across_west_seam(self, overworld, sample_party):
+        sample_party.x, sample_party.y = 30, 30
+        pirate = {"tile": "pirate", "x": 2, "y": 10}
+        frigate = {"tile": "frigate", "x": 63, "y": 10, "hull": 50}
+        sample_party.dynamic_objects.append(frigate)
+        overworld._enemy_fire_cannons(pirate, Direction.WEST)
+        # Wrap would place step 3 on x=63; Java breaks the trace at x=-1.
+        assert frigate["hull"] == 50
+        assert frigate in sample_party.dynamic_objects
+
+    def test_enemy_broadside_does_not_wrap_across_north_seam(self, overworld, sample_party):
+        sample_party.x, sample_party.y = 30, 30
+        pirate = {"tile": "pirate", "x": 20, "y": 1}
+        frigate = {"tile": "frigate", "x": 20, "y": 63, "hull": 50}
+        sample_party.dynamic_objects.append(frigate)
+        overworld._enemy_fire_cannons(pirate, Direction.NORTH)
+        # Wrap would place steps 3-4 on y=63; Java breaks the trace at y=-1.
+        assert frigate["hull"] == 50
+        assert frigate in sample_party.dynamic_objects
+
+
+class TestSunkFrigateRemoved:
+    """utils/Utils.java:509-514 animateCannonFire — a cannon hit that leaves
+    an unmanned frigate with hull <= 0 removes it from the map
+    (``map.removeObject``). A sunk hull is not left boardable."""
+
+    def test_player_broadside_removes_sunk_frigate(self, overworld, sample_party):
+        sample_party.transport = Transport.SHIP
+        overworld.heading = Direction.NORTH
+        frigate = {"tile": "frigate", "x": 11, "y": 10, "hull": 10}
+        sample_party.dynamic_objects.append(frigate)
+        overworld._fire_cannons(Direction.EAST)
+        assert frigate["hull"] == 0
+        assert frigate not in sample_party.dynamic_objects
+
+    def test_player_broadside_keeps_damaged_frigate(self, overworld, sample_party):
+        sample_party.transport = Transport.SHIP
+        overworld.heading = Direction.NORTH
+        frigate = {"tile": "frigate", "x": 11, "y": 10, "hull": 50}
+        sample_party.dynamic_objects.append(frigate)
+        overworld._fire_cannons(Direction.EAST)
+        assert frigate["hull"] == 40
+        # A frigate with hull left stays on the map (and boardable).
+        assert frigate in sample_party.dynamic_objects
+
+    def test_enemy_broadside_removes_sunk_frigate(self, overworld, sample_party):
+        sample_party.x, sample_party.y = 30, 30
+        pirate = {"tile": "pirate", "x": 3, "y": 3}
+        frigate = {"tile": "frigate", "x": 4, "y": 3, "hull": 10}
+        sample_party.dynamic_objects.append(frigate)
+        overworld._enemy_fire_cannons(pirate, Direction.EAST)
+        assert frigate["hull"] == 0
+        assert frigate not in sample_party.dynamic_objects
+
+    def test_sunk_frigate_cannot_be_boarded_after_removal(self, overworld, sample_party):
+        """After the removal the tile is empty: "Board What?" (no hull reset
+        path can resurrect a sunken frigate object)."""
+        sample_party.transport = Transport.SHIP
+        overworld.heading = Direction.NORTH
+        frigate = {"tile": "frigate", "x": 11, "y": 10, "hull": 10}
+        sample_party.dynamic_objects.append(frigate)
+        overworld._fire_cannons(Direction.EAST)
+        sample_party.transport = Transport.FOOT
+        sample_party.x, sample_party.y = 11, 10
+        key(overworld, pygame.K_b)
+        assert sample_party.transport == Transport.FOOT
+        assert any(m == "Board What?" for m in overworld.text_log.history)

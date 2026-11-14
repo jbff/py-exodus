@@ -1579,21 +1579,28 @@ class OverworldScreen(BaseScreen):
 
         self.text_log.add_message(f"BOOM! Broadside fired {direction.name}!")
 
-        # Trace cannonball up to 4 tiles (Java Utils.java:539-546, 403-421 —
-        # getDirectionalActionPath(min 1, max 4))
+        # Trace cannonball up to 4 tiles (Java truth: util/Utils.java
+        # getDirectionalActionPath, min 1 max 4, called from avatarfireCannon
+        # and enemyfireCannon). The trace does NOT wrap: each traced tile is
+        # bounds-checked first (Utils.java:484-490) and an off-map tile
+        # breaks the trace.
         if self.game_map is None:
             return
         cx, cy = self.party.x, self.party.y
         for step in range(1, 5):
-            tx = (cx + direction.dx * step) % self.game_map.width
-            ty = (cy + direction.dy * step) % self.game_map.height
+            tx = cx + direction.dx * step
+            ty = cy + direction.dy * step
+            if tx < 0 or tx >= self.game_map.width or ty < 0 or ty >= self.game_map.height:
+                break
 
             # Empty frigate in the path: hit, 10 hull damage, trace stops.
             # Java truth: ``util/Utils.java:538-546`` ``fireAt`` — either
             # broadside striking an unmanned frigate damages it (10) and
             # ends the volley before any creature check. Java matches the
             # exact tile name (`"frigate".equals(d.getTile().getName())`,
-            # Utils.java:538).
+            # Utils.java:538). animateCannonFire (Utils.java:509-514)
+            # removes a frigate whose hull has reached 0 — a sunk hull is
+            # not left on the map boardable.
             for obj in self.party.dynamic_objects:
                 if (
                     str(obj.get("tile", "")).lower() == "frigate"
@@ -1602,6 +1609,8 @@ class OverworldScreen(BaseScreen):
                 ):
                     obj["hull"] = obj.get("hull", 50) - 10
                     self.text_log.add_message("Direct hit on an unmanned frigate!")
+                    if obj["hull"] <= 0:
+                        self.party.dynamic_objects.remove(obj)
                     return
 
             # Check creature hit
@@ -1826,10 +1835,6 @@ class OverworldScreen(BaseScreen):
                 if rel > 0 and dist in (2, 3) and rel & broad:
                     # Aligned broadside: enemy cannons fire; the pirate
                     # forfeits movement this tick (Java 525 continue).
-                    # # deferred (review minors): Java also removes an
-                    # unmanned frigate whose hull reaches 0 in the volley
-                    # (animateCannonFire, Utils.java:509-514), and the trace
-                    # clamps at map edges differently.
                     fire_dir = direction_by_mask(rel)
                     if fire_dir is not None:
                         self._enemy_fire_cannons(c, fire_dir)
@@ -1955,27 +1960,31 @@ class OverworldScreen(BaseScreen):
         ``animateCannonFire`` — the pirate's cannonball trace toward the
         avatar (range 1-4, never blocked: ``isCannonBall``), with the
         ``fireAt`` (Utils.java:532-589) rules: an unmanned frigate in the
-        path takes 10 hull damage and ends the volley; the avatar's tile at
-        range N is a 1-in-3 hit that damages the ship hull (``damageShip``)
-        or rolls ``Party.damageParty(10, 25)`` (each member on a coin flip)
-        when on foot."""
+        path takes 10 hull damage and ends the volley (animateCannonFire,
+        Utils.java:509-514, removes it once the hull reaches 0); the
+        avatar's tile at range N is a 1-in-3 hit that damages the ship hull
+        (``damageShip``) or rolls ``Party.damageParty(10, 25)`` (each member
+        on a coin flip) when on foot. The trace never wraps: Java's
+        getDirectionalActionPath (Utils.java:484-490) breaks on an off-map
+        tile before it is used."""
         if self.game_map is None:
             return
         if self.audio is not None:
             self.audio.play_sfx("cannon") or self.audio.play_sfx("enemy_magic_proj")
         self.text_log.add_message("The pirate ship fires its broadside!")
-        # deferred (review minors): Java's animateCannonFire (509-514)
-        # removes an unmanned frigate whose hull reaches 0 during the
-        # volley; the port leaves sunk hulls in place.
 
         sx, sy = pirate["x"], pirate["y"]
         for distance in range(1, 5):
-            tx = (sx + fire_dir.dx * distance) % self.game_map.width
-            ty = (sy + fire_dir.dy * distance) % self.game_map.height
+            tx = sx + fire_dir.dx * distance
+            ty = sy + fire_dir.dy * distance
+            if tx < 0 or tx >= self.game_map.width or ty < 0 or ty >= self.game_map.height:
+                break
 
             # fireAt: unmanned frigate first (Utils.java:538-546). Java
             # matches the exact tile name (`"frigate".equals(
-            # d.getTile().getName())`, Utils.java:538).
+            # d.getTile().getName())`, Utils.java:538); animateCannonFire
+            # (Utils.java:509-514) removes a frigate whose hull has
+            # reached 0.
             for obj in self.party.dynamic_objects:
                 if (
                     str(obj.get("tile", "")).lower() == "frigate"
@@ -1984,6 +1993,8 @@ class OverworldScreen(BaseScreen):
                 ):
                     obj["hull"] = obj.get("hull", 50) - 10
                     self.text_log.add_message("Cannon fire strikes the unmanned frigate!")
+                    if obj["hull"] <= 0:
+                        self.party.dynamic_objects.remove(obj)
                     return
 
             if tx == self.party.x and ty == self.party.y:
