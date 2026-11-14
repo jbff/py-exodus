@@ -531,6 +531,48 @@ def test_marks_interaction(empty_dmap, test_party):
     assert m.marks[3] == 1
 
 
+def test_generic_mark_typed_by_tile_x(empty_dmap, test_party):
+    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): generic MARK (0x05)
+    tiles type by tile x&3 in GBC order 0=Force, 1=Fire, 2=Snake, 3=Kings
+    (GBC dungfunc.c:1355-1371), not by dungeon level z%4. x=6 -> Snake,
+    x=15 -> Kings on the SAME level. Storage stays in the Java marks array
+    order (0=Kings, 1=Fire, 2=Snake, 3=Force).
+    """
+    m = test_party.members[0]
+    state = DungeonState(empty_dmap, start_x=6, start_y=5, start_z=0, party=test_party)
+
+    empty_dmap.set_tile(6, 5, 0, DungeonTile.MARK)
+    m.hp = m.max_hp
+    ev_snake = state.touch_mark(member_index=0)
+    assert ev_snake.type == DungeonEventType.MARK
+    assert "Mark of the Snake" in ev_snake.message
+    assert m.marks[2] == 1
+
+    state.x = 15
+    empty_dmap.set_tile(15, 5, 0, DungeonTile.MARK)
+    m.hp = m.max_hp
+    ev_kings = state.touch_mark(member_index=0)
+    assert ev_kings.type == DungeonEventType.MARK
+    assert "Mark of Kings" in ev_kings.message
+    assert m.marks[0] == 1
+
+
+def test_generic_mark_x0_is_force_on_every_level(empty_dmap, test_party):
+    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): a generic MARK at x=0
+    (x&3 == 0) grants Mark of Force on EVERY level — the type is
+    depth-independent (GBC dungfunc.c:1355-1371)."""
+    m = test_party.members[0]
+    for z in range(8):
+        state = DungeonState(empty_dmap, start_x=0, start_y=5, start_z=z, party=test_party)
+        empty_dmap.set_tile(0, 5, z, DungeonTile.MARK)
+        m.hp = m.max_hp  # refresh so repeated brandings do not kill the member
+        m.marks = [0, 0, 0, 0]
+        ev = state.touch_mark(member_index=0)
+        assert ev.type == DungeonEventType.MARK
+        assert "Mark of Force" in ev.message, f"level {z}: {ev.message}"
+        assert m.marks[3] == 1, f"level {z}: marks={m.marks}"
+
+
 def test_orb_removed(empty_dmap, test_party):
     """Kept-Divergence #2: orbs are gone entirely — no touch handler, no event
     type, and the ORB tile is plain scenery. See tests/test_dungeon_specials.py."""

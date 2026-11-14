@@ -1878,10 +1878,15 @@ class DungeonState:
             mark_idx = 3
             name = "Mark of Force"
         else:
-            # Generic MARK: determine by dungeon level
-            mark_idx = self.z % 4
-            names = ["Mark of Kings", "Mark of Fire", "Mark of the Snake", "Mark of Force"]
-            name = names[mark_idx]
+            # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): mark type by tile x&3 (GBC
+            # dungfunc.c:1355-1371; LW UltimaDngn.c:311 bits[(xpos&3)+4])
+            # in GBC order 0=Force, 1=Fire, 2=Snake, 3=Kings — names follow
+            # that order, and mark_idx maps onto the Java marks array
+            # (0=Kings, 1=Fire, 2=Snake, 3=Force) shared with the
+            # specialized branches above.
+            names = ["Mark of Force", "Mark of Fire", "Mark of the Snake", "Mark of Kings"]
+            mark_idx = (3, 1, 2, 0)[self.x & 3]
+            name = names[self.x & 3]
 
         damage = 50
         member = self.party.get_member(member_index) if self.party else None
