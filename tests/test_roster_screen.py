@@ -133,6 +133,59 @@ def test_roster_screen_character_creation(pygame_setup, asset_mgr):
     assert created.portrait_index == 43
 
 
+def test_roster_screen_delete_requires_confirm(pygame_setup, asset_mgr):
+    """[D] on a roster recruit not in a party opens a Y/N confirm gate
+    (GBC intro.c:1455-1490 terminatecharacter): nothing is deleted until
+    the player answers, and Y confirms the deletion."""
+    ariel, bors = _roster_char("Ariel"), _roster_char("Bors")
+    scr = RosterScreen(asset_mgr=asset_mgr, roster=[ariel, bors])
+
+    # Press [D]: the confirm gate appears, NOTHING is deleted yet
+    scr.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_d))
+    assert scr.text_log.is_waiting_for_input
+    assert "Delete" in scr.text_log.current_prompt
+    assert len(scr.roster) == 2
+    assert scr.roster[0].name == "Ariel"
+
+    # Y confirms: the highlighted character is gone
+    scr.text_log.handle_char("Y")
+    assert not scr.text_log.is_waiting_for_input
+    assert [c.name for c in scr.roster] == ["Bors"]
+
+
+def test_roster_screen_delete_cancel_keeps_character(pygame_setup, asset_mgr):
+    """N or Escape on the confirm gate keeps the character and clears
+    the gate (GBC intro.c:1455-1490 terminatecharacter)."""
+    for answer_key, unicode in [(pygame.K_n, "N"), (pygame.K_ESCAPE, "")]:
+        ariel, bors = _roster_char("Ariel"), _roster_char("Bors")
+        scr = RosterScreen(asset_mgr=asset_mgr, roster=[ariel, bors])
+        scr.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_d))
+        assert scr.text_log.is_waiting_for_input
+        scr.handle_event(pygame.event.Event(pygame.KEYDOWN, key=answer_key, unicode=unicode))
+        assert not scr.text_log.is_waiting_for_input
+        assert [c.name for c in scr.roster] == ["Ariel", "Bors"]
+
+
+def test_roster_screen_delete_refuses_in_party_member(pygame_setup, asset_mgr):
+    """[D] on a character currently in a party refuses outright with an
+    "In a party!"-class message: no confirm prompt, no deletion
+    (GBC intro.c:1455-1490 terminatecharacter)."""
+    ariel, bors = _roster_char("Ariel"), _roster_char("Bors")
+    party = Party()
+    scr = RosterScreen(party=party, asset_mgr=asset_mgr, roster=[ariel, bors])
+
+    # Ariel (highlighted) joins the party — she stays in the roster too
+    scr.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_a))
+    assert len(scr.party.members) == 1
+    assert [c.name for c in scr.roster] == ["Ariel", "Bors"]
+
+    # [D] refuses: message logged, no prompt, character kept
+    scr.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_d))
+    assert not scr.text_log.is_waiting_for_input
+    assert len(scr.roster) == 2
+    assert any("in a party" in msg.lower() for msg in scr.text_log.history)
+
+
 def test_roster_screen_embark_validation(pygame_setup, asset_mgr, monkeypatch, tmp_path):
     """Verify cannot embark with empty party, but transitions and writes both
     save records when the party is formed."""

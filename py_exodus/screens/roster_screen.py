@@ -265,13 +265,43 @@ class RosterScreen(BaseScreen):
         self.exit_screen()
 
     def _delete_selected_roster(self) -> None:
-        """Delete highlighted recruit from roster."""
+        """Delete highlighted recruit from roster, behind a Y/N confirm.
+
+        USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): roster delete confirms and refuses in-party characters (GBC intro.c:1455-1490)
+        """
         if not self.roster:
             return
-        removed = self.roster.pop(self.selected_roster_idx)
-        if self.selected_roster_idx >= len(self.roster) and self.roster:
-            self.selected_roster_idx = len(self.roster) - 1
-        self.text_log.add_message(f"Deleted {removed.name} from roster.")
+        char = self.roster[self.selected_roster_idx]
+
+        # GBC intro.c:1455-1490 terminatecharacter: a member of the active
+        # party (same object, or a same-named roster record) is never
+        # deletable.
+        if any(
+            m.character is char or m.name.upper() == char.name.upper()
+            for m in self.party.members
+        ):
+            self.text_log.add_message("That character is in a party!")
+            return
+
+        def _on_confirm(answer: str) -> None:
+            if answer.strip().upper() != "Y":
+                return  # N or any other key: nothing is deleted
+            idx = next(
+                (
+                    i
+                    for i, c in enumerate(self.roster)
+                    if c is char or c.name.upper() == char.name.upper()
+                ),
+                None,
+            )
+            if idx is None:
+                return
+            removed = self.roster.pop(idx)
+            if self.selected_roster_idx >= len(self.roster) and self.roster:
+                self.selected_roster_idx = len(self.roster) - 1
+            self.text_log.add_message(f"Deleted {removed.name} from roster.")
+
+        self.text_log.prompt("Delete? (Y/N):", _on_confirm, single_char=True)
 
     def _start_create_character(self) -> None:
         """Initiate interactive text prompt sequence to create a character.
