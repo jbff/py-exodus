@@ -159,10 +159,11 @@ class TestSkyStrip:
         party.wind_direction = Direction.SOUTH
         assert any("Wind SOUTH" in t for t in ow.sky_strip_texts())
 
-        # Phase advances through update(): moon counter ticks every 4s.
-        monkeypatch.setattr("py_exodus.screens.overworld.random.random", lambda: 0.99)
+        # Phase advances on consumed turns, not wall-clock: four consumed
+        # turns move the fast moon one step (GBC funcs5.c:1272-1279).
         ow.moon_phase = 0
-        ow.update(4.5)
+        for _ in range(4):
+            ow._finish_turn(None)
         assert ow.moon_phase == 1
         assert any("T:0 F:1" in t for t in ow.sky_strip_texts())
 
@@ -233,3 +234,117 @@ class TestSkyStrip:
         monkeypatch.setattr(ow_module, "draw_moon_glyph", lambda *a, **k: calls.append(a))
         ow.render(pygame.Surface((640, 400)))
         assert calls == []
+
+
+# --------------------------------------------------------------------------- #
+# Move-driven moon clock + stop-time gates (Task 19, GBC funcs5.c:1272-1279)
+# --------------------------------------------------------------------------- #
+class TestMoveDrivenMoons:
+    """Moons advance ONLY on consumed turns — every 4th on the world surface
+    maps (the overworld screen: Sosaria AND Ambrosia, the outdoor worlds),
+    every 16th otherwise (towns/dungeons) — and the QUICKNESS (stop-time)
+    aura freezes both the moon advance and food consumption."""
+
+
+    def _surface_ow(self, asset_mgr, party):
+        return OverworldScreen(party=party, map_id=0, asset_mgr=asset_mgr, start_x=45, start_y=19)
+
+    def test_moons_advance_every_4th_consumed_surface_turn(self, asset_mgr, party):
+        """Four consumed turns on the surface advance the phase by exactly 1."""
+        ow = self._surface_ow(asset_mgr, party)
+        ow.moon_phase = 0
+        for _ in range(3):
+            ow._finish_turn(None)
+        assert ow.moon_phase == 0
+        ow._finish_turn(None)
+        assert ow.moon_phase == 1
+
+    def test_moon_phase_wraps_at_24(self, party):
+        from py_exodus.aura import Aura
+        party.aura = Aura()
+        party.moon_phase = 23
+        for _ in range(4):
+            party.advance_moons(surface=True)
+        assert party.moon_phase == 0
+
+    def test_moons_advance_every_16th_consumed_turn_underground(self, party):
+        """Non-surface maps advance the phase on the 16th consumed turn."""
+        for _ in range(15):
+            party.advance_moons(surface=False)
+        assert party.moon_phase == 0
+        party.advance_moons(surface=False)
+        assert party.moon_phase == 1
+
+    def test_moon_counter_shared_across_maps(self, party):
+        """One consumed-turn counter behind the cadence, like GBC's moves
+        modulo: 3 surface + 12 underground spent turns leave the 16th one
+        to trigger."""
+        for _ in range(3):
+            party.advance_moons(surface=True)
+        for _ in range(12):
+            party.advance_moons(surface=False)
+        assert party.moon_phase == 0
+        party.advance_moons(surface=False)
+        assert party.moon_phase == 1
+
+    def test_update_dt_never_advances_moons(self, asset_mgr, party, monkeypatch):
+        """The wall-clock update() no longer touches the moon phase."""
+        monkeypatch.setattr("py_exodus.screens.overworld.random.random", lambda: 0.99)
+        ow = self._surface_ow(asset_mgr, party)
+        ow.moon_phase = 5
+        ow.update(1000.0)
+        assert ow.moon_phase == 5
+
+    def test_quickness_freezes_moon_advance(self, asset_mgr, party):
+        from py_exodus.aura import AuraType
+
+        ow = self._surface_ow(asset_mgr, party)
+        ow.moon_phase = 7
+        # Four turns frozen under the aura; the spent turns still counted
+        # (GBC's moves modulo keeps ticking under stoptime), so the cadence
+        # lands on the same shared 4th slots (turn 8 = 4th counted).
+        party.aura.set(AuraType.QUICKNESS, 4)
+        for _ in range(4):
+            ow._finish_turn(None)
+        assert ow.moon_phase == 7
+        for _ in range(4):
+            ow._finish_turn(None)
+        assert ow.moon_phase == 8
+
+    def test_quickness_freezes_food_consumption(self, party):
+        from py_exodus.aura import AuraType
+
+        m = party.members[0]
+        m.submorsels = 39  # one surface decrement from the meal crossing
+        food_before = m.food
+
+        party.aura.set(AuraType.QUICKNESS, 2)
+        party.end_turn(surface=True)
+        assert m.submorsels == 39
+        assert m.food == food_before
+
+        # Control: with the aura gone the meal crossing fires again.
+        from py_exodus.aura import Aura
+        party.aura = Aura()
+        party.end_turn(surface=True)
+        assert m.submorsels == 400
+        assert m.food == food_before - 1
+
+    def test_save_round_trip_preserves_integer_phase(self, party, tmp_path):
+        from py_exodus.save_system import SaveSystem
+
+        party.moon_phase = 17
+        party.moon_turns = 33
+        path = tmp_path / "party.json"
+        SaveSystem.save_game(party, path)
+        loaded = SaveSystem.load_game(path)
+        assert loaded.moon_phase == 17
+        assert loaded.moon_turns == 33
+
+    def test_old_save_without_moon_phase_loads_zero(self, party):
+        data = party.to_dict()
+        data.pop("moon_phase", None)
+        data.pop("moon_turns", None)
+        p2 = Party.from_dict(data)
+        assert p2.moon_phase == 0
+        assert p2.moon_turns == 0

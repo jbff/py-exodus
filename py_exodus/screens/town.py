@@ -355,6 +355,10 @@ class TownScreen(BaseScreen):
         try:
             self.party.end_turn(surface=False)
             self.party.tick_regen(surface=False)
+            # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): moons advance
+            # per 4 moves surface / 16 elsewhere; stop-time freezes moons
+            # (GBC funcs5.c:1272-1279). Towns are the slow cadence here.
+            self.party.advance_moons(surface=False)
             self.party.aura.pass_turn()
             tile_effects.apply_rule_effect(self.party, effect_tile)
         except PartyDeathException:

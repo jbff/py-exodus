@@ -1508,6 +1508,12 @@ class DungeonState:
             # post-routing guard the other tick paths carry.
             try:
                 self.party.tick_regen(surface=False)
+                # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): moons
+                # advance per 4 moves surface / 16 elsewhere; stop-time
+                # freezes moons (GBC funcs5.c:1272-1279). Dungeons are the
+                # slow cadence here (the move counter itself does not tick —
+                # Java truth, kept).
+                self.party.advance_moons(surface=False)
                 self.party.aura.pass_turn()
             except PartyDeathException:
                 pass

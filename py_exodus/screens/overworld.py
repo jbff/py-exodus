@@ -350,8 +350,10 @@ class OverworldScreen(BaseScreen):
         # Peer Gem (P) view state (Java PeerGemInputAdapter, see gem_view).
         self.gem_view_active = False
         self.anim_timer = 0.0
-        self.moon_timer = 0.0
-        self.moon_phase = 0
+        # Wind keeps a wall-clock shift timer (Task 20 owns the wind rules);
+        # the moon phase lives on the party record now — the clock is
+        # move-driven (Party.advance_moons, GBC funcs5.c:1272-1279).
+        self.wind_timer = 0.0
 
         self.world_renderer = (
             WorldRenderer(asset_mgr) if asset_mgr is not None else None
@@ -369,6 +371,16 @@ class OverworldScreen(BaseScreen):
         map_name = getattr(self.game_map, "name", "Sosaria")
         self.text_log.add_message(f"Entering the realm of {map_name}...")
         self.text_log.add_message(f"Wind blows {self.party.wind_direction.name}.")
+
+    @property
+    def moon_phase(self) -> int:
+        """The combined 0..23 celestial phase, hosted on the party record so
+        the move-driven clock (and its save round-trip) lives in one place."""
+        return self.party.moon_phase
+
+    @moon_phase.setter
+    def moon_phase(self, val: int) -> None:
+        self.party.moon_phase = val % 24
 
     @property
     def trammel_phase(self) -> int:
@@ -1345,6 +1357,11 @@ class OverworldScreen(BaseScreen):
             # overworld screen — Sosaria AND Ambrosia; the map_id in
             # ("0","2") decision above is the food interval only.
             self.party.tick_regen(surface=True)
+            # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): moons advance
+            # per 4 moves surface / 16 elsewhere; stop-time freezes moons
+            # (GBC funcs5.c:1272-1279). Every overland map is the fast
+            # (outdoor) cadence here.
+            self.party.advance_moons(surface=True)
             self.party.aura.pass_turn()
             tile_effects.apply_rule_effect(self.party, effect_tile)
         except PartyDeathException:
@@ -2030,10 +2047,13 @@ class OverworldScreen(BaseScreen):
             self.anim_timer = 0.0
             self.anim_frame = (self.anim_frame + 1) % 4
 
-        self.moon_timer += dt
-        if self.moon_timer >= 4.0:
-            self.moon_timer = 0.0
-            self.moon_phase = (self.moon_phase + 1) % 24
+        # Wall-clock wind shift only (Task 20 owns the wind rules): the
+        # moon phase is move-driven — Party.advance_moons runs from
+        # _finish_turn per consumed turn (GBC funcs5.c:1272-1279) — so the
+        # old moon timer block is gone from here.
+        self.wind_timer += dt
+        if self.wind_timer >= 4.0:
+            self.wind_timer = 0.0
             # Random wind shift
             if random.random() < 0.15:
                 dirs = list(Direction)

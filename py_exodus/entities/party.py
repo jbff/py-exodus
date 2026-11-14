@@ -195,6 +195,8 @@ class Party:
         food: int | None = None,
         moves: int = 0,
         regen_turns: int = 0,
+        moon_phase: int = 0,
+        moon_turns: int = 0,
         torch_duration: int = 0,
         active_member_index: int = 0,
         exodus_cards_status: int = 0,
@@ -257,6 +259,15 @@ class Party:
         # count-based slot. Persisted so a save/load does not reset the
         # count-based slot.
         self.regen_turns = regen_turns
+
+        # Move-driven moon clock (user-directed GBC-rules deviation
+        # 2026-11-14): ``moon_phase`` is the 0..23 combined celestial phase
+        # the moongate routing and sky strip derive from; ``moon_turns``
+        # counts consumed turns (move or pass) behind the advance cadence —
+        # every 4th on the world surface maps, every 16th elsewhere. Both
+        # persisted so a save/load resumes the same integer phase.
+        self.moon_phase = moon_phase % 24
+        self.moon_turns = moon_turns
 
         # Exodus machine card-insertion status (SaveGame.exodusCardsStatus):
         # bit 0x1 love, 0x2 sol, 0x4 moons, 0x8 death.
@@ -594,21 +605,57 @@ class Party:
         """
         self.moves += 1
 
-        decr_interval = 40 if surface else 10
+        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): the QUICKNESS
+        # (stop-time) aura freezes food consumption — the submorsel
+        # decrement and its meal crossing both sit in the stoptime gate
+        # (GBC funcs5.c:1273-1278). The move counter above and the
+        # ship-hull roll below still tick while time is stopped.
+        if self.aura.get_type() != AuraType.QUICKNESS:
+            decr_interval = 40 if surface else 10
 
-        for m in self.members:
-            if m.is_dead():
-                continue
+            for m in self.members:
+                if m.is_dead():
+                    continue
 
-            m.submorsels -= decr_interval
-            if m.submorsels < 0:
-                m.submorsels = 400
-                m.food = max(0, m.food - 1)
+                m.submorsels -= decr_interval
+                if m.submorsels < 0:
+                    m.submorsels = 400
+                    m.food = max(0, m.food - 1)
 
         if sosaria and self.ship_hull < 50 and random.randint(0, 3) == 0:
             self.ship_hull += 1
             if self.ship_hull > 50:
                 self.ship_hull = 50
+
+    def advance_moons(self, surface: bool = True) -> None:
+        """Advance the moon clock by one consumed turn.
+
+        USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): the moon phase is
+        move-driven, not wall-clock — every 4th consumed turn on the world
+        SURFACE maps (the overworld screen: Sosaria AND Ambrosia, the
+        outdoor worlds) and every 16th consumed turn otherwise (towns,
+        castles, dungeons), with a QUICKNESS (stop-time) aura freezing the
+        advance entirely (GBC funcs5.c:1272-1279: ``!stoptime`` gating
+        ``moves%(4<<(oins*2))==0 → update_moons()``; the port keeps GBC's
+        semantics over LairWare's fast-4/slow-12, which the NES build
+        disagrees with besides). Like GBC's ``moves`` modulo, the counter
+        keeps counting while time is stopped — only the advance is frozen —
+        so on lifting the aura the phase lands on the same shared 4th/16th
+        slots it would have reached.
+
+        Call once per consumed turn, right after ``end_turn`` (whose move
+        increment lands the counter the way GBC's postmove does).
+
+        ``surface`` means the overworld SCREEN (Sosaria AND Ambrosia), the
+        same convention ``tick_regen`` documents; GBC's ``oins`` flag makes
+        everything outdoors the fast cadence.
+        """
+        self.moon_turns += 1
+        if self.aura.get_type() == AuraType.QUICKNESS:
+            return
+        cadence = 4 if surface else 16
+        if self.moon_turns % cadence == 0:
+            self.moon_phase = (self.moon_phase + 1) % 24
 
     def tick_regen(self, surface: bool = True) -> None:
         """Original-rules per-turn regeneration tick (user-directed
@@ -711,6 +758,8 @@ class Party:
             "food": self.food,
             "moves": self.moves,
             "regen_turns": self.regen_turns,
+            "moon_phase": self.moon_phase,
+            "moon_turns": self.moon_turns,
             "torch_duration": self.torch_duration,
             "active_member_index": self.active_member_index,
             "exodus_cards_status": self.exodus_cards_status,
@@ -751,6 +800,11 @@ class Party:
             # handles old saves that kept a party-level wallet.
             moves=p_data.get("moves", 0),
             regen_turns=p_data.get("regen_turns", 0),
+            # Integer moon_phase/moon_turns round-trip: an old save without
+            # the keys loads phase 0 — the same integer the screen-side
+            # counter produced before the clock moved onto the party record.
+            moon_phase=p_data.get("moon_phase", 0),
+            moon_turns=p_data.get("moon_turns", 0),
             torch_duration=p_data.get("torch_duration", 0),
             active_member_index=p_data.get("active_member_index", 0),
             exodus_cards_status=p_data.get("exodus_cards_status", 0),
