@@ -617,17 +617,25 @@ def test_exodus_monster_ranged_auto_hits_non_exotic_defender(asset_mgr, conflict
 # --- (j) monster count -------------------------------------------------------
 
 
-def test_guard_count_is_all_members_times_two(asset_mgr, conflict_map):
+def test_guard_count_is_party_size_independent_eight(asset_mgr, conflict_map):
+    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): encounter size per
+    funcs5.c:1573-1608 (Java party-size formula superseded) — guard battles
+    spawn 8 regardless of party size (Java counted size*2 members, dead
+    included; CombatScreen.java:193-202)."""
     party = build_party(3)
     party.members[2].hp = 0
-    party.members[2].status = Status.DEAD  # dead members still count
+    party.members[2].status = Status.DEAD  # dead members no longer affect the count
 
     arena = CombatArena(party, conflict_map, creature_tile="guard",
                         asset_mgr=asset_mgr)
-    assert len(arena.monsters) == 6  # 3 members (incl. 1 dead) x 2
+    assert len(arena.monsters) == 8
 
 
 def test_non_guard_count_dice_upper_bound(asset_mgr, conflict_map, monkeypatch):
+    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): encounter size per
+    funcs5.c:1573-1608 (Java party-size formula superseded) — the non-guard
+    count rolls randint(1, 8) with no party-size term (Java rolled
+    nextInt(min(8, size*2)) + 1)."""
     calls = []
 
     def fake_randint(low, high):
@@ -637,9 +645,8 @@ def test_non_guard_count_dice_upper_bound(asset_mgr, conflict_map, monkeypatch):
     monkeypatch.setattr(arena_mod.random, "randint", fake_randint)
     party = build_party(3)
     arena = CombatArena(party, conflict_map, creature_tile="orc", asset_mgr=asset_mgr)
-    # Java: rand.nextInt(min(8, size*2)) + 1 -> randint(1, 6) equivalent bound
-    assert calls and calls[0] == (1, 6)
-    assert len(arena.monsters) == 6
+    assert calls and calls[0] == (1, 8)
+    assert len(arena.monsters) == 8
 
 
 # --- (k) AI advance randomization + never off-map ----------------------------

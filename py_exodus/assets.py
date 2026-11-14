@@ -590,6 +590,9 @@ class AssetManager:
                 basehp=basehp,
                 hp=hp_val,
                 exp=_parse_int(elem.get("exp"), 0),
+                # ``encounterSize`` is parsed-but-unused dead data in BOTH Java
+                # and the GBC port — encounter counts roll per funcs5.c:1573-1608
+                # (see CombatArena._spawn_monsters); kept for XML fidelity only.
                 encounter_size=_parse_int(elem.get("encounterSize"), 1),
                 level=_parse_int(elem.get("level"), 0),
                 nes_exp=_parse_int(elem.get("nesExp"), 0),

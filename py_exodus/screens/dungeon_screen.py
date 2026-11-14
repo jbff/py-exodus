@@ -425,6 +425,10 @@ class DungeonScreen(BaseScreen):
                 audio=self.audio,
                 return_screen=self,
                 manager=self.manager,
+                # Dungeon battle context (Java DungeonScreen.contextMap): the
+                # dungeon's own map id — never Maps.EXODUS, but the arena must
+                # not fall back to the party's stale last-overworld map id.
+                context_map_id=self.map_id,
             )
             if self.manager is not None:
                 self.manager.push_screen(combat_scr)

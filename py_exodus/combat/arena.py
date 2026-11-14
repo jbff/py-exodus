@@ -290,19 +290,19 @@ class CombatArena:
         if explicit_count is not None:
             count = max(1, min(max_slots, explicit_count))
         else:
-            # Java CombatScreen.java:193-202 — maxCreatures counts EVERY party
-            # member (dead included, Party.getMembers().size()). Guards always
-            # take the full count; everyone else rolls
-            # rand.nextInt(min(8, size * 2)) + 1.
-            party_size = len(self.party.members)
-            max_monsters = min(max_slots, party_size * 2)
-
-            if self.creature_def.tile.lower() == "guard" or self.creature_tile.lower() == "guard":
-                count = max_monsters
-            elif max_monsters > 0:
-                count = random.randint(1, min(8, max_monsters))
+            # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): encounter size per
+            # funcs5.c:1573-1608 (Java party-size formula superseded) — guard
+            # battles spawn 8, battles fought on the Castle of Death
+            # (inexodus ≡ Maps.EXODUS) spawn 8, and everything else rolls
+            # rand.randint(1, 8); every count clamps to the available
+            # monster_starts. Party size plays no part here. The creature
+            # ``encounterSize`` XML attribute is parsed-but-unused dead data in
+            # BOTH Java and the GBC port, so it is not consulted either.
+            is_guard = self.creature_def.tile.lower() == "guard" or self.creature_tile.lower() == "guard"
+            if is_guard or self._is_exodus_map():
+                count = min(8, max_slots)
             else:
-                count = 0
+                count = min(random.randint(1, 8), max_slots)
 
         # Distribute monsters into crSlots
         slots: list[int] = list(range(max_slots))

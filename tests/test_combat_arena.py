@@ -1,6 +1,8 @@
 """Tests for Tactical Combat System (11x11 Conflict Arena) and Combat Resolver."""
+import random
+
 import pytest
-from py_exodus.assets import AssetManager
+from py_exodus.assets import MAP_NAME_TO_ID, AssetManager
 from py_exodus.world.loader import MapLoader
 from py_exodus.entities.party import Party
 from py_exodus.entities.character import Character
@@ -57,6 +59,9 @@ def test_monster_spawn_crslots_and_guards(asset_mgr, conflict_map):
     for i in range(4):
         party.add_member(Character(f"Hero{i}", "M", Race.HUMAN, Profession.FIGHTER))
 
+    # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): encounter size per
+    # funcs5.c:1573-1608 (Java party-size formula superseded) — guards always
+    # spawn 8 regardless of party size; non-guards roll randint(1, 8).
     # Standard monsters: count in [1, 8]
     arena = CombatArena(party, conflict_map, creature_tile="orc", asset_mgr=asset_mgr)
     assert 1 <= len(arena.monsters) <= 8
@@ -64,9 +69,72 @@ def test_monster_spawn_crslots_and_guards(asset_mgr, conflict_map):
     for m in arena.monsters:
         assert (m.x, m.y) in conflict_map.monster_starts
 
-    # Guards: always spawn max (8 for 4 members)
+    # Guards: always spawn the full 8 (clamped only by monster_starts)
     guard_arena = CombatArena(party, conflict_map, creature_tile="guard", asset_mgr=asset_mgr)
     assert len(guard_arena.monsters) == 8
+
+
+def test_encounter_size_gbc_non_guard_full_range(asset_mgr, conflict_map):
+    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): encounter size per
+    funcs5.c:1573-1608 (Java party-size formula superseded) — a non-guard
+    battle rolls random.randint(1, 8) no matter how large the party is; every
+    count 1..8 is reachable and party size has no effect (same observed range
+    for a 1-member and a 9-member party)."""
+    single = Party()
+    single.add_member(Character("Solo", "M", Race.HUMAN, Profession.FIGHTER))
+    # A 9-member roster exceeds MAX_PARTY_MEMBERS, so it is assigned directly:
+    # the spawn count only reads len(party.members) and the GBC rule must be
+    # party-size-blind — even a roster larger than the game allows rolls 1..8.
+    mega = Party()
+    mega.members = [
+        Character(f"Hero{i}", "M", Race.HUMAN, Profession.FIGHTER) for i in range(9)
+    ]
+
+    for party in (mega, single):
+        seen = set()
+        for i in range(200):
+            random.seed(9000 + i)
+            arena = CombatArena(party, conflict_map, creature_tile="orc", asset_mgr=asset_mgr)
+            seen.add(len(arena.monsters))
+        # Full uniform range reachable, nothing outside 1..8
+        assert seen == set(range(1, 9))
+        for m in arena.monsters:
+            assert (m.x, m.y) in conflict_map.monster_starts
+
+
+def test_encounter_size_guard_always_eight(asset_mgr, conflict_map):
+    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): encounter size per
+    funcs5.c:1573-1608 (Java party-size formula superseded) — guard battles
+    spawn 8 regardless of party size (clamped only by monster_starts)."""
+    solo = Party()
+    solo.add_member(Character("Solo", "M", Race.HUMAN, Profession.FIGHTER))
+    arena = CombatArena(solo, conflict_map, creature_tile="guard", asset_mgr=asset_mgr)
+    assert len(arena.monsters) == 8
+
+
+def test_encounter_size_exodus_map_always_eight(asset_mgr, conflict_map):
+    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): encounter size per
+    funcs5.c:1573-1608 (Java party-size formula superseded) — any battle fought
+    on the Castle of Death (inexodus ≡ Maps.EXODUS) spawns 8, guard or not."""
+    solo = Party()
+    solo.add_member(Character("Solo", "M", Race.HUMAN, Profession.FIGHTER))
+
+    # Explicit context_map_id (overworld call sites thread game_map.id through)
+    arena = CombatArena(
+        solo,
+        conflict_map,
+        creature_tile="orc",
+        asset_mgr=asset_mgr,
+        context_map_id=MAP_NAME_TO_ID["EXODUS"],
+    )
+    assert len(arena.monsters) == 8
+
+    # Default None falls back to the party's current map id and must keep working
+    exodus_party = Party(map_id=MAP_NAME_TO_ID["EXODUS"])
+    exodus_party.add_member(Character("Solo2", "M", Race.HUMAN, Profession.FIGHTER))
+    fallback_arena = CombatArena(exodus_party, conflict_map, creature_tile="orc", asset_mgr=asset_mgr)
+    assert fallback_arena.context_map_id == MAP_NAME_TO_ID["EXODUS"]
+    assert len(fallback_arena.monsters) == 8
 
 
 def test_player_placement(asset_mgr, conflict_map):
