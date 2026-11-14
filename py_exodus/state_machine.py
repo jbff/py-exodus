@@ -93,7 +93,10 @@ class StateMachine:
         if event.type == pygame.KEYDOWN and event.key == pygame.K_F1:
             from py_exodus.screens.book import BookScreen
 
-            if not isinstance(cur, BookScreen):
+            # Defensive: never mount the book over a finished screen whose
+            # transition is still pending — Java is synchronous (setScreen
+            # inside the listener) and has no equivalent guard.
+            if not isinstance(cur, BookScreen) and not cur.is_finished:
                 cur.open_book()
                 return
 

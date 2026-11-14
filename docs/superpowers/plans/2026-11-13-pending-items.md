@@ -1,6 +1,6 @@
 # PyExodus — Pending Items & Decisions (context-reset handoff)
 
-Written 2026-11-13, after master `718aec1` (774 tests green, pushed). Read this first when resuming work in this repo.
+Written 2026-11-13, after master `718aec1` (774 tests green, pushed). Updated 2026-11-14 after the GBC-parity branch + pending-items batch (1048 tests green). Read this first when resuming work in this repo.
 
 ## Project state
 
@@ -27,32 +27,87 @@ Written 2026-11-13, after master `718aec1` (774 tests green, pushed). Read this 
 1. **Dungeon map overlay default**: turn it OFF by default (P toggles) once the user verdicts the 3D view "navigable". User said "much better" — awaiting the go.
 2. **Which backlog item next** (list below) — user is playing again; new findings take priority.
 
-## Deferred minors / backlog (all ledgered, none urgent)
+## Deferred minors / backlog — 2026-11-14 status
 
-1. Whirlpool engulf uses Chebyshev ≤ 1; Java uses movementDistance (diagonal = 2 → no diag engulf). Also engulf-loop-break semantics: Java's inline engulf branch breaks the creature list; Python's separate `_check_whirlpool_engulf` scan lets remaining creatures tick.
-2. Ship-combat round effects: combat rounds don't count as moves and hull doesn't repair during cannon duels (Java runs a small endTurn at `CombatScreen.java:472`). Ruled ship-once, flagged.
-3. Message-parity pass: invented player-visible combat strings ("DEFEAT!…", per-attack lines) vs Java's terse "Missed!"/"{name} Killed! Exp. {n}".
-4. Creature specials unported: negating creatures (set NEGATE aura) and camouflage (hide/show at distance).
-5. Creature 3D draw edge cases: side wall at shallower depth doesn't occlude; off-axis creature at depth 1 clips the screen edge.
-6. Enemy cannon trace wraps across map seams (port takes `%` per tile; Java stops at map edge). Port's own player cannons share the pre-existing wrap.
-7. Cannon-sunk unmanned frigate is not removed from the map (Java removes it; port leaves it boardable, hull resets to 50 on board).
-8. `fireAt`/boarding match accepts `"frigate" | "ship"` (defensive superset of Java's exact name).
-9. `dynamic_objects` list unbounded in saves (Java caps at 24 + an off-by-one).
-10. Java's E-edge wrap quirk in `getValidMovesMask` (second-to-last column redirects to 0) not reproduced; port uses correct `% width`.
-11. Failed spell casts consume the combat turn (Java leaves the caster active on "Spell is negated!" / "Can't!").
-12. Members at exactly 0 hp treated as alive-but-wiped in some combat paths (0-hp-GOOD convention) vs Java's hp>0 aliveness rule — pre-existing convention.
-13. JINX aura skips AI dice in a different RNG order (stream divergence only).
-14. EXODUS-map attack refusal plays the wrong SFX (cosmetic audio).
-15. Zstats compact labels (WPN:/ARM:/TORCH:) are a ruled adaptation; some identity-row styling deviates from Java's proper case.
-16. Peer-gem/Book minor nits: empty-section filter in lore loader (Java would add empty pages), F1 during a finished-screen transition, duplicate test cleanup done, `PAGE_ROWS` depth fine at 10.
-17. Java binary `party.sav`/roster (80-byte records) interoperability — deferred as its own project; Python saves JSON (legacy binary read-only already exists).
-18. Gamepad support — keyboard only today.
-19. Two comment nits: whirlpool deferred comment claims Chebyshev/movementDistance "agree at ≤1" (false on diagonals); doubled `# deferred` markers at overworld.py:1645/1663.
-20. Combat spell-cast letter mapping is discipline-first (Java reassigns A–P over the filtered list) — presentation-only, unscheduled.
-21. Chest Bomb trap deferred: the fourth chest trap (Java's Bomb) is unported; GBC reuses its cannon-fire damage formula there — LW-verify before wiring.
-22. Thief-steal combat feedback wired (2026-11-14 polish wave): melee equipment theft now surfaces GBC's "PILFERED!" (battle3.c:288/298) via the attack-res log pipeline; still missing the matching POISONED! line (battle3.c:257) if wanted.
-23. Dungeon meal cadence: dungeons don't run `end_turn`, so the original rules' underground feed/regen (GBC/LW) never ticks below level 1 — model the dungeon tick as a future item.
-24. Shrine near-cap over-debit: shrinking a stat to its near-cap edge debits more gold than it raises (off-by-one at the cap boundary); likewise post-Exodus stats over 99 — LW-verify first.
+### Closed 2026-11-14 (GBC-parity branch + pending-items batch) — dispositions
+
+Original numbers kept for history against the 2026-11-13 list above.
+
+1. Whirlpool engulf — CLOSED (user-directed GBC/LW same-tile-only ship
+   contact, `ef59cb7`; supersedes Java's movementDistance≤1 ring). The
+   separate `_check_whirlpool_engulf` scan stays (no inline
+   list-break to mirror); the Chebyshev/movementDistance and doubled-
+   deferred comment nits (item 19) also fixed 2026-11-14 — Java's ring is
+   `movementDistance` ≤ 1, cited correctly now (overworld.py `_finish_turn`).
+2. Ship-combat round effects — CLOSED (`6416d30`; Java
+   `CombatScreen.java:470-514` rounds tick turns and hull repair).
+3. Message-parity strings — CLOSED (`f3a6858`; canonical combat strings from
+   Java GameScreen/CombatScreen).
+4. Creature specials — CLOSED (`776ca35`; negate aura + camouflage
+   hide/show per Java).
+6. Enemy cannon wrap — CLOSED (`dee5ffa`; Java fireCannon edge-stops, no `%`).
+7. Sunk unmanned frigate removal — CLOSED (same `dee5ffa`).
+8. `fireAt`/boarding name superset — CLOSED (`e670479`; exact Java name match).
+9. `dynamic_objects` save cap — CLOSED (`1f43eef`; Java Context.java cap).
+11. Failed spell cast consumes turn — CLOSED (`a63730b`; Java leaves caster
+    active on "Spell is negated!" / "Can't!").
+14. EXODUS-map attack-refusal SFX — CLOSED (`e77286e`; Sound.NEGATIVE_EFFECT).
+16. Peer/Book nits — CLOSED 2026-11-14: (a) lore empty-section filter
+    **documented-and-kept**: Java's empty pages arise from its unconditional
+    `labels.add()` in `BookScreen.addPages`, not from a removable filter line;
+    matching is more than a one-line diff, and the real (only) `ultima3.txt`
+    has no consecutive/trailing `*break` markers, so the divergence is
+    unreachable. (b) F1 during a finished-screen transition — defensive
+    guard added in `state_machine.handle_event` (Java has none; its
+    setScreen is synchronous) with a regression test.
+19. Whirlpool/deferred comment nits — CLOSED 2026-11-14: "agree at ≤1"
+    phrasing gone; Java distance now cited as `movementDistance` ≤ 1 plus the
+    same-tile deviation note; the doubled `# # deferred:` marker fused at
+    overworld.py ("documented deferral:", pirate broadsides block).
+21. Chest Bomb trap — CLOSED (`ead9131` LW BombTrap; booty early-return
+    follow-up `56ce2f3` per LW).
+22. Thief-steal feedback — CLOSED (`144fd25`; GBC "PILFERED!" + "POISONED!"
+    battle3.c:288/298/257).
+23. Dungeon meal cadence — CLOSED (`ef5e9da`; GBC/LW underground feed/regen).
+24. Shrine near-cap over-debit — CLOSED (`fd67773`; pro-rated buy at cap +
+    LW cap semantics).
+
+### Standing items (open, original numbers)
+
+- 5. Creature 3D draw edge cases: side wall at shallower depth doesn't
+  occlude; off-axis creature at depth 1 clips the screen edge — open.
+- 10. Java's E-edge wrap quirk in `getValidMovesMask` (second-to-last column
+  redirects to 0) — deliberate non-reproduction; port uses correct `% width`.
+- 12. Members at exactly 0 hp treated as alive-but-wiped in some combat paths
+  (0-hp-GOOD convention) — pre-existing convention, keep.
+- 13. JINX aura AI dice in a different RNG order — stream divergence only.
+- 15. Zstats compact labels — ruled adaptation; some styling deviates.
+- 17. Java binary `party.sav`/roster interop — deferred own project.
+- 18. Gamepad support — keyboard only today.
+- 20. Combat spell-cast letter mapping (discipline-first vs Java's re-runnng
+  A–P) — presentation-only, unscheduled.
+
+### New follow-ups found during the 2026-11-14 batch
+
+25. `dynamic_monsters` save cap 8 (Java `Context.java:176-185`) — the
+    creature-side counterpart of closed item 9; verify the port caps the
+    dynamic creature list the same way at save time.
+26. Player-cannon shoreline halt + creature-hit damage formula
+    (`Utils.java:471` edge stop; `Utils.java:549-568` per-creature damage)
+    — enemy cannons were fixed (`dee5ffa`); the port's own player cannon
+    trace/damage should be re-verified against the same lines.
+27. `fireAt` stacked-tile last-match nuance — Java's match loop resolves to
+    the LAST matching tile/creature on a stacked tile; confirm the port's
+    first-match order or adopt Java's.
+28. LW trap-typing distribution 56/19/19/6 — chest trap weights (per LW);
+    note alongside the Bomb-trap wiring from closed item 21 for future
+    verification.
+29. Camouflage tele/ranged gate-placement nuance — where Java's camouflaged
+    creatures gate tele/ranged actions relative to gate placement.
+30. Spell-cast narration + overworld move-narration purge (P12 flagged) —
+    audit invented narration lines vs Java/GBC during spell casts and
+    overworld moves.
+31. Group-damage kill lines — narration when one hit kills a whole group.
 
 ## How to resume
 

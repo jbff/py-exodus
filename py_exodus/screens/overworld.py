@@ -1461,8 +1461,12 @@ class OverworldScreen(BaseScreen):
         party occupies at the start of the turn (``getCurrentMapCoords`` is
         captured pre-move, so the effect lands on the tile being left, not
         the one entered); moves and the pass key route through it. The
-        whirlpool engulf sits inside ``moveObjects`` (``BaseMap.java:540-553``
-        at Chebyshev distance ≤ 1), which runs last. A wipe raises
+        whirlpool engulf sits inside ``moveObjects``
+        (``BaseMap.java:540-553`` at ``movementDistance`` ≤ 1 — same tile or
+        an orthogonal neighbor, no diagonals); ``_check_whirlpool_engulf``
+        below supersedes that ring with the ruled same-tile-only contact
+        (GBC/LW, 2026-11-14). A wipe raises
+
         ``PartyDeathException``; the post-check routes the game-over flow
         (Task 2). The 1-in-4 hull repair sits in ``endTurn``'s Sosaria branch
         (``Party.java:633-638``), so ``sosaria`` tracks the current map id;
@@ -1817,7 +1821,7 @@ class OverworldScreen(BaseScreen):
 
             # 2. Pirate broadsides (BaseMap.java:511-538). Java gates on the
             # tile alone; the wontattack conjunction here is a documented
-            # # deferred: mirror-strict port would run the broadsides block
+            # deferral: a mirror-strict port would run the broadsides block
             # even for a wontattack pirate.
             if tile_name == "pirate" and not wontattack:
                 rel = get_relative_direction_mask(

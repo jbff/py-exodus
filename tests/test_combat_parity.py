@@ -1216,9 +1216,9 @@ def test_swing_at_nothing_is_silent(asset_mgr, conflict_map):
     for m in arena.monsters:
         m.x, m.y = (10, 10)
     res = arena.execute_turn(Action.attack(Direction.EAST))
-    # (5,8) may hold a wall/other tile — as long as no monster was reached,
-    # Java logs nothing.
-    assert not any(m.x == 5 and m.y == 8 for m in arena.monsters)
+    # EAST from (5,7) targets (6,7); it may hold a wall/other tile — as long
+    # as no monster was reached, Java logs nothing.
+    assert not any(m.x == 6 and m.y == 7 for m in arena.monsters)
     assert res.message == ""
 
 

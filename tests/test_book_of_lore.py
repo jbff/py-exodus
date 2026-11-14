@@ -230,6 +230,26 @@ class TestReachability:
         assert isinstance(sm.current_screen, BaseScreen)
         assert not isinstance(sm.current_screen, BookScreen)
 
+    def test_f1_noop_while_screen_finished(self, asset_mgr):
+        """Pending item 16: F1 during a finished-screen window must not open
+        the book (defensive guard — Java's synchronous setScreen has no such
+        window, so Java needs no button guard)."""
+        from py_exodus.screens.book import BookScreen as Book
+
+        class Finishing(BaseScreen):
+            def handle_event(self, event):
+                if event.key == pygame.K_f:
+                    # No next_screen and no return_screen at stack bottom:
+                    # the transition check falls through and the flag sticks.
+                    self.is_finished = True
+
+        sm = StateMachine(asset_mgr=asset_mgr, initial_screen=Finishing())
+        sm.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_f))
+        assert sm.current_screen.is_finished
+        sm.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_F1))
+        assert isinstance(sm.current_screen, Finishing)
+        assert not isinstance(sm.current_screen, Book)
+
     def test_f1_reaches_a_real_game_screen(self, asset_mgr):
         """Journey onward into the overworld, then open the book with F1."""
         sm = StateMachine(asset_mgr=asset_mgr)
