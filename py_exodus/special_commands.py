@@ -160,7 +160,7 @@ def do_steal(
     chain = _steal_chain(game_map, x, y, direction)
     if chain is None:
         return [NOTHING]  # emptydat2 (wrong chain), menucmd2.c:1578-1584
-    person, door, chest = chain
+    chest = chain[2]
 
     roll = (rng or random).randrange
     skill = getattr(member, "dex", 0) + _steal_skill_bonus(member)
@@ -412,7 +412,7 @@ def _find_guard_npc(game_map, x: int, y: int):
 
 
 def _steal_chain(game_map, x: int, y: int, direction):
-    """GBC dofsteal's 3-tile chain: person → door/locked door → chest.
+    """GBC dosteal's 3-tile chain: person → door/locked door → chest.
 
     The chain reads the DISPLAY tiles one, two, and three tiles along the
     direction (menucmd2.c:1465-1493: 0x3C..0x56, then 0x0B/0x16, then 0x0C).
