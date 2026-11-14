@@ -685,3 +685,78 @@ def test_adjacent_wizard_keeps_the_bolt_path(asset_mgr, conflict_map, monkeypatc
     assert res.message != "Magic Blast!"
     assert poke_rolls == []  # adjacent: the 34% roll is not even consumed
     assert hero.hp == 999 - 5  # the plain bolt went through instead
+
+
+# --- Pending item 11 (Java SpellUtil): failed casts keep the caster active ---
+
+def _two_caster_arena(asset_mgr, conflict_map):
+    party = Party()
+    party.add_member(Character("Mage0", "M", Race.FUZZY, Profession.WIZARD, mp=50))
+    party.add_member(Character("Cleric1", "F", Race.ELF, Profession.CLERIC, mp=50))
+    return CombatArena(party, conflict_map, creature_tile="orc",
+                       asset_mgr=asset_mgr, monster_count=1)
+
+
+def test_failed_spell_cast_leaves_caster_active(asset_mgr, conflict_map):
+    """Pending item 11 — every SpellUtil.spellCast failure gate
+    (SpellUtil.java:24-76: bad target/direction, out of mana, "Can't!" used
+    free spell, NEGATE aura) returns false before any finishPlayerTurn call,
+    and SpellInputProcessor (SpellInputProcessor.java:63/84/116) ignores the
+    result — so the caster REMAINS ACTIVE and the monster phase waits."""
+    from py_exodus.aura import AuraType
+    from py_exodus.constants import Spell
+
+    arena = _two_caster_arena(asset_mgr, conflict_map)
+    assert arena.active_party_member_idx == 0
+
+    # Missing direction gate (SpellUtil.java:41-49)
+    res = arena.execute_turn(Action.cast(Spell.MITTAR))
+    assert not res.success
+    assert res.message == "Thou must indicate a direction to cast the spell!"
+    assert res.consume_turn is False
+    assert arena.active_party_member_idx == 0
+    assert not arena.is_party_round_done
+
+    # Out-of-mana gate (SpellUtil.java:57-60): spend the mage's MP first
+    arena.party.members[0].mp = 0
+    res = arena.execute_turn(Action.cast(Spell.MITTAR, direction=Direction.NORTH))
+    assert not res.success
+    assert res.message == "Thou dost not have enough magic points!"
+    assert res.consume_turn is False
+    assert arena.active_party_member_idx == 0
+    assert not arena.is_party_round_done
+    arena.party.members[0].mp = 50
+
+    # "Can't!" used-free-spell gate (SpellUtil.java:65-67) on the next caster
+    arena.active_party_member_idx = 1
+    arena.party.members[1].used_free_spell_in_combat = True
+    res = arena.execute_turn(Action.cast(Spell.PONTORI))
+    assert not res.success
+    assert res.message == "Can't!"
+    assert res.consume_turn is False
+    assert arena.active_party_member_idx == 1
+    assert not arena.is_party_round_done
+    arena.party.members[1].used_free_spell_in_combat = False
+
+    # NEGATE gate (SpellUtil.java:73-76): mana stays unspent AND turn unspent
+    arena.party.aura.set(AuraType.NEGATE, 3)
+    res = arena.execute_turn(Action.cast(Spell.PONTORI))
+    assert not res.success
+    assert res.message == "Spell is negated!"
+    assert res.consume_turn is False
+    assert arena.active_party_member_idx == 1
+    assert not arena.is_party_round_done
+    assert arena.party.members[1].mp == 50
+
+
+def test_successful_bolt_still_consumes_the_turn(asset_mgr, conflict_map):
+    """Contrast case: a successful combat bolt (MITTAR, SpellUtil.spellMagic
+    Attack via Utils.animateMagicAttack) keeps consuming the caster's turn."""
+    from py_exodus.constants import Spell
+
+    random.seed(1234)
+    arena = _two_caster_arena(asset_mgr, conflict_map)
+    res = arena.execute_turn(Action.cast(Spell.MITTAR, direction=Direction.NORTH))
+    assert res.success
+    assert res.consume_turn is True
+    assert arena.active_party_member_idx == 1

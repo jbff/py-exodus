@@ -115,7 +115,8 @@ class ActionResult:
     spell_res: Any | None = None
     # Java SpellUtil: LORUM, PABULUM, ALTAIR, DAG_ACRON and the dungeon spells
     # never call finishPlayerTurn — in combat the caster acts again. The turn
-    # is consumed by every other successful combat spell (and by failures).
+    # is consumed by every other successful combat spell; failed casts never
+    # consume it (SpellUtil.java:24-76 gates return before finishPlayerTurn).
     consume_turn: bool = True
     # True when the turn was an attack refused by the EXODUS non-exotic-weapon
     # rule (SecondaryInputProcessor.java:345-347) — the screen then plays
@@ -446,8 +447,9 @@ class CombatArena:
             self._evaluate_party_status()
             return res
 
-        # Java's finishPlayerTurn gate: LORUM/PABULUM/ALTAIR/DAG_ACRON and the
-        # dungeon spells leave the caster active (SpellUtil.java:87-237).
+        # Java's finishPlayerTurn gate: failed casts leave the caster active
+        # (SpellUtil.java:24-76), as do LORUM/PABULUM/ALTAIR/DAG_ACRON and the
+        # dungeon spells (SpellUtil.java:87-237).
         if res.consume_turn:
             self._advance_player_turn(member_idx)
 
@@ -730,8 +732,13 @@ class CombatArena:
             target_member=action.target_member,
             party=self.party,
         )
-        # Java: an effect that never calls finishPlayerTurn leaves the caster
-        # active; failed casts fall back to consuming the turn attempt.
+        # Java never consumes a spell-cast failure: every SpellUtil.spellCast
+        # gate (SpellUtil.java:24-76 — bad target/direction, out of mana,
+        # "Can't!" used free spell, NEGATE aura) returns false before any
+        # finishPlayerTurn, and SpellInputProcessor (SpellInputProcessor.java:
+        # 63/84/116) ignores the result — the caster REMAINS ACTIVE (pending
+        # item 11). On success the turn is consumed unless the spell is a
+        # NO_TURN spell (SpellUtil.java:87-237).
         # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): FAL_DIVI re-dispatches
         # to the cleric spell menu (GBC menucmd.c:1519-1530; LW
         # UltimaSpellCombat.c corroboration) — GBC's fal-divi battle variant
@@ -739,7 +746,7 @@ class CombatArena:
         # the combat site consumes the followup as a no-op rather than
         # re-opening a spell menu mid-round (LW's battle case 9 goes the other
         # way, ClericChoose; the GBC referee source settles it).
-        consumes = not (spell_res.success and resolved in NO_TURN_SPELLS)
+        consumes = bool(spell_res.success and resolved not in NO_TURN_SPELLS)
         return ActionResult(
             success=spell_res.success,
             action=action,
