@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any
 
 import pygame
 
+from py_exodus import debug
 from py_exodus.combat.arena import Action, ActionType, CombatArena
 from py_exodus.combat.magic import (
     DIRECTIONAL_SPELLS,
@@ -131,6 +132,13 @@ class CombatScreen(BaseScreen):
             self.text_log.handle_event(event)
             return
 
+        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): debug cheat harness
+        # (GBC cheat.c:768-825 docheat) — F10 opens the cheat menu in
+        # --debug mode only; non-debug F10 stays inert.
+        if debug.DEBUG_MODE and event.key == pygame.K_F10:
+            debug.open_cheat_menu(self.text_log, self.party)
+            return
+
         # If combat is finished, any key acknowledges and exits
         if self.arena.is_finished:
             self._notify_end_combat()
@@ -222,6 +230,10 @@ class CombatScreen(BaseScreen):
             return
 
         char = active.character
+        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): debug cheat
+        # harness (GBC cheat.c:414-825) — FULL MP tops the caster up at the
+        # combat cast prompt open (same hook as the other three screens).
+        debug.apply_full_mp(active)
         types = get_castable_spell_types(char.profession)
         if not types:
             prof_name = char.profession.value.capitalize() if hasattr(char.profession, "value") else str(char.profession)
@@ -238,7 +250,7 @@ class CombatScreen(BaseScreen):
                     self.text_log.add_message("Unknown spell!")
                     return
 
-                if not found_spell.can_cast(char.profession):
+                if not found_spell.can_cast(char.profession) and not debug.CHEATS.no_class:
                     self.text_log.add_message(f"{char.name} cannot cast {found_spell.name}!")
                     return
 

@@ -11,6 +11,7 @@ from py_exodus.constants import (
     Status,
     Transport,
 )
+from py_exodus import debug
 from py_exodus.aura import Aura, AuraType
 from py_exodus.entities.character import Character
 
@@ -85,6 +86,14 @@ class PartyMember:
         catches it and calls ``BaseScreen.check_party_death()`` to route to
         the start screen. Returns False (no effect) for a member already DEAD.
         """
+        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): debug cheat
+        # harness (GBC cheat.c:414-825) — NOHURT: HP NEVER DECREASES. The
+        # guard sits at this earliest chokepoint so no death/wipe check can
+        # misfire downstream; the hit is reported as applied (True) but
+        # hp/status stay untouched.
+        if debug.CHEATS.nohurt:
+            return True
+
         if self.is_dead():
             return False
 

@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any
 
 import pygame
 
+from py_exodus import debug
 from py_exodus.constants import (
     BASE_HEIGHT,
     BASE_WIDTH,
@@ -134,6 +135,13 @@ class DungeonScreen(BaseScreen):
 
         if self.text_log.is_waiting_for_input:
             self.text_log.handle_event(event)
+            return
+
+        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): debug cheat
+        # harness (GBC cheat.c:768-825 docheat) — F10 opens the cheat menu in
+        # --debug mode only; non-debug F10 stays inert.
+        if debug.DEBUG_MODE and event.key == pygame.K_F10:
+            debug.open_cheat_menu(self.text_log, self.party)
             return
 
         # PageUp/PageDown always scroll the text log back (arrow keys scroll

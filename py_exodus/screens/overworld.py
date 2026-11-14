@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 import pygame
 
+from py_exodus import debug
 from py_exodus.aura import AuraType
 from py_exodus.combat.magic import prompt_cast_party
 from py_exodus.constants import (
@@ -559,6 +560,13 @@ class OverworldScreen(BaseScreen):
         # only inside the log's own prompt handling, when they cannot act as
         # direction/command answers).
         if self.text_log.handle_scroll_key(event.key):
+            return
+
+        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): debug cheat harness
+        # (GBC cheat.c:768-825 docheat) — F10 opens the cheat menu, only
+        # when the game runs with --debug. Non-debug F10 stays inert.
+        if debug.DEBUG_MODE and event.key == pygame.K_F10:
+            debug.open_cheat_menu(self.text_log, self.party)
             return
 
         # Directional Movement: Arrow keys and Keypad ONLY (no WASD)
@@ -1878,9 +1886,14 @@ class OverworldScreen(BaseScreen):
             self.creatures = survivors
 
         if encounter_creature is not None:
-            self._trigger_combat(
-                encounter_creature.get("tile_name", "orc"), encounter_creature
-            )
+            # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): debug cheat
+            # harness (GBC cheat.c:414-825) — NOFIGHT: no random battles; the
+            # creature-contact engagement resolves without entering combat
+            # (the engaged creature is still consumed by the contact scan).
+            if not debug.CHEATS.nofight:
+                self._trigger_combat(
+                    encounter_creature.get("tile_name", "orc"), encounter_creature
+                )
 
     def _creature_valid_moves_mask(self, c: dict[str, Any], cr_def, wontattack: bool) -> int:
         """Java ``objects/BaseMap.java:637-698`` ``getValidMovesMask`` for a

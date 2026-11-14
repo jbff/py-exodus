@@ -1,12 +1,14 @@
 """CLI entrypoint and main application loop for py-exodus (Ultima III)."""
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 from typing import Any
 
 import pygame
 
+from py_exodus import debug
 from py_exodus.assets import AssetManager
 from py_exodus.audio import AudioManager
 from py_exodus.constants import (
@@ -120,8 +122,29 @@ class GameApp:
         pygame.quit()
 
 
-def main() -> None:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse CLI flags.
+
+    ``--debug`` enables the debug cheat harness (``py_exodus.debug``):
+    F10 then opens the cheat menu on the game screens
+    (USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): debug cheat harness
+    (GBC cheat.c:414-825 docheat/domaxall)).
+    """
+    parser = argparse.ArgumentParser(
+        prog="py-exodus",
+        description="Ultima III: Exodus (python port)",
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable the debug cheat harness (F10 opens the cheat menu).",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> None:
     """CLI execution entrypoint."""
+    debug.set_debug(parse_args(argv).debug)
     app = GameApp()
     try:
         app.run()

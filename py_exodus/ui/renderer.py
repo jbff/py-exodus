@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any
 
 import pygame
 
+from py_exodus import debug
 from py_exodus.constants import (
     TILE_SIZE,
     VIEWPORT_TILES,
@@ -32,6 +33,12 @@ def can_move_to(
     Respects map border behavior (wrap vs exit vs fixed), terrain tile attributes,
     transport modality (foot, horse, ship), and NPC presence.
     """
+    # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): debug cheat harness
+    # (GBC cheat.c:414-825) — NOBLOCK walks through any tile: the whole
+    # terrain/NPC gate short-circuits to accepted.
+    if debug.CHEATS.noblock:
+        return True
+
     if isinstance(transport, str):
         t_str = transport.strip().lower()
         if t_str == "ship":
@@ -168,8 +175,15 @@ class WorldRenderer:
         width = game_map.width
         height = game_map.height
 
-        # Calculate FOV if not provided and line of sight is enabled
-        if fov is None and not game_map.no_line_of_sight:
+        # Calculate FOV if not provided and line of sight is enabled.
+        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): debug cheat
+        # harness (GBC cheat.c:414-825) — XRAY skips the occlusion pass so
+        # every tile in the viewport renders (fov stays None → no shading).
+        if (
+            fov is None
+            and not game_map.no_line_of_sight
+            and not debug.CHEATS.xray
+        ):
             fov = compute_fov(game_map, center_x, center_y, radius=6)
 
         # 1. Render base terrain tiles

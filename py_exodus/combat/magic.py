@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 import random
 from typing import TYPE_CHECKING, Any
 
+from py_exodus import debug
 from py_exodus.aura import AuraType
 from py_exodus.combat.resolver import trace_projectile_path
 from py_exodus.constants import (
@@ -182,6 +183,11 @@ TARGETED_MEMBER_SPELLS = {
 
 def get_castable_spell_types(profession: Profession | str) -> list[str]:
     """Return list of spell disciplines ('wizard', 'cleric') this profession can cast."""
+    # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): debug cheat harness
+    # (GBC cheat.c:414-825) — NOCLASS: ANY CHAR CAN CAST ANY SPELL; the
+    # discipline filter hands out both spell lists to every profession.
+    if debug.CHEATS.no_class:
+        return ["wizard", "cleric"]
     if isinstance(profession, str):
         try:
             profession = Profession(profession.lower())
@@ -279,7 +285,9 @@ def cast_spell(
 
     # 4. Check profession permission
     profession = caster_char.profession
-    if not resolved_spell.can_cast(profession):
+    # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): debug cheat harness
+    # (GBC cheat.c:414-825) — NOCLASS also opens the per-spell gate.
+    if not resolved_spell.can_cast(profession) and not debug.CHEATS.no_class:
         prof_name = profession.value.capitalize() if isinstance(profession, Profession) else str(profession)
         return SpellResult(
             success=False,
@@ -1174,6 +1182,11 @@ def prompt_cast_party(
             return
 
         char = getattr(caster_m, "character", caster_m)
+        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): debug cheat
+        # harness (GBC cheat.c:414-825) — FULL MP: the caster's mana tops up
+        # to max as the spell selection opens (the shared hook: this one
+        # call covers the overworld, town and dungeon cast prompts).
+        debug.apply_full_mp(caster_m)
         types = get_castable_spell_types(char.profession)
         if not types:
             prof_name = char.profession.value.capitalize() if hasattr(char.profession, "value") else str(char.profession)
@@ -1190,7 +1203,7 @@ def prompt_cast_party(
                     text_log.add_message("Unknown spell!")
                     return
 
-                if not found_spell.can_cast(char.profession):
+                if not found_spell.can_cast(char.profession) and not debug.CHEATS.no_class:
                     text_log.add_message(f"{char.name} cannot cast {found_spell.name}!")
                     return
 
