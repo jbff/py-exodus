@@ -802,6 +802,20 @@ class BuySellVendorDialog(BaseVendorDialog):
             return ("Which wouldst you sell?", True)
         if self.state == ConvState.WAIT_SELL_HOW_MANY:
             return ("How many would thee like to sell?", False)
+        # Playability ruling (playtest-1 fix batch, item 2): Java is a
+        # free-text ConversationDialog with NO prompt strings — the question
+        # itself is the prompt. Its three y/n questions are distinct
+        # ("Take it?" WeaponVendor.java:56, "anything else?" :63, "Deal?"
+        # :97), so the port's prompt affordance mirrors each question
+        # instead of one shared "Reply (y or n)" string.
+        if self.state == ConvState.WAIT_BUY_ONE:
+            return ("Take it? (y or n)", True)
+        if self.state in (ConvState.BUY_ITEM, ConvState.SELL_ITEM):
+            # WeaponVendor.java:63 ("A fine choice! anything else?") and :105
+            # ("Fine! Anything else?") are the same y/n question shape.
+            return ("Anything else? (y or n)", True)
+        if self.state == ConvState.WAIT_SELL_ONE:
+            return ("Deal? (y or n)", True)
         return ("Reply (y or n)", True)
 
 

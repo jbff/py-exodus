@@ -713,6 +713,113 @@ def test_weapon_sell_too_many_swine():
     assert "Art thou here to Buy or Sell?" in logtext(town)  # re-welcomed
 
 
+# --- Buy-or-Sell key semantics (playtest-1 fix batch, item 2) --------------
+#
+# Java truth: WeaponVendor.setResponse ASK_BUY_SELL (WeaponVendor.java:114-123)
+# maps b/s to the buy/sell menus and leaves ANY other input (including
+# non-alphabetical junk) in ASK_BUY_SELL; nextDialog then re-prints the full
+# welcome message (WeaponVendor.java:26-28) — so Java's "unrecognized key"
+# handling at the buy-or-sell choice IS a re-welcome + re-ask, no error line
+# anywhere. The port keeps the "(b or s)" prompt affordance (Java is a
+# free-text modal field with no prompt strings) and re-asks the same way.
+# Empty ENTER hides the ConversationDialog and ends the visit WITHOUT
+# consulting the vendor (exodus/ConversationDialog.java:73-80 hides on
+# length()==0; the vendor setResponse still runs but the dialog is already
+# dismissed) — the port's empty-ENTER exit is Java-faithful, pinned as
+# documented truth.
+#
+# The shared "Reply (y or n)" prompt text is a PORT affordance bug: Java's
+# y/n questions at the three states are distinct ("Take it?" WAIT_BUY_ONE,
+# "anything else?" BUY_ITEM, "Deal?" WAIT_SELL_ONE), and the playability
+# ruling makes the port prompt mirror the DISTINCT question text.
+
+
+def test_weapon_invalid_key_rewelcomes_and_reprompts():
+    """Non-B/S key at the buy-or-sell choice: Java keeps ASK_BUY_SELL and
+    nextDialog re-prints the whole welcome (WeaponVendor.java:114-123 +
+    26-28). Driver: pressing x re-welcomes and re-prompts, never exits."""
+    vendor = make_weapon_vendor()
+    party = make_party((0,))
+    member = party.members[0]
+    town = TownScreen(party=party, map_id=1)
+
+    town._start_vendor_shopping(vendor, buyer=member)
+    assert logtext(town).count("Art thou here to Buy or Sell?") == 1
+
+    town.text_log.handle_char("x")  # single-char prompt: flushes immediately
+
+    assert town.text_log.is_waiting_for_input, "dialog must stay open"
+    assert town.text_log.current_prompt == "Buy or Sell? (b or s)"
+    assert logtext(town).count("Art thou here to Buy or Sell?") == 2, (
+        "Java re-prints the welcome message on an unrecognized answer"
+    )
+    assert member.gold == 0  # nothing happened
+
+
+def test_weapon_empty_enter_ends_visit_javanote():
+    """Empty ENTER hides the ConversationDialog on the spot
+    (ConversationDialog.java:74-80) — the port's silent exit is Java-truth,
+    pinned here so the playtest finding is answered with the citation."""
+    vendor = make_weapon_vendor()
+    party = make_party((0,))
+    member = party.members[0]
+    town = TownScreen(party=party, map_id=1)
+
+    town._start_vendor_shopping(vendor, buyer=member)
+    assert town.text_log.is_waiting_for_input
+
+    town.text_log.submit_input("")  # bare ENTER
+
+    assert not town.text_log.is_waiting_for_input
+
+
+def test_weapon_distinct_yn_prompts_per_state():
+    """The three y/n questions have DISTINCT Java texts ("Take it?",
+    "anything else?", "Deal?") — the port prompt must mirror them, not serve
+    one shared "Reply (y or n)" string."""
+    from py_exodus.constants import WeaponType
+
+    party = make_party((8,))  # gold <= 2*5 forces the WAIT_BUY_ONE branch
+    member = party.members[0]
+    town = TownScreen(party=party, map_id=1)
+
+    # WAIT_BUY_ONE: "Take it?"
+    town._start_vendor_shopping(make_weapon_vendor(), buyer=member)
+    town.text_log.submit_input("b")
+    town.text_log.submit_input("b")  # Dagger 5gp -> 8 <= 10 -> Take it?
+    assert town.text_log.current_prompt == "Take it? (y or n)"
+    town.text_log.submit_input("y")  # BUY_ITEM: "A fine choice! anything else?"
+    assert town.text_log.current_prompt == "Anything else? (y or n)"
+
+    town.text_log.submit_input("y")  # non-y would FAREWELL (Java BUY_ITEM:63-66)
+    assert town.text_log.current_prompt == "Buy or Sell? (b or s)"
+    town.text_log.submit_input("s")  # -> WAIT_SELL_INPUT
+    assert town.text_log.current_prompt == "Which wouldst you sell?"
+    town.text_log.submit_input("b")  # one dagger owned -> WAIT_SELL_ONE
+    assert town.text_log.current_prompt == "Deal? (y or n)"
+    town.text_log.submit_input("y")  # sell -> SELL_ITEM "Fine! Anything else?"
+    assert town.text_log.current_prompt == "Anything else? (y or n)"
+    town.text_log.submit_input("y")  # -> WAIT_SELL_INPUT again
+    assert town.text_log.is_waiting_for_input
+
+
+def test_weapon_wait_sell_one_deal_prompt():
+    """WAIT_SELL_ONE (count == 1) asks "Deal?" — its own prompt."""
+    from py_exodus.constants import WeaponType
+
+    party = make_party((0,))
+    member = party.members[0]
+    member.weapons[WeaponType.DAGGER] = 1
+    town = TownScreen(party=party, map_id=1)
+
+    town._start_vendor_shopping(make_weapon_vendor(), buyer=member)
+    town.text_log.submit_input("s")
+    town.text_log.submit_input("b")  # one dagger -> WAIT_SELL_ONE
+    assert "Deal?" in logtext(town)
+    assert town.text_log.current_prompt == "Deal? (y or n)"
+    town.text_log.submit_input("y")
+
+
 def test_weapon_sell_unknown_choice_swine():
     vendor = make_weapon_vendor()
     party = make_party((0,))
