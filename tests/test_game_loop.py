@@ -1132,6 +1132,200 @@ def test_overworld_wanderer_spawn_never_lands_on_occupied_tile(pygame_setup, ass
         assert pos not in permanent, f"spawn trampled occupant at {pos}"
 
 
+# ---------------------------------------------------------------------------
+# Encounter creature selection (playtest-1 fix batch, item 1).
+#
+# Java truth (exodus/GameScreen.java getRandomCreatureForTile:836-859):
+# the encounter creature is picked by PARTY-AVERAGE MAX HEALTH tier, not by
+# tile name, and.Utils.getRandomBetween (util/Utils.java:50-52) is
+# `rand.nextInt(high - low) + low` — EXCLUSIVE of high. Java's own call
+# sites therefore never reach the top id of any range (the same exclusive
+# bound bug family as the ZXKUQYB BigDeath ruling, preserved as parity):
+#   swimmable          -> getRandomBetween(20, 22) -> ids {20, 21}
+#                         (Pirate, Serpent — never Man-O-War)
+#   avgMaxHP > 700     -> getRandomBetween(10, 17) -> ids {10..16}
+#                         (Orc..Wizard — never Pincher)
+#   avgMaxHP > 500     -> getRandomBetween(10, 16) -> ids {10..15}
+#                         (Orc..Fighter — never Wizard)
+#   avgMaxHP > 400     -> getRandomBetween(10, 15) -> ids {10..14}
+#                         (Orc..Daemon)
+#   avgMaxHP > 300     -> getRandomBetween(10, 14) -> ids {10..13}
+#                         (Orc, Skeleton, Thief, Giant)
+#   otherwise          -> getRandomBetween(10, 13) -> ids {10..12}
+#                         (Orc, Skeleton, Thief — a level-1 party NEVER sees
+#                         a Giant; Java is uniform WITHIN a tier, not across)
+# creatureunwalkable tiles -> null (spawnCreature re-tries another tile).
+# There is NO forest/brush branch in Java — the port's earlier forest
+# table is a deviation and is gone: the land table applies to every
+# non-swimmable, non-creatureunwalkable tile.
+# Party average MAX health counts EVERY member, dead included
+# (exodus/Party.java getAverageMaxHealth:99-104: integer division floor).
+# ---------------------------------------------------------------------------
+
+
+def _pick_calls(monkeypatch):
+    """Wrap py_exodus.screens.overworld's random.randint to record bounds."""
+    import py_exodus.screens.overworld as ow_module
+
+    calls = []
+    real_randint = random.randint
+
+    def recording_randint(low, high):
+        calls.append((low, high))
+        return real_randint(low, high)
+
+    monkeypatch.setattr(ow_module.random, "randint", recording_randint)
+    return calls
+
+
+def test_wanderer_grass_low_health_party_never_gets_giant(
+    pygame_setup, asset_mgr, sample_party, monkeypatch
+):
+    """A level-1 party (avgMaxHP <= 300) rolls ids 10..12 only:
+    Orc/Skeleton/Thief. Java NEVER gives it a Giant — the pre-fix port's
+    uniform {orc, skeleton, giant, thief} choice is the wiped-by-Giants bug."""
+    overworld = OverworldScreen(party=sample_party, map_id=0, asset_mgr=asset_mgr)
+    overworld.creatures.clear()
+    # Whole-roster average max HP <= 300 (Java Party.getAverageMaxHealth).
+    for member in sample_party.members:
+        member.max_hp = 100
+
+    grass = asset_mgr.get_tile_by_name("grass")
+    calls = _pick_calls(monkeypatch)
+    picks = [overworld._pick_creature_for_tile(grass) for _ in range(200)]
+
+    assert calls and all(c == (10, 12) for c in calls), calls[:4]
+    assert set(picks) == {"orc", "skeleton", "thief"}
+    assert "giant" not in picks
+
+
+def test_wanderer_health_tiers_widen_table_exclusively(
+    pygame_setup, asset_mgr, sample_party, monkeypatch
+):
+    """Each tier's random range matches Java, and the exclusive high bound
+    keeps the top id out: >300 adds Giant (ids 10..13), >400 adds Daemon,
+    >500 adds Fighter (Pincher still out), >700 adds Wizard (Pincher still
+    out — getRandomBetween(10,17) can never return 17)."""
+    overworld = OverworldScreen(party=sample_party, map_id=0, asset_mgr=asset_mgr)
+    overworld.creatures.clear()
+    grass = asset_mgr.get_tile_by_name("grass")
+
+    def _set_all_max_hp(value: int) -> None:
+        # Java Party.getAverageMaxHealth averages EVERY member, so the tier
+        # boundary is driven by the whole roster, not one member.
+        for member in sample_party.members:
+            member.max_hp = value
+
+    # > 300 and <= 400: ids 10..13
+    _set_all_max_hp(350)
+    calls = _pick_calls(monkeypatch)
+    picks = {overworld._pick_creature_for_tile(grass) for _ in range(400)}
+    assert calls and all(c == (10, 13) for c in calls), calls[:4]
+    assert picks == {"orc", "skeleton", "thief", "giant"}
+
+    # > 400 and <= 500: adds Daemon
+    _set_all_max_hp(450)
+    calls = _pick_calls(monkeypatch)
+    picks = {overworld._pick_creature_for_tile(grass) for _ in range(400)}
+    assert calls and all(c == (10, 14) for c in calls), calls[:4]
+    assert picks == {"orc", "skeleton", "thief", "giant", "daemon"}
+
+    # > 500 and <= 700: adds Fighter, Wizard still excluded
+    _set_all_max_hp(600)
+    calls = _pick_calls(monkeypatch)
+    picks = {overworld._pick_creature_for_tile(grass) for _ in range(400)}
+    assert calls and all(c == (10, 15) for c in calls), calls[:4]
+    assert picks == {"orc", "skeleton", "thief", "giant", "daemon", "fighter"}
+    assert "wizard" not in picks
+
+    # > 700: Wizard in, Pincher still excluded by the exclusive bound
+    _set_all_max_hp(900)
+    calls = _pick_calls(monkeypatch)
+    picks = {overworld._pick_creature_for_tile(grass) for _ in range(400)}
+    assert calls and all(c == (10, 16) for c in calls), calls[:4]
+    assert "wizard" in picks
+    assert "pincher" not in picks
+
+
+def test_wanderer_swimmable_gives_pirate_serpent_only(
+    pygame_setup, asset_mgr, sample_party, monkeypatch
+):
+    """Water tiles roll getRandomBetween(20, 22): exclusive bound pins ids
+    {20, 21} = Pirate and Serpent. Squid (Man-O-War, id 22) never spawns."""
+    overworld = OverworldScreen(party=sample_party, map_id=0, asset_mgr=asset_mgr)
+    overworld.creatures.clear()
+    water = asset_mgr.get_tile_by_name("water")
+
+    calls = _pick_calls(monkeypatch)
+    picks = {overworld._pick_creature_for_tile(water) for _ in range(200)}
+
+    assert calls and all(c == (20, 21) for c in calls), calls[:4]
+    assert picks == {"pirate", "serpent"}
+    assert "squid" not in picks
+
+
+def test_wanderer_forest_uses_java_land_table_no_forest_branch(
+    pygame_setup, asset_mgr, sample_party, monkeypatch
+):
+    """Java getRandomCreatureForTile has NO forest/brush special case: the
+    health-tier land table covers every non-swimmable, non-creatureunwalkable
+    tile. A level-1 party on forest therefore still never meets a Giant."""
+    overworld = OverworldScreen(party=sample_party, map_id=0, asset_mgr=asset_mgr)
+    overworld.creatures.clear()
+    forest = asset_mgr.get_tile_by_name("forest")
+
+    calls = _pick_calls(monkeypatch)
+    picks = {overworld._pick_creature_for_tile(forest) for _ in range(200)}
+
+    assert calls and all(c == (10, 12) for c in calls), calls[:4]
+    assert picks == {"orc", "skeleton", "thief"}
+    assert "giant" not in picks
+
+
+def test_wanderer_creatureunwalkable_tile_never_spawns_there(
+    pygame_setup, asset_mgr, sample_party, monkeypatch
+):
+    """creatureunwalkable tiles return null in Java — no selection roll at
+    all (spawnCreature re-tries another tile)."""
+    from py_exodus.constants import TileAttrib
+    from py_exodus.assets import TileDef
+
+    overworld = OverworldScreen(party=sample_party, map_id=0, asset_mgr=asset_mgr)
+    overworld.creatures.clear()
+    tile = TileDef(index=201, name="blocked", attribs=TileAttrib.CREATUREUNWALKABLE)
+
+    calls = _pick_calls(monkeypatch)
+    assert overworld._pick_creature_for_tile(tile) is None
+    assert calls == []
+
+
+def test_wanderer_spawn_uses_java_selection_low_health(
+    pygame_setup, asset_mgr, sample_party, monkeypatch
+):
+    """End-to-end: _spawn_wandering_creature on grass with a low-health
+    party produces wanderers whose tile_name comes only from the Java tier
+    pool, and whose display name is the creatures.xml name (Pirate, Serpent)."""
+    overworld = OverworldScreen(party=sample_party, map_id=0, asset_mgr=asset_mgr)
+    overworld.creatures.clear()
+    sample_party.x, sample_party.y = 20, 20
+
+    random.seed(99)
+    seen = []
+    for _ in range(50):
+        before = len(overworld.creatures)
+        overworld._spawn_wandering_creature()
+        if len(overworld.creatures) > before:
+            seen.append(overworld.creatures[-1])
+            overworld.creatures.pop()
+
+    assert seen, "no wanderer spawned"
+    for c in seen:
+        assert c["tile_name"] in {"orc", "skeleton", "thief", "giant", "pirate",
+                                  "serpent", "daemon", "fighter", "wizard"}
+        if c["tile_name"] == "pirate":
+            assert "sail_dir" in c  # Java Creature.sailDir EAST default kept
+
+
 def test_overworld_wandering_creatures(pygame_setup, asset_mgr, sample_party):
     overworld = OverworldScreen(
         party=sample_party,

@@ -1737,16 +1737,18 @@ class OverworldScreen(BaseScreen):
             if tile is None:
                 continue
 
-            t_name = getattr(tile, "name", "grass").lower()
-            if "water" in t_name or "sea" in t_name:
-                c_name = random.choice(["pirate", "serpent", "squid"])
-            elif "forest" in t_name or "brush" in t_name:
-                c_name = random.choice(["giant", "thief", "skeleton"])
-            else:
-                c_name = random.choice(["orc", "skeleton", "giant", "thief"])
+            c_name = self._pick_creature_for_tile(tile)
+            if c_name is None:
+                # Java getRandomCreatureForTile returning null makes
+                # spawnCreature re-try another tile (GameScreen.java:816-817).
+                continue
 
+            c_def = self.asset_mgr.get_creature(c_name) if self.asset_mgr else None
             self.creatures.append({
-                "name": c_name.capitalize(),
+                # Display name from creatures.xml (Java: creature name),
+                # e.g. "Man-O-War" for the squid tile — never spawnable from
+                # the random pool (exclusive-bound truth), but kept faithful.
+                "name": (c_def.name if c_def else c_name.capitalize()),
                 "tile_name": c_name,
                 "tile": c_name,
                 "x": sx,
@@ -1755,6 +1757,68 @@ class OverworldScreen(BaseScreen):
                 **({"sail_dir": "EAST"} if c_name == "pirate" else {}),
             })
             return
+
+    # Java truth (playtest-1 fix, item 1): GameScreen.getRandomCreatureForTile
+    # (GameScreen.java:836-859) selects the encounter creature by PARTY-
+    # AVERAGE MAX HEALTH tier, not by tile name. Utils.getRandomBetween
+    # (util/Utils.java:50-52) is `rand.nextInt(high - low) + low` — EXCLUSIVE
+    # of high — so Java's own call sites never reach the top id of a range.
+    # That exclusive-bound bug is preserved as parity (same bug family as the
+    # ZXKUQYB BigDeath ruling): the reachable pools are
+    #   swimmable          -> ids {20, 21}  Pirate, Serpent
+    #   avgMaxHP > 700     -> ids {10..16}  Orc..Wizard   (never Pincher)
+    #   avgMaxHP > 500     -> ids {10..15}  Orc..Fighter  (never Wizard)
+    #   avgMaxHP > 400     -> ids {10..14}  Orc..Daemon
+    #   avgMaxHP > 300     -> ids {10..13}  Orc, Skeleton, Thief, Giant
+    #   otherwise          -> ids {10..12}  Orc, Skeleton, Thief — a level-1
+    #                         party NEVER meets a Giant on grass near Britain.
+    # Java is uniform WITHIN a tier (no level-weighted table beyond the
+    # tier split). There is NO forest/brush branch: the land table covers
+    # every non-swimmable, non-creatureunwalkable tile. creatureunwalkable
+    # tiles yield null and spawnCreature re-tries another candidate tile.
+    # GBC corroboration (refs/ultima3/Sources/UltimaMisc.c SpawnMonster
+    # $7A0C, ll.1132-1139): when EVERY member's hpmax <= 150 the spawn type
+    # narrows to `RandNum(0, 2)` with the in-source comment "then only
+    # thiefs/orx/skeletons" — the original U3 also bars small parties from
+    # the heavy monsters, confirming the tier shape (distribution inside a
+    # tier differs: GBC masks two rolls, `RandNum(0,12) & RandNum(0,12)`).
+    def _pick_creature_for_tile(self, tile) -> str | None:
+        """Java GameScreen.getRandomCreatureForTile (GameScreen.java:836-859).
+
+        Returns the creatures.xml tile key of the selected creature, or None
+        on a creatureunwalkable tile. The random ranges replicate Java's
+        exclusive high bound (see the class-of-comment above): randint(10, 12)
+        stands for getRandomBetween(10, 13), etc.
+        """
+        if self.asset_mgr is None:
+            return None
+
+        if bool(getattr(tile, "attribs", 0) & TileAttrib.CREATUREUNWALKABLE):
+            return None
+
+        if tile.swimmable:
+            cid = random.randint(20, 21)  # Java getRandomBetween(20, 22)
+        else:
+            avg_max_hp = sum(
+                member.max_hp for member in self.party.members
+            ) // len(self.party.members)  # Java Party.getAverageMaxHealth (Party.java:99-104)
+            if avg_max_hp > 700:
+                cid = random.randint(10, 16)  # getRandomBetween(10, 17)
+            elif avg_max_hp > 500:
+                cid = random.randint(10, 15)  # getRandomBetween(10, 16)
+            elif avg_max_hp > 400:
+                cid = random.randint(10, 14)  # getRandomBetween(10, 15)
+            elif avg_max_hp > 300:
+                cid = random.randint(10, 13)  # getRandomBetween(10, 14)
+            else:
+                cid = random.randint(10, 12)  # getRandomBetween(10, 13)
+
+        # Id -> def lookup (Java: Exodus.creatures.getInstance(id)); the port
+        # keys creatures by tile/name, so scan the def set once per call.
+        for c_def in self.asset_mgr.creatures.values():
+            if c_def.id == cid:
+                return c_def.tile.lower()
+        return None
 
     def _update_creatures(self) -> None:
         """Java ``objects/BaseMap.java:421-610`` ``moveObjects`` creature half.
