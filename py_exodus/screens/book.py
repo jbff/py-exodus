@@ -57,6 +57,36 @@ FOOTER_RULE_GAP = 4
 
 LORE_TITLE = "THE BOOK OF LORE"
 APPENDIX_HEADER = "APPENDIX: SPELL REFERENCE"
+#: Player-facing note replacing the old fixed A-P letter column. Since the
+#: dynamic mapping landed (py_exodus/spell_menu.py, Java getCastables), the
+#: menu letters are assigned per context and caster mana — the old per-discipline
+#: ``s.code`` letters became dead ("Not a spell!" on keypress), so the appendix
+#: now lists where each spell may be cast instead of a letter.
+APPENDIX_NOTE = (
+    "Let the reader note well: the letters that summon these spells are not "
+    "fixed ones. Each place thou standest in, and the mana that remains to "
+    "thee, deal the letters anew."
+)
+
+#: Human-readable place words for the location bits (constants.MapType.mask;
+#: the player-facing mirror of spell_menu._CONTEXT_MAPTYPES). A location
+#: mask of 0xFF means every place.
+_LOCATION_LABELS: tuple[tuple[int, str], ...] = (
+    (0x01, "world"),
+    (0x02, "combat"),
+    (0x04, "town"),
+    (0x08, "dungeon"),
+    (0x10, "shrine"),
+)
+_LOCATION_ANYWHERE = "anywhere"
+
+
+def _location_phrase(spell: Spell) -> str:
+    """Where a spell may be cast, from its location mask (Constants.java)."""
+    if spell.location_mask == 0xFF:
+        return _LOCATION_ANYWHERE
+    places = [label for bit, label in _LOCATION_LABELS if spell.location_mask & bit]
+    return "/".join(places)
 
 
 def _wrap_lines(text: str) -> list[str]:
@@ -126,21 +156,22 @@ def spell_reference_pages() -> list[str]:
     """Build the Python-only spell reference appendix page texts.
 
     Kept from the former spellbook browser: all 16 spells per discipline with
-    letter codes, MP costs, and descriptions, appended after the lore text.
+    MP costs, descriptions, and the place-context availability, appended after
+    the lore text. Spells are listed in enum declaration order — the same
+    order the dynamic menu walks (Java getCastables), so the appendix reads
+    top-down the way the letters are handed out; no letter column is printed,
+    because menu letters are assigned dynamically per context and remaining
+    mana.
     """
-    lines: list[str] = [APPENDIX_HEADER, ""]
+    lines: list[str] = [APPENDIX_HEADER, "", APPENDIX_NOTE, ""]
     for discipline, label in (("wizard", "WIZARD SORCERIES"), ("cleric", "CLERICAL PRAYERS")):
-        spells = sorted(
-            (s for s in Spell if s.spell_type == discipline),
-            key=lambda s: s.code,
-        )
+        spells = [s for s in Spell if s.spell_type == discipline]
         lines.append(f"{label}")
         lines.append("")
         for s in spells:
-            lines.append(f"{s.code}: {s.name} ({s.mp_cost:>2} MP)")
-        lines.append("")
-        for s in spells:
-            lines.append(f"{s.code}: {s.desc}")
+            lines.append(
+                f"{s.name} ({s.mp_cost} MP, {_location_phrase(s)}): {s.desc}"
+            )
         lines.append("")
     return _split_into_pages(_wrap_lines("\n".join(lines)))
 

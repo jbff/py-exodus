@@ -122,6 +122,67 @@ class TestLoreLoading:
         assert 100 < scr.page_count  # still a real book
 
 
+class TestSpellReferenceAppendix:
+    """Fix wave 2026-11-14: the appendix no longer carries a letter column.
+
+    The old fixed per-discipline A-P letters (``s.code``) went dead when the
+    dynamic mapping landed (py_exodus/spell_menu.py, Java getCastables —
+    letters assigned per context and remaining mana, so the world-cleric
+    menus read APPAR_UNEM=A, SANCTU=B, VIEDA=E and FAL_DIVI=C for wizards).
+    """
+
+    def _appendix_text(self) -> str:
+        return "\n".join(spell_reference_pages())
+
+    def test_no_letter_column_on_any_appendix_row(self):
+        import re
+
+        for page in spell_reference_pages():
+            for line in page.splitlines():
+                assert not re.match(r"^[A-P]: ", line), line
+
+    def test_every_spell_listed_with_mp_cost(self):
+        from py_exodus.constants import Spell
+
+        text = self._appendix_text()
+        for spell in Spell:
+            assert spell.name in text
+            assert f"({spell.mp_cost} MP, " in text
+
+    def test_rows_name_the_place_context(self):
+        """Each row carries the location-context availability, not a letter."""
+        text = self._appendix_text()
+        # Combat-only bolts name combat; the anywhere spells say anywhere
+        assert "MITTAR (5 MP, combat)" in text
+        assert "SANCTU (10 MP, anywhere)" in text
+        # APPAR_UNEM is world/city/dungeon (mask 0x0D)
+        assert "APPAR_UNEM (5 MP, world/town/dungeon)" in text
+        # VIEDA is world+city only (mask 0x05) — never combat, never dungeon
+        assert "VIEDA (55 MP, world/town)" in text
+
+    def test_dynamic_letter_note_present(self):
+        text = self._appendix_text()
+        assert "letters" in text
+        assert "mana" in text
+
+    def test_appendix_order_matches_the_menu_walk(self):
+        """Declarations in Spell-enum order per discipline (Java's
+        Spell.values() walk assigns the letters in this same order)."""
+        from py_exodus.constants import Spell
+
+        text = self._appendix_text()
+        wizard_names = [
+            s.name for s in Spell if s.spell_type == "wizard"
+        ]
+        clerical_names = [s.name for s in Spell if s.spell_type == "cleric"]
+        cursor = text.index("WIZARD SORCERIES")
+        for name in wizard_names:
+            cursor = text.index(name, cursor) + len(name)
+        cursor = text.index("CLERICAL PRAYERS", cursor)
+        for name in clerical_names:
+            cursor = text.index(name, cursor) + len(name)
+
+
 class TestPaging:
     def test_turn_forward_and_back(self, asset_mgr):
         scr = BookScreen(asset_mgr=asset_mgr)

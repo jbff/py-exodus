@@ -64,6 +64,13 @@ Original numbers kept for history against the 2026-11-13 list above.
     phrasing gone; Java distance now cited as `movementDistance` ≤ 1 plus the
     same-tile deviation note; the doubled `# # deferred:` marker fused at
     overworld.py ("documented deferral:", pirate broadsides block).
+20. Combat spell-cast letter mapping — CLOSED (combat-interaction-parity
+    branch 2026-11-14): the discipline-first mapping was replaced by the Java
+    re-running dynamic A-P per context and remaining mana
+    (py_exodus/spell_menu.py after Java Constants.java:751-762 getCastables),
+    with the lettered lists printed and the Book appendix relabelled to drop
+    its dead letter column (`2656b2b`); executed-but-failed casts consume the
+    turn (`5e86107`).
 21. Chest Bomb trap — CLOSED (`ead9131` LW BombTrap; booty early-return
     follow-up `56ce2f3` per LW).
 22. Thief-steal feedback — CLOSED (`144fd25`; GBC "PILFERED!" + "POISONED!"
@@ -87,8 +94,14 @@ Original numbers kept for history against the 2026-11-13 list above.
 - 15. Zstats compact labels — ruled adaptation; some styling deviates.
 - 17. Java binary `party.sav`/roster interop — deferred own project.
 - 18. Gamepad support — keyboard only today.
-- 20. Combat spell-cast letter mapping (discipline-first vs Java's re-runnng
-  A–P) — presentation-only, unscheduled.
+- 33. Publicize `py_exodus.combat.magic._PROJECTILE_SPELLS` — combat_screen
+  imports it under its private name (combat_screen.py:6); rename for import
+  (or re-home) — cosmetic hygiene, no behavior change.
+- 34. Identify + seed the suite's latent stream-sensitive unseeded test(s) —
+  at least one test is sensitive to the RNG stream yet runs unseeded; the
+  `hermetic_rng` fixture (tests/test_play_driver.py) masks the symptom, it
+  does not fix the leak. Find the test(s) and seed them (or the system RNG
+  source) explicitly.
 
 ### New follow-ups found during the 2026-11-14 batch
 
