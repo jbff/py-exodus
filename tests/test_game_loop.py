@@ -98,7 +98,10 @@ def _build_test_party() -> Party:
         members.append(c)
     return Party(
         members=members,
-        # Default new-game start (Java SaveGame.java:164-169): (45, 19).
+        # Explicit fixture position: Java's (45, 19) start tile, pinned here as
+        # a neutral location for movement/encounter tests. The fresh-Journey
+        # Party() default is (44, 20) per USER-DIRECTED NIT (2026-11-15) and is
+        # covered by test_new_game_party_spawn_location.
         x=45,
         y=19,
     )
@@ -1445,13 +1448,14 @@ def test_zstats_displays_inventory(pygame_setup, asset_mgr, sample_party):
 
 
 def test_new_game_party_spawn_location(pygame_setup, asset_mgr):
-    """Verify new game party starts at (45, 19) — Java SaveGame.java:164-169
-    seeds the default position to (45, 19), just south of the castle portal."""
-    party = _build_test_party()
-    assert party.x == 45
-    assert party.y == 19
+    """Verify a fresh party starts at (44, 20) — USER-DIRECTED NIT (2026-11-15):
+    one square south + one west of Java's seeded (45, 19) (SaveGame.java:164-169),
+    still on a grass tile just southwest of the castle entrance."""
+    party = Party(members=[])
+    assert party.x == 44
+    assert party.y == 20
 
-    # Verify tile at (45, 19) is grass and not castle
+    # Verify tile at (44, 20) is grass and not castle
     from py_exodus.world.loader import MapLoader
     loader = MapLoader(asset_mgr)
     world_map = loader.load_map(0)

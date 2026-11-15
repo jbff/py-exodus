@@ -62,10 +62,12 @@ class RosterScreen(BaseScreen):
         # Load or initialize active party.
         # Per-member model (Task 4): gold and food live on each Character
         # record — there is no party-level seed pool.
-        # Default new-game position (45, 19): Java SaveGame.java:164-169
-        # seeds partyX/partyY to (45, 19) — the grass tile just south of the
-        # Castle British entrance portal at (45, 18).
-        self.party = party or Party(members=[], x=45, y=19)
+        # Default new-game position: Java seeds (45, 19) (SaveGame.java:164-169)
+        # — the grass tile just south of the Castle British entrance portal at
+        # (45, 18). USER-DIRECTED NIT (2026-11-15): fresh Journeys spawn one
+        # south + one west of the Java default, at (44, 20), so this path
+        # constructs Party() with no x/y override and inherits that default.
+        self.party = party or Party(members=[])
 
         # Load or initialize roster
         if roster is not None:

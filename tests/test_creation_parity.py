@@ -504,34 +504,43 @@ class TestBinaryMarksOrder:
 
 
 # --------------------------------------------------------------------------- #
-# (h) Default new-game start position (45, 19)
+# (h) Default new-game start position — (44, 20)
 # --------------------------------------------------------------------------- #
 class TestDefaultStartPosition:
-    def test_default_party_starts_at_45_19(self):
+    # USER-DIRECTED NIT (2026-11-15): a new party's starting X,Y on Sosaria is
+    # one square south and one more square west of the Java default (45, 19)
+    # (SaveGame.java:164-169), landing at (44, 20) — still a grass tile.
+    def test_default_party_starts_at_44_20(self):
         from py_exodus.entities.party import Party
 
         party = Party()
-        assert (party.x, party.y) == (45, 19)
+        assert (party.x, party.y) == (44, 20)
 
-    def test_roster_screen_default_party_starts_at_45_19(self, pygame_setup):
+    def test_roster_screen_default_party_starts_at_44_20(self, pygame_setup):
         scr = RosterScreen(asset_mgr=None)
-        assert (scr.party.x, scr.party.y) == (45, 19)
+        assert (scr.party.x, scr.party.y) == (44, 20)
 
-    def test_party_from_dict_defaults_to_45_19(self):
+    def test_party_from_dict_without_xy_keeps_java_fallback(self):
+        """The save-load fallback for party.json with no recorded x/y stays
+        Java-true at (45, 19) (SaveGame.java:164-169) — a legacy-recovery path,
+        not a new-game spawn; the fresh-Journey default is (44, 20) per the
+        USER-DIRECTED NIT (2026-11-15)."""
         p = Party.from_dict({"members": []})
         assert (p.x, p.y) == (45, 19)
 
-    def test_blank_binary_record_leaves_default_party_start(self):
+    def test_blank_binary_record_leaves_java_fallback_party_start(self):
         """Java SaveGame.java:164-169: a blank party save seeds the (45, 19)
         start tile. The record-level truth of that save — every 64-byte slot
         parses to an unnamed character, so no member carries a position — is
-        asserted here via the Java-format decoder; the party-level (45, 19)
-        default is covered by test_party_from_dict_defaults_to_45_19."""
+        asserted here via the Java-format decoder. The fresh-Journey Party()
+        default is (44, 20) per USER-DIRECTED NIT (2026-11-15); the (45, 19)
+        from_dict fallback for x/y-less records is covered by
+        test_party_from_dict_without_xy_keeps_java_fallback."""
         data = bytearray(274)
         char = SaveSystem.parse_binary_character_record(bytes(data[:64]))
         assert char is not None
         assert char.name == ""
-        assert (45, 19) == (Party().x, Party().y)
+        assert (44, 20) == (Party().x, Party().y)
 
 
 # --------------------------------------------------------------------------- #

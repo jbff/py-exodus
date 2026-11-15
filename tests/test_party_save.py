@@ -44,6 +44,15 @@ def test_party_save_load():
             os.remove(tmp_name)
 
 
+def test_default_party_spawn_is_44_20():
+    """USER-DIRECTED NIT (2026-11-15): a new party's starting X,Y on Sosaria
+    is one square south and one more square west of the Java default (45, 19)
+    (SaveGame.java:164-169), so a bare Party() must spawn at (44, 20)."""
+    p = Party()
+    assert p.x == 44
+    assert p.y == 20
+
+
 def test_character_creation_and_attributes():
     """Verify Character attribute defaults, accessors, aliases, and MP calculation."""
     c = Character(
@@ -758,10 +767,12 @@ def test_formed_party_save_writes_party_and_roster_json(pygame_setup, asset_mgr,
     assert len(loaded.members) == 2
     assert loaded.members[0].name == "Ariel"
     assert loaded.members[1].name == "Bors"
-    # Fresh-party defaults: FOOT transport and the (45,19) start tile
-    # (Java SaveGame.java:164-169 loader fixup).
+    # Fresh-party defaults: FOOT transport and the start tile. A fresh Journey
+    # party spawns at (44, 20) per USER-DIRECTED NIT (2026-11-15) — one south +
+    # one west of Java's (45, 19) (SaveGame.java:164-169 loader fixup) — and
+    # party.json persists that x/y, so the loaded party reloads at (44, 20).
     assert loaded.transport == Transport.FOOT
-    assert (loaded.x, loaded.y) == (45, 19)
+    assert (loaded.x, loaded.y) == (44, 20)
 
     saved_roster = SaveSystem.load_roster(roster_path)
     assert [c.name for c in saved_roster] == ["Ariel", "Bors", "Cymric"]

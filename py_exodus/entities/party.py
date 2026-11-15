@@ -216,10 +216,12 @@ class Party:
     def __init__(
         self,
         members: list[Character | PartyMember] | None = None,
-        # Default new-game position (Java SaveGame.java:164-169): (45, 19) —
-        # the grass tile one step south of the Castle British entrance (45,18).
-        x: int = 45,
-        y: int = 19,
+        # Default new-game position: Java seeds (45, 19) (SaveGame.java:164-169)
+        # — the grass tile one step south of the Castle British entrance (45,18).
+        # USER-DIRECTED NIT (2026-11-15): spawn one south + one west of the Java
+        # default (45,19), so fresh Journeys start at (44, 20).
+        x: int = 44,
+        y: int = 20,
         map_id: int = 0,
         dungeon_level: int = 0,
         transport: Transport | str = Transport.FOOT,
@@ -898,7 +900,10 @@ class Party:
 
         p = cls(
             members=members,
-            # Default new-game position (Java SaveGame.java:164-169): (45, 19)
+            # Save-load fallback for party.json with no recorded x/y: Java's
+            # blank-save record seeds (45, 19) (SaveGame.java:164-169). The
+            # fresh-Journey default is (44, 20) per USER-DIRECTED NIT
+            # (2026-11-15); this fallback stays Java-true for legacy records.
             x=p_data.get("x", 45),
             y=p_data.get("y", 19),
             map_id=p_data.get("map_id", 0),
