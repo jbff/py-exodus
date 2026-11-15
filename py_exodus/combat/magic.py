@@ -1030,8 +1030,9 @@ def _apply_group_damage(
 
     Java truth: spellGroupDamage (SpellUtil.java:352-385) rolls
     Utils.getRandomBetween(min, max) per creature; useMaskOfMinax (646-688)
-    and useRageOfGod (690-732) use their own per-creature rolls — with the
-    ZXKUQYB ``hp * (3/4)`` == 0 bug ported verbatim.
+    and useRageOfGod (690-732) use their own per-creature rolls. USER-DIRECTED
+    RULING (2026-11-15): ZXKUQYB follows LW BigDeath's per-monster 75%
+    kill-roll instead; Java's hp*(3/4)==0 bug is not carried.
     """
     if arena is not None:
         total_dmg = 0
@@ -1056,12 +1057,18 @@ def _apply_group_damage(
                 elif spell == Spell.DAG_MENTAR:
                     dmg = _get_random_between(32, caster_char.int)
                 elif spell == Spell.ZXKUQYB:
-                    if random.randrange(3) == 0:
-                        dmg = 255
-                    elif m.hp > 23:
-                        dmg = m.hp * (3 // 4)  # Java integer 3/4 == 0 — ported bug
-                    else:
-                        dmg = 15
+                    # USER-DIRECTED RULING (2026-11-15): ZXKUQYB keeps no
+                    # BUG — Java's hp*(3/4)==0 quirk is not carried. LW
+                    # UltimaSpellCombat.c:355 BigDeath(255), :475-495 rolls
+                    # (RandNum(0,255)&0x03)!=0 per living monster (75%);
+                    # a failed roll leaves the monster untouched, a hit is
+                    # lethal via the established kill path below (255 is
+                    # beyond any rolled field HP, so take_damage(m.hp)
+                    # ≡ BigDeath's DamageMonster(255)). GBC clericspellsdat
+                    # agrees in spirit: "ZXKUQYB KILL ALL".
+                    if (random.randrange(256) & 0x03) == 0:
+                        continue  # failed kill roll — no damage at all
+                    dmg = m.hp  # lethal kill, not a fixed damage value
                 elif spell == Spell.UNSPEAKABLE:
                     if random.randrange(2) == 0:
                         dmg = 255
@@ -1091,6 +1098,9 @@ def _apply_group_damage(
         if spell == Spell.NECORP:
             # No damage was dealt — NECORP only clamps hp to 5 and weakens.
             message = f"Necorp weakens {affected_count} monsters to 5 hp!"
+        elif spell == Spell.ZXKUQYB:
+            # Ruling above: only kills count — survivors were untouched.
+            message = f"{spell.name.capitalize()} destroys {affected_count} monsters!"
         else:
             message = (
                 f"{spell.name.capitalize()} blasts {affected_count} monsters "

@@ -1099,37 +1099,78 @@ def test_noxum_group_uses_get_random_between(asset_mgr, conflict_map, monkeypatc
         assert m.hp == 100 - 74
 
 
-def test_zxkuqyb_ports_java_bug(asset_mgr, conflict_map, monkeypatch):
-    """useMaskOfMinax (SpellUtil.java:646-688): rand(3)==0 → 255; otherwise
-    hp <= 23 → 15; hp > 23 → hp * (3/4) — and Java's integer 3/4 is 0, so
-    the damage is 0. The max(15, hp*3//4) invention is gone."""
+def test_zxkuqyb_kill_roll_per_monster(asset_mgr, conflict_map, monkeypatch):
+    """USER-DIRECTED RULING (2026-11-15): ZXKUQYB keeps no BUG — Java's
+    hp*(3/4)==0 quirk is not carried. Per LW UltimaSpellCombat.c:355
+    BigDeath(255) + :475-495, each living monster is destroyed on its own
+    75% kill roll ((RandNum(0,255)&0x03)!=0) routed through the lethal
+    take_damage(m.hp) kill path; a failed roll leaves it untouched (no
+    damage at all). GBC clericspellsdat agrees: "ZXKUQYB KILL ALL"."""
     import py_exodus.combat.magic as magic
 
     party = Party()
     cleric = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC, wisdom=75, mp=75)
     party.add_member(cleric)
 
-    # randrange always 0 → the 1/3 roll of 255 fires for everyone
-    arena = CombatArena(party, conflict_map, creature_tile="orc", asset_mgr=asset_mgr, monster_count=1)
-    m = arena.monsters[0]
-    m.hp = 100
-    m.max_hp = 100
-    monkeypatch.setattr(magic.random, "randrange", lambda *a, **k: 0)
-    cast_spell(Spell.ZXKUQYB, caster=party.members[0], arena=arena)
-    assert m.is_dead  # 255 damage
+    arena = CombatArena(party, conflict_map, creature_tile="orc", asset_mgr=asset_mgr, monster_count=2)
+    arena.monsters[0].hp = 100
+    arena.monsters[0].max_hp = 100
+    arena.monsters[1].hp = 20
+    arena.monsters[1].max_hp = 100
 
-    # randrange nonzero → survivors take 0 (hp > 23) or 15 (hp <= 23)
-    cleric.mp = 75
-    arena2 = CombatArena(party, conflict_map, creature_tile="orc", asset_mgr=asset_mgr, monster_count=2)
-    arena2.monsters[0].hp = 100
-    arena2.monsters[0].max_hp = 100
-    arena2.monsters[1].hp = 20
-    arena2.monsters[1].max_hp = 100
-    monkeypatch.setattr(magic.random, "randrange", lambda *a, **k: 1)
-    res2 = cast_spell(Spell.ZXKUQYB, caster=party.members[0], arena=arena2)
-    assert res2.success
-    assert arena2.monsters[0].hp == 100  # hp * (3//4) == 0
-    assert arena2.monsters[1].hp == 5    # 15 damage
+    # Scripted kill rolls: monster 0 rolls 1 → &0x03 != 0 → destroyed;
+    # monster 1 rolls 0 → &0x03 == 0 → survives completely untouched.
+    rolls = iter([1, 0])
+    monkeypatch.setattr(magic.random, "randrange", lambda *a, **k: next(rolls))
+
+    res = cast_spell(Spell.ZXKUQYB, caster=party.members[0], arena=arena)
+    assert res.success
+    assert res.targets_affected == 1  # only the killed monster counts
+    assert arena.monsters[0].is_dead  # 75%-roll kill, not 255 damage
+    assert arena.last_monster_death_pos is not None
+    assert not arena.monsters[1].is_dead
+    assert arena.monsters[1].hp == 20  # failed roll → zero damage dealt
+    assert "destroys 1" in res.message
+
+
+def test_zxkuqyb_seeded_trials_kill_share(asset_mgr, conflict_map, monkeypatch):
+    """USER-DIRECTED RULING (2026-11-15): across 50 seeded trials no
+    zero-damage hit survives — high-hp monsters die ~75% of casts (never
+    0%), and low-hp monsters are no longer insta-hit at 100%: the only
+    outcomes per monster are destroyed-by-kill-roll or fully untouched."""
+    import py_exodus.combat.magic as magic
+
+    rng = pyrandom.Random(20261115)
+    monkeypatch.setattr(magic.random, "randrange", lambda *a, **k: rng.randrange(*a))
+
+    kills_high = 0
+    kills_low = 0
+    for _ in range(50):
+        party = Party()
+        cleric = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC, wisdom=75, mp=75)
+        party.add_member(cleric)
+        arena = CombatArena(party, conflict_map, creature_tile="orc", asset_mgr=asset_mgr, monster_count=2)
+        arena.monsters[0].hp = 100
+        arena.monsters[0].max_hp = 100
+        arena.monsters[1].hp = 20
+        arena.monsters[1].max_hp = 100
+        res = cast_spell(Spell.ZXKUQYB, caster=party.members[0], arena=arena)
+        assert res.success
+        for m, start_hp in ((arena.monsters[0], 100), (arena.monsters[1], 20)):
+            if m.is_dead:
+                if start_hp == 100:
+                    kills_high += 1
+                else:
+                    kills_low += 1
+            else:
+                # a surviving monster took no damage at all
+                assert m.hp == start_hp, "zero/partial damage hit must not survive"
+
+    # ~75% kill rate; the old bug (hp>23 → hp*3//4 == 0) never killed the
+    # 100-hp monster, and the old 15-dmg floor killed the 20-hp monster on
+    # every cast.
+    assert 25 <= kills_high <= 50, kills_high
+    assert 25 <= kills_low <= 49, kills_low
 
 
 def test_unspeakable_java_dice(asset_mgr, conflict_map, monkeypatch):
