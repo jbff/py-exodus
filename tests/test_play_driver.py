@@ -146,6 +146,90 @@ class TestCombatSmoke:
         assert not alt.is_waiting_for_input
 
 
+class TestActiveTurnMarker:
+    """Task 6 (2026-11-14 combat-interaction-parity): the active-member turn
+    marker in the combat text log.
+
+    PLAYABILITY AFFORDANCE, not parity: GBC shows whose turn it is with the
+    blink cursor + member stat window (battle2.c:297, battle.c:262) and logs
+    nothing textually; this port's channel is the text log, so each member
+    activation and each return-to-actor (a non-consuming action or a
+    disarmed prompt) marks the member once."""
+
+    def test_combat_start_marks_the_active_member_once(self, asset_mgr):
+        session = PlaySession(asset_mgr).start(party=_cleric_party())
+        session.enter_combat(creature_tile="orc", context_map_id=2, monster_count=1)
+        assert session.active_member == "Cora"
+        # Exactly one marker per activation: never per-frame spam.
+        assert session.transcript.count("[msg] Cora's turn.") == 1, (
+            session.transcript
+        )
+
+    def test_not_a_spell_returns_the_turn_and_marks_it_again(self, asset_mgr):
+        session = PlaySession(asset_mgr).start(party=_cleric_party(mp=3))
+        session.enter_combat(creature_tile="orc", context_map_id=2, monster_count=1)
+        session.press("C")
+        before = session.transcript
+        before_round = session.screen.arena.round_count
+
+        session.press("B")  # beyond the one-entry list -> "Not a spell!"
+        added = session.transcript[len(before):]
+        assert any("Not a spell!" in line for line in added), added
+        # The refusal returned the turn to the SAME member: one more marker,
+        # no member advance, no monster phase.
+        assert sum("Cora's turn." in line for line in added) == 1, added
+        assert session.active_member == "Cora"
+        assert session.screen.arena.round_count == before_round
+        assert not session.is_waiting_for_input
+
+    def test_invalid_attack_direction_cancel_marks_the_turn_again(self, asset_mgr):
+        fighters = Party()
+        fighters.add_member(
+            Character("Bruiser", Sex.MALE, profession=Profession.FIGHTER)
+        )
+        session = PlaySession(asset_mgr).start(party=fighters)
+        session.enter_combat(creature_tile="orc", context_map_id=2, monster_count=1)
+        session.press("A")
+        assert any(
+            line.startswith("[prompt] Direction? (N,S,E,W):")
+            for line in session.transcript
+        ), session.transcript
+        before = session.transcript
+        before_round = session.screen.arena.round_count
+
+        session.press("X")  # not a compass answer -> "Invalid direction!"
+        added = session.transcript[len(before):]
+        assert any("Invalid direction!" in line for line in added), added
+        # The cancel returned the turn to the SAME member: one more marker,
+        # no member advance, no monster phase.
+        assert sum("Bruiser's turn." in line for line in added) == 1, added
+        assert session.active_member == "Bruiser"
+        assert session.screen.arena.round_count == before_round
+
+    def test_successful_cast_advances_the_marker_to_the_next_member(self, asset_mgr):
+        party = _cleric_party()
+        # Wounded second member: SANCTU is targeted-member healing, and a
+        # full-health target is a pre-execution refusal (turn retained) —
+        # NOT the consuming success this test pins.
+        bruised = Character(
+            "Bruiser", Sex.MALE, profession=Profession.FIGHTER, hp=50, max_hp=100
+        )
+        party.add_member(bruised)
+        session = PlaySession(asset_mgr).start(party=party)
+        session.enter_combat(creature_tile="orc", context_map_id=2, monster_count=1)
+        assert session.active_member == "Cora"
+        before = session.transcript
+
+        session.press_seq("C B 2")  # SANCTU (10 MP) on Bruiser: consuming success
+        added = session.transcript[len(before):]
+        assert not any("Cora's turn." in line for line in added), added
+        # The consumed turn advanced to the NEXT member, whose turn begins
+        # with its own marker.
+        assert sum("Bruiser's turn." in line for line in added) == 1, added
+        assert session.screen.arena.active_party_member_idx == 1
+        assert session.active_member == "Bruiser"
+
+
 def _cleric_party(mp: int = 99) -> Party:
     """A one-member cleric party with the given mana (combat cast flows)."""
     party = Party()

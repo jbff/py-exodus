@@ -98,6 +98,9 @@ class CombatScreen(BaseScreen):
             self.text_log.add_message(msg)
         self.arena.log_messages.clear()
 
+        self._prompt_ran_action = False
+        self._log_turn_marker()
+
         self._pending_action_type: ActionType | None = None
         self.awaiting_exit_ack = False
         self._end_combat_notified = False
@@ -109,6 +112,22 @@ class CombatScreen(BaseScreen):
     def active_party_member(self) -> PartyMember | None:
         """Return currently active party member taking turn in combat."""
         return self.party.get_member(self.arena.active_party_member_idx)
+
+    def _log_turn_marker(self) -> None:
+        """PLAYABILITY AFFORDANCE (task 6, 2026-11-14) — NOT message parity.
+
+        GBC shows whose turn it is with the blink cursor + member stat
+        window (GBC battle2.c:297, battle.c:262) and logs no text; Java
+        logs none either. This port's combat channel is the text log, so
+        the marker line names the active member once per event: at combat
+        start, after a consuming action advances (or rolls) the turn, and
+        whenever a non-consuming action or disarmed prompt returns the
+        turn to the same member. Never called per-frame."""
+        if self.arena.is_finished:
+            return
+        member = self.active_party_member
+        if member is not None:
+            self.text_log.add_message(f"{member.name}'s turn.")
 
     def on_enter(self) -> None:
         super().on_enter()
@@ -132,7 +151,17 @@ class CombatScreen(BaseScreen):
 
         # If waiting for prompt input (e.g. Direction or Spell code)
         if self.text_log.is_waiting_for_input:
+            self._prompt_ran_action = False
             self.text_log.handle_event(event)
+            if (
+                not self.text_log.is_waiting_for_input
+                and not self._prompt_ran_action
+            ):
+                # The prompt was disarmed without executing an action ("Not
+                # a spell!", invalid direction/member cancel, ESC, a
+                # silent out-of-range menu letter): the turn returns to the
+                # same member — mark it (playability affordance, task 6).
+                self._log_turn_marker()
             return
 
         # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): debug cheat harness
@@ -208,8 +237,12 @@ class CombatScreen(BaseScreen):
                 pm.powder -= 1
                 self.text_log.add_message("Stop time with a powder!")
                 self.party.aura.set(AuraType.QUICKNESS, 10)
-                return
-        self.text_log.add_message("None!")
+                break
+        else:
+            self.text_log.add_message("None!")
+        # N consumes no combat turn: the turn returns to the same member
+        # (affordance marker, see _log_turn_marker).
+        self._log_turn_marker()
 
     def _prompt_attack(self) -> None:
         """Prompt active member for attack direction."""
@@ -252,6 +285,8 @@ class CombatScreen(BaseScreen):
             # Java's canonical no-castables line (CombatScreen.java:326 —
             # the pressed-C branch with an empty getCastables map).
             self.text_log.add_message("No spells to cast!")
+            # Refused cast: the turn returns to the same member (affordance).
+            self._log_turn_marker()
             return
 
         def _ask_spell_code(discipline: str) -> None:
@@ -263,6 +298,8 @@ class CombatScreen(BaseScreen):
                 # A per-discipline empty walk: the canonical empty-map line
                 # (CombatScreen.java:326); the menu does not open.
                 self.text_log.add_message("No spells to cast!")
+                # Refused cast: the turn returns to the same member.
+                self._log_turn_marker()
                 return
             # Rows render through the same message stream the ready-weapon
             # menu uses (screen menus print in the log, then arm a prompt).
@@ -426,6 +463,7 @@ class CombatScreen(BaseScreen):
         ]
 
         res = self.arena.execute_turn(action)
+        self._prompt_ran_action = True
 
         current_living_objs = {m for m in self.arena.monsters if not m.is_dead}
         for mb in monsters_before:
@@ -566,6 +604,14 @@ class CombatScreen(BaseScreen):
                 # (GameScreen.java:433-446), which logs nothing. The "Press
                 # Enter to continue." line stays as py's dismissal UI only.
                 self.text_log.add_message("Press Enter to continue.")
+
+        # Turn marker (playability affordance, task 6 — see
+        # _log_turn_marker): after an executed action exactly one of a
+        # member advance, a round rollover, or a non-consuming
+        # return-to-actor has happened; each is one turn-begin event,
+        # marked once. A finished battle has no active turn to mark.
+        if not self.arena.is_finished:
+            self._log_turn_marker()
 
     def _notify_end_combat(self) -> None:
         """Java CombatScreen.end (CombatScreen.java:579-587): at battle end
