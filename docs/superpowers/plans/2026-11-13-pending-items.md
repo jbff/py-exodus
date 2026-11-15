@@ -21,6 +21,7 @@ Written 2026-11-13, after master `718aec1` (774 tests green, pushed). Updated 20
 9. Victory fanfare plays ONCE on combat victory (`loops=0`); loops only as British's castle map theme.
 10. Original-rules exploration tick (Book of Play): MP +1/turn surface, +1 per 4 turns town/dungeon, Druids double; poison −1 HP per step; HP +1/turn surface, +1/4-turns underground (interpretation); starvation 2 dmg/turn; replaces Java's meal-tick regen.
 11. Peer gem is a real whole-map view; dungeon map overlay is still ON by default (see pending decisions).
+12. Fixed spell letters (2026-11-15 user ruling): every spell menu lists the discipline's full original-game A–P set — letters NEVER move with mana or context — and availability refuses at the attempt ("Not Here!" for context-refused spells; "Not a spell!" for out-of-list keys; the canonical MP line right after the letter, before any target/direction prompt — F2 amendment). Supersedes the getCastables letter compaction (Java Constants.java:751-762) that the 2026-11-14 combat-interaction-parity plan ported; the whole batch (headless play driver +Tasks 1-7, `b61ee17..98d8768`) and this amendment (`676bb51`+) ride `worktree-fixed-spell-letters`, awaiting merge.
 
 ## Decisions awaiting the user
 

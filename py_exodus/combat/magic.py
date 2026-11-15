@@ -1242,10 +1242,14 @@ def prompt_cast_party(
     - a listed letter whose spell fails the context mask is refused by the
       prompt layer with "Not Here!" (letter_resolution) — NOT executed, no
       cast, no mana, and the menu disarms (no SpellResult produced here);
-    - an unaffordable listed letter flows into the ``cast_spell``
-      prevalidation, which refuses with the canonical "Thou dost not have
-      enough magic points!" (executed=False) — the FULL MP cheat's
-      prompt-open top-up (``debug.apply_full_mp``) skips that gate;
+    - an unaffordable listed letter is refused AT LETTER SELECTION by the
+      prompt layer (F2 AMENDMENT 2026-11-15: check lands right after the
+      letter resolves, BEFORE any "Direction?"/"On who?" prompt) with the
+      canonical "Thou dost not have enough magic points!" — the menu
+      disarms. The mana prevalidation inside ``cast_spell`` stays for
+      direct-API callers; the FULL MP cheat's prompt-open top-up
+      (``debug.apply_full_mp``) — like the prompt-layer check itself —
+      respects ``debug.CHEATS.full_mp`` and skips that gate;
     - a key outside the fixed A-P codes logs Java's canonical "Not a
       spell!" and DISARMS the menu (SpellInputProcessor.java:69-72 — py's
       Escape cancel stays silent, the harness-wide prompt convention, where
@@ -1317,6 +1321,23 @@ def prompt_cast_party(
                     # no row re-print, and the player re-presses C to see
                     # the list again (SpellInputProcessor.java:69-72).
                     text_log.add_message(refusal)
+                    return
+
+                # F2 AMENDMENT (USER-DIRECTED, 2026-11-15): the MP refusal
+                # fires AT LETTER SELECTION — immediately after the letter
+                # resolves, BEFORE the "Direction?" / "On who?" prompts —
+                # with canonical SpellUtil.java:58 string. Previously the
+                # target/direction prompt ran first and cast_spell's
+                # prevalidation refused only after that selection; the
+                # ruling moves the refusal up one step. The menu DISARMS on
+                # the refusal (same shape as "Not Here!"/"Not a spell!": no
+                # re-print, the player re-presses C). cast_spell's mana
+                # prevalidation stays for direct-API callers; the FULL MP
+                # cheat (CHEATS.full_mp — "MP NEVER DECREASES",
+                # cheat.c:414-825) skips this gate, as its prompt-open
+                # top-up already does.
+                if not debug.CHEATS.full_mp and char.mp < found_spell.cost:
+                    text_log.add_message("Thou dost not have enough magic points!")
                     return
 
                 def _dispatch(target: Any | None = None, direction: Direction | None = None) -> None:

@@ -12,9 +12,10 @@ Availability is refused AT ATTEMPT via :func:`letter_resolution`:
   :779-781 — the masks live on, but they classify refusals now instead of
   filtering) -> "Not Here!", NOT executed (no cast, no mana), the menu
   disarms and the caster stays active;
-- an unaffordable letter is offered too; its refusal stays in the
-  ``cast_spell`` prevalidation (the canonical MP string) — the menu never
-  filters on mana;
+- an unaffordable letter is offered too; the prompt layer refuses AT LETTER
+  SELECTION (F2 amendment 2026-11-15) with the canonical MP string — BEFORE
+  any "Direction?"/"On who?" prompt; the menu never filters on mana, and
+  ``cast_spell``'s prevalidation stays for direct-API callers;
 - any key outside the discipline's fixed A-P codes -> Java's canonical
   "Not a spell!" + disarm (SpellInputProcessor.java:69-72 behavior retained
   for unknown letters).
@@ -404,6 +405,71 @@ def test_unaffordable_letter_is_offered_and_refused_at_attempt():
     log2.handle_char("I")  # PABULUM (40), fixed I
     assert not log2.is_waiting_for_input
     assert "magic points" not in "\n".join(str(line) for line in log2.history)
+
+
+def test_unaffordable_targeted_letter_refuses_before_target_prompt():
+    """F2 AMENDMENT (2026-11-15, binding): the MP refusal fires AT LETTER
+    SELECTION — BEFORE the target/direction prompts. An unaffordable
+    TARGETED letter (SANCTU, C, 10 at MP 3) gets the canonical string on
+    the letter press itself and NO "On who?" prompt; the menu DISARMS (same
+    shape as the other attempt-refusals). cast_spell's prevalidation stays
+    for direct-API callers; the prompt layer refuses before prompting
+    further."""
+    log = _prompt_world_cleric(mp=3)
+    log.handle_char("C")  # SANCTU (10), the targeted restorative
+    blob = "\n".join(str(line) for line in log.history)
+    assert "On who?" not in blob
+    assert "Thou dost not have enough magic points!" in blob
+    assert "full health" not in blob  # never reached the effect
+    assert not log.is_waiting_for_input
+    assert log.current_prompt == ""
+
+
+def test_unaffordable_directional_spell_location_refusal_precedes_in_world():
+    """F2 AMENDMENT (2026-11-15, binding): the prompt-layer order is
+    letter_resolution first, then the MP check — a world-flow press of an
+    unaffordable DIRECTIONAL spell (wizard B = MITTAR, 5 at MP 3) is
+    combat-only (mask 0x02), so the context refusal "Not Here!" fires
+    before any MP question; no "Direction?" prompt opens either way. The
+    directional MP-ordering itself is the combat screen's (play-driver
+    tests)."""
+    from py_exodus.combat.magic import prompt_cast_party
+    from py_exodus.entities.party import Party
+    from py_exodus.ui.text_log import TextLog
+
+    party = Party()
+    party.add_member(_wizard(3))
+    log = TextLog()
+    prompt_cast_party(log, party)
+    log.handle_char("1")
+    log.handle_char("B")  # MITTAR (5), directional, combat-only mask
+    blob = "\n".join(str(line) for line in log.history)
+    assert "Not Here!" in blob
+    assert "Direction?" not in blob
+    assert "magic points" not in blob
+    assert not log.is_waiting_for_input
+
+
+def test_full_mp_cheat_skips_the_prompt_layer_mp_check():
+    """F2 AMENDMENT (2026-11-15): the prompt-layer MP check respects
+    debug.CHEATS.full_mp — with the cheat ON, even a caster whose mana
+    never tops up (apply_full_mp stubbed to a no-op here so the skip alone
+    is what's pinned) walks through SANCTU's press to the "On who?" prompt
+    instead of an immediate refusal."""
+    import pytest as _pytest
+
+    monkeypatch = _pytest.MonkeyPatch()
+    monkeypatch.setattr(debug, "apply_full_mp", lambda member: None)
+    try:
+        with _cheats(full_mp=True):
+            log = _prompt_world_cleric(mp=0)
+            log.handle_char("C")  # SANCTU (10) at MP 0, FULL MP on
+    finally:
+        monkeypatch.undo()
+    blob = "\n".join(str(line) for line in log.history)
+    assert "On who?" in log.current_prompt  # walked to the target prompt
+    assert "magic points" not in blob
+    assert log.is_waiting_for_input
 
 
 def test_out_of_list_letter_logs_not_a_spell_and_disarms():

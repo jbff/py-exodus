@@ -363,11 +363,12 @@ class TestCombatCastFlow:
         list — the FULL fixed set prints (B - APPAR_UNEM (5) included).
         Refusals happen AT ATTEMPT: an out-of-list key (a digit) logs
         Java's canonical "Not a spell!"; the LISTED-but-context-refused
-        APPAR_UNEM (mask lacks the combat bit) logs "Not Here!"; the
-        listed-but-unaffordable ZXKUQYB (70 > 3) gets cast_spell's canonical
-        MP string. Every refusal is pre-execution (no "FAILED", no round
-        advance) and DISARMS the menu — the turn stays with the active
-        member (marker persists)."""
+        APPAR_UNEM (mask lacks the combat bit) logs "Not Here!"; an
+        unaffordable letter gets the canonical MP string AT LETTER
+        SELECTION (F2 amendment 2026-11-15 — before any "On who?"/
+        "Direction?" prompt, the prompt layer refuses). Every refusal is
+        pre-execution (no "FAILED", no round advance) and DISARMS the menu
+        — the turn stays with the active member (marker persists)."""
         session = PlaySession(asset_mgr).start(party=_cleric_party(mp=3))
         session.enter_combat(creature_tile="orc", context_map_id=2, monster_count=1)
 
@@ -401,10 +402,10 @@ class TestCombatCastFlow:
         assert not session.is_waiting_for_input
         assert session.screen.arena.round_count == before_round
 
-        # (3) an unaffordable listed letter: the canonical MP refusal from
-        # cast_spell's prevalidation (also not executed, turn retained).
-        # ZXKUQYB (O, 70 MP) is non-targeted so the refusal surfaces on the
-        # letter press itself (SANCTU would prompt "On who?" first).
+        # (3) an unaffordable listed letter: the canonical MP refusal fires
+        # AT LETTER SELECTION (F2 amendment 2026-11-15 — the prompt layer
+        # checks mp_cost <= mana right after letter_resolution). ZXKUQYB
+        # (O, 70 MP) is non-targeted so nothing else happens on the press.
         session.press("C")
         before = session.transcript
         session.press("O")  # ZXKUQYB (70) at MP 3
@@ -418,6 +419,48 @@ class TestCombatCastFlow:
         assert not session.is_waiting_for_input
         assert session.screen.arena.round_count == before_round
         assert session.active_member == "Cora"  # kept the turn throughout
+
+        # (4) F2 amendment pinned on a TARGETED spell: an unaffordable
+        # SANCTU (C, 10 at MP 3) refuses on the letter press itself — NO
+        # "On who?" prompt ever opens (pre-amendment the target prompt
+        # preceded the MP refusal). Disarm, turn retained.
+        session.press("C")
+        before = session.transcript
+        session.press("C")  # SANCTU (10) at MP 3
+        added = session.transcript[len(before):]
+        assert any(
+            "Thou dost not have enough" in line for line in added
+        ), added
+        assert any("magic points" in line for line in added), added
+        assert not any("On who?" in line for line in added), added
+        assert not any("FAILED" in line for line in added), added
+        assert not session.is_waiting_for_input
+        assert session.screen.arena.round_count == before_round
+        assert session.active_member == "Cora"
+
+    def test_combat_directional_mp_refusal_precedes_direction_prompt(self, asset_mgr):
+        """F2 AMENDMENT (2026-11-15, binding): for a DIRECTIONAL spell the
+        MP refusal fires AT LETTER SELECTION — before "Direction?" opens.
+        A combat wizard menu press of MITTAR (B, 5) at MP 3 masks-in
+        (0x02) but cannot be afforded, so the canonical refusal lands on
+        the letter press itself; pre-amendment the "Direction?" prompt ran
+        first and cast_spell prevalidation refused only after the
+        direction was chosen. Disarm, turn retained, no round advance."""
+        session = PlaySession(asset_mgr).start(party=_druid_party(mp=3))
+        session.enter_combat(creature_tile="orc", context_map_id=2, monster_count=1)
+        before_round = session.screen.arena.round_count
+
+        session.press("C")
+        session.press("W")  # the druid's wizard menu
+        session.press("B")  # MITTAR (5), directional, combat mask ok
+        added = session.transcript[len(session.transcript) - 20:]
+        assert any(
+            "Thou dost not have enough" in line for line in added
+        ), added
+        assert not any("Direction?" in line for line in added), added
+        assert not session.is_waiting_for_input
+        assert session.screen.arena.round_count == before_round
+        assert session.active_member == "Rowan"
 
     def test_druid_combat_wizard_cleric_choice_then_wizard_rows(self, asset_mgr):
         """The druid/ranger dual gate: combat prompts [W]izard or [C]leric

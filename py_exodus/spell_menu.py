@@ -33,10 +33,13 @@ Refusal classification at attempt (:func:`letter_resolution`):
   NOT executed (no cast, no mana), the caster stays active and the menu
   disarms (same shape as "Not a spell!") — no SpellResult is produced by
   the prompt layer;
-- an unaffordable letter is still LISTED; the attempt flows into
-  ``cast_spell``'s prevalidation which refuses with its canonical MP string
-  (``executed=False``) — skipped only under the FULL MP cheat's prompt-open
-  top-up (``debug.apply_full_mp``);
+- an unaffordable letter is still LISTED; the prompt flows refuse it AT
+  LETTER SELECTION (F2 AMENDMENT 2026-11-15: right after
+  :func:`letter_resolution` returns the spell, BEFORE the target/direction
+  prompts) with ``cast_spell``'s canonical MP string — that prevalidation
+  remains in ``cast_spell`` itself for direct-API callers — skipped only
+  under the FULL MP cheat (``debug.apply_full_mp`` /
+  ``debug.CHEATS.full_mp``);
 - an out-of-list key (digits, or any letter not on the discipline's fixed
   A-P codes — with fixed per-discipline lists no in-range letter can be an
   out-of-discipline key) -> ``"Not a spell!"`` + disarm, the Java
@@ -137,9 +140,12 @@ def letter_resolution(
       ("Not Here!") — refused AT ATTEMPT: not executed, no mana, the caster
       stays active, the menu disarms.
 
-    The MP refusal deliberately does NOT live here: it stays in
-    ``cast_spell``'s prevalidation (its canonical string), so the menu can
-    list unaffordable letters and the FULL MP cheat can skip that gate.
+    The MP refusal deliberately does NOT live here: since F2 AMENDMENT
+    (2026-11-15) the prompt flows check ``spell.cost <= mana`` right after
+    this function returns the spell (BEFORE the target/direction prompts),
+    so the menu can list unaffordable letters, the FULL MP cheat can skip
+    that gate, and ``cast_spell``'s own prevalidation still covers
+    direct-API callers.
     Raises ``ValueError`` for a context outside :data:`_CONTEXT_MAPTYPES`.
     """
     try:

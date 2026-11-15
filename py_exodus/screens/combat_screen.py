@@ -281,8 +281,11 @@ class CombatScreen(BaseScreen):
         is classified AT ATTEMPT through ``letter_resolution``: "Not Here!"
         when the context mask refuses the spell (no cast, no mana, menu
         disarms, caster stays active), "Not a spell!" for out-of-list keys,
-        and the canonical MP refusal from ``cast_spell``'s prevalidation for
-        unaffordable (but listed) letters.
+        and the canonical MP refusal AT LETTER SELECTION from the prompt
+        layer itself for unaffordable (but listed) letters — BEFORE any
+        "Direction?"/"On who?" prompt (F2 AMENDMENT 2026-11-15);
+        ``cast_spell``'s prevalidation stays for direct-API callers and the
+        FULL MP cheat skips the gate.
         """
         active = self.active_party_member
         if not active:
@@ -329,6 +332,25 @@ class CombatScreen(BaseScreen):
                     # no row re-print, the player re-presses C to see the
                     # list again, and the turn stays with the active member.
                     self.text_log.add_message(refusal)
+                    return
+
+                # F2 AMENDMENT (USER-DIRECTED, 2026-11-15): the MP refusal
+                # fires AT LETTER SELECTION — immediately after the letter
+                # resolves, BEFORE the "Direction?" / "On who?" prompts —
+                # with the canonical SpellUtil.java:58 string. Previously
+                # the target/direction prompt ran first and the refused
+                # cast_spell call surfaced its prevalidation string only
+                # after that selection; the ruling moves the refusal up one
+                # step. The menu DISARMS on the refusal (same shape as the
+                # other attempt-refusals: no re-print, the player re-presses
+                # C) and the turn stays with the active member — no
+                # _execute_action, no round advance. cast_spell's mana
+                # prevalidation stays for direct-API callers; the FULL MP
+                # cheat (CHEATS.full_mp — "MP NEVER DECREASES",
+                # cheat.c:414-825) skips this gate, as its prompt-open
+                # top-up already does.
+                if not debug.CHEATS.full_mp and char.mp < found_spell.cost:
+                    self.text_log.add_message("Thou dost not have enough magic points!")
                     return
 
                 if found_spell in DIRECTIONAL_SPELLS:
