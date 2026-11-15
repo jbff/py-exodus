@@ -1,0 +1,144 @@
+<!doctype html>
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>Exodus Party Blueprint</title>
+<style>
+  /* Design plan: single committed CRT/EGA dark world — Sosaria terminal amber-on-navy.
+     --bg deep EGA navy ground · --panel raised slate · --gold the accent (Exodus amber)
+     · --cyan utility (EGA cyan) · --parch body text · IBM Plex Mono for tables.
+     Layout: narrow book column, tables in their own scroll wells. */
+  :root {
+    --bg: #0a0e1a; --panel: #121830; --panel2: #0e1426; --line: #2a3352;
+    --fg: #d9e2f2; --muted: #8ea0c4; --gold: #f0b542; --gold-dim: #b8873a;
+    --cyan: #6fd8d8; --good: #7fd88f; --bad: #e07a7a; --ink: #0b1220;
+  }
+  * { box-sizing: border-box; }
+  html { color-scheme: dark; }
+  body {
+    background: var(--bg); color: var(--fg);
+    font: 15px/1.65 "Source Sans 3", ui-sans-serif, system-ui, sans-serif;
+    margin: 0; padding: 0 max(16px, env(safe-area-inset-right, 0px)) 0 max(16px, env(safe-area-inset-left, 0px));
+    padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding-block: 22px 56px; }
+  h1, h2, h3 { font-family: Cinzel, Georgia, serif; color: var(--gold); text-wrap: balance; margin: 0; }
+  h1 { font-size: clamp(26px, 6vw, 40px); font-weight: 700; letter-spacing: .01em; }
+  h2 { font-size: 21px; font-weight: 700; margin-top: 40px; padding-top: 18px; border-top: 1px solid var(--line); }
+  h3 { font-size: 16px; color: var(--cyan); font-weight: 700; margin-top: 22px; }
+  p { margin: 10px 0; }
+  .lede { font-size: 17px; color: var(--fg); }
+  .muted { color: var(--muted); }
+  .kicker { font-family: "IBM Plex Mono", monospace; font-size: 11px; letter-spacing: .22em;
+            text-transform: uppercase; color: var(--gold-dim); margin-bottom: 10px; }
+  table { border-collapse: collapse; width: 100%; font: 13px/1.5 "IBM Plex Mono", monospace;
+          font-variant-numeric: tabular-nums; }
+  .scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 6px;
+            background: var(--panel2); margin: 12px 0; }
+  .scroll table { min-width: 560px; }
+  th { text-align: left; color: var(--gold); font-weight: 600; padding: 8px 10px;
+       border-bottom: 1px solid var(--line); white-space: nowrap; }
+  td { padding: 6px 10px; border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent); }
+  tr:last-child td { border-bottom: none; }
+  td.num { text-align: right; }
+  .hl { color: var(--gold); }
+  .cy { color: var(--cyan); }
+  .good { color: var(--good); } .bad { color: var(--bad); }
+  .cards { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 14px; }
+  .card { flex: 1 1 180px; min-width: 0; background: var(--panel); border: 1px solid var(--line);
+          border-radius: 6px; padding: 12px 14px; }
+  .card b { display: block; color: var(--gold); font-family: Cinzel, Georgia, serif; font-size: 15px; }
+  .card span { font-size: 13px; color: var(--muted); }
+  .callout { background: var(--panel); border-left: 3px solid var(--gold); border-radius: 0 6px 6px 0;
+             padding: 10px 14px; margin: 14px 0; }
+  code { font-family: "IBM Plex Mono", monospace; font-size: 12.5px; color: var(--cyan);
+         background: var(--panel2); border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; }
+  ul { margin: 8px 0; padding-left: 20px; } li { margin: 4px 0; }
+  .verdict { font-family: Cinzel, Georgia, serif; font-size: clamp(18px, 4.4vw, 24px);
+             color: var(--gold); line-height: 1.5; margin: 14px 0 4px; }
+  .foot { margin-top: 44px; padding-top: 14px; border-top: 1px solid var(--line);
+          font-size: 13px; color: var(--muted); }
+  a { color: var(--cyan); }
+  sup { color: var(--gold-dim); }
+</style>
+<div class="wrap">
+  <div class="kicker">Ultima III · Exodus · party analysis</div>
+  <h1>Exodus Party Blueprint</h1>
+  <p class="lede">Computed from the mechanics <em>your port actually implements</em> — the Java-parity formulas, dice, and gates as written in the code — cross-checked against what the community concluded about the 1983 original. Where the port differs from the Apple&#8209;II disassembly, this page follows the port, because that is what plays.</p>
+
+  <p class="verdict">Thief · Fighter · Cleric · Wizard — your build stands. It is the optimum I can derive.</p>
+  <p>One allocation change in emphasis, not composition: the Thief's 1,500-gold shrine climb to DEX 40 is the single best purchase in the game (permanent auto-hit in this port), the Fighter's STR rides toward 99, and the casters' pools are the real endgame weapon. Races: <b class="hl">Elf</b> thief, <b class="hl">Dwarf</b> fighter, <b class="hl">Bobbit</b> cleric, <b class="hl">Fuzzy</b> wizard — each 25-start grows to a 99 cap.</p>
+
+  <h2>Your mechanics questions, answered from the code</h2>
+  <div class="scroll"><table>
+  <tr><th>Stat</th><th>What it does here</th><th>Per point (5→25 band)</th></tr>
+  <tr><td class="hl">DEX</td><td>Hit chance <code>(127+DEX)/256</code>; trap/pit evade <code>DEX+25 ≥ rand(100)</code>; thief steal skill; <b>auto-hit at DEX ≥ 40</b></td><td class="num">+0.39 pp to hit · +1 pp evade</td></tr>
+  <tr><td class="hl">STR</td><td>Pure damage: max = weapon dmax + STR×1.5</td><td class="num">+0.75 mean damage</td></tr>
+  <tr><td>INT</td><td>Wizard pool; caps the group bolts (NOXUM/DAG_MENTAR roll up to INT)</td><td class="num">+1 MP (wizard)</td></tr>
+  <tr><td>WIS</td><td>Cleric pool only — heal/kill magnitudes are fixed</td><td class="num">+1 MP (cleric)</td></tr>
+  </table></div>
+  <p class="muted">DEX does <em>nothing</em> defensively — monsters hit you by your armor's defense value alone. INT/WIS on a non-caster do nothing at all. (Hit: <code>resolver.py:53‑61</code>; damage: <code>:64‑85</code>; evade: <code>dungeon.py:1385</code>; steal: <code>special_commands.py:161</code>; MP: <code>character.py:291‑308</code>.)</p>
+
+  <h3>Is STR 15 right for Cleric and Wizard, given DEX 5 rarely hits?</h3>
+  <p>I put real numbers on it. A caster's swings are filler — the mana pool empties, then they swing — so expected damage per swing is <em>hit&#8209;rate × mean damage</em> at each possible allocation. With the Dagger (all a Wizard may wield) at the 50-point budget's options:</p>
+  <div class="scroll"><table>
+  <tr><th>Wizard allocation (rest to pools)</th><th class="num">hit%</th><th class="num">dmg/swing</th></tr>
+  <tr><td>STR 15 / DEX 5 <span class="muted">(yours)</span></td><td class="num">51.6%</td><td class="num good">8.3</td></tr>
+  <tr><td>STR 5 / DEX 15</td><td class="num">55.5%</td><td class="num">4.7</td></tr>
+  <tr><td>STR 10 / DEX 10 / WIS 5</td><td class="num">53.5%</td><td class="num">6.4</td></tr>
+  </table></div>
+  <p>STR 15 wins by ~77% more filler damage — the +3.9&#8209;point hit bonus cannot pay back the damage lost, and the cleric's Mace shows the same shape (9.4 vs 6.0). DEX 15 would raise trap evade only 30%→40%. And the caster's <em>real</em> damage is spells, whose scale lives in the pools. So: <b class="hl">STR 15 on both casters is optimal</b>; a point of INT/WIS is worth more than anything else you could buy during the game.</p>
+
+  <h2>Party comparison</h2>
+  <div class="scroll"><table>
+  <tr><th>Party</th><th>Early combat</th><th>Gold economy</th><th>Endgame ceiling</th></tr>
+  <tr><td class="hl">Thief/Ftr/Cle/Wiz (yours)</td><td>Good</td><td class="good">Steals ~42g+items/attempt; best evade</td><td class="good">Full pools; thief DEX 40 auto-hit</td></tr>
+  <tr><td>Ftr/Ftr/Cle/Wiz</td><td class="good">Best</td><td class="bad">Chests only (~38g mean)</td><td>Full pools; slower shrines</td></tr>
+  <tr><td>Paladin for Fighter</td><td>Good</td><td>Steals none</td><td class="bad">WIS/2 pool; heals at half economy</td></tr>
+  <tr><td>Illusionist for Wizard</td><td>Weak</td><td>Steal-bonus only</td><td class="bad">INT or WIS /2 pool; no K‑P death bolts</td></tr>
+  <tr><td>Druid (dual caster)</td><td>Flimsy (cloth)</td><td>None</td><td class="bad">max(INT,WIS)/2 pool, 2× regen; caps lower</td></tr>
+  <tr><td>Alchemist</td><td>Weak</td><td>None</td><td class="bad">Wizard A–J at INT/2; strictly worse Illusionist</td></tr>
+  </table></div>
+  <p class="muted">The community's "Thief and Fighter are duds" verdict is an original-rules judgment (trap skill bypassable, no steal economy). This port implements steal-as-economy and the DEX-40 auto-hit, which reverses it for the Thief. Fighter stays dud-adjacent only if you value raw damage over the gold engine.</p>
+
+  <h2>Race caps (the shrine ceiling)</h2>
+  <div class="scroll"><table>
+  <tr><th>Race</th><th class="num">STR</th><th class="num">DEX</th><th class="num">INT</th><th class="num">WIS</th><th>Use for</th></tr>
+  <tr><td>Dwarf</td><td class="num good">99</td><td class="num">75</td><td class="num">50</td><td class="num">75</td><td>Fighter</td></tr>
+  <tr><td>Elf</td><td class="num">75</td><td class="num good">99</td><td class="num">75</td><td class="num">50</td><td>Thief</td></tr>
+  <tr><td>Fuzzy</td><td class="num bad">25</td><td class="num good">99</td><td class="num good">99</td><td class="num">75</td><td>Wizard</td></tr>
+  <tr><td>Bobbit</td><td class="num">75</td><td class="num">50</td><td class="num">75</td><td class="num good">99</td><td>Cleric</td></tr>
+  <tr><td>Human</td><td class="num">75</td><td class="num">75</td><td class="num">75</td><td class="num">75</td><td>Ranger, if used</td></tr>
+  </table></div>
+  <p class="muted">Shrines on Ambrosia: 100 gold per +1, race-capped, absolute 99 (post-Exodus). Fuzzy STR caps at 25 — never a melee race.</p>
+
+  <h2>Gear: best non-exotic, and the Exotic truth</h2>
+  <p>Class gates come from the same constraint tables Java uses, enforced on ready/wear in the port. Best <em>non-exotic</em> per class:</p>
+  <div class="scroll"><table>
+  <tr><th>Class</th><th>Best weapon</th><th class="num">dmg 4–max</th><th>Best armor</th><th class="num">defense</th></tr>
+  <tr><td>Fighter / Ranger / Lark / Barbarian</td><td class="hl">Sword +4</td><td class="num">46</td><td class="hl">Plate +2</td><td class="num">208</td></tr>
+  <tr><td>Paladin</td><td class="hl">Gloves</td><td class="num">37</td><td class="hl">Plate</td><td class="num">176</td></tr>
+  <tr><td>Cleric</td><td class="hl">Mace</td><td class="num">10</td><td class="hl">Chain</td><td class="num">160</td></tr>
+  <tr><td>Thief</td><td class="hl">Sword</td><td class="num">22</td><td class="hl">Leather</td><td class="num">145</td></tr>
+  <tr><td>Illusionist</td><td>Dagger</td><td class="num">7</td><td class="hl">Leather</td><td class="num">145</td></tr>
+  <tr><td>Wizard / Druid / Alchemist</td><td class="hl">Dagger</td><td class="num">7</td><td>Cloth</td><td class="num">136</td></tr>
+  </table></div>
+  <div class="callout">
+    <p><b class="hl">The Exotic answer:</b> Exotic is not merely the key that opens the castle — it is simply the <b class="hl">best gear in the game for every class</b>. Exotic Weapon does 4–49 (beats the Sword +4's 46, and the Wizard/Druid/Alchemist can finally swing it, 4–49 vs their Dagger's 4–7). Exotic Armour's 224 defense beats Plate +2's 208 and has <em>no class restrictions</em> — your Wizard and Druid can wear what no shop could sell them. It costs nothing: dig sites at (33,3) and (19,44) stack it up to 9 per member. Castle Exodus only makes mandatory what was already true: the moment you dig it, the Exotics are the best equipment anyone in the party can use.</p>
+    <p class="muted">Inside the castle the mechanics harden against everything else: monsters auto-hit any member not wearing Exotic Armour (a cloth-wearer goes from ~47% hit to 100%), and only the Exotic Weapon may be equipped for attacks. Outside the castle your +4/Plate+2 gear still works normally — Exotic merely outclasses it on numbers.</p>
+  </div>
+
+  <h2>The arc, in order</h2>
+  <ul>
+    <li>Create per above; buy Mace/Bow×2/Sword + Leathers/Chain/Plate-when-legal (~800g), a horse, torches.</li>
+    <li>Level at Lord British every 100 exp (full heal each level). <span class="good">Mark of Kings from dungeon floors I–II, before level 6</span> — it gates advancement past 5, and touching a mark costs 50 HP, so arrive near-full.</li>
+    <li>Bank chests (+38g/battle mean) and thief steals. Shrine priority: <b class="hl">Thief DEX 25→40 (1,500g, permanent auto-hit)</b> → Cleric WIS ≥35 (cures) then ≥50 (SANCTU MANI) → Wizard INT ≥50 (DECORP) → Fighter STR toward 99.</li>
+    <li>Marks of Fire/Snake (Cave of Sol) and Force (Cave of Fool) → Ambrosia → all four Cards at the search sites, per member.</li>
+    <li>Dig Exotics at (33,3) and (19,44). Equip everybody in Exotic Armour; fighters swing Exotic Weapons; casters blast (DECORP, the mass-killers) and heal.</li>
+    <li>Castle of Death: insert the four Cards — Love, Sol, Moons, Death on their panels at y=12. A wrong panel kills the inserter.</li>
+  </ul>
+
+  <h2>Caveats and sources</h2>
+  <p class="muted">The community's formulas (two-roll hit ≈ 50%+DEX/2; class-based trap evade with Thief 128/255; damage 4+3×rank+⌈STR/2⌉+rand(STR)) come from the original's disassembly. Your port's implemented shapes differ somewhat, and this page computes with the implemented ones deliberately. Two quirks worth knowing: ZXKuqyb carried a ported Java bug until 2026-11-15 (now a fair 75%-per-monster kill per LairWare's Apple&#8209;II-derived code); mass-kill spells use a per-battle 50% gate, so one "FAILED" at the wrong encounter is the mechanic, not a defect.</p>
+  <p class="muted">External consensus and receipts: <a href="https://strategywiki.org/wiki/Ultima_III:_Exodus/Parties">StrategyWiki parties</a> · <a href="https://guides.gamercorner.net/ultimaiii/party-planning/">Gamer Corner</a> · <a href="https://wiki.ultimacodex.com/wiki/Character_attributes_in_Ultima_III">Codex attributes</a> · <a href="https://wiki.ultimacodex.com/wiki/Exotic_Weapons">Exotic Weapons</a> · <a href="https://wiki.ultimacodex.com/wiki/Exotic_Armour">Exotic Armour</a> · <a href="https://kb.speeddemosarchive.com/Ultima_III:_Exodus/any_%25">Speed-demo route</a>. Community links describe the 1983 original; where they disagree with the port's code, the code wins here.</p>
+
+  <div class="foot">Computed from py-exodus master @227bad9 (fixed-letters build). All formulas cited to file:line in the port; odds and means are derived arithmetic on those formulas, not playtest samples.</div>
+</div>
