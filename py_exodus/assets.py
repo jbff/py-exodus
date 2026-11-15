@@ -75,6 +75,49 @@ MAP_NAME_TO_ID: dict[str, int] = {
 }
 MAP_ID_TO_NAME: dict[int, str] = {v: k for k, v in MAP_NAME_TO_ID.items()}
 
+# Java exodus/Constants.java:47-71 — the Maps enum display labels, verbatim.
+# Java prints the enum label ("Entering " + m.getLabel() + "!",
+# GameScreen.java:334), NOT a maps.xml name attribute (the Java maps.xml has
+# no name attributes either). The port's GameMap.name stays the enum KEY
+# (MAP_ID_TO_NAME), so entry screens needing the player-facing town name use
+# this table (playtest-1 fix batch, item 3).
+MAP_ID_TO_LABEL: dict[int, str] = {
+    0: "Sosaria",
+    1: "Castle of Lord British",
+    2: "Castle of Death",
+    3: "Britain",
+    4: "Yew",
+    5: "Moon",
+    6: "Grey",
+    7: "Devil Guard",
+    8: "Montor East",
+    9: "Montor West",
+    10: "Death Gulch",
+    11: "Dawn",
+    12: "Fawn",
+    13: "Ambrosia",
+    14: "Perinian Depths",
+    15: "Dardin's Pit",
+    16: "Mines of Morinia",
+    17: "Dungeon of Fire",
+    18: "Dungeon of Doom",
+    19: "Dungeon of the Snake",
+    20: "Dungeon of Time",
+    33: "",
+    34: "",
+    35: "",
+    36: "",
+    37: "",
+    38: "",
+    39: "",
+    40: "",
+    41: "",
+    55: "Shrine of Wisdom",
+    56: "Shrine of Dexterity",
+    57: "Shrine of Intelligence",
+    58: "Shrine of Strength",
+}
+
 # Rule attributes mapping from XML rule string to TileAttrib IntFlag
 RULE_ATTRIBS: dict[str, TileAttrib] = {
     "none": TileAttrib.NONE,

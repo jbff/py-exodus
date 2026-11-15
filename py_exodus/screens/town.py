@@ -7,6 +7,7 @@ import pygame
 
 from py_exodus import debug
 from py_exodus.aura import AuraType
+from py_exodus.assets import MAP_ID_TO_LABEL
 from py_exodus.combat.magic import prompt_cast_party
 from py_exodus.constants import (
     Direction,
@@ -86,8 +87,22 @@ class TownScreen(BaseScreen):
         # vendor); Java keeps map creatures on the map object, not the save.
         self.creatures: list[dict[str, Any]] = []
 
-        town_name = getattr(self.game_map, "name", str(map_id)).title()
-        self.text_log.add_message(f"Entering {town_name}...")
+        # Playtest-1 fix (item 3): Java logs "Entering " + Maps.getLabel()
+        # + "!" (GameScreen.java:334) from the enum label table
+        # (exodus/Constants.java:47-71); the maps.xml name attribute plays
+        # no part (neither the Java nor the port XML has one). Map 3's enum
+        # key is LCB, so the old .title() of GameMap.name printed
+        # "Entering Lcb..." — the player-facing label is "Britain".
+        game_map_id = getattr(self.game_map, "id", None)
+        lookup_id: int | None = (
+            int(game_map_id) if game_map_id is not None else None
+        )
+        label = (
+            MAP_ID_TO_LABEL.get(lookup_id)
+            if lookup_id is not None
+            else None
+        ) or str(getattr(self.game_map, "name", map_id)).title()
+        self.text_log.add_message(f"Entering {label}!")
         self.text_log.add_message("Guards and citizens walk the streets.")
 
     def _load_town_map(self) -> None:
