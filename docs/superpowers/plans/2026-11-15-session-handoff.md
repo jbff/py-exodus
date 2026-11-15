@@ -48,4 +48,11 @@ Phase: simulated-human playtests with the transcript driver (NOT the exhaustive 
 2. Read 2026-11-13-pending-items.md (21-34) + this doc's deferred list (35-41): port them in, keep numbering.
 3. Restart playtest 2 from the journal (driver loop script /tmp/play2/loop.py is lost; rebuild a simple key-FIFO loop or drive via PlaySession directly in a pytest-style scratch — the F1-era session notes in docs/analysis/journal.md carry the harness/DX traps: compass-token shadowing in press_seq, prompts read event.unicode so y/n must be sent with unicode or raw K_ keys).
 4. After playtests: propose the fix batches; the matrix burn-down + differential jar harness remain the deferred big-ticket items awaiting the user's token-cost call.
-5. Suite baseline: 1119; ensure green ×2 per commit, worktree SDD flow, merge+push per fix.
+5. Suite baseline: 1119; however at shutdown `tests/test_play_driver.py::test_journey_onward_then_zstats_heading` FAILS (1 failed / 1134) with the playtest-2 leftover save in place (saves/party.json = envelope, party mid-Sosaria (52,27), 276 moves, food 643 — KEPT ON PURPOSE: it is resumable play state). Transcript shows only the map-entry lines, no Zstats heading after F1 → either the test assumes a fresh-Journey state, or F1-during-a-loaded-Journey doesn't open the Book: diagnose first (this may be a real finding; playtest 1's F1 smoke passed with a DIFFERENT existing save). If it's environmental (test expected specific state), scope the test to its own fixture save and note it.
+6. IMPORTANT user-save note: the playtest-2 dispatch instructed deleting party.json pre-run; the USER's own session save from that morning (new party, starter purchases, one Orc victory — their Q-save) was deleted without backup by that instruction. Lost; purchases are re-buyable in 10 minutes of play. Own this in the next session report; back up saves before any future pre-run wipe (party timestamped, e.g. party.bak2).
+
+## Shutdown state (exact)
+
+- master 02ea4c0 (handoff commit) atop c62dfe4; pushed. Suite: 1134/1135 green with the 1 environmental/fixed-to-diagnose failure above.
+- saves/ contains party.json (playtest-2 resumable state), roster.json (the 4 ideal chars), party.bak-2026-11-15.json (the OLD pre-session party, NOT the user's lost mid-session save).
+- Untracked in repo: .claude/ (worktree scaffolding), .superpowers/ (old scratch), docs/superpowers/plans/2026-11-08-java-parity-fixes.md modified (pre-session user edit — leave alone).
