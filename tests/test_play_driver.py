@@ -414,3 +414,116 @@ class TestCombatCastFlow:
             line.startswith("[prompt] Cleric Spell? (A-P):") for line in session.transcript
         )
         assert session.is_waiting_for_input
+
+
+class TestClericCombatCastLoopRegression:
+    """Task 8: the user's 2026-11-14 play report, pinned as a driver regression.
+
+    The reported session: combat vs the undead family (skeletons), the
+    per-battle masskill latch OFF, a lone cleric holding the turn:
+    (1) ``C`` printed the live list with PONTORI at ``A`` and SANCTU's
+    letter, and no APPAR_UNEM anywhere in it; (2) a letter beyond the
+    printed list only logged "Not a spell!" and repeated the same member's
+    turn marker; (3) ``C`` re-armed the prompt, and casting PONTORI under
+    the OFF latch printed FAILED and CONSUMED the turn (monster phase, round
+    advance, same member re-armed next round); (4) combat never asked
+    "Which member?"; (5) the non-projectile masskill cast drew no fabricated
+    tracer FX (mirrors Task 5's spell_fx_count hook)."""
+
+    def test_list_rows_out_of_range_letter_then_rearm(self, asset_mgr):
+        """Play report (1)+(2)+(4): the printed list rows, the out-of-range
+        letter's disarm with the marker repeat, and the re-armed re-open."""
+        session = PlaySession(asset_mgr).start(party=_cleric_party())
+        session.enter_combat(
+            creature_tile="skeleton", context_map_id=2, monster_count=1
+        )
+        assert session.active_member == "Cora"
+
+        # (1) ``C``: the live combat rows print for the active member —
+        # PONTORI (the masskill-gated spell) first at ``A``, SANCTU's letter
+        # right after — and APPAR_UNEM (a chest spell) is absent entirely.
+        session.press("C")
+        for row in (
+            "A - PONTORI (0)",
+            "B - SANCTU (10)",
+            "C - ALCORT (35)",
+            "D - SANCTU_MANI (50)",
+            "E - EXCUUN (60)",
+            "F - SURMANDUM (65)",
+            "G - ZXKUQYB (70)",
+            "H - ANJU_SERMANI (75)",
+        ):
+            assert f"[msg] {row}" in session.transcript, session.transcript
+        assert not any("APPAR_UNEM" in line for line in session.transcript), (
+            session.transcript
+        )
+
+        # (2) A letter beyond the printed list length (A-H here): Java's
+        # canonical "Not a spell!" and the menu DISARMS; the refusal is
+        # pre-execution, so the turn is untouched — the SAME member keeps
+        # it (the marker repeats once), no member advance, no monster phase.
+        before = session.transcript
+        before_round = session.screen.arena.round_count
+        session.press("I")
+        added = session.transcript[len(before):]
+        assert any("Not a spell!" in line for line in added), added
+        assert not session.is_waiting_for_input
+        assert sum("Cora's turn." in line for line in added) == 1, added
+        assert session.active_member == "Cora"
+        assert session.screen.arena.round_count == before_round
+
+        # (4) Combat never asks which member casts: the active member IS
+        # the caster (the world flow's "[prompt] Cast: Which member?" has
+        # no combat twin).
+        assert not any("Which member?" in line for line in session.transcript)
+
+        # (3) opening beat: ``C`` again re-arms the prompt with its rows —
+        # the same list, not a member prompt.
+        session.press("C")
+        assert session.is_waiting_for_input
+        assert any("[msg] A - PONTORI (0)" in line for line in session.transcript)
+
+    def test_masskill_failed_consumes_turn_no_member_prompt_no_tracer(
+        self, asset_mgr
+    ):
+        """Play report (3)+(4)+(5): casting the masskill-gated PONTORI with
+        the latch OFF prints FAILED and CONSUMES the turn (an executed
+        failure per GBC battle.c:1052-1060): the monster phase follows, the
+        round advances, and the next round re-arms the same member at its
+        position; no member prompt ever appears, and the non-projectile
+        cast draws no fabricated tracer."""
+        session = PlaySession(asset_mgr).start(party=_cleric_party())
+        session.enter_combat(
+            creature_tile="skeleton", context_map_id=2, monster_count=1
+        )
+        arena = session.screen.arena
+        arena.masskill = False  # the report's disabled masskill latch
+        before_round = arena.round_count
+
+        # Mirror Task 5's FX hook: a tracer is a spell fx carrying a path.
+        def spell_tracers() -> list:
+            return [
+                fx
+                for fx in session.screen.combat_fx
+                if fx["type"] == "spell" and fx["path"]
+            ]
+
+        session.press_seq("C A")  # PONTORI (0), the masskill-gated spell
+        assert any("[msg] FAILED" in line for line in session.transcript), (
+            session.transcript
+        )
+
+        # The cast EXECUTED and failed: the turn is consumed — the single
+        # member's round finishes, the monster phase runs (round_count
+        # advances), and the fresh round re-arms Cora at her position.
+        assert arena.round_count == before_round + 1
+        assert arena.is_party_round_done is False
+        assert session.active_member == "Cora"
+
+        # (5) No fabricated tracer: PONTORI is not a projectile spell, so
+        # no spell fx with a path may exist — even on the FAILED cast.
+        assert spell_tracers() == [], session.screen.combat_fx
+
+        # (4) No "Cast: Which member?" string ever appears in combat —
+        # including across the round rollover this cast just drove.
+        assert not any("Which member?" in line for line in session.transcript)
