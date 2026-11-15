@@ -1,25 +1,24 @@
-"""Dynamic castable spell mapping — port of Java ``Spell.getCastables``.
+"""Fixed-letter spell cast menu.
 
-Java truth (gdx-exodus ``exodus/Constants.java:751-762``)::
+USER-DIRECTED RULING (2026-11-15): fixed spell letters (B=APPAR_UNEM always);
+availability refused at attempt — supersedes the Java getCastables letter
+compaction (Constants.java:751-762) adopted 2026-11-14.
 
-    public static Map<String, Spell> getCastables(PartyMember pm, MapType mt) {
-        Map<String, Spell> ret = new HashMap<>();
-        Profession prof = pm.getPlayer().profession;
-        int count = Keys.A;
-        for (Spell s : Spell.values()) {
-            if (s.canCast(prof) && s.canCastLocation(mt) && s.getCost() <= pm.getPlayer().mana) {
-                ret.put(Keys.toString(count), s);
-                count++;
-            }
-        }
-        return ret;
-    }
-
-with the gates themselves at Constants.java:774-781 — ``canCast(prof)`` is
-``(prof.val() & castableMask) > 0`` and ``canCastLocation(mt)`` is
-``(mt.val() & locationMask) > 0``. The walk is in ``Spell.values()`` enum
-order, letters run A.. sequentially over the survivors (so dropped entries
-compact the alphabet), and the result is data for the letter-keyed menu.
+Each discipline carries the ORIGINAL GAME's alphabetical A-P letters as the
+Spell enum's fixed ``code`` (cleric B=APPAR_UNEM ALWAYS; every discipline
+holds 16 spells, so the menu is exactly A-P). The cast menu lists the
+discipline's FULL fixed set — name + fixed letter + MP cost — and the
+letters NEVER move with the caster's mana or the map context. This replaces
+the 2026-11-14 port of Java ``Spell.getCastables`` (Constants.java:751-762),
+which filtered ``canCast(prof) && canCastLocation(mt) && cost <= mana`` and
+assigned Keys A.. sequentially over the survivors (so dropped entries
+compacted the alphabet): under the ruling the profession gate stays
+UPSTREAM (``get_castable_spell_types`` — a barbarian's C command still prints
+"No spells to cast!" without opening any menu), the mana gate stays in
+``cast_spell``'s prevalidation (the canonical "Thou dost not have enough
+magic points!", still not executed), and the location gate
+``canCastLocation(mt)`` (Constants.java:779-781 — the masks themselves are
+unchanged Java truth) moves to ATTEMPT time via :func:`letter_resolution`.
 
 Menu row format (Java truth, ``SpellInputProcessor.java:36-39``)::
 
@@ -28,45 +27,52 @@ Menu row format (Java truth, ``SpellInputProcessor.java:36-39``)::
 ``%s`` on the enum constant prints its NAME (e.g. ``PONTORI``), and the cost
 is ALWAYS printed — 0 included — so a 0-cost spell renders ``A - PONTORI (0)``.
 
-Callers: CombatScreen.java:324 builds the combat menu with
-``MapType.combat``; SecondaryInputProcessor.java:283 passes the current map
-type; SecondaryInputProcessor.java:443 passes ``MapType.dungeon``.
+Refusal classification at attempt (:func:`letter_resolution`):
 
-Seam (why ``discipline`` exists here and not in Java): Java builds ONE
-interleaved letter map per caster — it has no discipline split. py's prompt
-flows already resolve the cleric-vs-wizard discipline UPSTREAM —
-``get_castable_spell_types`` (magic.py:184-208) for single-discipline
-professions, and the "[W]izard or [C]leric" prompt for druid/ranger — and
-hand the resolved discipline into ``_ask_spell_code`` at both call sites
-(screens/combat_screen.py:245-304 and combat/magic.py
-``prompt_cast_party._ask_spell_code``). ``get_castables(caster, context,
-discipline)`` therefore takes the RESOLVED discipline (never a CHOOSE
-sentinel: the CHOOSE case is decided before this walk runs, and a druid's
-two menus are two calls). ``discipline=None`` reproduces Java's undivided
-walk exactly (each py spell carries exactly one ``spell_type`` and each
-discipline has 16 spells, so the combined walk can never exceed 26 letters).
+- a letter whose spell fails ``canCastLocation(context)`` -> ``"Not Here!"``;
+  NOT executed (no cast, no mana), the caster stays active and the menu
+  disarms (same shape as "Not a spell!") — no SpellResult is produced by
+  the prompt layer;
+- an unaffordable letter is still LISTED; the attempt flows into
+  ``cast_spell``'s prevalidation which refuses with its canonical MP string
+  (``executed=False``) — skipped only under the FULL MP cheat's prompt-open
+  top-up (``debug.apply_full_mp``);
+- an out-of-list key (digits, or any letter not on the discipline's fixed
+  A-P codes — with fixed per-discipline lists no in-range letter can be an
+  out-of-discipline key) -> ``"Not a spell!"`` + disarm, the Java
+  SpellInputProcessor.java:69-72 behavior retained for unknown letters.
 
-Cheats (USER-DIRECTED GBC-RULES DEVIATION 2026-11-14, GBC cheat.c:414-825):
+Callers: CombatScreen.java:324 built the combat menu with MapType.combat;
+SecondaryInputProcessor.java:283 passed the current map type; :443 passed
+MapType.dungeon. py's seam: the prompt flows resolve the cleric-vs-wizard
+discipline UPSTREAM — ``get_castable_spell_types`` (magic.py) for
+single-discipline professions, the "[W]izard or [C]leric" prompt for
+druid/ranger (each choice shows its own FIXED list, unchanged) — and hand
+the resolved discipline into ``_ask_spell_code`` (screens/combat_screen.py
+``_prompt_cast`` and combat/magic.py ``prompt_cast_party._ask_spell_code``).
 
-- ``no_class`` — the discipline MENU gate widens upstream
-  (``get_castable_spell_types`` hands out both lists); inside this walk
-  NOCLASS opens the per-spell profession gate, the same shape as the
-  ``cast_spell`` gate at magic.py:290.
-- ``full_mp`` — the ``cost <= mana`` filter is skipped entirely (the
-  spell-selection-time hook mirrors ``debug.apply_full_mp``, which tops
-  the caster up at prompt open; here the filter that Java keeps is
-  relaxed, since the cheat guarantees mana is never the blocker).
+Cheats (USER-DIRECTED GBC-RULES DEVIATION 2026-11-14, GBC cheat.c:414-825)
+under the ruling:
 
-``cheats_ok=False`` ignores ``debug.CHEATS`` entirely — the pure-Java
-filter chain (used by parity-audit paths and tests).
+- ``no_class`` — profession gate bypass ONLY: it widens
+  ``get_castable_spell_types`` so both discipline menus open for any
+  profession (the ``cast_spell`` per-spell gate matches at magic.py:290).
+  Letters remain fixed.
+- ``full_mp`` — MP refusal skipped: ``debug.apply_full_mp`` tops the caster
+  up when the prompt opens, and the listed unaffordable letters never hit
+  the mana gate.
 """
-
-from __future__ import annotations
 
 from typing import Any
 
-from py_exodus import debug
 from py_exodus.constants import MapType, Spell
+
+#: USER-DIRECTED RULING (2026-11-15): fixed spell letters (B=APPAR_UNEM
+#: always); availability refused at attempt — supersedes the Java
+#: getCastables letter compaction (Constants.java:751-762) adopted
+#: 2026-11-14.
+LOCATION_REFUSAL = "Not Here!"
+UNKNOWN_LETTER_REFUSAL = "Not a spell!"
 
 #: context string -> Java MapType (Constants.java:248-257). "combat" maps to
 #: MapType.combat; world/city/dungeon are their own MapTypes; "shrine" is
@@ -79,69 +85,77 @@ _CONTEXT_MAPTYPES: dict[str, MapType] = {
     "shrine": MapType.SHRINE,
 }
 
-#: Defensive cap on letters (Java counts libgdx Keys A.. and would run past
-#: Z; with 16 spells per discipline and one discipline per spell the walk
-#: tops out at 16 entries for a split list — but never trust an enum size).
-_MAX_LETTERS = 26
 
-
-def get_castables(
-    caster: Any,
-    context: str,
-    discipline: str | None = None,
-    *,
+def spell_menu_entries(
+    discipline: str,
+    caster: Any = None,
     cheats_ok: bool = True,
 ) -> list[tuple[str, Spell]]:
-    """Walk the Spell enum in declaration order, Java getCastables style.
+    """The discipline's FULL fixed cast menu: ``[(fixed_code, Spell), ...]``
+    sorted by code — the enum's per-discipline alphabetical A-P ``code``.
 
-    Returns ``[(letter, Spell), ...]`` with letters ``"A","B",...`` assigned
-    sequentially over the surviving spells. Filters, per
-    Constants.java:751-762:
+    USER-DIRECTED RULING (2026-11-15): fixed spell letters (B=APPAR_UNEM
+    always); availability refused at attempt — supersedes the Java
+    getCastables letter compaction (Constants.java:751-762) adopted
+    2026-11-14. Nothing here consults mana, profession or context: the
+    profession gate lives upstream (``get_castable_spell_types``), the mana
+    gate in ``cast_spell``'s prevalidation, the location gate in
+    :func:`letter_resolution`. ``caster`` and ``cheats_ok`` are accepted for
+    the 2026-11-14 call-shape compatibility and intentionally unused — no
+    cheat reshapes a FIXED list (NOCLASS opens the upstream gate, FULL MP
+    skips the downstream refusal).
 
-    - ``discipline`` (py-only): keep spells whose ``spell_type`` matches the
-      RESOLVED discipline the caller's prompt flow selected (``None`` = the
-      Java-faithful undivided walk);
-    - ``canCast(prof)`` — ``profession.mask & spell.castable_mask``
-      (Constants.java:774-777), bypassed when ``debug.CHEATS.no_class`` is
-      on and ``cheats_ok``;
-    - ``canCastLocation(mt)`` — ``mt.mask & spell.location_mask``
-      (Constants.java:779-781), where ``mt`` comes from ``context``;
-    - ``cost <= mana`` — ``spell.cost <= char.mp`` (Constants.java:757),
-      skipped when ``debug.CHEATS.full_mp`` is on and ``cheats_ok``.
+    Unknown disciplines return an empty list; every real discipline has 16.
     """
-    key = str(context).strip().lower()
-    try:
-        map_type = _CONTEXT_MAPTYPES[key]
-    except KeyError:
-        raise ValueError(f"unknown spell-menu context: {context!r}") from None
-
-    no_class = cheats_ok and debug.CHEATS.no_class
-    full_mp = cheats_ok and debug.CHEATS.full_mp
-
-    char = getattr(caster, "character", caster)
-    prof = getattr(char, "profession", None)
-    mana = getattr(char, "mp", 0)
-
-    if discipline is not None:
-        discipline = str(discipline).strip().lower()
-
-    castables: list[tuple[str, Spell]] = []
-    for spell in Spell:
-        if discipline is not None and spell.spell_type != discipline:
-            continue
-        if not no_class and (prof is None or not spell.can_cast(prof)):
-            continue
-        if not (map_type.mask & spell.location_mask):
-            continue
-        if not full_mp and spell.cost > mana:
-            continue
-        if len(castables) >= _MAX_LETTERS:
-            break  # pragma: no cover — unreachable with the 32-spell enum
-        castables.append((chr(ord("A") + len(castables)), spell))
-    return castables
+    discipline = str(discipline).strip().lower()
+    entries = [(s.code, s) for s in Spell if s.spell_type == discipline]
+    entries.sort(key=lambda e: e[0])
+    return entries
 
 
 def spell_menu_prompt_lines(castables: list[tuple[str, Spell]]) -> list[str]:
     """Render the menu rows exactly as Java does (SpellInputProcessor.java:36-39):
     ``"{letter} - {SPELL_NAME} ({cost})"``, cost always printed, 0 included."""
     return [f"{letter} - {spell.name} ({spell.cost})" for letter, spell in castables]
+
+
+def letter_resolution(
+    entries: list[tuple[str, Spell]],
+    letter: str,
+    context: str,
+) -> tuple[Spell, None] | tuple[None, str]:
+    """Classify a pressed key against the FIXED entries for this context.
+
+    Returns ``(Spell, None)`` when the attempt may proceed, or
+    ``(None, refusal_message)``:
+
+    - unknown key (not one of the entries' fixed codes) ->
+      ``UNKNOWN_LETTER_REFUSAL`` ("Not a spell!") — Java
+      SpellInputProcessor.java:69-72, retained;
+    - a fixed code whose spell fails ``canCastLocation(mt)`` (mt from
+      ``context``, Constants.java:779-781) -> ``LOCATION_REFUSAL``
+      ("Not Here!") — refused AT ATTEMPT: not executed, no mana, the caster
+      stays active, the menu disarms.
+
+    The MP refusal deliberately does NOT live here: it stays in
+    ``cast_spell``'s prevalidation (its canonical string), so the menu can
+    list unaffordable letters and the FULL MP cheat can skip that gate.
+    Raises ``ValueError`` for a context outside :data:`_CONTEXT_MAPTYPES`.
+    """
+    try:
+        map_type = _CONTEXT_MAPTYPES[str(context).strip().lower()]
+    except KeyError:
+        raise ValueError(f"unknown spell-menu context: {context!r}") from None
+
+    key = str(letter).strip().upper()
+    found = next((s for code, s in entries if code == key), None)
+    if found is None:
+        # USER-DIRECTED RULING (2026-11-15): out-of-list keys keep Java's
+        # "Not a spell!" branch (SpellInputProcessor.java:69-72).
+        return None, UNKNOWN_LETTER_REFUSAL
+    if not (map_type.mask & found.location_mask):
+        # USER-DIRECTED RULING (2026-11-15): the location mask refuses AT
+        # ATTEMPT ("Not Here!") instead of filtering the menu — the
+        # getCastables letter compaction is superseded.
+        return None, LOCATION_REFUSAL
+    return found, None

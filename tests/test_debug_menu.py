@@ -320,9 +320,9 @@ class TestNoClass:
         prompt_cast_party(text_log, party)
         text_log.submit_input("1")  # member
         text_log.submit_input("W")  # Spell Type?
-        # PABULUM = B in the live walk (world wizard at 50 MP, NOCLASS: the
-        # old fixed-code "C" (LORUM) is dungeon-only and never listed here).
-        text_log.submit_input("B")
+        # PABULUM = I — its FIXED wizard code (USER-DIRECTED RULING
+        # 2026-11-15: spell letters are fixed, never the dynamic walk).
+        text_log.submit_input("I")
         blob = "\n".join(text_log.history)
         assert "cannot cast" not in blob
         assert hero.character.mp == 10  # 50 - 40

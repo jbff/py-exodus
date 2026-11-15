@@ -57,16 +57,14 @@ FOOTER_RULE_GAP = 4
 
 LORE_TITLE = "THE BOOK OF LORE"
 APPENDIX_HEADER = "APPENDIX: SPELL REFERENCE"
-#: Player-facing note replacing the old fixed A-P letter column. Since the
-#: dynamic mapping landed (py_exodus/spell_menu.py, Java getCastables), the
-#: menu letters are assigned per context and caster mana — the old per-discipline
-#: ``s.code`` letters became dead ("Not a spell!" on keypress), so the appendix
-#: now lists where each spell may be cast instead of a letter.
-APPENDIX_NOTE = (
-    "Let the reader note well: the letters that summon these spells are not "
-    "fixed ones. Each place thou standest in, and the mana that remains to "
-    "thee, deal the letters anew."
-)
+# USER-DIRECTED RULING (2026-11-15): fixed spell letters (B=APPAR_UNEM
+# always); availability refused at attempt - supersedes the Java
+# getCastables letter compaction (Constants.java:751-762) adopted
+# 2026-11-14. The 2026-11-14 relabel ("letters are assigned dynamically")
+# is undone: the per-discipline ``s.code`` letters are FIXED again
+# (original-game alphabetical A-P per discipline), so the appendix restores
+# the name + letter + MP + where-castable column and carries no
+# letter-assignment note.
 
 #: Human-readable place words for the location bits (constants.MapType.mask;
 #: the player-facing mirror of spell_menu._CONTEXT_MAPTYPES). A location
@@ -156,21 +154,22 @@ def spell_reference_pages() -> list[str]:
     """Build the Python-only spell reference appendix page texts.
 
     Kept from the former spellbook browser: all 16 spells per discipline with
-    MP costs, descriptions, and the place-context availability, appended after
-    the lore text. Spells are listed in enum declaration order — the same
-    order the dynamic menu walks (Java getCastables), so the appendix reads
-    top-down the way the letters are handed out; no letter column is printed,
-    because menu letters are assigned dynamically per context and remaining
-    mana.
+    the FIXED letter (``s.code``), MP costs, descriptions, and the
+    place-context availability, appended after the lore text. Spells are
+    listed in enum declaration order — each discipline's original-game
+    alphabetical A-P (USER-DIRECTED RULING 2026-11-15: the letters are fixed
+    and never move with mana or context; a listed spell that the current
+    place refuses prints "Not Here!" when attempted, per
+    py_exodus/spell_menu.py letter_resolution).
     """
-    lines: list[str] = [APPENDIX_HEADER, "", APPENDIX_NOTE, ""]
+    lines: list[str] = [APPENDIX_HEADER, ""]
     for discipline, label in (("wizard", "WIZARD SORCERIES"), ("cleric", "CLERICAL PRAYERS")):
         spells = [s for s in Spell if s.spell_type == discipline]
         lines.append(f"{label}")
         lines.append("")
         for s in spells:
             lines.append(
-                f"{s.name} ({s.mp_cost} MP, {_location_phrase(s)}): {s.desc}"
+                f"{s.code} - {s.name} ({s.mp_cost} MP, {_location_phrase(s)}): {s.desc}"
             )
         lines.append("")
     return _split_into_pages(_wrap_lines("\n".join(lines)))

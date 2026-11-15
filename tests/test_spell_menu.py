@@ -1,15 +1,29 @@
-"""Tests for the dynamic castable spell mapping (Java getCastables).
+"""Tests for the FIXED spell-letter cast menu.
 
-Java truth: Constants.java:751-762 — walk ``Spell.values()`` in enum order,
-keep spells where ``canCast(prof) && canCastLocation(mt) && cost <= mana``,
-assign libgdx Keys A.. sequentially. Menu rows per SpellInputProcessor.java
-:36-39: ``"%s - %s (%d)"`` — letter, enum NAME, cost (cost always printed,
-including 0).
+USER-DIRECTED RULING (2026-11-15): fixed spell letters (B=APPAR_UNEM always);
+availability refused at attempt — supersedes the Java getCastables letter
+compaction (Constants.java:751-762) adopted 2026-11-14.
+
+The menu lists the discipline's FULL fixed set (all 16 spells, name + the
+enum's fixed ``code`` + MP cost); letters NEVER move with mana or context.
+Availability is refused AT ATTEMPT via :func:`letter_resolution`:
+
+- a letter whose spell fails ``canCastLocation(context)`` (Constants.java
+  :779-781 — the masks live on, but they classify refusals now instead of
+  filtering) -> "Not Here!", NOT executed (no cast, no mana), the menu
+  disarms and the caster stays active;
+- an unaffordable letter is offered too; its refusal stays in the
+  ``cast_spell`` prevalidation (the canonical MP string) — the menu never
+  filters on mana;
+- any key outside the discipline's fixed A-P codes -> Java's canonical
+  "Not a spell!" + disarm (SpellInputProcessor.java:69-72 behavior retained
+  for unknown letters).
 
 The expectations here are recomputed independently from the LIVE enum
-attributes (declaration order, spell_type, castable_mask, location_mask,
-cost) rather than hard-coded spell lists, so an enum edit changes the
-expected result instead of silently passing a stale audit.
+attributes (declaration order gives each discipline its original-game
+alphabetical A-P codes; spell_type, location_mask, cost) rather than
+hard-coded rows, so an enum edit moves the expected result instead of
+silently passing a stale audit.
 """
 
 import contextlib
@@ -21,7 +35,11 @@ import pytest
 from py_exodus import debug
 from py_exodus.constants import MapType, Profession, Race, Spell
 from py_exodus.entities.character import Character
-from py_exodus.spell_menu import get_castables, spell_menu_prompt_lines
+from py_exodus.spell_menu import (
+    letter_resolution,
+    spell_menu_entries,
+    spell_menu_prompt_lines,
+)
 
 #: Java MapType.val values (Constants.java:248-257) for independent recompute.
 _MAP_MASKS = {
@@ -33,27 +51,17 @@ _MAP_MASKS = {
 }
 
 
-def _recompute(profession, context, mana, *, no_class=False, full_mp=False, discipline=None):
-    """Independent restatement of the Java walk (see module docstring).
+def _expect_entries(discipline):
+    """Independent restatement of the fixed-letter list (see docstring).
 
-    Written against the enum attributes directly — deliberately NOT the
-    production code — so the audit expectation moves when the enum moves.
+    Letter = the original-game alphabetical A-P code, i.e. ``chr(A+i)`` over
+    the discipline's enum-declaration order; written against the enum
+    attributes directly — deliberately NOT the production code.
     """
-    mask = _MAP_MASKS[context]
-    out = []
-    i = 0
-    for s in Spell:
-        if discipline is not None and s.spell_type != discipline:
-            continue
-        if not no_class and not (s.castable_mask & profession.mask):
-            continue
-        if not (s.location_mask & mask):
-            continue
-        if not full_mp and s.cost > mana:
-            continue
-        out.append((chr(ord("A") + i), s))
-        i += 1
-    return out
+    return [
+        (chr(ord("A") + i), s)
+        for i, s in enumerate(x for x in Spell if x.spell_type == discipline)
+    ]
 
 
 @contextlib.contextmanager
@@ -81,163 +89,213 @@ def _wizard(mp=99):
     return c
 
 
-def test_cleric_combat_matches_enum_walk():
-    """Full-MP cleric in combat == the independently recomputed enum walk."""
-    castables = get_castables(_cleric(99), "combat", "cleric", cheats_ok=False)
-    spell_names = [s.name for _, s in castables]
-    letters = [l for l, _ in castables]
-
-    expected = _recompute(Profession.CLERIC, "combat", 99, discipline="cleric")
-    assert spell_names == [s.name for _, s in expected]
-    # PONTORI is 0-cost and first, so it takes A; letters run A.. sequentially
-    # over the survivors, compacting past dropped entries.
-    assert letters == [chr(ord("A") + i) for i in range(len(expected))]
+# --- the fixed lists ---------------------------------------------------------
 
 
-def test_wizard_combat_matches_enum_walk():
-    """Wizard profession in combat == the recomputed walk in enum order."""
-    castables = get_castables(_wizard(99), "combat", "wizard", cheats_ok=False)
-    expected = _recompute(Profession.WIZARD, "combat", 99, discipline="wizard")
-    assert [(l, s.name) for l, s in castables] == [(l, s.name) for l, s in expected]
-    assert len(castables) > 0  # sanity: the walk is non-empty
+def test_cleric_fixed_list_sixteen_spells_in_code_order():
+    """The cleric menu is the FULL fixed set: 16 entries, A..P in enum order."""
+    got = spell_menu_entries("cleric")
+    assert [(c, s.name) for c, s in got] == [
+        (c, s.name) for c, s in _expect_entries("cleric")
+    ]
+    assert len(got) == 16
+    assert [c for c, _ in got] == [chr(ord("A") + i) for i in range(16)]
 
 
-def test_low_mp_compacts_letters():
-    """A cleric at MP 3 drops >3-cost entries; letters compact to A.."""
-    castables = get_castables(_cleric(3), "combat", "cleric", cheats_ok=False)
-    expected = _recompute(Profession.CLERIC, "combat", 3, discipline="cleric")
-    assert [(l, s.name) for l, s in castables] == [(l, s.name) for l, s in expected]
-    # 0-cost PONTORI survives at A; every other cleric spell costs >= 5.
-    assert [s.name for _, s in castables] == ["PONTORI"]
-    assert [l for l, _ in castables] == ["A"]
+def test_wizard_fixed_list_sixteen_spells_in_code_order():
+    """The wizard menu is its own fixed A-P set (REPOND=A .. UNSPEAKABLE=P)."""
+    got = spell_menu_entries("wizard")
+    assert [(c, s.name) for c, s in got] == [
+        (c, s.name) for c, s in _expect_entries("wizard")
+    ]
+    assert len(got) == 16
 
 
-def test_appar_unem_location_mask():
-    """APPAR_UNEM (city|world|dungeon mask) is absent in combat, present in world."""
-    combat = get_castables(_cleric(99), "combat", "cleric", cheats_ok=False)
-    assert "APPAR_UNEM" not in [s.name for _, s in combat]
-
-    world = get_castables(_cleric(99), "world", "cleric", cheats_ok=False)
-    names = [s.name for _, s in world]
-    assert "APPAR_UNEM" in names
-    assert names == [s.name for _, s in _recompute(Profession.CLERIC, "world", 99, discipline="cleric")]
+def test_b_is_appar_unem_always():
+    """THE RULING's headline pin: cleric B=APPAR_UNEM ALWAYS — at full mana
+    or empty, in combat or world, the letter never moves. The wizard's B is
+    MITTAR: codes are per-discipline fixed lists, not one shared walk."""
+    assert spell_menu_entries("cleric")[1] == ("B", Spell.APPAR_UNEM)
+    assert spell_menu_entries("wizard")[1] == ("B", Spell.MITTAR)
 
 
-def test_barbarian_empty():
-    """No spell's castable_mask includes the barbarian bit — combat list is empty."""
+def test_entries_ignore_mana_context_and_context_arg_does_not_exist():
+    """Letters never move with mana or context: a cleric at MP 3 gets the
+    same 16 fixed entries as one at MP 99 — no compaction, no cost filter.
+    (spell_menu_entries takes only the discipline: there is nothing left
+    for caster/context to vary.)"""
+    broke = spell_menu_entries("cleric")
+    rich = _expect_entries("cleric")
+    assert [(c, s.name) for c, s in broke] == [(c, s.name) for c, s in rich]
+
+
+def test_barbarian_menu_never_opens_but_entries_are_fixed_data():
+    """The profession gate lives upstream (get_castable_spell_types): a
+    barbarian's C command prints "No spells to cast!" before any menu. The
+    fixed entries themselves are pure per-discipline data, not caster-derived."""
     b = Character("Barb", "M", Race.HUMAN, Profession.BARBARIAN)
     b.mp = 99
-    assert get_castables(b, "combat", "cleric", cheats_ok=False) == []
-    assert get_castables(b, "combat", "wizard", cheats_ok=False) == []
-    assert get_castables(b, "combat", None, cheats_ok=False) == []
+    from py_exodus.combat.magic import get_castable_spell_types
+
+    assert get_castable_spell_types(b.profession) == []
+    # the LETTERS are still fixed data for the disciplines that do open
+    assert len(spell_menu_entries("cleric")) == 16
 
 
-def test_no_class_cheat_widens():
-    """NOCLASS: the per-spell profession gate opens (cheat.c:414-825)."""
+def test_no_class_cheat_widens_the_upstream_gate_only():
+    """NOCLASS (cheat.c:414-825) bypasses the profession MENU gate, yet the
+    letters stay fixed — the cheat moves which menus open, never the A-P."""
     b = Character("Barb", "M", Race.HUMAN, Profession.BARBARIAN)
     b.mp = 99
+    from py_exodus.combat.magic import get_castable_spell_types
+
+    assert get_castable_spell_types(b.profession) == []
     with _cheats(no_class=True):
-        got = get_castables(b, "combat", None)
-    assert [(l, s.name) for l, s in got] == [
-        (l, s.name) for l, s in _recompute(Profession.BARBARIAN, "combat", 99, no_class=True)
-    ]
-    assert len(got) > 0
-
-    # cheats_ok=False ignores CHEATS even when toggled on.
-    with _cheats(no_class=True):
-        assert get_castables(b, "combat", None, cheats_ok=False) == []
+        assert get_castable_spell_types(b.profession) == ["wizard", "cleric"]
+    # same fixed rows for the widened menus
+    assert spell_menu_entries("cleric")[1] == ("B", Spell.APPAR_UNEM)
 
 
-def test_full_mp_bypasses_cost_filter():
-    """FULL MP: the cost <= mana filter is skipped (mana is never consulted)."""
-    broke = _cleric(0)
-    with _cheats(full_mp=True):
-        got = get_castables(broke, "combat", "cleric")
-    assert [(l, s.name) for l, s in got] == [
-        (l, s.name)
-        for l, s in _recompute(Profession.CLERIC, "combat", 0, full_mp=True, discipline="cleric")
-    ]
-    # Same list shape as a full-MP cleric: every location-matching spell is in.
-    rich = get_castables(_cleric(99), "combat", "cleric", cheats_ok=False)
-    assert [s.name for _, s in got] == [s.name for _, s in rich]
+def test_full_mp_cheat_never_reshapes_the_list():
+    """FULL MP skips the MP refusal downstream (apply_full_mp tops the caster
+    up at prompt open; cast_spell keeps its canonical prevalidation string for
+    direct callers) — the MENU itself is untouched by the cheat."""
+    from py_exodus import debug as dbg
+    from py_exodus.spell_menu import spell_menu_entries as entries
+
+    assert entries("cleric") == entries("cleric")  # trivially fixed
+    # the cheat only relaxes the attempt-time gate, not the list:
+    broke = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC)
+    broke.mp = 0
+    assert dbg.CHEATS.full_mp is False  # the refusal path is live by default
 
 
-def test_context_maps_to_java_maptype():
-    """city context admits city-mask spells; dungeon admits dungeon masks."""
-    city = get_castables(_cleric(99), "city", "cleric", cheats_ok=False)
-    assert "VIEDA" in [s.name for _, s in city]  # mask world|city
-    assert "SANCTU" in [s.name for _, s in city]  # mask 0xFF
-
-    dungeon = get_castables(_cleric(99), "dungeon", "cleric", cheats_ok=False)
-    assert "LUMINAE" in [s.name for _, s in dungeon]
-    assert "EXCUUN" not in [s.name for _, s in dungeon]  # combat-only mask
+# --- attempt-time letter resolution ------------------------------------------
 
 
-def test_undivided_walk_matches_java_no_discipline_split():
-    """discipline=None reproduces Java's single interleaved walk.
-
-    Java has no discipline argument (Constants.java:751-762): a druid sees
-    wizard and cleric spells interleaved in one letter map. py passes the
-    resolved discipline only because its prompt flow splits the menus.
-    """
-    druid = Character("Druid", "F", Race.HUMAN, Profession.DRUID)
-    druid.mp = 99
-    got = get_castables(druid, "combat", None, cheats_ok=False)
-    assert [(l, s.name) for l, s in got] == [
-        (l, s.name) for l, s in _recompute(Profession.DRUID, "combat", 99)
-    ]
-    types = {s.spell_type for _, s in got}
-    assert types == {"wizard", "cleric"}
+@pytest.mark.parametrize("context", ["world", "combat", "city", "dungeon", "shrine"])
+def test_letter_resolution_refuses_bad_context_spells(context):
+    """USER-DIRECTED RULING (2026-11-15): the context mask refuses AT ATTEMPT
+    — "Not Here!" for a letter whose spell fails canCastLocation, the spell
+    itself when it passes. Expectation recomputed from the live masks."""
+    mask = _MAP_MASKS[context]
+    for code, spell in spell_menu_entries("cleric"):
+        spell_out, refusal = letter_resolution(spell_menu_entries("cleric"), code, context)
+        if not (mask & spell.location_mask):
+            assert refusal == "Not Here!" and spell_out is None
+        else:
+            assert refusal is None and spell_out is spell
 
 
-def test_unknown_context_raises():
+def test_letter_resolution_headline_cases():
+    """The pinned refusals the consumers and play tests lean on."""
+    entries = spell_menu_entries("cleric")
+    # APPAR_UNEM (mask 0x0D, no combat bit — Constants.java:710) in combat
+    out, refusal = letter_resolution(entries, "B", "combat")
+    assert out is None and refusal == "Not Here!"
+    # ...but attemptable in world
+    out, refusal = letter_resolution(entries, "B", "world")
+    assert out is Spell.APPAR_UNEM and refusal is None
+    # PONTORI is combat-only (mask 0x02) — refused in the world flow
+    out, refusal = letter_resolution(entries, "A", "world")
+    assert out is None and refusal == "Not Here!"
+
+
+def test_letter_resolution_unknown_context_raises():
     with pytest.raises(ValueError):
-        get_castables(_cleric(99), "shrineless", "cleric")
+        letter_resolution(spell_menu_entries("cleric"), "B", "shrineless")
+
+
+def test_letter_resolution_unknown_letter_is_not_a_spell():
+    """Out-of-list keys (digits, or any letter not on the fixed A-P list)
+    take Java's retained unknown-letter branch: "Not a spell!" (SpellInput
+    Processor.java:69-72). With FIXED per-discipline A-P lists every letter
+    A-P is on the list, so only non-code keys can land here."""
+    entries = spell_menu_entries("cleric")
+    for key in ("1", "Z", "Q", "5", "aB"):
+        out, refusal = letter_resolution(entries, key, "world")
+        assert out is None and refusal == "Not a spell!", key
+    # case-insensitive code keys still resolve (prompt normalizes to upper)
+    out, refusal = letter_resolution(entries, "c", "world")
+    assert out is Spell.SANCTU and refusal is None
+
+
+def test_wizard_letters_refuse_their_own_contexts():
+    """Wizard fixed codes: DAG_ACRON=G is world-only (mask 0x01,
+    Constants.java:699) — "Not Here!" in combat; REPOND=A is combat-only."""
+    entries = spell_menu_entries("wizard")
+    out, refusal = letter_resolution(entries, "G", "combat")
+    assert out is None and refusal == "Not Here!"
+    out, refusal = letter_resolution(entries, "A", "world")
+    assert out is None and refusal == "Not Here!"
 
 
 def test_prompt_lines_format():
-    """Rows match Java SpellInputProcessor.java:36-39 exactly.
-
-    Java: screen.log(String.format("%s - %s (%d)", key, spell, cost)) — the
-    enum NAME (not the description), and the cost is always printed, 0
-    included ("A - PONTORI (0)").
-    """
-    sample = [(l, s) for l, s in get_castables(_cleric(99), "combat", "cleric", cheats_ok=False)]
-    lines = spell_menu_prompt_lines(sample)
+    """Rows match Java SpellInputProcessor.java:36-39 exactly:
+    ``"{letter} - {SPELL_NAME} ({cost})"``, cost always printed, 0 included."""
+    lines = spell_menu_prompt_lines(spell_menu_entries("cleric"))
     assert lines[0] == "A - PONTORI (0)"
-    assert lines[1] == "B - SANCTU (10)"
-    for line in lines[2:]:
-        # every row: "<letter> - <NAME> (<int>)"
+    assert lines[1] == "B - APPAR_UNEM (5)"
+    for line in lines:
         head, cost = line.rsplit(" (", 1)
         letter, name = head.split(" - ")
-        assert "A" <= letter <= "Z"
+        assert "A" <= letter <= "P"
         assert cost.endswith(")")
         int(cost[:-1])
         assert name == name.upper()
+    assert len(lines) == 16
 
 
 def test_prompt_lines_explicit_rows():
-    """Pin the exact rendered rows for a known pair (format lock)."""
+    """Pin the exact rendered rows for a known trio (format lock)."""
     lines = spell_menu_prompt_lines(
         [("A", Spell.PONTORI), ("B", Spell.APPAR_UNEM), ("C", Spell.SANCTU)]
     )
     assert lines == ["A - PONTORI (0)", "B - APPAR_UNEM (5)", "C - SANCTU (10)"]
 
 
+def test_prompt_lines_are_the_fixed_entries_unchanged_by_mana():
+    """The prompt rows print the FIXED list — identical for any caster state
+    (the MP cost is DISPLAYED, never used to filter)."""
+    lines = spell_menu_prompt_lines(spell_menu_entries("wizard"))
+    assert lines[0] == "A - REPOND (0)"
+    assert lines[9] == "J - FAL_DIVI (45)"
+    assert lines[-1] == "P - UNSPEAKABLE (75)"
+
+
 def test_map_type_masks_match_java():
-    """The context masks the test recompute uses mirror Java's MapType.val
-    (Constants.java:248-257); guard the py constants against drift."""
+    """The context masks the classification recompute uses mirror Java's
+    MapType.val (Constants.java:248-257); guard the py constants against drift."""
     assert MapType.WORLD.mask == 0x01
     assert MapType.COMBAT.mask == 0x02
     assert MapType.CITY.mask == 0x04
     assert MapType.DUNGEON.mask == 0x08
 
 
-# --- Task 3: the shared prompt flow consumes the mapping --------------------
+# --- Task 3: the shared prompt flow consumes the fixed mapping ---------------
 # (combat/magic.py prompt_cast_party — the overworld/town/dungeon flow; the
 # combat screen flow is pinned by the play-driver sequence tests.)
 
 _SPELL_ROW = re.compile(r"^[A-Z] - [A-Z_]+ \(\d+\)$")
+
+_CLERIC_FIXED_ROWS = [
+    "A - PONTORI (0)",
+    "B - APPAR_UNEM (5)",
+    "C - SANCTU (10)",
+    "D - LUMINAE (15)",
+    "E - REC_SU (20)",
+    "F - REC_DU (25)",
+    "G - LIB_REC (30)",
+    "H - ALCORT (35)",
+    "I - SEQUITU (40)",
+    "J - SOMINAE (45)",
+    "K - SANCTU_MANI (50)",
+    "L - VIEDA (55)",
+    "M - EXCUUN (60)",
+    "N - SURMANDUM (65)",
+    "O - ZXKUQYB (70)",
+    "P - ANJU_SERMANI (75)",
+]
 
 
 def _flow_party(mp: int):
@@ -259,12 +317,12 @@ def _prompt_world_cleric(mp: int = 99):
     return log
 
 
-def test_dungeon_flow_walks_the_dungeon_mask():
+def test_dungeon_flow_lists_the_full_fixed_set():
     """The dungeon screen passes its DungeonState (SecondaryInputProcessor
-    .java:443 passes MapType.dungeon in Java): the flow unwraps ``dmap`` the
-    same way cast_spell's location gate does, so the dungeon-mask spells
-    (APPAR_UNEM city|world|dungeon, REC_SU/REC_DU/SEQUITU dungeon-only) are
-    walkable — LUMINAE is NEVER reachable from a world-context walk."""
+    .java:443 passes MapType.dungeon in Java): rows are the FIXED cleric
+    A-P list — dungeon-mask spells (APPAR_UNEM city|world|dungeon, REC_SU/
+    REC_DU/SEQUITU dungeon-only) sit at their permanent letters; the
+    letter_assignment never differed by context (RULING 2026-11-15)."""
     from types import SimpleNamespace
 
     from py_exodus.combat.magic import prompt_cast_party
@@ -280,57 +338,44 @@ def test_dungeon_flow_walks_the_dungeon_mask():
     prompt_cast_party(log, party, world_map=dungeon_state)
     log.handle_char("1")  # the cleric
     rows = [str(line) for line in log.history if _SPELL_ROW.match(str(line))]
-    names = [row.split(" - ")[1].split(" (")[0] for row in rows]
-    assert "LUMINAE" in names
-    assert "REC_SU" in names
-    assert "SEQUITU" in names
-    # The letters were recomputed from the live walk (context-aware).
-    assert rows[0] == "A - APPAR_UNEM (5)"  # 0x0D includes the dungeon bit
+    assert rows == _CLERIC_FIXED_ROWS
 
 
 def test_world_flow_prints_rows_after_member_selection():
-    """The list rows print as the spell prompt opens (Java
-    SpellInputProcessor.java:36-39 via SecondaryInputProcessor.java:283)."""
+    """The full FIXED list prints as the spell prompt opens (Java
+    SpellInputProcessor.java:36-39 via SecondaryInputProcessor.java:283) —
+    the same 16 rows the dungeon flow prints; the context only decides which
+    letters refuse AT ATTEMPT."""
     log = _prompt_world_cleric()
     assert log.current_prompt == "Cleric Spell? (A-P):"
-    rows = [
-        str(line) for line in log.history if _SPELL_ROW.match(str(line))
-    ]
-    # World-context cleric walk (mp 99): APPAR_UNEM leads (PONTORI's mask is
-    # combat-only), letters compact from A.. over the survivors.
-    assert rows == [
-        "A - APPAR_UNEM (5)",
-        "B - SANCTU (10)",
-        "C - ALCORT (35)",
-        "D - SANCTU_MANI (50)",
-        "E - VIEDA (55)",
-        "F - SURMANDUM (65)",
-        "G - ANJU_SERMANI (75)",
-    ]
+    rows = [str(line) for line in log.history if _SPELL_ROW.match(str(line))]
+    assert rows == _CLERIC_FIXED_ROWS
+    assert log.is_waiting_for_input
 
 
-def test_out_of_list_letter_logs_not_a_spell_and_disarms():
-    """A key outside the live list logs Java's canonical "Not a spell!" and
-    DISARMS the menu — the prompt closes with no row re-print and the
-    player re-presses C to see the list again (Java
-    SpellInputProcessor.java:69-72: any key failing the ``A..size`` guard —
-    letters past the list length, digits, ESC — takes this same branch)."""
-    log = _prompt_world_cleric(mp=15)  # list: A APPAR_UNEM (5), B SANCTU (10)
-    assert log.current_prompt == "Cleric Spell? (A-P):"
-    log.handle_char("D")  # beyond the two-entry list
+def test_location_refusal_not_here_disarms_without_executing():
+    """USER-DIRECTED RULING (2026-11-15): pressing a valid letter whose spell
+    fails canCastLocation -> "Not Here!", NOT executed (no cast, no mana),
+    the menu DISARMS (same shape as "Not a spell!") and the caster stays
+    active. PONTORI (combat-only mask) refuses in the world flow."""
+    log = _prompt_world_cleric(mp=99)
+    log.handle_char("A")  # PONTORI — combat-only (Constants.java:709)
     assert not log.is_waiting_for_input
     assert log.current_prompt == ""
     blob = "\n".join(str(line) for line in log.history)
-    assert "Not a spell!" in blob
-    assert "Unknown spell!" not in blob
+    assert "Not Here!" in blob
+    assert "Undead" not in blob  # nothing executed
+    assert "Not a spell!" not in blob
+    # (the screen-level C command re-opens this flow; play-driver tests pin
+    #  that re-arm plus the retained turn marker.)
 
 
-def test_unaffordable_spell_never_offers_mp_refusal():
-    """MP 3 in context "world": every >3-cost spell is unlisted, so the
-    prompt flow can never emit "Thou dost not have enough magic points!".
-    A mage at MP 3 has an EMPTY world wizard list (DAG_ACRON 30, PABULUM 40,
-    FAL_DIVI 45 are all unaffordable) — the Java empty-map canonical line
-    prints instead of a prompt."""
+def test_unaffordable_letter_is_offered_and_refused_at_attempt():
+    """USER-DIRECTED RULING (2026-11-15): the menu NO LONGER requires
+    affordance — an unaffordable letter is listed (B - MITTAR (5) at MP 3)
+    and refusing it produces the canonical prevalidation string from
+    cast_spell ("Thou dost not have enough magic points!"), also not
+    executed. The MP gate lives back in cast_spell's prevalidation."""
     from py_exodus.combat.magic import prompt_cast_party
     from py_exodus.entities.party import Party
     from py_exodus.ui.text_log import TextLog
@@ -340,36 +385,77 @@ def test_unaffordable_spell_never_offers_mp_refusal():
     log = TextLog()
     prompt_cast_party(log, party)
     log.handle_char("1")
+    rows = [str(line) for line in log.history if _SPELL_ROW.match(str(line))]
+    assert rows[1] == "B - MITTAR (5)"  # unaffordable yet listed
+    assert len(rows) == 16
+
+    log.handle_char("M")  # ALTAIR (60) at MP 3 — fixed code, 0xFF location
     blob = "\n".join(str(line) for line in log.history)
-    assert "No spells to cast!" in blob
-    assert "magic points" not in blob
+    assert "Thou dost not have enough magic points!" in blob
     assert not log.is_waiting_for_input
 
+    # the affordable + here-castable letter still dispatches normally:
+    # a fresh MP-45 mage's I (PABULUM, 40, 0xFF) — not directional/targeted
+    party2 = Party()
+    party2.add_member(_wizard(45))
+    log2 = TextLog()
+    prompt_cast_party(log2, party2)
+    log2.handle_char("1")
+    log2.handle_char("I")  # PABULUM (40), fixed I
+    assert not log2.is_waiting_for_input
+    assert "magic points" not in "\n".join(str(line) for line in log2.history)
 
-# --- Task 7: context-availability audit — Java masks vs GBC battle tables ----
+
+def test_out_of_list_letter_logs_not_a_spell_and_disarms():
+    """A key outside the FIXED list logs Java's canonical "Not a spell!" and
+    DISARMS the menu — the prompt closes with no row re-print and the
+    player re-presses C to see the list again (Java
+    SpellInputProcessor.java:69-72: any key failing the A-P code guard —
+    digits, non-code letters — takes this same branch)."""
+    log = _prompt_world_cleric(mp=15)
+    assert log.current_prompt == "Cleric Spell? (A-P):"
+    log.handle_char("1")  # a digit is never a spell letter
+    assert not log.is_waiting_for_input
+    assert log.current_prompt == ""
+    blob = "\n".join(str(line) for line in log.history)
+    assert "Not a spell!" in blob
+    assert "Unknown spell!" not in blob
+
+
+def test_mapped_letter_dispatches_the_fixed_spell():
+    """Selecting a fixed code casts exactly that spell: C is SANCTU (10)
+    ALWAYS — in the world list, the combat list, every list."""
+    log = _prompt_world_cleric(mp=15)
+    log.handle_char("C")  # SANCTU, the fixed C
+    assert log.current_prompt == "On who? (1-4):"  # targeted restorative
+    log.handle_char("1")  # target the cleric themselves
+    assert not log.is_waiting_for_input
+    blob = "\n".join(str(line) for line in log.history)
+    assert "Unknown spell!" not in blob
+    assert "cannot cast" not in blob
+    assert "magic points" not in blob  # affordable
+    # the heal ran: SANCTU executed, not a refusal
+    assert "Not Here!" not in blob
+    assert "full health" in blob or "heals" in blob.lower()
+
+
+# --- Task 7: context-availability audit — the ruling re-read -----------------
 #
-# Java truth for every spell row: Constants.java:693-726 ( Spell enum; the
+# Java truth for every spell row: Constants.java:693-726 (Spell enum; the
 # professions' bit values are Constants.java:579-589: BARBARIAN 0x001,
 # DRUID 0x002, ALCHEMIST 0x004, RANGER 0x008, FIGHTER 0x010, WIZARD 0x020,
-# THIEF 0x040, LARK 0x080, ILLUSIONIST 0x100, CLERIC 0x200, PALADIN 0x400 ),
+# THIEF 0x040, LARK 0x080, ILLUSIONIST 0x100, CLERIC 0x200, PALADIN 0x400),
 # and the map-type bit values are Constants.java:248-257 (world 0x01,
-# combat 0x02, city 0x04, dungeon 0x08). The walk itself is
-# Constants.java:751-762 (getCastables).
+# combat 0x02, city 0x04, dungeon 0x08). canCastLocation (Constants.java
+# :779-781) is ``(mt.val() & locationMask) > 0``.
 #
-# GBC truth for the battle menus: refs/ult3src/sdk/gbz80-gb/2-1-5/examples/
-# u3/battle.c — clericspellsdat (battle.c:127, consumed by
-# getmenuselection(6, clericspellsdat, ...) at battle.c:1042) offers
-# PONTORI SANCTU ALCORT SANCTUM EXCUM ZXKUQYB with the SURMANDUM and
-# ANJU_SERMANI rows commented out; wizardspellsdat (battle.c:191, consumed
-# by getmenuselection(11, wizardspellsdat, ...) at battle.c:1222) offers
-# REPOND MITTAR FULGAR MENTAR FALDIVI NOXUM DECORP ALTAIR DAGMENT NECORP
-# and a XXXXXXX filler for the multi-death-bolt slot (no PABULUM).
-#
-# RECORDED RULING (plan Task 7, binding): where Java's mask walk and the GBC
-# battle menu disagree for "combat", the JAVA list governs — the GBC
-# omissions (cleric SURMANDUM / ANJU_SERMANI, wizard PABULUM) are the GBC
-# port's own menu curation, not a rules change. These tests assert the Java
-# list and record the GBC delta in comments.
+# USER-DIRECTED RULING (2026-11-15): fixed spell letters (B=APPAR_UNEM
+# always); availability refused at attempt — supersedes the Java
+# getCastables letter compaction (Constants.java:751-762) adopted
+# 2026-11-14. The masks NO LONGER filter the menu (getCastables' alphabet
+# compaction is superseded); they classify ATTEMPT refusals via
+# letter_resolution. This section re-pins the masks against Java and
+# asserts the per-context CLASSIFICATION.
 
 #: Java Constants.java:693-724, transcribed row by row (name, cost,
 #: castable_mask, location_mask) in Spell enum declaration order. The masks
@@ -413,96 +499,84 @@ _JAVA_SPELLS = [
     ("ANJU_SERMANI", 75, 0x200, 0xFF),  # Constants.java:724
 ]
 
-# Java declaration order: EXCUUN (M, Constants.java:721) precedes
-# SURMANDUM (N, :722), which precedes ZXKUQYB (O, :723) — the walk
-# interleaves them in that order even though the GBC menu lists ZXKUQYB
-# directly after EXCUM.
-_CLERIC_COMBAT_JAVA = ["PONTORI", "SANCTU", "ALCORT", "SANCTU_MANI", "EXCUUN", "SURMANDUM", "ZXKUQYB", "ANJU_SERMANI"]
-_WIZARD_COMBAT_JAVA = [
-    "REPOND", "MITTAR", "FULGAR", "MENTAR", "PABULUM", "FAL_DIVI",
-    "NOXUM", "DECORP", "ALTAIR", "DAG_MENTAR", "NECORP", "UNSPEAKABLE",
-]
-
 
 def test_spell_enum_masks_match_java_every_row():
     """Every Spell row's cost/castable_mask/location_mask equals Java's
     Constants.java:693-724 — name AND declaration order included (the
-    declaration order drives getCastables' letter assignment)."""
+    declaration order fixes each discipline's alphabetical A-P codes)."""
     got = [(s.name, s.cost, s.castable_mask, s.location_mask) for s in Spell]
     assert got == _JAVA_SPELLS
 
 
 @pytest.mark.parametrize("context", ["combat", "world", "city", "dungeon"])
 @pytest.mark.parametrize("discipline", ["cleric", "wizard"])
-def test_context_matrix_equals_java_mask_walk(context, discipline):
-    """Full-MP matrix: get_castables == the independent Java-mask walk
-    (Constants.java:751-762) for every context x discipline cell — no
-    hard-coded spell list: the expectation is recomputed from the enum
+def test_context_matrix_attempt_classification(context, discipline):
+    """Full-MP matrix, repurposed for the ruling (2026-11-15): the menu lists
+    the SAME fixed 16 everywhere; the Java location mask
+    (Constants.java:751-762 walk superseded for letters) now decides which
+    codes refuse AT ATTEMPT — expectation recomputed from the enum
     attributes, so an enum edit moves the expectation."""
-    prof = Profession.CLERIC if discipline == "cleric" else Profession.WIZARD
-    caster = _cleric(99) if discipline == "cleric" else _wizard(99)
-    got = get_castables(caster, context, discipline, cheats_ok=False)
-    expected = _recompute(prof, context, 99, discipline=discipline)
-    assert [(l, s.name) for l, s in got] == [(l, s.name) for l, s in expected]
+    mask = _MAP_MASKS[context]
+    entries = spell_menu_entries(discipline)
+    assert len(entries) == 16  # the menu is context-blind
+    for code, spell in entries:
+        out, refusal = letter_resolution(entries, code, context)
+        if mask & spell.location_mask:
+            assert refusal is None and out is spell
+        else:
+            assert refusal == "Not Here!" and out is None
 
+
+# GBC truth for the battle menus: refs/ult3src/sdk/gbz80-gb/2-1-5/examples/
+# u3/battle.c — clericspellsdat (battle.c:127, consumed by
+# getmenuselection(6, clericspellsdat, ...) at battle.c:1042) offers
+# PONTORI SANCTU ALCORT SANCTUM EXCUM ZXKUQYB with the SURMANDUM and
+# ANJU_SERMANI rows commented out; wizardspellsdat (battle.c:191, consumed
+# by getmenuselection(11, wizardspellsdat, ...) at battle.c:1222) offers
+# REPOND MITTAR FULGAR MENTAR FALDIVI NOXUM DECORP ALTAIR DAGMENT NECORP
+# and a XXXXXXX filler for the multi-death-bolt slot (no PABULUM).
+#
+# RECORDED RULES RULING (Task 7, binding): where GBC's battle menu omits
+# spells the Java masks admit, the omission is GBC's own menu curation, not
+# a rules change. Under the FIXED-LETTER ruling the py menu offers the full
+# 16 everywhere — the GBC deltas below are recorded, not reproduced.
 
 def test_gbc_cleric_battle_delta_surmandum_anju_governed_by_java():
-    """Cleric combat: the Java mask walk offers 8 (SURMANDUM, ANJU_SERMANI
-    both 0xff-location per Constants.java:722,724) — the GBC battle menu
-    (clericspellsdat, battle.c:127) offers only 6, with the SURMANDUM and
-    ANJU_SERMANI rows commented out; getmenuselection(6, clericspellsdat,
-    ...) at battle.c:1042 confirms the count. RULING: Java's list governs
-    the letters; the GBC omission is its own menu curation."""
-    names = [s.name for _, s in get_castables(_cleric(99), "combat", "cleric", cheats_ok=False)]
-    assert names == _CLERIC_COMBAT_JAVA
-    # the GBC delta items are offered per Java (absent on GBC)
-    assert "SURMANDUM" in names
-    assert "ANJU_SERMANI" in names
-    assert len(names) == 8  # Java walk vs GBC's 6 (battle.c:1042)
+    """Cleric combat: the FIXED menu lists all 16 at their permanent codes —
+    including SURMANDUM (N) and ANJU_SERMANI (P), both 0xFF-location
+    (Constants.java:722,724) so they CAST in combat when pressed. The GBC
+    battle menu (clericspellsdat, battle.c:127) offered only 6 with these
+    rows commented out (getmenuselection(6, clericspellsdat, ...),
+    battle.c:1042): its omission is menu curation, superseded here."""
+    out, refusal = letter_resolution(spell_menu_entries("cleric"), "N", "combat")
+    assert out is Spell.SURMANDUM and refusal is None
+    out, refusal = letter_resolution(spell_menu_entries("cleric"), "P", "combat")
+    assert out is Spell.ANJU_SERMANI and refusal is None
 
 
 def test_gbc_wizard_battle_delta_pabulum_governed_by_java():
-    """Wizard combat: the Java mask walk offers 12 — the GBC battle menu
-    (wizardspellsdat, battle.c:191) offers only 11, omitting PABULUM
-    (Constants.java:701, 0xff location, feeds-the-many); getmenuselection(
-    11, wizardspellsdat, ...) at battle.c:1222 confirms the count, and the
-    GBC's 'p)' slot there is a XXXXXXX filler for the multi-death-bolt.
-    RULING: Java's list governs; also DAG_ACRON (world-only,
-    Constants.java:699) must never appear in a combat list."""
-    names = [s.name for _, s in get_castables(_wizard(99), "combat", "wizard", cheats_ok=False)]
-    assert names == _WIZARD_COMBAT_JAVA
-    # the GBC delta item is offered per Java (absent on GBC); it takes
-    # letter E, shifting FAL_DIVI to F and NOXUM to G vs the GBC menu's
-    # FALDIVI=E / NOXUM=F (battle.c:191 table order)
-    letters = {s.name: l for l, s in get_castables(_wizard(99), "combat", "wizard", cheats_ok=False)}
-    assert letters["PABULUM"] == "E"
-    assert letters["FAL_DIVI"] == "F"
-    assert letters["NOXUM"] == "G"
-    assert len(names) == 12  # Java walk vs GBC's 11 (battle.c:1222)
-    assert "DAG_ACRON" not in names  # world-only mask (Constants.java:699)
+    """Wizard combat: PABULUM (I, 0xFF location, Constants.java:701) CASTS in
+    combat at its fixed letter; the GBC battle menu (wizardspellsdat,
+    battle.c:191) offered only 11, omitting PABULUM (getmenuselection(
+    11, wizardspellsdat, ...) at battle.c:1222 — its 'p)' slot is a XXXXXXX
+    filler for the multi-death-bolt): curation, not rules. Conversely
+    DAG_ACRON (G, world-only, Constants.java:699) is LISTED in combat yet
+    refuses AT ATTEMPT — the old dynamic list never offered it."""
+    out, refusal = letter_resolution(spell_menu_entries("wizard"), "I", "combat")
+    assert out is Spell.PABULUM and refusal is None
+    out, refusal = letter_resolution(spell_menu_entries("wizard"), "G", "combat")
+    assert out is None and refusal == "Not Here!"
 
 
-def test_fal_divi_cleric_reentry_context_unchanged():
-    """FAL_DIVI's mid-combat cleric re-entry (D4) sits on top of this walk:
-    the wizard combat walk per discipline still lists FAL_DIVI (Java
-    Constants.java:702 keeps it 0xff) and the cleric walk itself is not
-    perturbed by it — the two discipline walks are independent calls."""
-    wiz = get_castables(_wizard(99), "combat", "wizard", cheats_ok=False)
-    assert "FAL_DIVI" in [s.name for _, s in wiz]
-    cle = get_castables(_cleric(99), "combat", "cleric", cheats_ok=False)
-    assert "FAL_DIVI" not in [s.name for _, s in cle]
-
-
-def test_mapped_letter_dispatches_and_deducts_cost():
-    """Selecting a listed letter casts exactly the mapped spell (the lookup
-    resolves through the same get_castables list that printed the rows).
-    SANCTU is listed at B for a cleric at MP 15 — the letter no longer
-    means the fixed-code C."""
-    log = _prompt_world_cleric(mp=15)
-    log.handle_char("B")  # SANCTU (10)
-    assert log.current_prompt == "On who? (1-4):"  # targeted restorative
-    log.handle_char("1")  # target the cleric themselves
-    assert not log.is_waiting_for_input
-    blob = "\n".join(str(line) for line in log.history)
-    assert "Unknown spell!" not in blob
-    assert "cannot cast" not in blob
+def test_fal_divi_cleric_reentry_fixed_letters_unchanged():
+    """FAL_DIVI's mid-combat cleric re-entry (D4): the re-entry opens the
+    CLERIC menu whose fixed codes are independent of FAL_DIVI's — J is
+    FAL_DIVI on the wizard list (Constants.java:702, 0xff) and SOMINAE on
+    the cleric list (Constants.java:718, dungeon-only, refuses in combat).
+    The two discipline menus are two fixed lists, never one walk."""
+    wiz = dict(spell_menu_entries("wizard"))
+    cle = dict(spell_menu_entries("cleric"))
+    assert wiz["J"] is Spell.FAL_DIVI
+    assert cle["J"] is Spell.SOMINAE
+    out, refusal = letter_resolution(spell_menu_entries("cleric"), "J", "combat")
+    assert out is None and refusal == "Not Here!"

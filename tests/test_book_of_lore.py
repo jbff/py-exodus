@@ -123,23 +123,33 @@ class TestLoreLoading:
 
 
 class TestSpellReferenceAppendix:
-    """Fix wave 2026-11-14: the appendix no longer carries a letter column.
-
-    The old fixed per-discipline A-P letters (``s.code``) went dead when the
-    dynamic mapping landed (py_exodus/spell_menu.py, Java getCastables —
-    letters assigned per context and remaining mana, so the world-cleric
-    menus read APPAR_UNEM=A, SANCTU=B, VIEDA=E and FAL_DIVI=C for wizards).
-    """
+    """USER-DIRECTED RULING (2026-11-15): fixed spell letters (B=APPAR_UNEM
+    always); availability refused at attempt — supersedes the Java
+    getCastables letter compaction (Constants.java:751-762) adopted
+    2026-11-14, and undoes the 2026-11-14 relabel that removed this column
+    ("letters are assigned dynamically"). The per-discipline ``s.code``
+    letters are FIXED again — each discipline's original-game alphabetical
+    A-P — so the appendix restores the name + letter + MP + where-castable
+    row and carries no letter-assignment note."""
 
     def _appendix_text(self) -> str:
         return "\n".join(spell_reference_pages())
 
-    def test_no_letter_column_on_any_appendix_row(self):
+    def test_every_row_carries_the_fixed_letter_column(self):
         import re
 
-        for page in spell_reference_pages():
-            for line in page.splitlines():
-                assert not re.match(r"^[A-P]: ", line), line
+        from py_exodus.constants import Spell
+
+        text = self._appendix_text()
+        for spell in Spell:
+            # "X - NAME (... MP, ...):" with the spell's own fixed code —
+            # B=APPAR_UNEM ALWAYS, C=SANCTU always, per discipline.
+            assert re.search(
+                rf"^{spell.code} - {spell.name} \(\d+ MP, .+\): ", text, re.MULTILINE
+            ), spell.name
+        # the headline pin: the fixed cleric letters
+        assert "B - APPAR_UNEM (5 MP," in text
+        assert re.search(r"^C - SANCTU \(10 MP,", text, re.MULTILINE)
 
     def test_every_spell_listed_with_mp_cost(self):
         from py_exodus.constants import Spell
@@ -150,24 +160,30 @@ class TestSpellReferenceAppendix:
             assert f"({spell.mp_cost} MP, " in text
 
     def test_rows_name_the_place_context(self):
-        """Each row carries the location-context availability, not a letter."""
+        """Each row carries the location-context availability next to the
+        fixed letter (the mask feeds ATTEMPT refusals now, not the menu)."""
         text = self._appendix_text()
         # Combat-only bolts name combat; the anywhere spells say anywhere
-        assert "MITTAR (5 MP, combat)" in text
-        assert "SANCTU (10 MP, anywhere)" in text
-        # APPAR_UNEM is world/city/dungeon (mask 0x0D)
-        assert "APPAR_UNEM (5 MP, world/town/dungeon)" in text
-        # VIEDA is world+city only (mask 0x05) — never combat, never dungeon
-        assert "VIEDA (55 MP, world/town)" in text
+        assert "B - MITTAR (5 MP, combat)" in text
+        assert "C - SANCTU (10 MP, anywhere)" in text
+        # APPAR_UNEM is world/city/dungeon (mask 0x0D) at its FIXED B
+        assert "B - APPAR_UNEM (5 MP, world/town/dungeon)" in text
+        # VIEDA is world+city only (mask 0x05) at its fixed L — the letter
+        # never moves even though combat refuses the spell at attempt.
+        assert "L - VIEDA (55 MP, world/town)" in text
 
-    def test_dynamic_letter_note_present(self):
+    def test_no_dynamic_letter_note_remains(self):
+        """RULING 2026-11-15: the "letters are assigned dynamically" note is
+        gone — the appendix makes no letter-assignment claim at all."""
         text = self._appendix_text()
-        assert "letters" in text
-        assert "mana" in text
+        assert "the letters that summon" not in text
+        assert "deal the letters anew" not in text
+        assert "assigned dynamically" not in text
 
-    def test_appendix_order_matches_the_menu_walk(self):
-        """Declarations in Spell-enum order per discipline (Java's
-        Spell.values() walk assigns the letters in this same order)."""
+    def test_appendix_order_matches_the_fixed_codes(self):
+        """Declarations in Spell-enum order per discipline — each
+        discipline's alphabetical A-P (the fixed codes ascend A..P in that
+        same order)."""
         from py_exodus.constants import Spell
 
         text = self._appendix_text()

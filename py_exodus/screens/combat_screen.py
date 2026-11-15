@@ -14,7 +14,7 @@ from py_exodus.combat.magic import (
     get_castable_spell_types,
     resolve_spell,
 )
-from py_exodus.spell_menu import get_castables, spell_menu_prompt_lines
+from py_exodus.spell_menu import letter_resolution, spell_menu_entries, spell_menu_prompt_lines
 from py_exodus.constants import (
     COMBAT_HEIGHT,
     COMBAT_WIDTH,
@@ -263,13 +263,26 @@ class CombatScreen(BaseScreen):
         """Prompt active member for spell casting.
 
         Java truth (CombatScreen.java:322-330 + SpellInputProcessor.java
-        :31-46): C uses the ACTIVE member (no member prompt), builds
-        ``Spell.getCastables(ap, MapType.combat)`` — "No spells to cast!"
-        when the map is empty — then SpellInputProcessor prints the rows
-        (``{letter} - {SPELL} ({cost})``) and reads letters from that SAME
-        map. py splits the walk per RESOLVED discipline (the druid/ranger
-        dual gate upstream), so each menu is one ``get_castables`` call with
-        the chosen discipline; a letter resolves through the captured list.
+        :31-46): C uses the ACTIVE member (no member prompt), builds the
+        combat spell menu with MapType.combat and SpellInputProcessor prints
+        the rows (``{letter} - {SPELL} ({cost})``) and reads letters from
+        that SAME list. "No spells to cast!" remains the canonical line when
+        the profession gate upstream (``get_castable_spell_types``) opens no
+        menu at all.
+
+        USER-DIRECTED RULING (2026-11-15): fixed spell letters
+        (B=APPAR_UNEM always); availability refused at attempt — supersedes
+        the Java getCastables letter compaction (Constants.java:751-762)
+        adopted 2026-11-14. Each menu is the discipline's FULL FIXED A-P
+        list (name + fixed letter + MP cost); letters never move with mana
+        or context. py splits the menus per RESOLVED discipline (the
+        druid/ranger dual gate upstream), so each menu is one
+        ``spell_menu_entries`` call with the chosen discipline and a letter
+        is classified AT ATTEMPT through ``letter_resolution``: "Not Here!"
+        when the context mask refuses the spell (no cast, no mana, menu
+        disarms, caster stays active), "Not a spell!" for out-of-list keys,
+        and the canonical MP refusal from ``cast_spell``'s prevalidation for
+        unaffordable (but listed) letters.
         """
         active = self.active_party_member
         if not active:
@@ -291,38 +304,31 @@ class CombatScreen(BaseScreen):
 
         def _ask_spell_code(discipline: str) -> None:
             type_label = "Wizard" if discipline == "wizard" else "Cleric"
-            # The list is captured once and drives BOTH the printed rows and
-            # the letter lookup (Java reuses the ctor's spellSelection map).
-            castables = get_castables(active, "combat", discipline)
-            if not castables:
-                # A per-discipline empty walk: the canonical empty-map line
-                # (CombatScreen.java:326); the menu does not open.
-                self.text_log.add_message("No spells to cast!")
-                # Refused cast: the turn returns to the same member.
-                self._log_turn_marker()
-                return
+            # USER-DIRECTED RULING (2026-11-15): fixed spell letters
+            # (B=APPAR_UNEM always) — the full fixed A-P list is captured
+            # once and drives BOTH the printed rows and the attempt-time
+            # letter classification (context "combat").
+            entries = spell_menu_entries(discipline)
             # Rows render through the same message stream the ready-weapon
             # menu uses (screen menus print in the log, then arm a prompt).
-            for line in spell_menu_prompt_lines(castables):
+            for line in spell_menu_prompt_lines(entries):
                 self.text_log.add_message(line)
 
             def _on_spell(code: str) -> None:
-                letter = code.strip().upper()
-                found_spell = next((s for l, s in castables if l == letter), None)
-                if found_spell is None:
-                    # Java's out-of-list branch: ANY key failing the
-                    # ``keycode >= Keys.A && keycode < size + Keys.A`` guard
-                    # (a letter past the live list length, digits, ESC —
-                    # there is no special case) logs "Not a spell!" and
-                    # DISARMS the menu: input returns to the screen
-                    # multiplexer with no row re-print, and the player
-                    # re-presses C to see the list again
-                    # (SpellInputProcessor.java:69-72). The profession/MP
-                    # re-checks of the old resolved-letter path are gone
-                    # with it: ``get_castables`` already filtered class
-                    # (and cost, unless FULL MP opens the gate) — an
-                    # offered letter is always castable.
-                    self.text_log.add_message("Not a spell!")
+                found_spell, refusal = letter_resolution(entries, code, "combat")
+                if refusal is not None:
+                    # Two prompt-layer refusals, both pre-execution (no
+                    # SpellResult produced, no cast, no mana — USER-DIRECTED
+                    # RULING 2026-11-15): "Not a spell!" for a key outside
+                    # the fixed A-P codes (Java SpellInputProcessor.java
+                    # :69-72: any key failing the code guard — digits, ESC,
+                    # a non-listed letter) and "Not Here!" for a fixed code
+                    # whose spell fails canCastLocation(MapType.combat)
+                    # (Constants.java:779-781). Either way the menu
+                    # DISARMS: input returns to the screen multiplexer with
+                    # no row re-print, the player re-presses C to see the
+                    # list again, and the turn stays with the active member.
+                    self.text_log.add_message(refusal)
                     return
 
                 if found_spell in DIRECTIONAL_SPELLS:

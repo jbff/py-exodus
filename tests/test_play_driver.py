@@ -172,11 +172,39 @@ class TestActiveTurnMarker:
         before = session.transcript
         before_round = session.screen.arena.round_count
 
-        session.press("B")  # beyond the one-entry list -> "Not a spell!"
+        # USER-DIRECTED RULING (2026-11-15): fixed spell letters — a key
+        # outside the fixed A-P codes (a digit is never a spell letter)
+        # still takes Java's "Not a spell!" branch.
+        session.press("1")
         added = session.transcript[len(before):]
         assert any("Not a spell!" in line for line in added), added
         # The refusal returned the turn to the SAME member: one more marker,
         # no member advance, no monster phase.
+        assert sum("Cora's turn." in line for line in added) == 1, added
+        assert session.active_member == "Cora"
+        assert session.screen.arena.round_count == before_round
+        assert not session.is_waiting_for_input
+
+    def test_attempt_location_refusal_returns_the_turn_and_marks_it_again(
+        self, asset_mgr
+    ):
+        """USER-DIRECTED RULING (2026-11-15): pressing a VALID fixed letter
+        whose spell fails canCastLocation -> "Not Here!", NOT executed (no
+        cast, no mana) — the menu disarms and the turn returns to the SAME
+        member (marker repeat, no member advance, no monster phase). B is
+        APPAR_UNEM ALWAYS; the combat context refuses it (mask lacks the
+        combat bit, Constants.java:710)."""
+        session = PlaySession(asset_mgr).start(party=_cleric_party(mp=99))
+        session.enter_combat(creature_tile="orc", context_map_id=2, monster_count=1)
+        session.press("C")
+        before = session.transcript
+        before_round = session.screen.arena.round_count
+
+        session.press("B")  # APPAR_UNEM, the fixed B — refused in combat
+        added = session.transcript[len(before):]
+        assert any("Not Here!" in line for line in added), added
+        assert not any("Not a spell!" in line for line in added), added
+        assert not any("FAILED" in line for line in added), added
         assert sum("Cora's turn." in line for line in added) == 1, added
         assert session.active_member == "Cora"
         assert session.screen.arena.round_count == before_round
@@ -220,7 +248,7 @@ class TestActiveTurnMarker:
         assert session.active_member == "Cora"
         before = session.transcript
 
-        session.press_seq("C B 2")  # SANCTU (10 MP) on Bruiser: consuming success
+        session.press_seq("C C 2")  # SANCTU (10 MP, fixed C) on Bruiser: consuming success
         added = session.transcript[len(before):]
         assert not any("Cora's turn." in line for line in added), added
         # The consumed turn advanced to the NEXT member, whose turn begins
@@ -253,14 +281,16 @@ def _druid_party(mp: int = 99) -> Party:
 
 
 class TestCombatCastFlow:
-    """Task 3 (2026-11-14 combat-interaction-parity): the combat C command
-    prints the LIVE getCastables rows and reads the letter from the SAME map.
+    """Task 3 (2026-11-14 combat-interaction-parity), rewritten for the
+    USER-DIRECTED RULING (2026-11-15): fixed spell letters (B=APPAR_UNEM
+    always) — the combat C command prints the FULL FIXED A-P rows and reads
+    the letter from the SAME list; the context mask refuses at attempt.
 
-    Java truth: CombatScreen.java:322-330 builds
-    ``Spell.getCastables(ap, MapType.combat)`` for the ACTIVE member (no
-    member prompt), "No spells to cast!" when the map is empty; the ctor of
-    SpellInputProcessor.java:36-39 prints the rows before the first key is
-    read."""
+    Java truth: CombatScreen.java:322-330 builds the combat menu for the
+    ACTIVE member (no member prompt) — "No spells to cast!" when the
+    profession gate upstream opens no menu; SpellInputProcessor.java:36-39
+    prints the rows before the first key is read. The getCastables letter
+    compaction (Constants.java:751-762) is superseded."""
 
     def test_cleric_combat_prints_rows_without_member_prompt(self, asset_mgr):
         session = PlaySession(asset_mgr).start(party=_cleric_party())
@@ -268,24 +298,27 @@ class TestCombatCastFlow:
         assert session.active_member == "Cora"
 
         session.press("C")
-        # The printed list is the live mapping (cleric, combat, mp 99):
-        # PONTORI 0-cost first at A, letters compact over the survivors.
+        # The FIXED cleric list (combat context, letters never move):
+        # APPAR_UNEM sits at its permanent B even though combat will refuse
+        # the attempt (USER-DIRECTED RULING 2026-11-15).
         for row in (
             "A - PONTORI (0)",
-            "B - SANCTU (10)",
-            "C - ALCORT (35)",
-            "D - SANCTU_MANI (50)",
-            "E - EXCUUN (60)",
-            "F - SURMANDUM (65)",
-            "G - ZXKUQYB (70)",
-            "H - ANJU_SERMANI (75)",
+            "B - APPAR_UNEM (5)",
+            "C - SANCTU (10)",
+            "H - ALCORT (35)",
+            "K - SANCTU_MANI (50)",
+            "P - ANJU_SERMANI (75)",
         ):
             assert f"[msg] {row}" in session.transcript, session.transcript
+        # The list is the FULL fixed set: all 16 rows print.
+        rows = [
+            line
+            for line in session.transcript
+            if re.match(r"\[msg\] [A-P] - [A-Z_]+ \(\d+\)$", line)
+        ]
+        assert len(rows) == 16, session.transcript
         # Combat never asks which member (Java casts with the active one).
         assert not any("Which member?" in line for line in session.transcript)
-        # APPAR_UNEM is a chest spell: never in the combat list (mask
-        # world|city|dungeon), matching the 2026-11-11 no-combat ruling.
-        assert not any("APPAR_UNEM" in line for line in session.transcript)
         assert session.is_waiting_for_input
 
     def test_masskill_gate_failed_cast_consumes_the_turn(self, asset_mgr):
@@ -325,45 +358,72 @@ class TestCombatCastFlow:
         assert session.is_waiting_for_input
         assert any("[msg] A - PONTORI (0)" in line for line in session.transcript)
 
-    def test_low_mp_cleric_list_compacts_and_out_of_list_letter_disarms(self, asset_mgr):
-        """MP 3: only the 0-cost spell is listed (not offered = not
-        promptable — no "Thou dost not have enough magic points!" from the
-        prompt flow); a letter beyond the list length logs Java's canonical
-        "Not a spell!" and DISARMS the menu (SpellInputProcessor.java:69-72)
-        — the turn is untouched, so the active-member marker persists."""
+    def test_low_mp_cleric_full_list_and_attempt_refusals(self, asset_mgr):
+        """USER-DIRECTED RULING (2026-11-15): MP 3 no longer compacts the
+        list — the FULL fixed set prints (B - APPAR_UNEM (5) included).
+        Refusals happen AT ATTEMPT: an out-of-list key (a digit) logs
+        Java's canonical "Not a spell!"; the LISTED-but-context-refused
+        APPAR_UNEM (mask lacks the combat bit) logs "Not Here!"; the
+        listed-but-unaffordable ZXKUQYB (70 > 3) gets cast_spell's canonical
+        MP string. Every refusal is pre-execution (no "FAILED", no round
+        advance) and DISARMS the menu — the turn stays with the active
+        member (marker persists)."""
         session = PlaySession(asset_mgr).start(party=_cleric_party(mp=3))
         session.enter_combat(creature_tile="orc", context_map_id=2, monster_count=1)
 
         session.press("C")
-        # The mapped list for a cleric at MP 3 in combat: only the 0-cost
-        # spell; every other cleric spell costs >= 5.
-        spell_rows = [
+        rows = [
             line
             for line in session.transcript
-            if re.match(r"\[msg\] [A-Z] - \w+ \(\d+\)$", line)
+            if re.match(r"\[msg\] [A-P] - [A-Z_]+ \(\d+\)$", line)
         ]
-        assert spell_rows == ["[msg] A - PONTORI (0)"], session.transcript
-        assert not any("magic points" in line for line in session.transcript)
+        assert len(rows) == 16, session.transcript
+        assert "[msg] B - APPAR_UNEM (5)" in rows  # listed though refused
+        assert "[msg] C - SANCTU (10)" in rows  # listed though unaffordable
 
+        # (1) a non-code key: "Not a spell!" + disarm, turn retained.
         before = session.transcript
-        before_cast_round = session.screen.arena.round_count
-        session.press("B")  # beyond the one-entry list
+        before_round = session.screen.arena.round_count
+        session.press("1")
         added = session.transcript[len(before):]
         assert any("Not a spell!" in line for line in added), added
-        assert not any(
-            "Unknown spell!" in line or "FAILED" in line for line in added
-        ), added
-        # The menu is disarmed (no re-arm, no row re-print); the refusal is
-        # pre-execution (prompt-level, SpellInputProcessor.java:69-72), so
-        # nothing consumed: no turn advance, no monster phase.
         assert not session.is_waiting_for_input
-        assert session.active_member == "Cora"  # marker persists
-        assert session.screen.arena.round_count == before_cast_round
+        assert session.screen.arena.round_count == before_round
+
+        # (2) a fixed letter the combat context refuses: "Not Here!" —
+        # no cast, no mana, disarm, turn retained.
+        session.press("C")
+        before = session.transcript
+        session.press("B")  # APPAR_UNEM ALWAYS at B
+        added = session.transcript[len(before):]
+        assert any("Not Here!" in line for line in added), added
+        assert not any("FAILED" in line for line in added), added
+        assert not session.is_waiting_for_input
+        assert session.screen.arena.round_count == before_round
+
+        # (3) an unaffordable listed letter: the canonical MP refusal from
+        # cast_spell's prevalidation (also not executed, turn retained).
+        # ZXKUQYB (O, 70 MP) is non-targeted so the refusal surfaces on the
+        # letter press itself (SANCTU would prompt "On who?" first).
+        session.press("C")
+        before = session.transcript
+        session.press("O")  # ZXKUQYB (70) at MP 3
+        added = session.transcript[len(before):]
+        # the string wraps in the narrow log: assert its two halves land.
+        assert any(
+            "Thou dost not have enough" in line for line in added
+        ), added
+        assert any("magic points" in line for line in added), added
+        assert not any("FAILED" in line for line in added), added
+        assert not session.is_waiting_for_input
+        assert session.screen.arena.round_count == before_round
+        assert session.active_member == "Cora"  # kept the turn throughout
 
     def test_druid_combat_wizard_cleric_choice_then_wizard_rows(self, asset_mgr):
         """The druid/ranger dual gate: combat prompts [W]izard or [C]leric
-        first (py's discipline split — get_castables takes the RESOLVED
-        discipline; two calls = two menus), then the chosen list prints."""
+        first (py's discipline split — each choice shows its own FIXED
+        list, USER-DIRECTED RULING 2026-11-15; two calls = two menus), then
+        the chosen list prints."""
         session = PlaySession(asset_mgr).start(party=_druid_party())
         session.enter_combat(creature_tile="orc", context_map_id=2, monster_count=1)
 
@@ -397,9 +457,10 @@ class TestCombatCastFlow:
         )
 
     def test_world_flow_member_prompt_then_rows_and_appar_unem(self, asset_mgr):
-        """The world flow still prompts the member first; the list prints
-        after the selection and offers the context spells (APPAR_UNEM is
-        IN the world list — the combat exclusion is the contrast)."""
+        """The world flow still prompts the member first; the FIXED list
+        prints after the selection — APPAR_UNEM sits at its permanent B in
+        EVERY list (USER-DIRECTED RULING 2026-11-15); world attempt-refuses
+        the combat-only PONTORI at A instead of hiding it."""
         session = PlaySession(asset_mgr).start(party=_cleric_party())
         assert isinstance(session.screen, OverworldScreen)
 
@@ -409,7 +470,8 @@ class TestCombatCastFlow:
         ), session.transcript
 
         session.press("1")
-        assert any("[msg] A - APPAR_UNEM (5)" in line for line in session.transcript)
+        assert any("[msg] B - APPAR_UNEM (5)" in line for line in session.transcript)
+        assert any("[msg] A - PONTORI (0)" in line for line in session.transcript)
         assert any(
             line.startswith("[prompt] Cleric Spell? (A-P):") for line in session.transcript
         )
@@ -417,59 +479,71 @@ class TestCombatCastFlow:
 
 
 class TestClericCombatCastLoopRegression:
-    """Task 8: the user's 2026-11-14 play report, pinned as a driver regression.
+    """Task 8: the user's 2026-11-14 play report, re-pinned under the
+    USER-DIRECTED RULING (2026-11-15): fixed spell letters (B=APPAR_UNEM
+    always); availability refused at attempt.
 
     The reported session: combat vs the undead family (skeletons), the
     per-battle masskill latch OFF, a lone cleric holding the turn:
-    (1) ``C`` printed the live list with PONTORI at ``A`` and SANCTU's
-    letter, and no APPAR_UNEM anywhere in it; (2) a letter beyond the
-    printed list only logged "Not a spell!" and repeated the same member's
-    turn marker; (3) ``C`` re-armed the prompt, and casting PONTORI under
-    the OFF latch printed FAILED and CONSUMED the turn (monster phase, round
-    advance, same member re-armed next round); (4) combat never asked
+    (1) ``C`` prints the FULL FIXED cleric list — PONTORI at its permanent
+    ``A``, APPAR_UNEM at its permanent ``B`` (listed even though combat
+    refuses the attempt); (2) pressing ``B`` in combat logs "Not Here!" —
+    NOT executed, no cast, no mana, the menu disarms and the SAME member's
+    turn marker repeats; a non-code key still takes "Not a spell!";
+    (3) ``C`` re-arms the prompt, and casting PONTORI (always letter ``A``)
+    under the OFF latch prints FAILED and CONSUMES the turn (monster phase,
+    round advance, same member re-armed next round); (4) combat never asks
     "Which member?"; (5) the non-projectile masskill cast drew no fabricated
     tracer FX (mirrors Task 5's spell_fx_count hook)."""
 
-    def test_list_rows_out_of_range_letter_then_rearm(self, asset_mgr):
-        """Play report (1)+(2)+(4): the printed list rows, the out-of-range
-        letter's disarm with the marker repeat, and the re-armed re-open."""
+    def test_list_rows_attempt_refusals_then_rearm(self, asset_mgr):
+        """Play report (1)+(2)+(4): the FULL FIXED list rows, the B-in-combat
+        "Not Here!" attempt refusal with the marker repeat, the non-code
+        "Not a spell!" disarm, and the re-armed re-open."""
         session = PlaySession(asset_mgr).start(party=_cleric_party())
         session.enter_combat(
             creature_tile="skeleton", context_map_id=2, monster_count=1
         )
         assert session.active_member == "Cora"
 
-        # (1) ``C``: the live combat rows print for the active member —
-        # PONTORI (the masskill-gated spell) first at ``A``, SANCTU's letter
-        # right after — and APPAR_UNEM (a chest spell) is absent entirely.
+        # (1) ``C``: the FULL FIXED cleric rows print for the active member —
+        # PONTORI (the masskill-gated spell) at its permanent ``A``,
+        # APPAR_UNEM listed at its permanent ``B`` even though combat will
+        # refuse the attempt (USER-DIRECTED RULING 2026-11-15).
         session.press("C")
-        for row in (
-            "A - PONTORI (0)",
-            "B - SANCTU (10)",
-            "C - ALCORT (35)",
-            "D - SANCTU_MANI (50)",
-            "E - EXCUUN (60)",
-            "F - SURMANDUM (65)",
-            "G - ZXKUQYB (70)",
-            "H - ANJU_SERMANI (75)",
-        ):
-            assert f"[msg] {row}" in session.transcript, session.transcript
-        assert not any("APPAR_UNEM" in line for line in session.transcript), (
-            session.transcript
-        )
+        rows = [
+            line
+            for line in session.transcript
+            if re.match(r"\[msg\] [A-P] - [A-Z_]+ \(\d+\)$", line)
+        ]
+        assert len(rows) == 16, session.transcript
+        assert "[msg] A - PONTORI (0)" in rows
+        assert "[msg] B - APPAR_UNEM (5)" in rows
 
-        # (2) A letter beyond the printed list length (A-H here): Java's
-        # canonical "Not a spell!" and the menu DISARMS; the refusal is
-        # pre-execution, so the turn is untouched — the SAME member keeps
-        # it (the marker repeats once), no member advance, no monster phase.
+        # (2a) B in combat: a VALID fixed letter whose spell the context
+        # refuses -> "Not Here!" — NOT executed (no cast, no mana, no
+        # "FAILED"), the menu DISARMS, and the turn is untouched: the SAME
+        # member keeps it (the marker repeats once), no member advance, no
+        # monster phase.
         before = session.transcript
         before_round = session.screen.arena.round_count
-        session.press("I")
+        session.press("B")
         added = session.transcript[len(before):]
-        assert any("Not a spell!" in line for line in added), added
+        assert any("Not Here!" in line for line in added), added
+        assert not any("FAILED" in line or "Not a spell!" in line for line in added)
         assert not session.is_waiting_for_input
         assert sum("Cora's turn." in line for line in added) == 1, added
         assert session.active_member == "Cora"
+        assert session.screen.arena.round_count == before_round
+
+        # (2b) a non-code key still takes Java's "Not a spell!" branch
+        # (retained for unknown letters).
+        session.press("C")
+        before = session.transcript
+        session.press("1")
+        added = session.transcript[len(before):]
+        assert any("Not a spell!" in line for line in added), added
+        assert not session.is_waiting_for_input
         assert session.screen.arena.round_count == before_round
 
         # (4) Combat never asks which member casts: the active member IS
@@ -477,8 +551,8 @@ class TestClericCombatCastLoopRegression:
         # no combat twin).
         assert not any("Which member?" in line for line in session.transcript)
 
-        # (3) opening beat: ``C`` again re-arms the prompt with its rows —
-        # the same list, not a member prompt.
+        # (3) closing beat: ``C`` again re-arms the prompt with its rows —
+        # the same fixed list, not a member prompt.
         session.press("C")
         assert session.is_waiting_for_input
         assert any("[msg] A - PONTORI (0)" in line for line in session.transcript)
