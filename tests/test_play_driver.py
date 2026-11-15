@@ -644,3 +644,135 @@ class TestClericCombatCastLoopRegression:
         # (4) No "Cast: Which member?" string ever appears in combat —
         # including across the round rollover this cast just drove.
         assert not any("Which member?" in line for line in session.transcript)
+
+
+class TestMonsterHitAffordance:
+    """Playtest-1 fix batch, item 4 (user-approved deviation from Java's
+    message silence): when a monster's melee/ranged/cannonfire hit lands on a
+    member, the combat transcript gains an affordance line in the port's
+    voice, mirroring the task-6 turn-marker precedent ("X's turn.", "Pass")
+    — event-driven, never per-frame. Java logs NOTHING on ANY monster action
+    (CombatScreen.java:720-745 melee is sounds-only; rangedAttackAt logs
+    only "Electrified!"/"Fiery Hit!"/"Poisoned!"), so these lines are NOT
+    message parity; the user-approved scope covers HITS and DEATHS only —
+    misses stay silent to keep noise down."""
+
+    def _giant_battle(self, asset_mgr, monkeypatch, *, hp=100, hit=True,
+                      damage=34, roll_bonus=0):
+        """One-member 'Serana' vs one adjacent giant; deterministic hit and
+        damage rolls (resolver-level patches, exactly the functions the melee
+        resolve consults); monster_damage_bonus is zeroed so the transcript
+        number is the plain damage roll."""
+        import py_exodus.combat.resolver as resolver
+
+        party = Party()
+        party.add_member(
+            Character("Serana", Sex.FEMALE, profession=Profession.FIGHTER, hp=hp, max_hp=100)
+        )
+        session = PlaySession(asset_mgr).start(party=party)
+        session.enter_combat(creature_tile="giant", monster_count=1)
+        arena = session.screen.arena
+        monster = arena.monsters[0]
+        member_pos = arena.player_positions[arena.active_party_member_idx]
+        mx = member_pos[0] + 1 if member_pos[0] < 10 else member_pos[0] - 1
+        monster.x, monster.y = mx, member_pos[1]
+
+        monkeypatch.setattr(resolver, "roll_hit", lambda *a, **k: hit)
+        monkeypatch.setattr(resolver, "calculate_monster_damage", lambda basehp: damage)
+        monkeypatch.setattr(resolver, "monster_damage_bonus", lambda cmap: roll_bonus)
+        return session
+
+    def test_giant_melee_hit_line_with_the_number(self, asset_mgr, monkeypatch):
+        session = self._giant_battle(asset_mgr, monkeypatch)
+        before = session.transcript
+
+        session.press("SPACE")  # pass: round ends, the giant attacks
+
+        added = session.transcript[len(before):]
+        assert any("[msg] Giant hits Serana (-34)." in line for line in added), added
+
+    def test_member_death_line_after_a_killing_hit(self, asset_mgr, monkeypatch):
+        session = self._giant_battle(asset_mgr, monkeypatch, hp=30)  # 34 > 30
+
+        session.press("SPACE")
+
+        text = "\n".join(session.transcript)
+        assert "Giant hits Serana (-34)." in text
+        assert "Serana falls!" in text
+
+    def test_melee_miss_stays_silent(self, asset_mgr, monkeypatch):
+        session = self._giant_battle(asset_mgr, monkeypatch, hit=False)
+        before = session.transcript
+
+        session.press("SPACE")
+
+        added = session.transcript[len(before):]
+        assert not any("Giant hits" in line for line in added), added
+        assert not any("falls!" in line for line in added), added
+
+    def test_ranged_bolt_hit_line(self, asset_mgr, monkeypatch):
+        """A dragon's fire bolt that lands on a member gains the same hit
+        line; the ranged "Fiery Hit!" mechanic string rides along (its own
+        message slot) and the member's death still gets its line."""
+        import py_exodus.combat.resolver as resolver
+
+        party = Party()
+        party.add_member(
+            Character("Serana", Sex.FEMALE, profession=Profession.CLERIC, hp=200, max_hp=200)
+        )
+        session = PlaySession(asset_mgr).start(party=party)
+        session.enter_combat(creature_tile="dragon", monster_count=1)
+        arena = session.screen.arena
+        monster = arena.monsters[0]
+        member_pos = arena.player_positions[0]
+        monster.x, monster.y = member_pos[0], member_pos[1] - 2  # straight bolt south
+
+        # AI: the ranged-only choice (randrange(100) -> 0 <= 33); damage 27
+        # on every roll call (the fire bolt rolls twice per Java's
+        # double-damage quirk, so the line shows the SUM).
+        monkeypatch.setattr(random, "randrange", lambda n: 0)
+        monkeypatch.setattr(resolver, "roll_hit", lambda *a, **k: True)
+        monkeypatch.setattr(resolver, "calculate_monster_damage", lambda basehp: 27)
+        monkeypatch.setattr(resolver, "monster_damage_bonus", lambda cmap: 0)
+        before = session.transcript
+
+        session.press("SPACE")
+
+        added = session.transcript[len(before):]
+        assert any("[msg] Fiery Hit!" in line for line in added), added
+        assert any("Dragon hits Serana (-54)." in line for line in added), added
+
+    def test_ship_cannonfire_logs_per_member_hit_lines(self, asset_mgr, monkeypatch):
+        """The GBC cannonfire deviation (ship battles) reports each member's
+        blow through the same affordance voice; the existing "Cannonball
+        barrage!" line stays."""
+        import py_exodus.combat.resolver as resolver
+        from py_exodus.constants import Transport
+
+        party = Party()
+        party.add_member(
+            Character("Serana", Sex.FEMALE, profession=Profession.FIGHTER, hp=100, max_hp=100)
+        )
+        party.transport = Transport.SHIP
+        session = PlaySession(asset_mgr).start(party=party)
+        session.enter_combat(creature_tile="serpent", monster_count=1)
+        arena = session.screen.arena
+        assert arena.ship_battle
+
+        # serpent: ranged monster (randrange(100) -> 0 picks the ranged
+        # action); each barrage blow rolls randrange(78) -> 12.
+        monkeypatch.setattr(random, "randrange", lambda n: 0 if n == 100 else 12)
+        monkeypatch.setattr(resolver, "roll_hit", lambda *a, **k: True)
+        before = session.transcript
+
+        session.press("SPACE")
+
+        added = session.transcript[len(before):]
+        assert any("[msg] Cannonball barrage!" in line for line in added), added
+        # the line wraps in the text log (and each wrapped history line gets
+        # its own "[msg] " tag): strip the tags, then match on the joined text
+        stripped = " ".join(
+            l.replace("[msg] ", "").replace("[prompt] ", "") for l in added
+        )
+        joined = " ".join(stripped.split())
+        assert "Serpent cannonfire hits Serana (-12)." in joined, added

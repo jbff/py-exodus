@@ -542,7 +542,14 @@ def test_ship_battle_cannonfire_hits_every_living_member(monkeypatch):
         ship_battle=True,
         members=[living_a, dead, living_b],
     )
-    assert res.message == "Cannonball barrage!"
+    # Playtest-1 item 4 affordance: the barrage line is followed by one
+    # cannonfire hit line per member whose blow dealt damage (a blow that
+    # rolls 0 stays silent; the dead member is never hit).
+    msg_lines = res.message.split("\n")
+    assert msg_lines[0] == "Cannonball barrage!"
+    assert len(msg_lines) == 1 + sum(1 for r in rolls if r > 0)
+    for line in msg_lines[1:]:
+        assert line.startswith("Orc cannonfire hits ") and line.endswith(").")
     assert res.hit and res.result.name == "HIT"
     assert len(rolls) == 2  # one roll per living member, none for the dead one
     assert all(0 <= r < 78 for r in rolls)
@@ -573,7 +580,11 @@ def test_ship_battle_cannonfire_can_kill_and_reports_it(monkeypatch):
         ship_battle=True,
         members=[victim],
     )
-    assert res.message == "Cannonball barrage!"
+    assert res.message.startswith("Cannonball barrage!")
+    # Playtest-1 item 4 affordance: the death rides its own line and the
+    # killing blow is reported with its number (77 exactly).
+    assert "Hero falls!" in res.message
+    assert "Orc cannonfire hits Hero (-77)." in res.message
     assert res.killed
     assert victim.status == Status.DEAD
     assert victim.hp == 0

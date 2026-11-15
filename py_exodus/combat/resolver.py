@@ -676,13 +676,29 @@ def resolve_monster_ranged_attack(
         roster = members if members is not None else [target_player]
         total = 0
         killed = False
+        # Playtest-1 fix batch, item 4 (user-approved affordance deviating
+        # from Java's silence): each landed blow reports in the port's voice
+        # — the per-member damage never left the resolver before, so the
+        # lines are assembled here and ride the message pipeline the arena
+        # already mirrors. Zero-damage blows stay silent (a blow that takes
+        # nothing is a miss for the transcript's purpose).
+        monster_name = getattr(monster, "name", "Monster") or "Monster"
+        lines = ["Cannonball barrage!"]
         for member in roster:
             if _member_is_dead(member):
                 continue
             amount = random.randrange(78)
             _deal_monster_damage_to_member(member, amount)
             total += amount
-            killed = killed or getattr(member, "status", None) == Status.DEAD
+            died = getattr(member, "status", None) == Status.DEAD
+            killed = killed or died
+            if amount > 0:
+                member_name = getattr(member, "name", "member")
+                lines.append(
+                    f"{monster_name} cannonfire hits {member_name} ({-amount})."
+                )
+                if died:
+                    lines.append(f"{member_name} falls!")
         return AttackResolution(
             hit=True,
             damage=total,
@@ -692,10 +708,10 @@ def resolve_monster_ranged_attack(
             # Item 3 note: this mechanic is GBC-adopted (cannonfire);
             # GBC prints no text for it (cannonfire3, battle3.c:501-560,
             # calls no writegamemessage) and Java's rangedAttackAt logs only
-            # "Electrified!"/"Fiery Hit!"/"Poisoned!" — this one-line barrage
-            # report stays as the branch's player feedback per the item-3
-            # ruling to keep GBC-adopted mechanic strings and note them.
-            message="Cannonball barrage!",
+            # "Electrified!"/"Fiery Hit!"/"Poisoned!" — the barrage line
+            # stays as the branch's player feedback per the item-3 ruling to
+            # keep GBC-adopted mechanic strings and note them.
+            message="\n".join(lines),
         )
 
     armor_name = getattr(getattr(target_player, "armor", None), "value", None)

@@ -996,8 +996,42 @@ class CombatArena:
             from_pos=from_pos,
             to_pos=target_pos,
             attack_res=attack_res,
-            message=attack_res.message,
+            message=self._compose_monster_message(
+                attack_res.message,
+                self._monster_hit_affordance_lines(
+                    monster.name, target_member, attack_res
+                ),
+            ),
         )
+
+    # --- Monster-hit affordance (playtest-1 fix batch, item 4) -------------
+    def _monster_hit_affordance_lines(self, monster_name: str, member, attack_res) -> list[str]:
+        """PLAYABILITY AFFORDANCE — NOT message parity (user-approved
+        deviation, 2026-11-15). Java logs NOTHING on any monster action (the
+        melee branch is sounds-only, CombatScreen.java:720-745), but this
+        port's combat channel is the text log, so a landed hit or a member
+        death marks the transcript once per event, mirroring the task-6
+        turn-marker pattern ("X's turn.", "Pass") — event-driven, never
+        per-frame. Misses stay silent to keep the noise down (the approved
+        scope covers HITS and DEATHS only)."""
+        if attack_res is None or member is None:
+            return []
+        member_name = getattr(member, "name", "member")
+        lines: list[str] = []
+        damage = getattr(attack_res, "damage", 0) or 0
+        if getattr(attack_res, "hit", False) and damage > 0:
+            lines.append(f"{monster_name} hits {member_name} ({-damage}).")
+        if getattr(attack_res, "killed", False):
+            lines.append(f"{member_name} falls!")
+        return lines
+
+    @staticmethod
+    def _compose_monster_message(base: str, lines: list[str]) -> str:
+        """Join the mechanic feedback (e.g. "POISONED!", "Fiery Hit!",
+        "Cannonball barrage!") and the hit/death affordance lines into the
+        multi-line message the log pipeline already renders."""
+        parts = [p for p in ([base, *lines]) if p]
+        return "\n".join(parts)
 
     def _hide_or_show(self, monster: CombatMonster) -> bool:
         """Java ``CombatScreen.hideOrShow`` (CombatScreen.java:858-880).
@@ -1107,13 +1141,23 @@ class CombatArena:
             monster, living_members, context_map_id=self.context_map_id
         )
         if poke_res is not None:
+            poke_member = (
+                self._member_at(*poke_res.target_pos)
+                if poke_res.target_pos is not None
+                else None
+            )
             return MonsterTurnResult(
                 monster_name=monster.name,
                 action_type="ranged",
                 from_pos=from_pos,
                 to_pos=(poke_res.target_pos or (from_pos)),
                 attack_res=poke_res,
-                message=poke_res.message,
+                message=self._compose_monster_message(
+                    poke_res.message,
+                    self._monster_hit_affordance_lines(
+                        monster.name, poke_member, poke_res
+                    ),
+                ),
             )
         tx, ty = self.player_positions[target_idx]
         dirmask = get_relative_direction_mask(
@@ -1138,6 +1182,7 @@ class CombatArena:
 
         attack_res: AttackResolution | None = None
         hit_pos = from_pos
+        hit_member = None
         for pt in path:
             member = self._member_at(pt[0], pt[1])
             if member is None:
@@ -1150,6 +1195,7 @@ class CombatArena:
                 context_map_id=self.context_map_id,
             )
             hit_pos = (member.x, member.y)
+            hit_member = member
             if attack_res.hit:
                 break
 
@@ -1168,7 +1214,12 @@ class CombatArena:
             from_pos=from_pos,
             to_pos=hit_pos,
             attack_res=attack_res,
-            message=attack_res.message,
+            message=self._compose_monster_message(
+                attack_res.message,
+                self._monster_hit_affordance_lines(
+                    monster.name, hit_member, attack_res
+                ),
+            ),
         )
 
     def _monster_advance(

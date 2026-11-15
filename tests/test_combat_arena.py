@@ -615,7 +615,18 @@ def test_ship_party_monster_ranged_is_cannonfire(asset_mgr, conflict_map, monkey
     res = arena._execute_single_monster_ai(arena.monsters[0])
     assert res is not None
     assert res.action_type == "ranged"
-    assert res.message == "Cannonball barrage!"
+    assert res.message.split("\n")[0] == "Cannonball barrage!"
+    # Playtest-1 item 4 affordance: each member whose blow dealt damage gains
+    # a cannonfire hit line under the barrage line (a 0 roll stays silent),
+    # and a killing blow adds the member's death line.
+    hit_lines = [l for l in res.message.split("\n") if "cannonfire hits " in l]
+    assert len(hit_lines) == sum(1 for roll in rolls if roll > 0)
+    for line in hit_lines:
+        assert line.startswith("Orc cannonfire hits ") and line.endswith(").")
+    deaths = sum(
+        1 for member, roll in zip(party.members, rolls) if roll > 0 and member.hp <= 0
+    )
+    assert sum(1 for l in res.message.split("\n") if l.endswith(" falls!")) == deaths
     assert len(rolls) == 2  # one roll per living member
     for member, roll in zip(party.members, rolls):
         assert member.hp == max(60 - roll, 0)
@@ -650,7 +661,9 @@ def test_wizard_with_distant_party_magic_blasts(asset_mgr, conflict_map, monkeyp
     res = arena._execute_single_monster_ai(arena.monsters[0])
     assert res is not None
     assert res.action_type == "ranged"
-    assert res.message == "Magic Blast!"
+    # Playtest-1 item 4 affordance: the blast's hit line rides under the
+    # "Magic Blast!" feedback (the roll itself went through the melee roll).
+    assert res.message == "Magic Blast!\nWizard hits Hero (-7)."
     assert hero.hp == 999 - 7  # single-target roll through the melee chokepoint
 
 

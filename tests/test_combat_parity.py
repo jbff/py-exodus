@@ -140,7 +140,10 @@ def test_monster_ranged_fire_deals_damage_twice(asset_mgr, conflict_map, monkeyp
     assert res is not None and res.attack_res is not None
     assert res.attack_res.damage == 10  # 5 + 5 (double dealDamage)
     assert hero.hp == 990
-    assert res.message == "Fiery Hit!"
+    # Playtest-1 item 4 affordance: the mechanic line keeps its slot and the
+    # landed bolt adds its hit line. The fire roll runs twice per Java's
+    # double-damage quirk; the line shows the SUM dealt, 5 + 5.
+    assert res.message == "Fiery Hit!\nOrc hits Hero (-10)."
 
 
 def test_monster_ranged_energy_doubles_and_electrified(asset_mgr, conflict_map, monkeypatch):
@@ -161,7 +164,9 @@ def test_monster_ranged_energy_doubles_and_electrified(asset_mgr, conflict_map, 
     res = arena._execute_single_monster_ai(arena.monsters[0])
     assert res.attack_res.damage == 14
     assert hero.hp == 986
-    assert res.message == "Electrified!"
+    # Playtest-1 item 4 affordance: the landed bolt adds its hit line under
+    # the mechanic line (7 + 7 per the energy double-damage quirk).
+    assert res.message == "Electrified!\nOrc hits Hero (-14)."
 
 
 # --- (b) Context.getCombatMap ------------------------------------------------
