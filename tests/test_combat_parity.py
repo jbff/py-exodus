@@ -310,10 +310,10 @@ def test_combat_poison_tick_removed(asset_mgr, conflict_map):
 def test_monster_damage_zero_possible_through_chokepoint(asset_mgr, conflict_map):
     """Small monsters roll 0 base damage (no max(1, _) floor).
 
-    USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): the GBC terrain bonus is
+    USER-DIRECTED GBC-RULES DEVIATION (2026-11-16): the GBC terrain bonus is
     added to the roll even when it lands 0, so on the Castle of Death context
-    (EXODUS, tier +20) the member takes the bonus, not zero
-    (GBC battle3.c:337-350)."""
+    (EXODUS, tier +30) the member takes the bonus, not zero
+    (GBC battle3.c:354-368)."""
     party = Party()
     hero = Character("Hero", "M", hp=100, max_hp=100)
     party.add_member(hero)
@@ -646,8 +646,8 @@ def test_exodus_monster_melee_auto_hits_non_exotic_defender(asset_mgr, conflict_
 
     res = arena._execute_single_monster_ai(arena.monsters[0])
     assert res.attack_res.hit
-    # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): 9 rolled + EXODUS terrain
-    # tier +20 (GBC battle3.c:337-350).
+    # USER-DIRECTED GBC-RULES DEVIATION (2026-11-16): 9 rolled + EXODUS terrain
+    # tier +30 (GBC battle3.c:354-368).
     assert hero.hp == 100 - (9 + monster_damage_bonus(2))
 
 

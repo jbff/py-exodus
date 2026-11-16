@@ -102,10 +102,10 @@ def calculate_monster_damage(basehp: int) -> int:
     return damage
 
 
-# USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): GBC battle3.c:337-350 adds a
-# terrain bonus to monster melee damage (+10 dungeon, +30 surface
-# Sosaria/Ambrosia, +20 towns/castles/other interiors). The GBC
-# inside/peermap table maps onto py map ids; the dungeon maps are the
+# USER-DIRECTED GBC-RULES DEVIATION (2026-11-16): GBC battle3.c:354-368 adds a
+# terrain bonus to monster melee damage (+10 dungeon, +0 Sosaria surface, +30
+# Ambrosia / Castle British / Castle of Death, +20 other towns/interiors).
+# The GBC inside/peermap table maps onto py map ids; the dungeon maps are the
 # maps.xml type="dungeon" rows.
 _DUNGEON_MAP_IDS: frozenset | None = None
 
@@ -124,17 +124,23 @@ def _dungeon_map_ids() -> frozenset:
 
 
 def monster_damage_bonus(context_map_id: int | None) -> int:
-    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): terrain tier for monster
-    melee damage — +10 on a dungeon map, +30 on the surface worlds (Sosaria,
-    Ambrosia), +20 in towns, castles and other interiors; an unknown context
-    (None) falls to the interior tier (GBC battle3.c:337-350)
+    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-16): terrain tier for monster
+    melee damage — +10 on a dungeon map, +0 on Sosaria surface, +30 in Ambrosia,
+    Castle British, and Castle of Death (EXODUS), and +20 in other towns and
+    interiors; an unknown context (None) falls to the interior tier
+    (GBC battle3.c:354-368).
     """
-    if context_map_id is not None and context_map_id in _dungeon_map_ids():
+    if context_map_id is None:
+        return 20
+    if context_map_id in _dungeon_map_ids():
         return 10
     import py_exodus.assets as assets
 
+    if context_map_id == assets.MAP_NAME_TO_ID["SOSARIA"]:
+        return 0
     if context_map_id in (
-        assets.MAP_NAME_TO_ID["SOSARIA"],
+        assets.MAP_NAME_TO_ID["BRITISH"],
+        assets.MAP_NAME_TO_ID["EXODUS"],
         assets.MAP_NAME_TO_ID["AMBROSIA"],
     ):
         return 30
@@ -554,10 +560,11 @@ def resolve_monster_melee_attack(
         )
 
     basehp = getattr(monster, "basehp", 48)
-    # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): monster melee damage adds
-    # the terrain bonus — +10 dungeon, +30 surface Sosaria/Ambrosia, +20
-    # towns/castles/other interiors, per the GBC inside/peermap table mapped to
-    # py MAP_NAME_TO_ID (GBC battle3.c:337-350).
+    # USER-DIRECTED GBC-RULES DEVIATION (2026-11-16): monster melee damage adds
+    # the terrain bonus — +10 dungeon, +0 Sosaria surface, +30 Ambrosia /
+    # Castle British / Castle of Death (EXODUS), +20 other towns/interiors, per
+    # the GBC inside/peermap table mapped to py MAP_NAME_TO_ID
+    # (GBC battle3.c:354-368).
     damage = calculate_monster_damage(basehp) + monster_damage_bonus(context_map_id)
     # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): a NECORP-weakened creature
     # deals half its melee damage. GBC NECORP clamps the monster's hp to 5 AND

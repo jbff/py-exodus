@@ -339,29 +339,31 @@ def test_guard_never_takes_damage_across_seeded_rolls():
 
 
 def test_monster_damage_bonus_tiers():
-    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): +10 dungeon, +30 surface
-    Sosaria/Ambrosia, +20 towns/castles/other interiors — the GBC
-    inside/peermap table mapped onto py MAP_NAME_TO_ID ids
-    (GBC battle3.c:337-350)."""
+    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-16): +10 dungeon, +0 Sosaria
+    surface, +30 Ambrosia & Castle British / Castle of Death, +20 other
+    towns/interiors/None — the GBC inside/peermap table mapped onto py
+    MAP_NAME_TO_ID ids (GBC battle3.c:354-368)."""
     for name in ("PERINIAN", "DARDIN", "MINE", "FIRE", "DOOM", "SNAKE", "TIME"):
         assert monster_damage_bonus(MAP_NAME_TO_ID[name]) == 10
-    for name in ("SOSARIA", "AMBROSIA"):
+    assert monster_damage_bonus(MAP_NAME_TO_ID["SOSARIA"]) == 0
+    for name in ("BRITISH", "EXODUS", "AMBROSIA"):
         assert monster_damage_bonus(MAP_NAME_TO_ID[name]) == 30
-    for name in ("BRITISH", "LCB", "DAWN", "YEW", "EXODUS"):
+    for name in ("LCB", "DAWN", "YEW"):
         assert monster_damage_bonus(MAP_NAME_TO_ID[name]) == 20
     assert monster_damage_bonus(None) == 20  # unknown context falls to interiors
 
 
 def test_melee_damage_applies_terrain_bonus(monkeypatch):
-    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): monster melee damage
-    adds the terrain bonus to the roll (GBC battle3.c:337-350)."""
+    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-16): monster melee damage
+    adds the terrain bonus to the roll (GBC battle3.c:354-368)."""
     _forced_hit(monkeypatch, damage=1)
     monster = CombatMonster(ORC, 0, 0)
     expected_by_name = {
         "MINE": 11,  # 1 + 10 dungeon
-        "SOSARIA": 31,  # 1 + 30 surface
-        "AMBROSIA": 31,
-        "EXODUS": 21,  # 1 + 20 castle context
+        "SOSARIA": 1,  # 1 + 0 Sosaria surface
+        "AMBROSIA": 31,  # 1 + 30 Ambrosia
+        "BRITISH": 31,  # 1 + 30 Castle British
+        "EXODUS": 31,  # 1 + 30 Castle of Death
         "DAWN": 21,  # 1 + 20 town
         None: 21,  # unknown/absent context falls to interiors
     }
