@@ -592,3 +592,48 @@ def test_combat_defeat_transitions_to_start_screen_without_revival(sm, asset_mgr
     assert party.is_party_dead()
     assert party.map_id == before_map_id
     assert all(m.status == Status.DEAD for m in party.members)
+
+
+def test_combat_exact_zero_hp_stays_in_fight_and_subsequent_hit_ends_game(sm, asset_mgr):
+    """Exact 0 HP stays alive (0-hp-GOOD convention); only < 0 HP kills and
+    routes combat defeat to StartScreen game over (Item 46)."""
+    from py_exodus.screens.start import StartScreen
+    from py_exodus.world.loader import MapLoader
+
+    c_map = MapLoader(asset_mgr).load_conflict_map("cnflct_b.json")
+    party = single_member_party(hp=5)
+    member = party.members[0]
+
+    combat = CombatScreen(
+        party=party,
+        combat_map=c_map,
+        creature_tile="orc",
+        asset_mgr=asset_mgr,
+        return_screen=None,
+        manager=sm,
+    )
+    sm.push_screen(combat)
+
+    member.apply_damage(5, combat_related_damage=True)
+    combat.arena._evaluate_party_status()
+
+    assert member.hp == 0
+    assert not member.is_dead()
+    assert not combat.arena.is_finished
+    assert not combat.arena.is_defeat
+    assert combat.arena._is_member_eligible_for_turn(0) is True
+    nearest_idx, nearest_member, _ = combat.arena._find_nearest_player(5, 4)
+    assert nearest_idx == 0
+    assert nearest_member is member
+
+    member.apply_damage(1, combat_related_damage=True)
+    combat.arena._evaluate_party_status()
+
+    assert member.is_dead()
+    assert combat.arena.is_finished
+    assert combat.arena.is_defeat
+
+    combat.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RETURN))
+
+    assert isinstance(sm.current_screen, StartScreen)
+    assert sm.current_screen.game_over is True

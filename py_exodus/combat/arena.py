@@ -391,7 +391,7 @@ class CombatArena:
         if member_idx >= len(self.party.members):
             return False
         member = self.party.members[member_idx]
-        if member.fled or member.is_disabled() or member.is_dead() or member.hp <= 0:
+        if member.fled or member.is_disabled() or member.is_dead():
             return False
         return True
 
@@ -1313,7 +1313,7 @@ class CombatArena:
 
         for p_idx, pos in self.player_positions.items():
             member = self.party.members[p_idx]
-            if member.fled or member.is_dead() or member.hp <= 0:
+            if member.fled or member.is_dead():
                 continue
             dx = abs(from_x - pos[0])
             dy = abs(from_y - pos[1])
@@ -1367,9 +1367,9 @@ class CombatArena:
         # (hasBlockingCombatPlayerAt skips fled members).
         living_on_board = [
             i for i, pos in self.player_positions.items()
-            if not self.party.members[i].is_dead() and self.party.members[i].hp > 0
+            if not self.party.members[i].is_dead() and not self.party.members[i].fled
         ]
-        any_alive = any(not m.is_dead() and m.hp > 0 for m in self.party.members)
+        any_alive = any(not m.is_dead() for m in self.party.members)
 
         if not living_on_board:
             self.is_finished = True
