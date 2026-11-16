@@ -188,6 +188,64 @@ def test_game_over_journey_onward_without_save_falls_back_to_roster(pygame_setup
     start._start_journey()
 
     assert isinstance(start.next_screen, RosterScreen)
+    assert len(start.next_screen.party.members) == 0
+
+
+def test_game_over_manage_party_starts_with_empty_party(
+    pygame_setup, asset_mgr, monkeypatch, tmp_path
+):
+    """Item 43: selecting New Game / Roster after game over must start with an empty party."""
+    monkeypatch.chdir(tmp_path)
+
+    from py_exodus.screens.roster_screen import RosterScreen
+    from py_exodus.screens.start import StartScreen
+
+    dead_party = single_member_party(hp=10)
+    dead_party.get_member(0).apply_damage(20, combat_related_damage=True)
+    assert dead_party.is_party_dead()
+
+    start = StartScreen(party=dead_party, asset_mgr=asset_mgr, game_over=True)
+    start._new_game()
+
+    assert isinstance(start.next_screen, RosterScreen)
+    assert len(start.next_screen.party.members) == 0
+
+
+def test_journey_onward_with_all_dead_save_falls_back_to_empty_roster(
+    pygame_setup, asset_mgr, monkeypatch, tmp_path
+):
+    """Item 43: Journey Onward with an all-dead on-disk save must fall back to an empty RosterScreen."""
+    monkeypatch.chdir(tmp_path)
+
+    from py_exodus.screens.roster_screen import RosterScreen
+    from py_exodus.screens.start import StartScreen
+
+    dead_party = single_member_party(hp=10)
+    dead_party.get_member(0).apply_damage(20, combat_related_damage=True)
+    assert dead_party.is_party_dead()
+    SaveSystem.save_game(dead_party, tmp_path / "saves" / "party.json")
+
+    start = StartScreen(asset_mgr=asset_mgr)
+    start._start_journey()
+
+    assert isinstance(start.next_screen, RosterScreen)
+    assert len(start.next_screen.party.members) == 0
+
+
+def test_roster_screen_ignores_dead_party_argument(
+    pygame_setup, asset_mgr, monkeypatch, tmp_path
+):
+    """Item 43: RosterScreen passed an all-dead party initializes an empty party instead."""
+    monkeypatch.chdir(tmp_path)
+
+    from py_exodus.screens.roster_screen import RosterScreen
+
+    dead_party = single_member_party(hp=10)
+    dead_party.get_member(0).apply_damage(20, combat_related_damage=True)
+    assert dead_party.is_party_dead()
+
+    scr = RosterScreen(party=dead_party, asset_mgr=asset_mgr)
+    assert len(scr.party.members) == 0
 
 
 def test_journey_onward_without_game_over_reads_disk_save(pygame_setup, monkeypatch, tmp_path):

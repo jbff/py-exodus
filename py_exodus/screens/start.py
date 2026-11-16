@@ -183,8 +183,14 @@ class StartScreen(BaseScreen):
 
         # Java StartScreen.java:108-113: the record must exist and
         # players[0].name must be non-empty, else the party-management
-        # (roster) screen opens.
-        if party is None or not party.members or not party.members[0].name.strip():
+        # (roster) screen opens. Also fall back when every member is dead so
+        # Journey Onward never resumes a wiped save.
+        if (
+            party is None
+            or not party.members
+            or not party.members[0].name.strip()
+            or party.is_party_dead()
+        ):
             self._new_game()
             return
 
@@ -212,8 +218,20 @@ class StartScreen(BaseScreen):
         """Open Roster and Party formation screen to select and assemble party."""
         from py_exodus.screens.roster_screen import RosterScreen
 
+        active_party = (
+            None
+            if (
+                self.game_over
+                or (
+                    self.party is not None
+                    and self.party.members
+                    and self.party.is_party_dead()
+                )
+            )
+            else self.party
+        )
         roster_scr = RosterScreen(
-            party=self.party,
+            party=active_party,
             asset_mgr=self.asset_mgr,
             audio=self.audio,
             return_screen=self,

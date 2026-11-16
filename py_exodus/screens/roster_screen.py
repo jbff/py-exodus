@@ -67,6 +67,8 @@ class RosterScreen(BaseScreen):
         # (45, 18). USER-DIRECTED NIT (2026-11-15): fresh Journeys spawn one
         # south + one west of the Java default, at (44, 20), so this path
         # constructs Party() with no x/y override and inherits that default.
+        if party is not None and party.members and party.is_party_dead():
+            party = None
         self.party = party or Party(members=[])
 
         # Load or initialize roster
