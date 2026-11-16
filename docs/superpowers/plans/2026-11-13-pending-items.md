@@ -135,6 +135,100 @@ Original numbers kept for history against the 2026-11-13 list above.
     mechanic strings and note them; note landed in comments, logged here
     so the disposition is documentable.
 
+### Deferred follow-ups ported from 2026-11-15 session handoff
+
+35. Overworld boot + dungeon entry strings still ad-hoc ("Entering the realm
+    of Sosaria...") vs Java Maps labels everywhere (reviewer note on
+    `a07dc2e`).
+36. Vendor prompt comment citations drifted ~18 lines (strings correct);
+    touch-up in any next vendor commit.
+37. ESC at a vendor prompt dangles the dialog (`text_log` `handle_escape`
+    drops callback; vendor state not closed — user-visible? needs a check;
+    implementer flagged out-of-scope).
+38. Dungeon entry uses the enum key in some path (`dungeon_screen.py:83,107`
+    name source) — observed live in Playtest-2 (`"Entering DARDIN..."`
+    instead of `"Dardin's Pit"`); normalize to Java labels.
+39. Suite-wide: one stream-sensitive unseeded test remains latent somewhere
+    (`hermetic_rng` in `play_driver` masks the driver's own footprint;
+    identify + seed once reproduced — overlap with item 34). Also
+    `test_party_save.py:716` comment ambiguity (`(45,19)` is file-format
+    truth now that Party default is `(44,20)`) — cosmetic.
+40. YELL softlock-ish prompt (`playtest 2`, `docs/analysis/journal.md:28`):
+    empty `ENTER` / `ESC` behavior at `"Yell what? "` vs Java
+    `SecondaryInputProcessor.java:535-538` (`ENTER` on empty buffer keeps
+    prompt open, no `ESC` cancel; `py_exodus` silently closes without
+    emitting anything).
+41. Playtest 1 unexercisable-then: `ZXKuqyb` masskill (70MP), 9999 gold cap,
+    Healer Resurrect — Healer Resurrect exercised in Playtest-2 (`500gp`,
+    revived `SERENA` to 1 HP); `ZXKuqyb` and 9999 gold cap still to
+    exercise in a future session.
+
+### New findings from Playtest-2 (2026-11-16)
+
+42. **CRITICAL — `monster_damage_bonus(SOSARIA)` adds `+30` instead of `+0`**
+    (`py_exodus/combat/resolver.py:126-141`): the 2026-11-14 GBC agent
+    misread `refs/ult3src/sdk/gbz80-gb/2-1-5/examples/u3/battle3.c:354-368`
+    (`ult3.c:1150,1654,1677`, `funcs5.c:1575-1610`). In GBC, `inside = 0`
+    (`0x20` in combat) on Sosaria with `peermap = 99` (`0x20` only adds
+    `+30` if `peermap == 12` Ambrosia, **`+0` on Sosaria**); `inside = 1`
+    (`0x21` in combat) adds `+30` for `peermap == 0 || 4` (British/Exodus)
+    and `+20` for other towns; `inside = 2` (`0x22` in combat) adds `+10`
+    in dungeons. Corroborated by LairWare `UltimaSpellCombat.c:1226` (`0`
+    on Sosaria) and Java `Creature.java:465-472` (`+0`). Causing L1
+    Thieves/Orcs on Sosaria to hit for 30–43 dmg instead of 0–13, wiping L1
+    parties in 1–3 battles (`tests/test_combat_resolver.py:349` and
+    `docs/superpowers/plans/2026-11-14-gbc-parity-and-fixes.md:75` also
+    pin the wrong `+30` value).
+43. **HIGH — Game-Over -> `RosterScreen` dead-party leak & dead `party.json`
+    resume** (`py_exodus/screens/base.py:60-66`,
+    `py_exodus/screens/start.py:187-221`,
+    `py_exodus/screens/roster_screen.py:70`): `check_party_death()` passes
+    the wiped `party` into `StartScreen(party=party, game_over=True)`,
+    `_new_game()` forwards `self.party` into `RosterScreen` (exposing a
+    wiped party in party formation and risking overwriting
+    `saves/roster.json`/`saves/party.json` with dead members), and Journey
+    Onward allows loading an all-dead `saves/party.json` directly into
+    `OverworldScreen`.
+44. **HIGH — `HealerVendorDialog` `'n'` infinite loop, `ASK_BUY_SELL` bug,
+    and Enter-required member prompt**
+    (`py_exodus/screens/vendor_dialog.py:1030-1037, 1071, 1087`): pressing
+    `'n'` at `WAIT_NEED_HELP` / `"Anything else?"` when `hp < 400` sets
+    `state = ConvState.WAIT_NEED_HELP`, looping back to Pendragon's greeting
+    forever (at `hp >= 400` it unconditionally transitions to
+    `WAIT_GIVE_BLOOD` and loops if declining); `check_can_pay` assigns
+    nonexistent `ConvState.ASK_BUY_SELL` on `item is None`; and
+    `WAIT_WHO_SERVICE` (`"Who is in need? (member number)"`) sets
+    `single_char=False` requiring `ENTER`, inconsistent with single-key
+    `1-4` member prompts elsewhere.
+45. **MEDIUM — `DungeonState.touch_mark` & `chests._apply_fire_lava` bypass
+    `apply_damage`** (`py_exodus/world/dungeon.py:2036-2039`,
+    `py_exodus/world/chests.py:199-201`): both mutate `member.hp = max(0,
+    ...)` directly and set `Status.DEAD` at `hp == 0`, violating the
+    `apply_damage` chokepoint, the `< 0` death convention (Java
+    `Party.java:556-577`), and `PartyDeathException`.
+46. **CRITICAL/HIGH — `CombatArena` / `PartyMember` `hp == 0` defeat
+    softlock** (`py_exodus/combat/arena.py:1368-1378` vs
+    `py_exodus/screens/base.py:55`, `py_exodus/entities/party.py:102-106,
+    826-832`): when all 4 party members hit `hp == 0` with at least one
+    landing at `new_hp == 0` exactly (`status` stays `GOOD`/`POISONED`
+    per item 12), `CombatArena._evaluate_party_status` checks `not
+    m.is_dead() and m.hp > 0` and marks `is_finished = True, is_defeat =
+    True` (`"Press Enter to continue."`), whereas
+    `CombatScreen._handle_defeat_exit()` -> `check_party_death()` checks
+    `party.is_party_dead()` (`status == DEAD` only -> `False`) and does
+    nothing, trapping the player in `CombatScreen` forever.
+47. **MEDIUM — `Q`-save/reload `moves` off-by-1 & `+3` wandering-creature
+    respawn** (`py_exodus/screens/overworld.py:367, 387-389, 2260-2270`):
+    `_save_game()` calls `SaveSystem.save_game` BEFORE
+    `self._consume_pass_turn()`, persisting `moves - 1` (`3590` vs
+    `3591`), and `OverworldScreen.__init__` restores `world_state`
+    monsters AND unconditionally spawns 3 extra wandering creatures on top
+    (`creatures_count: 5 -> 8`).
+48. **MEDIUM — `DungeonScreen._process_event` double-logs `EXIT_DUNGEON`
+    message** (`py_exodus/screens/dungeon_screen.py:317-318, 345`):
+    `"You climb out of the dungeon to the surface!"` is added to
+    `text_log` at line 318 and again at line 345 before `exit_screen()`.
+
 ## How to resume
 
 1. Work the list top-down or from fresh playtest findings; each fix: branch off master, read the cited Java first, TDD, implementer + reviewer subagents (superpowers SDD flow), one commit per task (`fix:`/`parity:` prefix, Co-Authored-By footer), full suite green twice before every commit, merge + push after review.
