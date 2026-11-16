@@ -1,6 +1,6 @@
 # PyExodus — Pending Items & Decisions (context-reset handoff)
 
-Written 2026-11-13, after master `718aec1` (774 tests green, pushed). Updated 2026-11-14 after the GBC-parity branch + pending-items batch (1048 tests green). Read this first when resuming work in this repo.
+Written 2026-11-13, after master `718aec1` (774 tests green, pushed). Updated 2026-11-14 after the GBC-parity branch + pending-items batch (1048 tests green), and updated 2026-11-16 after Playtest-2 + the Playtest-2 fix batch (`1156` tests green). Read this first when resuming work in this repo.
 
 ## Project state
 
@@ -135,19 +135,63 @@ Original numbers kept for history against the 2026-11-13 list above.
     mechanic strings and note them; note landed in comments, logged here
     so the disposition is documentable.
 
-### Deferred follow-ups ported from 2026-11-15 session handoff
+### Closed 2026-11-16 (Playtest-2 fix batch)
 
-35. Overworld boot + dungeon entry strings still ad-hoc ("Entering the realm
-    of Sosaria...") vs Java Maps labels everywhere (reviewer note on
-    `a07dc2e`).
-36. Vendor prompt comment citations drifted ~18 lines (strings correct);
-    touch-up in any next vendor commit.
-37. ESC at a vendor prompt dangles the dialog (`text_log` `handle_escape`
-    drops callback; vendor state not closed — user-visible? needs a check;
-    implementer flagged out-of-scope).
-38. Dungeon entry uses the enum key in some path (`dungeon_screen.py:83,107`
-    name source) — observed live in Playtest-2 (`"Entering DARDIN..."`
-    instead of `"Dardin's Pit"`); normalize to Java labels.
+36. Vendor prompt Java line citations — CLOSED (`fae85bd`; re-synced
+    line-number comments in `py_exodus/screens/vendor_dialog.py` and
+    `tests/test_vendor_flows.py` against `vendor/*.java`).
+37. ESC at a vendor prompt — CLOSED (`fae85bd`; added `on_cancel`
+    cleanup hook to `TextLog.prompt` / `handle_escape` / `clear`, wired
+    to `BaseVendorDialog._finish` and `TownScreen` generic vendor prompt
+    to restore town music cleanly with no dangling state).
+38. Dungeon entry display label — CLOSED (`e83f4d7`; `DungeonScreen` now
+    resolves player-facing labels from `MAP_ID_TO_LABEL` when `id != 0`,
+    so `map_id=15` logs `"Entering Dardin's Pit!"` instead of `"Entering
+    DARDIN..."` while injected/custom maps keep their own names; note
+    related `DungeonState.spell_exit` at `dungeon.py:1254` still uses
+    `dmap.name`).
+42. `monster_damage_bonus(SOSARIA)` `+30` -> `+0` — CLOSED (`fc1bd34`;
+    corrected GBC `battle3.c:354-368` tier mapping: `+0` Sosaria, `+10`
+    dungeons, `+30` Ambrosia / Castle British / Castle of Death, `+20`
+    other towns/interiors/`None`, updating `test_combat_resolver.py`,
+    `test_combat_parity.py`, and plan docs).
+43. Game-Over -> `RosterScreen` dead-party leak & dead `party.json`
+    resume — CLOSED (`f69fa30`; `StartScreen._start_journey` falls back
+    to `_new_game` on all-dead saves, `StartScreen._new_game` clears
+    `party` when `game_over` or all-dead, and `RosterScreen.__init__`
+    drops non-empty all-dead party arguments).
+44. `HealerVendorDialog` `'n'` exit loop, `ASK_BUY_SELL` bug, &
+    `single_char` member prompt — CLOSED (`fae85bd`; declining below
+    400 HP or declining Give Blood exits via `FAREWELL`, removed
+    `ASK_BUY_SELL` write in `check_can_pay(None)`, split `ANYTHING_ELSE`
+    to `"Anything else? (y or n)"`, and made `Who is in need? (member
+    number)` `single_char=True`).
+45. `DungeonState.touch_mark` & `chests._apply_fire_lava` bypass
+    `apply_damage` — CLOSED (`e83f4d7`; both now route through
+    `member.apply_damage`, preserving the `0-hp-GOOD` convention and
+    `PartyDeathException` wipe routing).
+46. `CombatArena` / `PartyMember` `hp == 0` defeat softlock — CLOSED
+    (`3fe317b`; aligned `_is_member_eligible_for_turn`,
+    `_find_nearest_player`, and `_evaluate_party_status` with
+    `0-hp-GOOD` (`is_dead()`/`fled` only, matching Java
+    `CombatScreen.java:291, 568, 816`)).
+47. `Q`-save/reload `moves` off-by-1 & `+3` wandering-creature respawn —
+    CLOSED (`e83f4d7`; `OverworldScreen.__init__` skips initial `+3`
+    wanderer spawns when `map_id=0` restores non-empty `world_state.monsters`,
+    and `_restore_world_state` preserves free-seeded whirlpools on empty
+    `"monsters": []`; `_save_game()` calling `SaveSystem.save_game`
+    before `_consume_pass_turn()` (`moves` -1) is deliberately preserved as
+    exact Java `GameScreen.java:557-563, 628` parity).
+48. `DungeonScreen._process_event` double-logs `EXIT_DUNGEON` message —
+    CLOSED (`e83f4d7`; fallback `"Leaving dungeon..."` now only logs
+    when `not evt.message`).
+
+### Remaining deferred follow-ups (2026-11-15 / 2026-11-16)
+
+35. Overworld boot string still ad-hoc ("Entering the realm of
+    Sosaria...") vs Java Maps labels everywhere (reviewer note on
+    `a07dc2e`; also `DungeonState.spell_exit` at `dungeon.py:1254` logs
+    `self.dmap.name` rather than `MAP_ID_TO_LABEL`).
 39. Suite-wide: one stream-sensitive unseeded test remains latent somewhere
     (`hermetic_rng` in `play_driver` masks the driver's own footprint;
     identify + seed once reproduced — overlap with item 34). Also
@@ -163,74 +207,8 @@ Original numbers kept for history against the 2026-11-13 list above.
     revived `SERENA` to 1 HP); `ZXKuqyb` and 9999 gold cap still to
     exercise in a future session.
 
-### New findings from Playtest-2 (2026-11-16)
-
-42. **CRITICAL — `monster_damage_bonus(SOSARIA)` adds `+30` instead of `+0`**
-    (`py_exodus/combat/resolver.py:126-141`): the 2026-11-14 GBC agent
-    misread `refs/ult3src/sdk/gbz80-gb/2-1-5/examples/u3/battle3.c:354-368`
-    (`ult3.c:1150,1654,1677`, `funcs5.c:1575-1610`). In GBC, `inside = 0`
-    (`0x20` in combat) on Sosaria with `peermap = 99` (`0x20` only adds
-    `+30` if `peermap == 12` Ambrosia, **`+0` on Sosaria**); `inside = 1`
-    (`0x21` in combat) adds `+30` for `peermap == 0 || 4` (British/Exodus)
-    and `+20` for other towns; `inside = 2` (`0x22` in combat) adds `+10`
-    in dungeons. Corroborated by LairWare `UltimaSpellCombat.c:1226` (`0`
-    on Sosaria) and Java `Creature.java:465-472` (`+0`). Causing L1
-    Thieves/Orcs on Sosaria to hit for 30–43 dmg instead of 0–13, wiping L1
-    parties in 1–3 battles (`tests/test_combat_resolver.py:349` and
-    `docs/superpowers/plans/2026-11-14-gbc-parity-and-fixes.md:75` also
-    pin the wrong `+30` value).
-43. **HIGH — Game-Over -> `RosterScreen` dead-party leak & dead `party.json`
-    resume** (`py_exodus/screens/base.py:60-66`,
-    `py_exodus/screens/start.py:187-221`,
-    `py_exodus/screens/roster_screen.py:70`): `check_party_death()` passes
-    the wiped `party` into `StartScreen(party=party, game_over=True)`,
-    `_new_game()` forwards `self.party` into `RosterScreen` (exposing a
-    wiped party in party formation and risking overwriting
-    `saves/roster.json`/`saves/party.json` with dead members), and Journey
-    Onward allows loading an all-dead `saves/party.json` directly into
-    `OverworldScreen`.
-44. **HIGH — `HealerVendorDialog` `'n'` infinite loop, `ASK_BUY_SELL` bug,
-    and Enter-required member prompt**
-    (`py_exodus/screens/vendor_dialog.py:1030-1037, 1071, 1087`): pressing
-    `'n'` at `WAIT_NEED_HELP` / `"Anything else?"` when `hp < 400` sets
-    `state = ConvState.WAIT_NEED_HELP`, looping back to Pendragon's greeting
-    forever (at `hp >= 400` it unconditionally transitions to
-    `WAIT_GIVE_BLOOD` and loops if declining); `check_can_pay` assigns
-    nonexistent `ConvState.ASK_BUY_SELL` on `item is None`; and
-    `WAIT_WHO_SERVICE` (`"Who is in need? (member number)"`) sets
-    `single_char=False` requiring `ENTER`, inconsistent with single-key
-    `1-4` member prompts elsewhere.
-45. **MEDIUM — `DungeonState.touch_mark` & `chests._apply_fire_lava` bypass
-    `apply_damage`** (`py_exodus/world/dungeon.py:2036-2039`,
-    `py_exodus/world/chests.py:199-201`): both mutate `member.hp = max(0,
-    ...)` directly and set `Status.DEAD` at `hp == 0`, violating the
-    `apply_damage` chokepoint, the `< 0` death convention (Java
-    `Party.java:556-577`), and `PartyDeathException`.
-46. **CRITICAL/HIGH — `CombatArena` / `PartyMember` `hp == 0` defeat
-    softlock** (`py_exodus/combat/arena.py:1368-1378` vs
-    `py_exodus/screens/base.py:55`, `py_exodus/entities/party.py:102-106,
-    826-832`): when all 4 party members hit `hp == 0` with at least one
-    landing at `new_hp == 0` exactly (`status` stays `GOOD`/`POISONED`
-    per item 12), `CombatArena._evaluate_party_status` checks `not
-    m.is_dead() and m.hp > 0` and marks `is_finished = True, is_defeat =
-    True` (`"Press Enter to continue."`), whereas
-    `CombatScreen._handle_defeat_exit()` -> `check_party_death()` checks
-    `party.is_party_dead()` (`status == DEAD` only -> `False`) and does
-    nothing, trapping the player in `CombatScreen` forever.
-47. **MEDIUM — `Q`-save/reload `moves` off-by-1 & `+3` wandering-creature
-    respawn** (`py_exodus/screens/overworld.py:367, 387-389, 2260-2270`):
-    `_save_game()` calls `SaveSystem.save_game` BEFORE
-    `self._consume_pass_turn()`, persisting `moves - 1` (`3590` vs
-    `3591`), and `OverworldScreen.__init__` restores `world_state`
-    monsters AND unconditionally spawns 3 extra wandering creatures on top
-    (`creatures_count: 5 -> 8`).
-48. **MEDIUM — `DungeonScreen._process_event` double-logs `EXIT_DUNGEON`
-    message** (`py_exodus/screens/dungeon_screen.py:317-318, 345`):
-    `"You climb out of the dungeon to the surface!"` is added to
-    `text_log` at line 318 and again at line 345 before `exit_screen()`.
-
 ## How to resume
 
-1. Work the list top-down or from fresh playtest findings; each fix: branch off master, read the cited Java first, TDD, implementer + reviewer subagents (superpowers SDD flow), one commit per task (`fix:`/`parity:` prefix, Co-Authored-By footer), full suite green twice before every commit, merge + push after review.
+1. Work the list top-down or from fresh playtest findings; each fix: branch off master, read the cited Java first, TDD, implementer + reviewer subagents (superpowers SDD flow), one commit per task (`fix:`/`parity:`/`docs:` prefix), full suite green twice before every commit, merge + push after review.
 2. Java citation hot-spots for the pending items: `BaseMap.java:421-610` (moveObjects/engulf/break), `CombatScreen.java:470-514` (round finishTurn, negate/quickness), `Utils.java:496-589` (fireCannon), `GameScreen.java:407-446` (endCombat strings), `SpellUtil.java` (spell turn gating), `Sound.java` (track/loop truth).
 3. User-ruling code comments are searchable: grep `user ruling|user-directed|2026-11` in `py_exodus/`.
