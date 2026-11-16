@@ -212,6 +212,9 @@ class Party:
     # write-time truncation at the save boundary (to_dict) with the same
     # oldest-first direction.
     DYNAMIC_OBJECTS_SAVE_CAP = 24
+    # Java dynamic-monster cap (Context.java:176-185): saved block keeps at
+    # most 8 entries in insertion order (oldest 8); write-time truncation only.
+    DYNAMIC_MONSTERS_SAVE_CAP = 8
 
     def __init__(
         self,
@@ -878,7 +881,11 @@ class Party:
             "dynamic_objects": list(
                 self.dynamic_objects[: Party.DYNAMIC_OBJECTS_SAVE_CAP]
             ),
-            "dynamic_monsters": list(self.dynamic_monsters),
+            # Java dynamic-monster cap (Context.java:176-185): keep the OLDEST
+            # 8 entries at save time without mutating in-memory state.
+            "dynamic_monsters": list(
+                self.dynamic_monsters[: Party.DYNAMIC_MONSTERS_SAVE_CAP]
+            ),
         }
 
     @classmethod

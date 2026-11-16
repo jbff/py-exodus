@@ -714,10 +714,10 @@ def test_inventory_weapons_armors_serialization():
 # --------------------------------------------------------------------------- #
 # Java's Save button writes BOTH records: the full roster to roster.sav and
 # the formed party slots into saveGame.players[0..3] + numberInParty via
-# saveGame.write(party.sav). A fresh party.sav carries only the loader
-# defaults (FOOT transport, (45,19) start, Party defaults here), so the JSON
-# written by SaveSystem.save_game matches what StartScreen's Journey Onward
-# path reads back (start.py).
+# saveGame.write(party.sav). Note: (45, 19) is the file-format fallback for
+# from_dict when x/y are omitted (SaveGame.java:164-169), whereas Party()'s
+# new-game default is (44, 20); the JSON written by SaveSystem.save_game
+# matches what StartScreen's Journey Onward path reads back (start.py).
 
 
 def _roster_char(name: str) -> Character:
@@ -1504,3 +1504,79 @@ def test_dynamic_objects_legacy_over_cap_load_unchanged(tmp_path):
     # Full load path: everything comes back.
     loaded = SaveSystem.load_game(path)
     assert loaded.dynamic_objects == legacy
+
+
+# --- dynamic_monsters save cap (item 25) -----------------------------------
+
+
+def _party_with_dynamic_monsters(n: int) -> Party:
+    p = Party()
+    p.add_member(_roster_char("Ariel"))
+    for i in range(n):
+        p.dynamic_monsters.append({"id": i, "tile": "orc", "x": 10 + i, "y": 40})
+    return p
+
+
+def test_dynamic_monsters_save_capped_at_8_oldest_kept():
+    """Java caps the saved dynamic-monster block at 8 (Context.java:176-185),
+    keeping the OLDEST (first-appended) monsters and losing the newest.
+
+    Applied as a write-time truncation at the save boundary (party.to_dict)
+    without mutating party.dynamic_monsters in memory."""
+    assert Party.DYNAMIC_MONSTERS_SAVE_CAP == 8
+
+    p = _party_with_dynamic_monsters(12)
+    payload = p.to_dict()
+    monsters = payload["dynamic_monsters"]
+    assert len(monsters) == 8
+    assert [
+        {"id": i, "tile": "orc", "x": 10 + i, "y": 40} for i in range(8)
+    ] == monsters
+
+    # In-memory list untouched: write-time truncation only.
+    assert len(p.dynamic_monsters) == 12
+
+
+def test_dynamic_monsters_save_cap_roundtrip_through_save_system(tmp_path):
+    """A save write then load keeps exactly 8 of 12 monsters (oldest kept)."""
+    p = _party_with_dynamic_monsters(12)
+    path = tmp_path / "party.json"
+    SaveSystem.save_game(p, path)
+    loaded = SaveSystem.load_game(path)
+    assert len(loaded.dynamic_monsters) == 8
+    assert loaded.dynamic_monsters[0] == {"id": 0, "tile": "orc", "x": 10, "y": 40}
+    assert loaded.dynamic_monsters[-1] == {"id": 7, "tile": "orc", "x": 17, "y": 40}
+
+
+def test_dynamic_monsters_at_or_below_cap_roundtrip_unchanged(tmp_path):
+    """Regression: a save at/below the cap round-trips unchanged."""
+    for n in (0, 1, 7, 8):
+        p = _party_with_dynamic_monsters(n)
+        path = tmp_path / f"party_m{n}.json"
+        SaveSystem.save_game(p, path)
+        loaded = SaveSystem.load_game(path)
+        assert loaded.dynamic_monsters == [
+            {"id": i, "tile": "orc", "x": 10 + i, "y": 40} for i in range(n)
+        ], n
+
+
+def test_dynamic_monsters_legacy_over_cap_load_unchanged(tmp_path):
+    """Backward compat: an over-cap save still loads without truncating on
+    Party.from_dict or SaveSystem.load_game (write-time cap only)."""
+    import json as _json
+
+    legacy = [
+        {"id": i, "tile": "orc", "x": 10 + i, "y": 40}
+        for i in range(12)
+    ]
+    party_dict = _party_with_dynamic_monsters(0).to_dict()
+    party_dict["dynamic_monsters"] = legacy
+    path = tmp_path / "legacy_monsters_party.json"
+    path.write_text(_json.dumps(party_dict), encoding="utf-8")
+
+    p = Party.from_dict(party_dict)
+    assert p.dynamic_monsters == legacy
+
+    loaded = SaveSystem.load_game(path)
+    assert loaded.dynamic_monsters == legacy
+
