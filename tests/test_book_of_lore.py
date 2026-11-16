@@ -15,6 +15,10 @@ import pygame
 import pytest
 
 from py_exodus.assets import AssetManager
+from py_exodus.constants import Profession, Sex
+from py_exodus.entities.character import Character
+from py_exodus.entities.party import Party
+from py_exodus.save_system import SaveSystem
 from py_exodus.screens.base import BaseScreen
 from py_exodus.screens.book import (
     BOOK_FONT_SIZE,
@@ -327,8 +331,14 @@ class TestReachability:
         assert isinstance(sm.current_screen, Finishing)
         assert not isinstance(sm.current_screen, Book)
 
-    def test_f1_reaches_a_real_game_screen(self, asset_mgr):
+    def test_f1_reaches_a_real_game_screen(self, asset_mgr, monkeypatch, tmp_path):
         """Journey onward into the overworld, then open the book with F1."""
+        monkeypatch.chdir(tmp_path)
+        party = Party()
+        hero = Character("Hero", Sex.MALE, profession=Profession.FIGHTER, hp=100, max_hp=100)
+        party.add_member(hero)
+        SaveSystem.save_game(party, tmp_path / "saves" / "party.json")
+
         sm = StateMachine(asset_mgr=asset_mgr)
         sm.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_1))
         from py_exodus.screens.overworld import OverworldScreen

@@ -199,6 +199,7 @@ class PlaySession:
         """Send one KEYDOWN event to the active screen, then drain the log."""
         if self.sm is None:
             raise RuntimeError("call start() before press()")
+        screen_before = self.screen
         token = key if isinstance(key, str) else None
         keycode = resolve_key(key)
         attrs: dict = {"key": keycode}
@@ -206,6 +207,8 @@ class PlaySession:
         if unicode is not None:
             attrs["unicode"] = unicode
         self.sm.handle_event(pygame.event.Event(pygame.KEYDOWN, **attrs))
+        if screen_before is not None and screen_before is not self.screen:
+            self._drain(screen_before)
         self._drain()
 
     def press_seq(self, seq: str) -> None:
@@ -253,9 +256,9 @@ class PlaySession:
 
     # --- transcript plumbing ----------------------------------------------
 
-    def _drain(self) -> None:
+    def _drain(self, screen=None) -> None:
         """Mirror any not-yet-seen text_log activity into the transcript."""
-        screen = self.screen
+        screen = self.screen if screen is None else screen
         if screen is None:
             return
         log = getattr(screen, "text_log", None)

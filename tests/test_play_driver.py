@@ -14,11 +14,13 @@ import random
 import re
 
 from py_exodus.assets import AssetManager
-from py_exodus.constants import Profession, Sex
+from py_exodus.constants import Profession, Sex, Status
 from py_exodus.entities.character import Character
 from py_exodus.entities.party import Party
+from py_exodus.save_system import SaveSystem
 from py_exodus.screens.combat_screen import CombatScreen
 from py_exodus.screens.overworld import OverworldScreen
+from py_exodus.screens.start import StartScreen
 
 import play_driver
 from play_driver import PlaySession, resolve_key
@@ -84,10 +86,17 @@ class TestKeyTokens:
 
 
 class TestOverworldSmoke:
-    def test_journey_onward_then_zstats_heading(self, asset_mgr):
+    def test_journey_onward_then_zstats_heading(self, asset_mgr, monkeypatch, tmp_path):
         """Plan row 1: boot the roster->overworld flow (Journey Onward via
-        the repo save), press Z, and read the zstats heading off the
+        an on-disk save in tmp_path), press Z, and read the zstats heading off the
         transcript; then cycle Z back to the normal view."""
+        monkeypatch.chdir(tmp_path)
+        party = Party()
+        party.add_member(
+            Character("Ariel", Sex.MALE, profession=Profession.FIGHTER, hp=100, max_hp=100)
+        )
+        SaveSystem.save_game(party, tmp_path / "saves" / "party.json")
+
         session = PlaySession(asset_mgr).start()
         assert isinstance(session.screen, OverworldScreen)
         assert session.active_member is None  # not a combat screen
@@ -109,6 +118,22 @@ class TestOverworldSmoke:
                 break
         assert any("Zstats: Normal view" in line for line in session.transcript)
         assert session.screen.stats_panel.inspect_index is None
+
+    def test_drain_captures_messages_before_screen_transition(self, asset_mgr):
+        party = Party()
+        dead_char = Character(
+            "Ghost", Sex.MALE, profession=Profession.FIGHTER, hp=0, max_hp=100, status=Status.DEAD
+        )
+        party.add_member(dead_char)
+        session = PlaySession(asset_mgr).start(party=party)
+        assert isinstance(session.screen, OverworldScreen)
+
+        session.press("Z")
+        assert any(
+            line.startswith("[msg] Zstats:") for line in session.transcript
+        ), session.transcript
+        assert isinstance(session.screen, StartScreen)
+        assert session.screen.game_over is True
 
 
 class TestCombatSmoke:
