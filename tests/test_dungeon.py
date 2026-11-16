@@ -678,6 +678,40 @@ def test_generic_mark_x0_is_force_on_every_level(empty_dmap, test_party):
         assert m.marks[3] == 1, f"level {z}: marks={m.marks}"
 
 
+def test_touch_mark_exact_zero_hp_stays_alive(empty_dmap):
+    """Item 45: touch_mark routes damage through apply_damage, so exact 0 HP stays GOOD."""
+    party = Party(food=200, gold=100)
+    c = Character("Hero", "M", Race.HUMAN, Profession.FIGHTER, hp=50, max_hp=100)
+    party.add_member(c)
+    empty_dmap.set_tile(5, 5, 0, DungeonTile.MARK_KINGS)
+    state = DungeonState(empty_dmap, start_x=5, start_y=5, start_z=0, party=party)
+
+    ev = state.touch_mark(member_index=0)
+
+    assert ev.type == DungeonEventType.MARK
+    assert party.members[0].marks[0] == 1
+    assert party.members[0].hp == 0
+    assert party.members[0].status == Status.GOOD
+    assert not party.members[0].is_dead()
+
+
+def test_touch_mark_kills_solo_below_zero_raises_party_death(empty_dmap):
+    """Item 45: touch_mark driving a solo member below 0 HP raises PartyDeathException."""
+    party = Party(food=200, gold=100)
+    c = Character("Solo", "M", Race.HUMAN, Profession.FIGHTER, hp=49, max_hp=100)
+    party.add_member(c)
+    empty_dmap.set_tile(5, 5, 0, DungeonTile.MARK_KINGS)
+    state = DungeonState(empty_dmap, start_x=5, start_y=5, start_z=0, party=party)
+
+    with pytest.raises(PartyDeathException):
+        state.touch_mark(member_index=0)
+
+    assert party.members[0].marks[0] == 1
+    assert party.members[0].hp == 0
+    assert party.members[0].status == Status.DEAD
+    assert party.is_party_dead()
+
+
 def test_orb_removed(empty_dmap, test_party):
     """Kept-Divergence #2: orbs are gone entirely — no touch handler, no event
     type, and the ORB tile is plain scenery. See tests/test_dungeon_specials.py."""
@@ -1197,3 +1231,62 @@ class TestDungeonMealCadence:
             assert m1.submorsels == m2.submorsels
             assert m1.hp == m2.hp
         assert via_meals.moves == 0
+
+
+def test_dungeon_entry_uses_java_map_label(pygame_setup, asset_mgr, test_party, empty_dmap):
+    """Item 38: DungeonScreen logs Java MAP_ID_TO_LABEL ('Entering Dardin's Pit!'),
+    and falls back to dungeon_map.name when an injected map has no label entry."""
+    dardin = DungeonScreen(party=test_party, map_id=15, asset_mgr=asset_mgr)
+    joined_dardin = " ".join(" ".join(dardin.text_log.history).split())
+    assert "Entering Dardin's Pit!" in joined_dardin
+    assert "Entering DARDIN" not in joined_dardin
+
+    # Injected dungeon_map with id=99 and default map_id=14 must NOT leak Perinian Depths.
+    injected = DungeonScreen(party=test_party, dungeon_map=empty_dmap, asset_mgr=asset_mgr)
+    joined_injected = " ".join(" ".join(injected.text_log.history).split())
+    assert "Entering TestDungeon!" in joined_injected
+    assert "Perinian Depths" not in joined_injected
+
+    # Fallback map when asset_mgr is None still uses map_id's Java label (not Sosaria).
+    fallback_dardin = DungeonScreen(party=test_party, map_id=15, asset_mgr=None)
+    joined_fallback = " ".join(" ".join(fallback_dardin.text_log.history).split())
+    assert "Entering Dardin's Pit!" in joined_fallback
+    assert "Sosaria" not in joined_fallback
+
+    # Injected DungeonMap with default id=0 or id=None uses its own name.
+    custom_default = DungeonScreen(
+        party=test_party,
+        dungeon_map=DungeonMap(name="CustomDefaultId"),
+        asset_mgr=asset_mgr,
+    )
+    assert "Entering CustomDefaultId!" in " ".join(
+        " ".join(custom_default.text_log.history).split()
+    )
+    custom_none = DungeonScreen(
+        party=test_party,
+        dungeon_map=DungeonMap(id=None, name="CustomNoneId"),
+        asset_mgr=asset_mgr,
+    )
+    assert "Entering CustomNoneId!" in " ".join(
+        " ".join(custom_none.text_log.history).split()
+    )
+
+
+def test_dungeon_climb_out_logs_exit_message_once(pygame_setup, asset_mgr, test_party, empty_dmap):
+    """Item 48: climbing out of a dungeon at z=0 logs the exit line exactly once."""
+    empty_dmap.set_tile(1, 1, 0, DungeonTile.LADDER_UP)
+    screen = DungeonScreen(
+        party=test_party,
+        dungeon_map=empty_dmap,
+        asset_mgr=asset_mgr,
+        start_x=1,
+        start_y=1,
+        start_z=0,
+    )
+
+    screen.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_k))
+
+    assert screen.is_finished is True
+    joined = " ".join(" ".join(screen.text_log.history).split())
+    assert joined.count("You climb out of the dungeon to the surface!") == 1
+    assert screen.text_log.history.count("You climb out of the dungeon") == 1

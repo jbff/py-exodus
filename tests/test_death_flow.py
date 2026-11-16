@@ -575,6 +575,50 @@ def test_dungeon_fountain_acid_death_transitions_to_start_screen(sm, asset_mgr):
     assert sm.current_screen.game_over is True
 
 
+def test_dungeon_touch_mark_wipe_transitions_to_start_screen(sm, asset_mgr):
+    """Item 45: DungeonScreen touch_mark wiping a solo 49-HP member routes to game over."""
+    dmap = DungeonMap(id=99, name="TestDungeon", width=16, height=16, levels=8)
+    tiles = []
+    for z in range(8):
+        grid = []
+        for y in range(16):
+            row = []
+            for x in range(16):
+                if x == 0 or x == 15 or y == 0 or y == 15:
+                    row.append(DungeonTile.WALL)
+                else:
+                    row.append(DungeonTile.FLOOR)
+            grid.append(row)
+        tiles.append(grid)
+    dmap.tiles = tiles
+    dmap.level_texts = ["" for _ in range(8)]
+    dmap.set_tile(8, 8, 0, DungeonTile.MARK_KINGS)
+
+    party = single_member_party(hp=49)
+    party.members[0].food = 100
+    dungeon = DungeonScreen(
+        party=party,
+        dungeon_map=dmap,
+        asset_mgr=asset_mgr,
+        start_x=8,
+        start_y=8,
+        start_dir=Direction.NORTH,
+        manager=sm,
+    )
+    sm.set_screen(dungeon)
+
+    dungeon.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_s, unicode="s"))
+    assert dungeon.text_log.is_waiting_for_input
+    dungeon.text_log.handle_char("1")
+
+    assert party.members[0].status == Status.DEAD
+    assert party.is_party_dead()
+    from py_exodus.screens.start import StartScreen
+
+    assert isinstance(sm.current_screen, StartScreen)
+    assert sm.current_screen.game_over is True
+
+
 def test_town_chest_acid_trap_wipe_transitions_to_start_screen(sm, asset_mgr, monkeypatch):
     """A town chest acid trap killing the sole party member routes to game over.
 

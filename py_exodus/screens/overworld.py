@@ -384,7 +384,12 @@ class OverworldScreen(BaseScreen):
         # Heading / facing direction (for broadside cannon checks)
         self.heading: Direction = Direction.NORTH
 
-        if self.random_encounters_enabled:
+        has_restored_monsters = (
+            str(self.map_id) == "0"
+            and isinstance(world_state, dict)
+            and bool(world_state.get("monsters"))
+        )
+        if self.random_encounters_enabled and not has_restored_monsters:
             for _ in range(3):
                 self._spawn_wandering_creature()
 
@@ -2183,13 +2188,16 @@ class OverworldScreen(BaseScreen):
         # screen on an unreadable record rather than crashing).
         if not isinstance(world_state, dict):
             return
+        saved_monsters = world_state.get("monsters")
+        if not isinstance(saved_monsters, list) or not saved_monsters:
+            return
         # The block owns the whirlpool fixtures at load: drop the free
         # re-seed before restoring, so the saved fixtures replace them
         # (no duplicates).
         self.creatures = [
             c for c in self.creatures if c.get("tile_name") != "whirlpool"
         ]
-        for m in world_state.get("monsters", [])[:8]:
+        for m in saved_monsters[:8]:
             tile_name = str(m.get("tile_name", "")).lower()
             if not tile_name:
                 continue

@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 
 from py_exodus import special_commands
 from py_exodus.constants import Status
+from py_exodus.entities.party import PartyDeathException
 
 if TYPE_CHECKING:
     from py_exodus.entities.party import Party, PartyMember
@@ -192,10 +193,12 @@ def _chest_trap(party: Party, member: PartyMember) -> tuple[list[str], bool]:
 
 
 def _apply_fire_lava(member: PartyMember) -> None:
-    """Java PartyMember.applyEffect FIRE/LAVA: 16 + rand(32) damage unless Mark of Fire."""
-    if member.status == Status.DEAD:
+    """Java PartyMember.applyEffect FIRE/LAVA (Party.java:353-358):
+    16 + rand(32) damage through apply_damage unless Mark of Fire."""
+    if member.is_dead():
         return
     if member.marks[1] == 0:
-        member.hp = max(0, member.hp - (16 + random.randrange(32)))
-        if member.hp == 0:
-            member.status = Status.DEAD
+        try:
+            member.apply_damage(16 + random.randrange(32))
+        except PartyDeathException:
+            pass

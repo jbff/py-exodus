@@ -148,6 +148,36 @@ def test_acid_trap_damages_opener(monkeypatch):
     assert other.hp == 100  # acid hits only the opening member
 
 
+def test_apply_fire_lava_exact_zero_hp_stays_alive(monkeypatch):
+    """Item 45: _apply_fire_lava routes through apply_damage, so exact 0 HP stays GOOD."""
+    member = make_member("Fighter", hp=21, max_hp=100)
+    make_party([member])
+    # 16 + 5 == 21 exact damage
+    monkeypatch.setattr(chests, "random", ScriptedRNG([5]))
+
+    chests._apply_fire_lava(member)
+
+    assert member.hp == 0
+    assert member.status == Status.GOOD
+    assert not member.is_dead()
+
+
+def test_apply_fire_lava_below_zero_kills_without_raising_out_of_open_chest(monkeypatch):
+    """Item 45: lethal _apply_fire_lava kills via apply_damage while catching PartyDeathException
+    so open_chest still yields its Acid Trap log before screen check_party_death."""
+    member = make_member("Fighter", hp=20, max_hp=100)
+    party = make_party([member])
+    # Trap present, evade fails, Acid (0), damage roll 5 -> 21 > 20 HP, gold rolls, drops miss
+    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 0, 5, 25, 6, 3, 3]))
+
+    lines = open_chest(party, member, dungeon=False)
+
+    assert lines == ["Acid Trap!", "The Chest Holds: 41 Gold"]
+    assert member.hp == 0
+    assert member.status == Status.DEAD
+    assert member.is_dead()
+
+
 def test_acid_trap_with_mark_of_fire_is_a_no_op(monkeypatch):
     """Mark of Fire immunity: the acid trap logs but deals no damage (no damage roll)."""
     member = make_member("Fighter", dexterity=0, marks=[0, 1, 0, 0])

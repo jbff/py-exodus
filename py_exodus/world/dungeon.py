@@ -2033,9 +2033,7 @@ class DungeonState:
         member = self.party.get_member(member_index) if self.party else None
         if member:
             member.marks[mark_idx] = 1
-            member.hp = max(0, member.hp - damage)
-            if member.hp == 0:
-                member.status = Status.DEAD
+            member.apply_damage(damage)
 
         return DungeonEvent(
             type=DungeonEventType.MARK,

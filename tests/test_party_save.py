@@ -1082,9 +1082,8 @@ def test_journey_onward_restores_sea_monsters_and_objects(pygame_setup, asset_mg
     resumed = start.next_screen
     assert isinstance(resumed, OverworldScreen)
 
-    # Restored creatures stand exactly where they were saved (with hp). The
-    # resumed screen's normal wanderer spawns may add extra creatures, but
-    # nothing duplicates: every position is unique.
+    # Restored creatures stand exactly where they were saved (with hp), with
+    # no extra wanderers or duplicates spawned on top.
     positions = [(c["x"], c["y"]) for c in resumed.creatures]
     assert len(positions) == len(set(positions))
     restored = {p: c for p, c in zip(positions, resumed.creatures)}
@@ -1101,6 +1100,66 @@ def test_journey_onward_restores_sea_monsters_and_objects(pygame_setup, asset_mg
     resumed._board_transport()
     assert resumed.party.transport == Transport.SHIP
     assert {"tile": "frigate", "x": 12, "y": 34} not in resumed.party.dynamic_objects
+
+
+def test_journey_onward_does_not_spawn_extra_wanderers_over_saved_monsters(
+    pygame_setup, asset_mgr, monkeypatch, tmp_path
+):
+    """Item 47: reloading a save with overworld.monsters restores only those saved
+    creatures without spawning +3 extra wandering creatures on top."""
+    monkeypatch.chdir(tmp_path)
+
+    from py_exodus.screens.overworld import OverworldScreen
+    from py_exodus.screens.start import StartScreen
+
+    party = Party()
+    party.add_member(_roster_char("Ariel"))
+    ow = OverworldScreen(party=party, map_id=0, asset_mgr=asset_mgr)
+    ow.creatures = [
+        {"name": "Whirlpool", "tile_name": "whirlpool", "tile": "whirlpool", "x": 50, "y": 13, "wontattack": True},
+        {"name": "Whirlpool", "tile_name": "whirlpool", "tile": "whirlpool", "x": 17, "y": 48, "wontattack": True},
+        {"name": "Pirate", "tile_name": "pirate", "tile": "pirate", "x": 30, "y": 40},
+        {"name": "Serpent", "tile_name": "serpent", "tile": "serpent", "x": 8, "y": 9},
+    ]
+
+    ow._save_game()
+
+    start = StartScreen(asset_mgr=asset_mgr)
+    start._start_journey()
+    resumed = start.next_screen
+    assert isinstance(resumed, OverworldScreen)
+    assert len(resumed.creatures) == 4
+
+
+def test_journey_onward_empty_saved_monsters_still_spawns_wanderers(
+    pygame_setup, asset_mgr, monkeypatch, tmp_path
+):
+    """Item 47: when world_state has empty monsters (or is absent), normal wandering spawns still run."""
+    import random
+
+    monkeypatch.chdir(tmp_path)
+
+    from py_exodus.screens.overworld import OverworldScreen
+
+    party = Party()
+    party.add_member(_roster_char("Ariel"))
+
+    state = random.getstate()
+    random.seed(42)
+    try:
+        ow = OverworldScreen(
+            party=party,
+            map_id=0,
+            asset_mgr=asset_mgr,
+            world_state={"monsters": []},
+        )
+    finally:
+        random.setstate(state)
+
+    # 2 whirlpool fixtures + spawned wanderers
+    whirls = [c for c in ow.creatures if c.get("tile_name") == "whirlpool"]
+    assert sorted((c["x"], c["y"]) for c in whirls) == [(17, 48), (50, 13)]
+    assert len(ow.creatures) > 2
 
 
 def test_journey_onward_legacy_save_still_reseeds_whirlpools(pygame_setup, asset_mgr, monkeypatch, tmp_path):
