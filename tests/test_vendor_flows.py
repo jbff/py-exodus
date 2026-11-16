@@ -569,7 +569,7 @@ def test_dispatch_weapon_armor_guilditem_healer_now_ported():
 
 
 def test_weapon_welcome_and_full_catalog_no_truncation():
-    """WeaponVendor.java:34-45: welcome + every stock item listed; Windsor
+    """WeaponVendor.java:24-31: welcome + every stock item listed; Windsor
     Weaponry has 14 items (b..o) — the old items[:6] truncation is gone."""
     vendor = make_weapon_vendor()
     assert len(vendor.items) == 14
@@ -589,7 +589,7 @@ def test_weapon_welcome_and_full_catalog_no_truncation():
 
 
 def test_weapon_buy_multiple_via_member_purse():
-    """WeaponVendor.java:62-68: count purchase credits member's weapon list
+    """WeaponVendor.java:41-46: count purchase credits member's weapon list
     and debits the member's purse; loop with "anything else?\"."""
     vendor = make_weapon_vendor()
     party = make_party((1000,))
@@ -611,7 +611,7 @@ def test_weapon_buy_multiple_via_member_purse():
 
 def test_weapon_buy_one_take_it_prompt():
     """gold <= 2*price splits to WAIT_BUY_ONE: "Take it?" (WeaponVendor also
-    prints the price description first, WeaponVendor.java:52-55)."""
+    prints the price description first, WeaponVendor.java:36-39)."""
     vendor = make_weapon_vendor()
     party = make_party((8,))
     member = party.members[0]
@@ -715,10 +715,10 @@ def test_weapon_sell_too_many_swine():
 
 # --- Buy-or-Sell key semantics (playtest-1 fix batch, item 2) --------------
 #
-# Java truth: WeaponVendor.setResponse ASK_BUY_SELL (WeaponVendor.java:114-123)
+# Java truth: WeaponVendor.setResponse ASK_BUY_SELL (WeaponVendor.java:98-105)
 # maps b/s to the buy/sell menus and leaves ANY other input (including
 # non-alphabetical junk) in ASK_BUY_SELL; nextDialog then re-prints the full
-# welcome message (WeaponVendor.java:26-28) — so Java's "unrecognized key"
+# welcome message (WeaponVendor.java:21-23) — so Java's "unrecognized key"
 # handling at the buy-or-sell choice IS a re-welcome + re-ask, no error line
 # anywhere. The port keeps the "(b or s)" prompt affordance (Java is a
 # free-text modal field with no prompt strings) and re-asks the same way.
@@ -736,8 +736,8 @@ def test_weapon_sell_too_many_swine():
 
 def test_weapon_invalid_key_rewelcomes_and_reprompts():
     """Non-B/S key at the buy-or-sell choice: Java keeps ASK_BUY_SELL and
-    nextDialog re-prints the whole welcome (WeaponVendor.java:114-123 +
-    26-28). Driver: pressing x re-welcomes and re-prompts, never exits."""
+    nextDialog re-prints the whole welcome (WeaponVendor.java:98-105 +
+    21-23). Driver: pressing x re-welcomes and re-prompts, never exits."""
     vendor = make_weapon_vendor()
     party = make_party((0,))
     member = party.members[0]
@@ -854,8 +854,8 @@ def test_weapon_multi_count_cannot_pay():
 
 
 def test_armor_buy_one_no_description_line():
-    """ArmorVendor.java:57 WAIT_BUY_ONE prints ONLY "Take it?" — no item
-    description (unlike WeaponVendor.java:52-55 which prints both)."""
+    """ArmorVendor.java:35-37 WAIT_BUY_ONE prints ONLY "Take it?" — no item
+    description (unlike WeaponVendor.java:36-39 which prints both)."""
     vendor = make_armor_vendor()
     party = make_party((100,))
     member = party.members[0]
@@ -1224,9 +1224,10 @@ def test_healer_blood_donation():
     assert not town.text_log.is_waiting_for_input
 
 
-def test_healer_low_health_decline_loops_back():
-    """health < 400 and declining help returns to the need prompt (no blood
-    offer), HealerService.java:74-80."""
+def test_healer_low_health_decline_exits_farewell():
+    """Playability fix (item 44): Java HealerService.java:91-97 sets
+    WAIT_NEED_HELP when health < 400 and the player says no, trapping the
+    player in an infinite loop; PyExodus exits cleanly via FAREWELL."""
     vendor = make_healer_vendor()
     party = make_party((1000,))
     member = party.members[0]
@@ -1236,12 +1237,14 @@ def test_healer_low_health_decline_loops_back():
     town._start_vendor_shopping(vendor, buyer=member)
     town.text_log.submit_input("n")
     assert "Art thou willing to give 100 pts of thy blood" not in logtext(town)
-    assert town.text_log.is_waiting_for_input
-    assert "Are you in need of help?" in logtext(town)
+    assert "Pendragon says: May thy life be guarded by the powers of good." \
+        in logtext(town)
+    assert not town.text_log.is_waiting_for_input
 
 
 def test_healer_no_blood_offer_after_donating_low():
-    """After GIVE_BLOOD, "y" re-loops the need prompt; health 399 declines."""
+    """After GIVE_BLOOD, "y" re-loops the need prompt; declining at hp < 400
+    exits via FAREWELL instead of offering blood again or looping forever."""
     vendor = make_healer_vendor()
     party = make_party((1000,))
     member = party.members[0]
@@ -1254,9 +1257,193 @@ def test_healer_no_blood_offer_after_donating_low():
     town.text_log.submit_input("y")   # loop back to the need prompt
     assert member.hp == 300
     town.text_log.submit_input("n")
-    # health below 400 -> the need prompt re-displays, visit stays open
+    assert logtext(town).count("Art thou willing to give 100 pts of thy blood") == 1
+    assert "Pendragon says: May thy life be guarded by the powers of good." \
+        in logtext(town)
+    assert not town.text_log.is_waiting_for_input
+
+
+def test_healer_decline_blood_offer_exits_farewell():
+    """Declining 'Give blood?' at hp >= 400 exits cleanly via FAREWELL."""
+    vendor = make_healer_vendor()
+    party = make_party((1000,))
+    member = party.members[0]
+    member.hp = 500
+    town = TownScreen(party=party, map_id=1)
+
+    town._start_vendor_shopping(vendor, buyer=member)
+    town.text_log.submit_input("n")
+    assert "Art thou willing to give 100 pts of thy blood to aid others?" \
+        in logtext(town)
+    town.text_log.submit_input("n")
+    assert member.hp == 500
+    assert "Pendragon says: May thy life be guarded by the powers of good." \
+        in logtext(town)
+    assert not town.text_log.is_waiting_for_input
+
+
+def test_healer_anything_else_prompt_and_low_hp_exit():
+    """ANYTHING_ELSE uses 'Anything else? (y or n)' (single_char=True), and
+    answering 'n' when hp < 400 exits cleanly via FAREWELL."""
+    vendor = make_healer_vendor()
+    party = make_party((300,))
+    member = party.members[0]
+    member.hp = 100
+    member.status = Status.POISONED
+    town = TownScreen(party=party, map_id=1)
+
+    town._start_vendor_shopping(vendor, buyer=member)
+    town.text_log.submit_input("y")
+    town.text_log.submit_input("a")
+    town.text_log.submit_input("1")
+    town.text_log.submit_input("y")
+
     assert town.text_log.is_waiting_for_input
-    assert "Are you in need of help?" in logtext(town)
+    assert town.text_log.current_prompt == "Anything else? (y or n)"
+    assert town.text_log.single_char is True
+
+    town.text_log.handle_char("n")
+    assert "Pendragon says: May thy life be guarded by the powers of good." \
+        in logtext(town)
+    assert not town.text_log.is_waiting_for_input
+
+
+def test_healer_who_service_single_char_member_prompt(pygame_setup):
+    """WAIT_WHO_SERVICE ('Who is in need? (member number)') commits on a single
+    digit key without pressing ENTER."""
+    import pygame
+
+    vendor = make_healer_vendor()
+    party = make_party((300, 500))
+    party.members[0].status = Status.POISONED
+    town = TownScreen(party=party, map_id=1)
+
+    town._start_vendor_shopping(vendor, buyer=party.members[0])
+    town.text_log.handle_char("y")
+    town.text_log.handle_char("a")
+    assert town.text_log.current_prompt == "Who is in need? (member number)"
+    assert town.text_log.single_char is True
+
+    town.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_1, unicode="1"))
+    assert "A curing will cost thee 100 gp." in logtext(town)
+    assert "Wilt thou pay?" in logtext(town)
+    assert town.text_log.current_prompt == "Wilt thou pay? (y or n)"
+
+
+def test_healer_check_can_pay_none_keeps_state():
+    """HealerVendorDialog.check_can_pay(None) must leave dialog.state untouched
+    instead of assigning ConvState.ASK_BUY_SELL."""
+    from py_exodus.screens.vendor_dialog import ConvState, HealerVendorDialog
+
+    vendor = make_healer_vendor()
+    party = make_party((300,))
+    town = TownScreen(party=party, map_id=1)
+    dialog = HealerVendorDialog(vendor, party.members[0], town.text_log)
+    dialog.state = ConvState.WAIT_WHICH_SERVICE
+
+    assert dialog.check_can_pay(None) is False
+    assert dialog.state == ConvState.WAIT_WHICH_SERVICE
+    assert "I cannot help thee with that." in logtext(town)
+
+
+def test_ported_vendor_escape_clears_prompt_and_restores_music(pygame_setup):
+    """Pressing ESC at an active ported vendor prompt clears text_log prompt
+    and invokes on_end to restore town music."""
+    import pygame
+
+    played_music: list[str] = []
+
+    class _StubAudio:
+        def play_music(self, name: str, **kwargs) -> None:
+            played_music.append(name)
+
+        def play_sfx(self, name: str, **kwargs) -> None:
+            pass
+
+    party = make_party((500,))
+    town = TownScreen(party=party, map_id=3, audio=_StubAudio())
+    town._start_vendor_shopping(make_weapon_vendor(), buyer=party.members[0])
+    assert played_music == ["shopping"]
+    assert town.text_log.is_waiting_for_input
+
+    town.text_log.handle_char("b")
+    assert town.text_log.is_waiting_for_input
+
+    town.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_ESCAPE, unicode="\x1b"))
+    assert not town.text_log.is_waiting_for_input
+    assert town.text_log._callback is None
+    assert town.text_log._on_cancel is None
+    assert played_music == ["shopping", "towns"]
+
+
+def test_generic_vendor_escape_clears_prompt_and_restores_music(pygame_setup):
+    """Pressing ESC at the generic vendor fallback prompt clears text_log
+    and invokes on_cancel to restore town music."""
+    import pygame
+
+    played_music: list[str] = []
+
+    class _StubAudio:
+        def play_music(self, name: str, **kwargs) -> None:
+            played_music.append(name)
+
+        def play_sfx(self, name: str, **kwargs) -> None:
+            pass
+
+    party = make_party((500,))
+    town = TownScreen(party=party, map_id=3, audio=_StubAudio())
+    vendor = VendorDef(
+        id="X",
+        name="Odd Shop",
+        owner="Zed",
+        vendor_type="MYSTERY",
+        items=[VendorItemDef(choice="a", item_type="WEAPON", name="W0", price=1)],
+    )
+    town._start_vendor_shopping(vendor, buyer=party.members[0])
+    assert played_music == ["shopping"]
+    assert town.text_log.is_waiting_for_input
+
+    town.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_ESCAPE, unicode="\x1b"))
+    assert not town.text_log.is_waiting_for_input
+    assert town.text_log._callback is None
+    assert town.text_log._on_cancel is None
+    assert played_music == ["shopping", "towns"]
+
+
+def test_text_log_clear_does_not_fire_on_cancel_and_enter_clears_on_cancel():
+    """TextLog.clear() drops on_cancel without calling it, and handle_enter()
+    clears the previous prompt's on_cancel before firing chained prompts."""
+    from py_exodus.ui.text_log import TextLog
+
+    log = TextLog(max_lines=5)
+    cancelled: list[str] = []
+    submitted: list[str] = []
+
+    log.prompt(
+        "First?",
+        callback=submitted.append,
+        on_cancel=lambda: cancelled.append("clear"),
+    )
+    log.clear()
+    assert not log.is_waiting_for_input
+    assert cancelled == []
+
+    def _on_first(val: str) -> None:
+        submitted.append(val)
+        log.prompt("Second?", callback=submitted.append)
+
+    log.prompt(
+        "First?",
+        callback=_on_first,
+        on_cancel=lambda: cancelled.append("stale"),
+    )
+    log.submit_input("ok")
+    assert submitted == ["ok"]
+    assert log.is_waiting_for_input
+
+    log.handle_escape()
+    assert not log.is_waiting_for_input
+    assert cancelled == []
 
 
 # --- Generic menu catalog truncation removed -------------------------------

@@ -631,7 +631,12 @@ class TownScreen(BaseScreen):
 
             self._play_town_music()
 
-        self.text_log.prompt("What wouldst thou buy? (Choice):", callback=_on_choice, single_char=True)
+        self.text_log.prompt(
+            "What wouldst thou buy? (Choice):",
+            callback=_on_choice,
+            single_char=True,
+            on_cancel=self._play_town_music,
+        )
 
     def _open(self) -> None:
         """L = OPEN with a direction (Java SIP:212-219 + BaseMap.openDoor)."""

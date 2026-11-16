@@ -137,6 +137,7 @@ class TextLog:
         self.input_buffer: str = ""
         self.single_char: bool = False
         self._callback: Callable[[str], None] | None = None
+        self._on_cancel: Callable[[], None] | None = None
         # Scroll-back viewport: 0 = stuck to the newest line; N = the window
         # ends N history lines above the newest (N grows as lines arrive so
         # a scrolled-up view stays pinned). See module docstring for the
@@ -257,12 +258,14 @@ class TextLog:
         query: str,
         callback: Callable[[str], None] | None = None,
         single_char: bool | None = None,
+        on_cancel: Callable[[], None] | None = None,
     ) -> None:
         """Initiate an interactive prompt stream query (e.g. 'Direction?', 'Buy what?')."""
         self.is_waiting_for_input = True
         self.current_prompt = query
         self.input_buffer = ""
         self._callback = callback
+        self._on_cancel = on_cancel
         # A newly opened prompt is always answered from the bottom-most view
         # (arrival pinning above stays unchanged).
         self._snap_to_bottom()
@@ -344,6 +347,7 @@ class TextLog:
         self.input_buffer = ""
         self.single_char = False
         self._callback = None
+        self._on_cancel = None
         self._snap_to_bottom()
 
         # Add the completed prompt + input line to message log
@@ -358,16 +362,20 @@ class TextLog:
             cb(val)
 
     def handle_escape(self) -> None:
-        """Cancel the active prompt without executing the callback."""
+        """Cancel the active prompt without executing the input callback."""
         if not self.is_waiting_for_input:
             return
 
+        cancel_cb = self._on_cancel
         self.is_waiting_for_input = False
         self.current_prompt = ""
         self.input_buffer = ""
         self.single_char = False
         self._callback = None
+        self._on_cancel = None
         self._snap_to_bottom()
+        if cancel_cb is not None:
+            cancel_cb()
 
     def cancel_prompt(self) -> None:
         """Alias for handle_escape."""
@@ -448,6 +456,7 @@ class TextLog:
         self.lines.clear()
         self.history.clear()
         self._snap_to_bottom()
+        self._on_cancel = None
         self.handle_escape()
 
     def render(

@@ -168,7 +168,12 @@ class BaseVendorDialog:
             if self.state != ConvState.FAREWELL:
                 break
         query, single_char = self._prompt_for_state()
-        self.text_log.prompt(query, callback=self._on_input, single_char=single_char)
+        self.text_log.prompt(
+            query,
+            callback=self._on_input,
+            single_char=single_char,
+            on_cancel=self._finish,
+        )
 
     def _on_input(self, value: str) -> None:
         if not value:
@@ -206,7 +211,7 @@ class FoodVendorDialog(BaseVendorDialog):
                 self.food_item = item
 
     def next_dialog(self) -> bool:
-        # Java FoodVendor.java:27-68
+        # Java FoodVendor.java:27-69
         if self.state == ConvState.ASK_BUY:
             self.display(self.welcome_message % self.vendor.name)
             self.display(f"{self.vendor.owner} says: Good day, and Welcome friend.")
@@ -242,7 +247,7 @@ class FoodVendorDialog(BaseVendorDialog):
 
     def set_response(self, input: str) -> None:
         inp = (input or "").lower()
-        # Java FoodVendor.java:72-97
+        # Java FoodVendor.java:72-99
         if self.state in (ConvState.ASK_BUY, ConvState.ANYTHING_ELSE):
             if inp.startswith("y"):
                 self.state = ConvState.WAIT_BUY_HOW_MANY
@@ -520,7 +525,7 @@ class HorseVendorDialog(BaseVendorDialog):
     ``choice`` "y" (HorseService.java:69)."""
 
     def init(self) -> None:
-        # Java HorseService.java:16-19 — the format arguments are ignored for
+        # Java HorseService.java:17-20 — the format arguments are ignored for
         # the constant welcome message.
         self.welcome_message = "Welcome friend!"
         self.state = ConvState.WAIT_BUY_INPUT
@@ -609,12 +614,12 @@ class BuySellVendorDialog(BaseVendorDialog):
     the FULL vendor-class catalog (`vendor.getVendorClass()
     .getItemCatalog()`), filtered to items the member owns."""
 
-    #: Java WeaponVendor.java:52-55 prints the description before "Take it?";
-    #: ArmorVendor.java:57 does not (only "Take it?").
+    #: Java WeaponVendor.java:36-39 prints the description before "Take it?";
+    #: ArmorVendor.java:35-37 does not (only "Take it?").
     _buy_one_shows_description = False
 
     def init(self) -> None:
-        # Java WeaponVendor.java:19 / ArmorVendor.java:16
+        # Java WeaponVendor.java:8, 12, 189-191 / ArmorVendor.java:8, 12, 187-189
         self.welcome_message = (
             "Welcome to %s\n%s says:\nWelcome friend!\nArt thou here to Buy or Sell?"
         )
@@ -650,7 +655,7 @@ class BuySellVendorDialog(BaseVendorDialog):
                 self.welcome_message % (self.vendor.name, self.vendor.owner)
             )
         elif self.state == ConvState.WAIT_BUY_INPUT:
-            # Java WeaponVendor.java:34-45
+            # Java WeaponVendor.java:24-31
             list_str = "Very Good!\nWe Have:\n"
             for item in self.vendor.items:
                 list_str += f"{item.choice.upper()} - {item.name} for {item.price}gp.\n"
@@ -672,7 +677,7 @@ class BuySellVendorDialog(BaseVendorDialog):
                 )
             self.display("Take it?")
         elif self.state == ConvState.BUY_ITEM:
-            # Java WeaponVendor.java:62-68
+            # Java WeaponVendor.java:41-46
             bucket = self._count_bucket()
             key = self._unit_key(self.current_selected_item)
             bucket[key] = bucket.get(key, 0) + self.current_count
@@ -681,7 +686,7 @@ class BuySellVendorDialog(BaseVendorDialog):
             )
             self.display(f"{self.vendor.owner} says: A fine choice! anything else?")
         elif self.state == ConvState.WAIT_SELL_INPUT:
-            # Java WeaponVendor.java:69-83 — full class catalog, owned only
+            # Java WeaponVendor.java:48-60 — full class catalog, owned only
             sell_list = "Excellent!\n"
             for item in self._sell_catalog():
                 count = self._owned(item)
@@ -706,7 +711,7 @@ class BuySellVendorDialog(BaseVendorDialog):
             self.display("You don't have that many swine! Anything else?")
             self.state = ConvState.ASK_BUY_SELL
         elif self.state == ConvState.SELL_ITEM:
-            # Java WeaponVendor.java:99-106 — direct gold write, no clamp
+            # Java WeaponVendor.java:74-79 — direct gold write, no clamp
             bucket = self._count_bucket()
             key = self._unit_key(self.current_selected_item)
             bucket[key] = bucket.get(key, 0) - self.current_count
@@ -805,13 +810,13 @@ class BuySellVendorDialog(BaseVendorDialog):
         # Playability ruling (playtest-1 fix batch, item 2): Java is a
         # free-text ConversationDialog with NO prompt strings — the question
         # itself is the prompt. Its three y/n questions are distinct
-        # ("Take it?" WeaponVendor.java:56, "anything else?" :63, "Deal?"
-        # :97), so the port's prompt affordance mirrors each question
+        # ("Take it?" WeaponVendor.java:38, "anything else?" :45, "Deal?"
+        # :67), so the port's prompt affordance mirrors each question
         # instead of one shared "Reply (y or n)" string.
         if self.state == ConvState.WAIT_BUY_ONE:
             return ("Take it? (y or n)", True)
         if self.state in (ConvState.BUY_ITEM, ConvState.SELL_ITEM):
-            # WeaponVendor.java:63 ("A fine choice! anything else?") and :105
+            # WeaponVendor.java:45 ("A fine choice! anything else?") and :78
             # ("Fine! Anything else?") are the same y/n question shape.
             return ("Anything else? (y or n)", True)
         if self.state == ConvState.WAIT_SELL_ONE:
@@ -822,7 +827,7 @@ class BuySellVendorDialog(BaseVendorDialog):
 class WeaponVendorDialog(BuySellVendorDialog):
     """Java ``vendor/WeaponVendor.java``."""
 
-    _buy_one_shows_description = True  # WeaponVendor.java:52-55
+    _buy_one_shows_description = True  # WeaponVendor.java:36-39
 
     def _unit_key(self, item: VendorItemDef):
         from py_exodus.constants import WeaponType
@@ -836,7 +841,7 @@ class WeaponVendorDialog(BuySellVendorDialog):
 class ArmorVendorDialog(BuySellVendorDialog):
     """Java ``vendor/ArmorVendor.java``."""
 
-    _buy_one_shows_description = False  # ArmorVendor.java:57 — "Take it?" only
+    _buy_one_shows_description = False  # ArmorVendor.java:35-37 — "Take it?" only
 
     def _unit_key(self, item: VendorItemDef):
         from py_exodus.constants import ArmorType
@@ -854,12 +859,12 @@ class GuildVendorDialog(BaseVendorDialog):
     gems/keys/torches/powder fields (Java BUY_ITEM), never a party pool."""
 
     def init(self) -> None:
-        # Java GuildVendor.java:23-27
+        # Java GuildVendor.java:14-17
         self.welcome_message = "Avast ye mate!"
         self.state = ConvState.ASK_BUY
 
     def next_dialog(self) -> bool:
-        # Java GuildVendor.java:29-71
+        # Java GuildVendor.java:20-84
         if self.state == ConvState.ASK_BUY:
             # format() ignores the unused vendor-name argument, as in Java
             self.display("Avast ye mate!")
@@ -883,7 +888,7 @@ class GuildVendorDialog(BaseVendorDialog):
             )
             self.display("Will ya buy?")
         elif self.state == ConvState.BUY_ITEM:
-            # Java GuildVendor.java:44-60 — member-level fields
+            # Java GuildVendor.java:44-64 — member-level fields
             player = self._player()
             kind = (self.current_selected_item.guild_item_type or "").lower()
             if kind == "gem":
@@ -900,7 +905,7 @@ class GuildVendorDialog(BaseVendorDialog):
         elif self.state == ConvState.ANYTHING_ELSE:
             self.display(f"{self.vendor.owner} says: See more?")
         elif self.state == ConvState.DECLINE_BUY:
-            # Java GuildVendor.java:63-66 (unreachable dead branch — no
+            # Java GuildVendor.java:69-72 (unreachable dead branch — no
             # setResponse path sets DECLINE_BUY — but the strings are kept).
             self.display("Hmmm...Grmbl...")
             self.state = ConvState.FAREWELL
@@ -914,7 +919,7 @@ class GuildVendorDialog(BaseVendorDialog):
 
     def set_response(self, input: str) -> None:
         inp = (input or "").lower()
-        # Java GuildVendor.java:74-111
+        # Java GuildVendor.java:87-116
         if self.state in (ConvState.ASK_BUY, ConvState.ANYTHING_ELSE):
             if inp.startswith("y"):
                 self.state = ConvState.WAIT_BUY_INPUT
@@ -935,7 +940,7 @@ class GuildVendorDialog(BaseVendorDialog):
                 self.current_count = 0
                 self.state = ConvState.FAREWELL
 
-    # --- Java GuildVendor.java:113-136 ---------------------------------------
+    # --- Java GuildVendor.java:119-134 ---------------------------------------
     def check_can_pay(self, item: VendorItemDef | None) -> bool:
         if item is None:
             self.display("I cannot help thee with that.")
@@ -963,14 +968,14 @@ class HealerVendorDialog(BaseVendorDialog):
     only on success."""
 
     def init(self) -> None:
-        # Java HealerService.java:18-22
+        # Java HealerService.java:13-16
         self.welcome_message = (
             "Welcome unto %s\n\n%s says: Peace and Joy be with you friend."
         )
         self.state = ConvState.WAIT_NEED_HELP
 
     def next_dialog(self) -> bool:
-        # Java HealerService.java:24-101
+        # Java HealerService.java:19-83
         if self.state == ConvState.WAIT_NEED_HELP:
             self.display(
                 self.welcome_message % (self.vendor.name, self.vendor.owner)
@@ -998,7 +1003,7 @@ class HealerVendorDialog(BaseVendorDialog):
             )
             self.display("Wilt thou pay?")
         elif self.state == ConvState.PERFORM_SERVICE:
-            # Java HealerService.java:66-88
+            # Java HealerService.java:50-69
             party = getattr(self.member, "party", None)
             members = party.members if party is not None else [self.member]
             if self.current_count <= 0 or self.current_count > len(members):
@@ -1026,14 +1031,17 @@ class HealerVendorDialog(BaseVendorDialog):
 
     def set_response(self, input: str) -> None:
         inp = (input or "").lower()
-        # Java HealerService.java:104-141
+        # Java HealerService.java:86-146
         if self.state in (ConvState.WAIT_NEED_HELP, ConvState.ANYTHING_ELSE):
             if inp.startswith("y"):
                 self.state = ConvState.WAIT_WHICH_SERVICE
             elif self._player().hp >= 400:
                 self.state = ConvState.WAIT_GIVE_BLOOD
             else:
-                self.state = ConvState.WAIT_NEED_HELP
+                # USER-APPROVED PLAYABILITY FIX (2026-11-16, item 44): Java
+                # HealerService.java:94-96 loops back to WAIT_NEED_HELP,
+                # trapping hp < 400 in an infinite prompt; exit via FAREWELL.
+                self.state = ConvState.FAREWELL
         elif self.state == ConvState.WAIT_WHICH_SERVICE:
             item = self.vendor.get_item(inp)
             if item is not None and self.check_can_pay(item):
@@ -1057,18 +1065,20 @@ class HealerVendorDialog(BaseVendorDialog):
             if inp.startswith("y"):
                 self.state = ConvState.GIVE_BLOOD
             else:
-                self.state = ConvState.WAIT_NEED_HELP
+                # USER-APPROVED PLAYABILITY FIX (2026-11-16, item 44): Java
+                # HealerService.java:131-133 loops back to WAIT_NEED_HELP;
+                # declining blood donation exits cleanly via FAREWELL.
+                self.state = ConvState.FAREWELL
         elif self.state == ConvState.GIVE_BLOOD:
             if inp.startswith("y"):
                 self.state = ConvState.WAIT_NEED_HELP
             else:
                 self.state = ConvState.FAREWELL
 
-    # --- Java HealerService.java:143-158 -------------------------------------
+    # --- Java HealerService.java:149-164 -------------------------------------
     def check_can_pay(self, item: VendorItemDef | None) -> bool:
         if item is None:
             self.display("I cannot help thee with that.")
-            self.state = ConvState.ASK_BUY_SELL
             return False
         if item.price > self._player().gold:
             self.display(
@@ -1079,12 +1089,14 @@ class HealerVendorDialog(BaseVendorDialog):
         return True
 
     def _prompt_for_state(self) -> tuple[str, bool]:
-        if self.state in (ConvState.WAIT_NEED_HELP, ConvState.ANYTHING_ELSE):
+        if self.state == ConvState.WAIT_NEED_HELP:
             return ("In need of help? (y or n)", True)
+        if self.state == ConvState.ANYTHING_ELSE:
+            return ("Anything else? (y or n)", True)
         if self.state == ConvState.WAIT_WHICH_SERVICE:
             return ("Your Need? (choice letter)", True)
         if self.state == ConvState.WAIT_WHO_SERVICE:
-            return ("Who is in need? (member number)", False)
+            return ("Who is in need? (member number)", True)
         if self.state == ConvState.WAIT_PERFORM_SERVICE:
             return ("Wilt thou pay? (y or n)", True)
         if self.state == ConvState.WAIT_GIVE_BLOOD:
