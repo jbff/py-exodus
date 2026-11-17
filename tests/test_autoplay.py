@@ -770,7 +770,7 @@ def test_stats_panel_party_hud_layout(pygame_setup, monkeypatch):
     surf = pygame.Surface((400, 600))
     panel.render(surf, party, rect=pygame.Rect(0, 0, 300, 500))
 
-    assert any("GRUMM" in s and "ODF" in s for s in captured)
+    assert any("GRUMM" in s and "ODF" in s and "L:1" in s for s in captured)
     assert any("E:45" in s for s in captured)
     assert not any("PARTY (" in s or "TRANS:" in s for s in captured)
     food_idx = next(i for i, s in enumerate(captured) if "FOOD:" in s and "GOLD:" in s)
