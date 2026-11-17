@@ -38,13 +38,12 @@ _AMBROSIA_CARD_SITES: tuple[tuple[int, int, int], ...] = (
     (4, 36, 3),   # Love
 )
 
-# Towns with Weapon & Armor vendors: map_id -> (portal_x, portal_y, wep_stand_xy, arm_stand_xy)
+# Towns with Weapon & Armor vendors reachable on foot: map_id -> (portal_x, portal_y, wep_stand_xy, arm_stand_xy)
 _SHOP_TOWNS: dict[int, tuple[int, int, tuple[int, int], tuple[int, int]]] = {
     3: (46, 19, (39, 19), (50, 20)),   # Britain
-    6: (7, 44, (29, 47), (35, 48)),    # Grey
+    6: (7, 44, (29, 43), (35, 44)),    # Grey
     8: (49, 58, (26, 11), (35, 12)),   # Montor East
-    9: (47, 58, (50, 39), (51, 28)),   # Montor West
-    10: (56, 31, (16, 11), (16, 56)),  # Death Gulch
+    9: (47, 58, (50, 35), (51, 28)),   # Montor West
     11: (37, 53, (27, 19), (19, 20)),  # Dawn
 }
 
@@ -53,9 +52,9 @@ _SOSARIA_PATROL: tuple[tuple[int, int], ...] = (
     (44, 22),
     (34, 18),
     (24, 24),
-    (18, 32),
+    (14, 34),
     (12, 42),
-    (24, 48),
+    (28, 46),
     (38, 48),
     (50, 48),
     (52, 32),
@@ -108,6 +107,7 @@ class AutoPlayController:
         self._ready_item_letter: str = "b"
         self._wear_member_idx: int = 1
         self._wear_item_letter: str = "b"
+        self._talk_dir_key: int = pygame.K_UP
 
     def toggle(self) -> bool:
         """Flip autoplay enabled state and clear any queued keystrokes."""
@@ -412,6 +412,7 @@ class AutoPlayController:
                 if (px, py) == wep_xy:
                     self._shop_member_idx = i + 1
                     self._shop_item_letter = letter
+                    self._talk_dir_key = self._direction_to_npc(gmap, px, py)
                     return self._emit_key(state_machine, pygame.K_t)
                 d = find_2d_step(
                     gmap, (px, py), wep_xy, Transport.FOOT, party=party,
@@ -427,6 +428,7 @@ class AutoPlayController:
                 if (px, py) == arm_xy:
                     self._shop_member_idx = i + 1
                     self._shop_item_letter = "b"  # Cloth
+                    self._talk_dir_key = self._direction_to_npc(gmap, px, py)
                     return self._emit_key(state_machine, pygame.K_t)
                 d = find_2d_step(
                     gmap, (px, py), arm_xy, Transport.FOOT, party=party,
@@ -547,7 +549,7 @@ class AutoPlayController:
             return self._move_toward(state_machine, gmap, party, (px, py), {(58, 44)})
 
         if goal == Goal.OUTFIT_BRITAIN:
-            nearest_portal = self._nearest_shop_town_portal(gmap.width, gmap.height, px, py)
+            nearest_portal = self._nearest_shop_town_portal(gmap, px, py, party.transport, party=party)
             if (px, py) == nearest_portal:
                 return self._emit_key(state_machine, pygame.K_e)
             return self._move_toward(state_machine, gmap, party, (px, py), {nearest_portal})
@@ -576,11 +578,16 @@ class AutoPlayController:
             if d is not None:
                 return self._emit_key(state_machine, _DIR_TO_KEY[d])
 
-        target = _SOSARIA_PATROL[self._patrol_idx % len(_SOSARIA_PATROL)]
-        if (px, py) == target:
-            self._patrol_idx += 1
+        for _ in range(len(_SOSARIA_PATROL)):
             target = _SOSARIA_PATROL[self._patrol_idx % len(_SOSARIA_PATROL)]
-        return self._move_toward(state_machine, gmap, party, (px, py), {target})
+            if (px, py) == target:
+                self._patrol_idx += 1
+                continue
+            d = find_2d_step(gmap, (px, py), {target}, party.transport, party=party)
+            if d is not None:
+                return self._emit_key(state_machine, _DIR_TO_KEY[d])
+            self._patrol_idx += 1
+        return self._emit_key(state_machine, pygame.K_SPACE)
 
     def _handle_town_prompt(self, state_machine: StateMachine, screen) -> int | None:
         prompt = (getattr(screen.text_log, "current_prompt", "") or "").lower()
@@ -595,7 +602,7 @@ class AutoPlayController:
         if "talk" in prompt or "which" in prompt or "who" in prompt:
             return self._emit_key(state_machine, pygame.K_0 + self._shop_member_idx)
         if "direction" in prompt:
-            return self._emit_key(state_machine, pygame.K_UP)
+            return self._emit_key(state_machine, self._talk_dir_key)
         if "buy" in prompt and "sell" in prompt:
             return self._emit_key(state_machine, pygame.K_b)
         if "take it" in prompt or "deal" in prompt:
@@ -630,15 +637,38 @@ class AutoPlayController:
         return self._emit_key(state_machine, pygame.K_SPACE)
 
     @staticmethod
-    def _nearest_shop_town_portal(width: int, height: int, px: int, py: int) -> tuple[int, int]:
+    def _direction_to_npc(game_map, px: int, py: int) -> int:
+        """Return the pygame key pointing toward an NPC within 1-2 tiles of (px, py)."""
+        npc_coords = {(npc.x, npc.y) for npc in getattr(game_map, "npcs", ())}
+        for key, (dx, dy) in (
+            (pygame.K_UP, (0, -1)),
+            (pygame.K_DOWN, (0, 1)),
+            (pygame.K_RIGHT, (1, 0)),
+            (pygame.K_LEFT, (-1, 0)),
+        ):
+            for dist in (1, 2):
+                if (px + dx * dist, py + dy * dist) in npc_coords:
+                    return key
+        return pygame.K_UP
+
+    @staticmethod
+    def _nearest_shop_town_portal(
+        game_map, px: int, py: int, transport: Transport, party=None
+    ) -> tuple[int, int]:
         def _dist(tx_ty: tuple[int, int]) -> int:
             tx, ty = tx_ty
-            dx = min((tx - px) % width, (px - tx) % width)
-            dy = min((ty - py) % height, (py - ty) % height)
+            dx = min((tx - px) % game_map.width, (px - tx) % game_map.width)
+            dy = min((ty - py) % game_map.height, (py - ty) % game_map.height)
             return dx + dy
 
-        portals = [(info[0], info[1]) for info in _SHOP_TOWNS.values()]
-        return min(portals, key=_dist)
+        portals = sorted(
+            ((info[0], info[1]) for info in _SHOP_TOWNS.values()),
+            key=_dist,
+        )
+        for portal in portals:
+            if (px, py) == portal or find_2d_step(game_map, (px, py), {portal}, transport, party=party) is not None:
+                return portal
+        return portals[0]
 
     @staticmethod
     def _find_caster(

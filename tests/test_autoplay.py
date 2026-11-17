@@ -505,14 +505,15 @@ def test_find_2d_step_prefer_paths_follows_floor():
     grass_t = TileDef(index=1, name="grass", rule="none", attribs=TileAttrib.NONE)
     gm = GameMap(id=3, name="Town", width=5, height=5, border_behavior="exit")
     gm.tiles = [grass_t] * (5 * 5)
-    # Path goes EAST along y=1 from (1,1) to (3,1) then SOUTH to (3,3)
-    for x in (1, 2, 3):
-        gm.set_tile(x, 1, floor_t)
-    for y in (2, 3):
-        gm.set_tile(3, y, floor_t)
+    # Path goes SOUTH along x=1 from (1,1) to (1,3) then EAST to (3,3)
+    for y in (1, 2, 3):
+        gm.set_tile(1, y, floor_t)
+    for x in (2, 3):
+        gm.set_tile(x, 3, floor_t)
 
-    # Without prefer_paths: (1,1)->(3,3) can go SOUTH into grass; with prefer_paths: goes EAST along floor
-    assert find_2d_step(gm, (1, 1), (3, 3), Transport.FOOT, prefer_paths=True) == Direction.EAST
+    # Unweighted BFS prefers EAST (first in _CARDINALS); prefer_paths=True follows floor SOUTH
+    assert find_2d_step(gm, (1, 1), (3, 3), Transport.FOOT, prefer_paths=False) == Direction.EAST
+    assert find_2d_step(gm, (1, 1), (3, 3), Transport.FOOT, prefer_paths=True) == Direction.SOUTH
 
 
 def test_nearest_shop_town_and_monster_chasing(pygame_setup):
@@ -520,13 +521,15 @@ def test_nearest_shop_town_and_monster_chasing(pygame_setup):
     from py_exodus.screens.overworld import OverworldScreen
     from py_exodus.state_machine import StateMachine
 
-    assert AutoPlayController._nearest_shop_town_portal(64, 64, 10, 44) == (7, 44)  # Grey
-    assert AutoPlayController._nearest_shop_town_portal(64, 64, 44, 20) == (46, 19)  # Britain
-
     am = AssetManager()
     am.load_all()
+    sosaria = load_map(0, am)
+    assert AutoPlayController._nearest_shop_town_portal(sosaria, 10, 44, Transport.FOOT) == (7, 44)  # Grey
+    assert AutoPlayController._nearest_shop_town_portal(sosaria, 44, 20, Transport.FOOT) == (46, 19)  # Britain
+
     party = Party()
-    party.add_member(Character("HERO", "M", Race.HUMAN, Profession.FIGHTER, weapon=WeaponType.MACE, armor=ArmorType.CLOTH))
+    for name in ("A", "B", "C", "D"):
+        party.add_member(Character(name, "M", Race.HUMAN, Profession.FIGHTER, weapon=WeaponType.MACE, armor=ArmorType.CLOTH))
     party.x, party.y = 43, 21
     sm = StateMachine(asset_mgr=am, audio=None)
     ow = OverworldScreen(party=party, asset_mgr=am, random_encounters_enabled=False)
@@ -536,6 +539,27 @@ def test_nearest_shop_town_and_monster_chasing(pygame_setup):
     ctrl = AutoPlayController(enabled=True)
     key = ctrl.step(sm)
     assert key == pygame.K_RIGHT  # chases orc at (45, 21)
+
+
+def test_sosaria_patrol_and_shop_towns_are_reachable():
+    from py_exodus.assets import AssetManager
+    from py_exodus.autoplay.controller import _SHOP_TOWNS, _SOSARIA_PATROL
+    from py_exodus.autoplay.nav import can_move_to
+
+    am = AssetManager()
+    am.load_all()
+    sosaria = load_map(0, am)
+
+    for wp in _SOSARIA_PATROL:
+        assert can_move_to(sosaria, wp[0], wp[1], Transport.FOOT), f"Patrol waypoint {wp} not walkable"
+        assert find_2d_step(sosaria, (46, 20), wp, Transport.FOOT) is not None, f"Patrol waypoint {wp} unreachable"
+
+    for mid, (px, py, wep_xy, arm_xy) in _SHOP_TOWNS.items():
+        assert find_2d_step(sosaria, (46, 20), (px, py), Transport.FOOT) is not None, f"Town {mid} portal unreachable"
+        tmap = load_map(mid, am)
+        for label, xy in (("weapon", wep_xy), ("armor", arm_xy)):
+            assert can_move_to(tmap, xy[0], xy[1], Transport.FOOT), f"Town {mid} {label} {xy} not walkable"
+            assert find_2d_step(tmap, (32, 63), xy, Transport.FOOT) is not None, f"Town {mid} {label} {xy} unreachable"
 
 
 
