@@ -706,9 +706,10 @@ class AutoPlayController:
                     self._key_queue.append(pygame.K_DOWN if 1 <= dy_s <= 3 else pygame.K_UP)
                     return self._emit_key(state_machine, pygame.K_f)
                 if tname in ("pirate", "serpent", "squid") and goal != Goal.CAPTURE_SHIP:
-                    avoid_monsters.add((cx, cy))
-                    for ox, oy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
-                        avoid_monsters.add(((cx + ox) % gmap.width, (cy + oy) % gmap.height))
+                    for ox in range(-2, 3):
+                        for oy in range(-2, 3):
+                            if abs(ox) + abs(oy) <= 2:
+                                avoid_monsters.add(((cx + ox) % gmap.width, (cy + oy) % gmap.height))
         elif cur_map_id == 0 and party.transport != Transport.SHIP and living:
             avg_max_hp = sum(m.max_hp for m in party.members) // max(1, len(party.members))
             avoid_all_land = (
@@ -819,12 +820,11 @@ class AutoPlayController:
 
         if (
             cur_map_id == 0
-            and party.transport != Transport.SHIP
             and party.food >= 100
             and goal not in (Goal.BUY_FOOD, Goal.RESURRECT_DEAD, Goal.CURE_POISON)
             and needs_heal(party)
         ):
-            # Evade nearby monsters while hurt on Sosaria
+            # Evade nearby monsters while hurt on Sosaria (on foot or on ship)
             nearby = [
                 (c["x"], c["y"])
                 for c in getattr(screen, "creatures", [])
@@ -833,11 +833,15 @@ class AutoPlayController:
             if nearby:
                 from py_exodus.screens.overworld import can_move_to
 
+                wind = getattr(party, "wind_direction", None)
+                blocked_dir = wind.reverse() if (party.transport == Transport.SHIP and wind is not None) else None
                 best_dir = None
                 best_dist = -1
                 for d, (dx, dy) in ((Direction.NORTH, (0, -1)), (Direction.SOUTH, (0, 1)), (Direction.WEST, (-1, 0)), (Direction.EAST, (1, 0))):
+                    if d == blocked_dir:
+                        continue
                     nx, ny = (px + dx) % gmap.width, (py + dy) % gmap.height
-                    if not can_move_to(gmap, nx, ny, transport=Transport.FOOT, party=party):
+                    if not can_move_to(gmap, nx, ny, transport=party.transport, party=party):
                         continue
                     min_d = min(abs(nx - cx) + abs(ny - cy) for cx, cy in nearby)
                     if min_d > best_dist:
@@ -926,7 +930,14 @@ class AutoPlayController:
                 ):
                     return self._emit_key(state_machine, pygame.K_x)
             return self._move_toward(
-                state_machine, gmap, party, (px, py), {(46, 12), (46, 13), (46, 14), (45, 15), (45, 16)}
+                state_machine,
+                gmap,
+                party,
+                (px, py),
+                {
+                    (46, 12), (46, 13), (46, 14), (45, 15), (45, 16),
+                    (17, 42), (18, 42), (19, 42), (20, 42), (21, 42), (14, 43), (15, 43),
+                },
             )
 
         # GRIND_AND_LEVEL
