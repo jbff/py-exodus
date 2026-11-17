@@ -1,6 +1,7 @@
 """11x11 Tactical Combat Arena, turn sequencing, monster AI, and victory/defeat management."""
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass
 from enum import Enum
 import random
@@ -1270,9 +1271,28 @@ class CombatArena:
                 continue
             if self._is_tile_passable_for_creature(fx + d.dx, fy + d.dy):
                 candidates.append(d)
-        if not candidates:
-            return None
-        return random.choice(candidates)
+        if candidates:
+            return random.choice(candidates)
+
+        # Fallback: BFS around obstacles (e.g. ship masts, pillars, allies) on the 11x11 arena
+        w, h = self.combat_map.width, self.combat_map.height
+        queue: deque[tuple[int, int, Direction]] = deque()
+        visited: set[tuple[int, int]] = {(fx, fy)}
+        for d in (Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST):
+            nx, ny = fx + d.dx, fy + d.dy
+            if (nx, ny) not in visited and self._is_tile_passable_for_creature(nx, ny):
+                visited.add((nx, ny))
+                queue.append((nx, ny, d))
+        while queue:
+            cx, cy, first_dir = queue.popleft()
+            if abs(cx - tx) + abs(cy - ty) <= 1:
+                return first_dir
+            for d in (Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST):
+                nx, ny = cx + d.dx, cy + d.dy
+                if 0 <= nx < w and 0 <= ny < h and (nx, ny) not in visited and self._is_tile_passable_for_creature(nx, ny):
+                    visited.add((nx, ny))
+                    queue.append((nx, ny, first_dir))
+        return None
 
     def _move_is_too_slow(self, monster: CombatMonster, nx: int, ny: int) -> bool:
         """Java ``moveCreature`` slowed-type gate (CombatScreen.java:925-956).
@@ -1308,6 +1328,10 @@ class CombatArena:
         best_idx: int | None = None
         best_member: PartyMember | None = None
         least_dist = 9999
+
+        aura = getattr(self.party, "aura", None)
+        if aura is not None and aura.get_type() == AuraType.JINX:
+            return (None, None, 9999)
 
         for p_idx, pos in self.player_positions.items():
             member = self.party.members[p_idx]

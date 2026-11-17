@@ -419,3 +419,26 @@ def test_auto_combat_never_throws_last_dagger():
     action_spare = choose_auto_combat_action(arena, 0, asset_mgr=am)
     assert action_spare.type == ActionType.ATTACK
     assert action_spare.direction == Direction.NORTH
+
+
+def test_combat_pathing_around_mast_for_auto_combat_and_monsters():
+    """Both auto-combat and monster AI route around an obstacle (e.g. ship mast) instead of stalling."""
+    from py_exodus.assets import TileDef
+    from py_exodus.constants import TileAttrib
+
+    arena = _caster_arena(Profession.FIGHTER, mp=0, creature_tile="pirate", monster_count=1)
+    # Place an impassable mast tile at (5, 4) directly between player (5, 5) and pirate (5, 3)
+    mast = TileDef(index=99, name="mast", rule="none", attribs=TileAttrib.UNWALKABLE)
+    arena.combat_map.set_tile(5, 4, mast)
+    arena.player_positions[0] = (5, 5)
+    arena.monsters[0].x = 5
+    arena.monsters[0].y = 3
+
+    # Auto-combat must step EAST or WEST around the mast instead of passing
+    action = choose_auto_combat_action(arena, 0)
+    assert action.type == ActionType.MOVE
+    assert action.direction in (Direction.EAST, Direction.WEST)
+
+    # Monster AI must also step EAST or WEST around the mast instead of returning None
+    m_dir = arena._advance_direction(5, 3, 5, 5)
+    assert m_dir in (Direction.EAST, Direction.WEST)

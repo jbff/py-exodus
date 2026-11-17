@@ -1,6 +1,7 @@
 """Auto-combat tactical AI decision engine (inspired by Lairware UltimaAutocombat.c)."""
 from __future__ import annotations
 
+from collections import deque
 from typing import TYPE_CHECKING, Any
 
 from py_exodus.aura import AuraType
@@ -336,4 +337,69 @@ def choose_auto_combat_action(
     if best_move_dir is not None:
         return Action.move(best_move_dir)
 
+    bfs_dir = _find_bfs_move_dir(
+        arena,
+        member_idx,
+        px,
+        py,
+        visible_positions=visible_positions,
+        weapon_range=weapon_range,
+        attack_through=attack_through,
+        can_cast_mittar=can_cast_mittar,
+    )
+    if bfs_dir is not None:
+        return Action.move(bfs_dir)
+
     return Action.pass_turn()
+
+
+def _find_bfs_move_dir(
+    arena: CombatArena,
+    member_idx: int,
+    px: int,
+    py: int,
+    *,
+    visible_positions: set[tuple[int, int]],
+    weapon_range: int,
+    attack_through: bool,
+    can_cast_mittar: bool,
+) -> Direction | None:
+    """BFS on the 11x11 arena to route around masts/walls/allies to an attack position."""
+    queue: deque[tuple[int, int, Direction]] = deque()
+    visited: set[tuple[int, int]] = {(px, py)}
+    for d in _CARDINAL_DIRS:
+        nx, ny = px + d.dx, py + d.dy
+        if (nx, ny) not in visited and _is_walkable_unoccupied(arena, member_idx, nx, ny):
+            visited.add((nx, ny))
+            queue.append((nx, ny, d))
+
+    while queue:
+        cx, cy, first_dir = queue.popleft()
+        if any(abs(cx - mx) + abs(cy - my) == 1 for mx, my in visible_positions):
+            return first_dir
+        if weapon_range > 1 and _find_ranged_attack_dir(
+            arena,
+            cx,
+            cy,
+            max_range=weapon_range,
+            attack_through=attack_through,
+            visible_positions=visible_positions,
+        ) is not None:
+            return first_dir
+        if can_cast_mittar and _find_ranged_attack_dir(
+            arena,
+            cx,
+            cy,
+            max_range=5,
+            attack_through=False,
+            visible_positions=visible_positions,
+        ) is not None:
+            return first_dir
+
+        for d in _CARDINAL_DIRS:
+            nx, ny = cx + d.dx, cy + d.dy
+            if (nx, ny) not in visited and _is_walkable_unoccupied(arena, member_idx, nx, ny):
+                visited.add((nx, ny))
+                queue.append((nx, ny, first_dir))
+
+    return None
