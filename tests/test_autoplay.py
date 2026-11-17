@@ -1066,5 +1066,60 @@ def test_stats_panel_autoplay_autocombat_and_turn_count(pygame_setup):
     assert any("TURN: 42" in s for s in captured)
 
 
+def test_heal_rest_on_sosaria_and_walkable_coast_patrol(pygame_setup):
+    """Hurt parties with a living healer rest on Sosaria for MP instead of fighting, and coast patrol tiles are walkable."""
+    from py_exodus.assets import AssetManager
+    from py_exodus.autoplay.nav import find_2d_step
+    from py_exodus.screens.overworld import OverworldScreen
+
+    am = AssetManager("data")
+    am.load_all()
+    party = _make_party(level=3, exp=200, gold=100, food=300)
+    party.members[0].hp = 100
+    party.members[0].max_hp = 350
+    party.members[2].mp = 0
+    party.members[2].max_mp = 25
+
+    sm = StateMachine(asset_mgr=am, audio=None, party=party)
+    ow = OverworldScreen(party=party, asset_mgr=am, random_encounters=False)
+    ow.creatures = [{"x": 45, "y": 20, "tile_name": "orc"}]
+    sm.set_screen(ow)
+
+    ctrl = AutoPlayController(enabled=True)
+    # Hurt party with living Cleric at 0 MP rests with K_SPACE to regen MP for SANCTU
+    assert ctrl.step(sm) == pygame.K_SPACE
+
+    # Coast patrol points for CAPTURE_SHIP must all be reachable on foot from Dardin's Pit (46, 7)
+    for coord in [(45, 12), (45, 14), (44, 16), (44, 14)]:
+        assert find_2d_step(ow.game_map, (46, 7), {coord}, Transport.FOOT) is not None
+
+
+def test_mark_kings_triggers_on_first_level5_and_resurrection_reserve():
+    """First member hitting L5 triggers GET_MARK_KINGS, and L5+ keeps 500g resurrection reserve."""
+    from py_exodus.autoplay.equipment import best_shop_upgrade
+
+    # Mixed levels: only member 0 is L5, others L2-L4 -> still triggers GET_MARK_KINGS
+    party = _make_party(level=3, exp=200, gold=0, food=500, marks=[0, 0, 0, 0])
+    party.members[0].level = 5
+    party.members[0].exp = 450
+    assert evaluate_goal(party) == Goal.GET_MARK_KINGS
+
+    # At L5+ with mid gear, 600g pooled reserves 500g so 400g Dawn Axe+2 is not bought yet
+    for m in party.members:
+        if m.profession in (Profession.FIGHTER, Profession.RANGER):
+            m.weapon = WeaponType.AXE
+        m.armor = ArmorType.LEATHER
+    party.members[0].gold = 600
+    up_600 = best_shop_upgrade(party)
+    assert up_600 is None or up_600.price <= 100
+
+    # With 950g pooled (450g above 500g reserve), 350g-400g upgrades ARE bought
+    party.members[0].gold = 950
+    up_950 = best_shop_upgrade(party)
+    assert up_950 is not None and 100 < up_950.price <= 450
+
+
+
+
 
 

@@ -663,12 +663,28 @@ class AutoPlayController:
                 return self._emit_key(state_machine, pygame.K_b)
             if frigates:
                 return self._move_toward(state_machine, gmap, party, (px, py), frigates)
-            coast = [(48, 12), (50, 14), (48, 16), (46, 14)]
+            coast = [(45, 12), (45, 14), (44, 16), (44, 14)]
             target = coast[self._patrol_idx % len(coast)]
             if (px, py) == target:
                 self._patrol_idx += 1
                 target = coast[self._patrol_idx % len(coast)]
             return self._move_toward(state_machine, gmap, party, (px, py), {target})
+
+        if (
+            party.map_id == 0
+            and party.transport != Transport.SHIP
+            and party.food >= 100
+            and goal not in (Goal.BUY_FOOD, Goal.RESURRECT_DEAD, Goal.CURE_POISON)
+            and needs_heal(party)
+            and any(
+                not m.is_dead()
+                and m.profession in (Profession.CLERIC, Profession.PALADIN, Profession.DRUID)
+                and m.max_mp >= 10
+                for m in party.members
+            )
+        ):
+            # Rest on Sosaria to regenerate MP for SANCTU rather than fighting while hurt
+            return self._emit_key(state_machine, pygame.K_SPACE)
 
         if goal == Goal.GET_MARK_KINGS:
             if (px, py) == (46, 7):

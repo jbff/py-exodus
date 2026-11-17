@@ -249,6 +249,13 @@ def best_shop_upgrade(party: Party, *, include_wizard_dagger: bool = False) -> S
         for _, m in living
     )
 
+    # At level 5+, keep a 500g emergency resurrection reserve once starter gear is bought
+    spendable_gold = (
+        max(0, total_gold - 500)
+        if (not needs_starter and max(m.level for _, m in living) >= 5)
+        else total_gold
+    )
+
     candidates: list[ShopUpgrade] = []
     for idx, m in living:
         cur_w_rank = WEAPON_RANK.get(m.weapon, 0)
@@ -261,7 +268,7 @@ def best_shop_upgrade(party: Party, *, include_wizard_dagger: bool = False) -> S
             if wt == WeaponType.DAGGER and m.profession in (Profession.WIZARD, Profession.ALCHEMIST) and not include_wizard_dagger:
                 continue
             r = WEAPON_RANK.get(wt, 0)
-            if r > cur_w_rank and total_gold >= price:
+            if r > cur_w_rank and spendable_gold >= price:
                 if any(cnt > 0 and WEAPON_RANK.get(ow, 0) >= r for ow, cnt in m.weapons.items()):
                     continue
                 best_w = ShopUpgrade(
@@ -283,7 +290,7 @@ def best_shop_upgrade(party: Party, *, include_wizard_dagger: bool = False) -> S
             if needs_starter and (dawn_only or price > 150):
                 continue
             r = ARMOR_RANK.get(at, 0)
-            if r > cur_a_rank and total_gold >= price:
+            if r > cur_a_rank and spendable_gold >= price:
                 if any(cnt > 0 and ARMOR_RANK.get(oa, 0) >= r for oa, cnt in m.armors.items()):
                     continue
                 best_a = ShopUpgrade(

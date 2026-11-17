@@ -122,7 +122,7 @@ def evaluate_goal(party: Party) -> Goal:
     ):
         return Goal.OUTFIT_BRITAIN
 
-    if min(m.level for m in party.members) < 5:
+    if max(m.level for m in living) < 5:
         return Goal.GRIND_AND_LEVEL
 
     if not all(m.marks[0] > 0 for m in living):
