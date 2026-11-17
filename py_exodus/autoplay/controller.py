@@ -936,6 +936,30 @@ class AutoPlayController:
             ):
                 return self._emit_key(state_machine, pygame.K_SPACE)
             return self._emit_key(state_machine, pygame.K_e)
+        if (
+            party.map_id == 0
+            and party.transport == Transport.FOOT
+            and find_2d_step(gmap, (px, py), {target_portal}, Transport.FOOT, party=party) is None
+        ):
+            frigates = {
+                (obj.get("x"), obj.get("y"))
+                for obj in getattr(party, "dynamic_objects", ())
+                if str(obj.get("tile", "")).lower() == "frigate"
+            }
+            if (px, py) in frigates:
+                return self._emit_key(state_machine, pygame.K_b)
+            reachable_frigates = {
+                pos for pos in frigates
+                if find_2d_step(gmap, (px, py), {pos}, Transport.FOOT, party=party) is not None
+            }
+            if reachable_frigates:
+                return self._move_toward(state_machine, gmap, party, (px, py), reachable_frigates)
+            for src_idx, gate in enumerate(getattr(gmap, "moongates", ())):
+                if (
+                    abs(px - gate.x) + abs(py - gate.y) <= 1
+                    or find_2d_step(gmap, (px, py), {(gate.x, gate.y)}, Transport.FOOT, party=party) is not None
+                ):
+                    return self._step_moongate(state_machine, screen, gmap, party, px, py, src_idx=src_idx, dest_idx=0)
         return self._move_toward(state_machine, gmap, party, (px, py), {target_portal})
 
     def _step_moongate(

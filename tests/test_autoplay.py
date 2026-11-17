@@ -1251,6 +1251,18 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
     ow_s.creatures = [{"x": 52, "y": 17, "tile_name": "whirlpool"}]
     assert ctrl.step(sm) == pygame.K_DOWN
 
+    # Stranded on island for BUY_FOOD uses reachable moongate or frigate instead of passing turns
+    p_isl = _make_party(level=5, exp=500, gold=100, food=50)
+    p_isl.food = 50
+    p_isl.x, p_isl.y = 58, 44  # Snake Island, unreachable on foot from Britain
+    ow_i = OverworldScreen(party=p_isl, asset_mgr=am, random_encounters=False)
+    ow_i.creatures = []
+    sm.set_screen(ow_i)
+    assert evaluate_goal(p_isl) == Goal.BUY_FOOD
+    # With a frigate parked nearby on the coast, boards or walks toward it instead of K_SPACE
+    p_isl.dynamic_objects.append({"tile": "frigate", "x": 58, "y": 44})
+    assert ctrl.step(sm) == pygame.K_b
+
 
 
 
