@@ -617,4 +617,44 @@ def test_equipment_upgrades_hand_and_dawn(pygame_setup):
     assert evaluate_goal(party) == Goal.CONQUER_EXODUS
 
 
+def test_profession_equipment_tables_match_xml_and_town_join_gold(pygame_setup):
+    """PROFESSION_WEAPONS/ARMORS match AssetManager XML rules; TownScreen pools gold with J and exits for Dawn."""
+    from py_exodus.assets import AssetManager
+    from py_exodus.autoplay.equipment import PROFESSION_ARMORS, PROFESSION_WEAPONS
+    from py_exodus.screens.town import TownScreen
+    from py_exodus.state_machine import StateMachine
+
+    am = AssetManager("data")
+    am.load_all()
+
+    for prof in Profession:
+        expected_w = {
+            wt for wt in WeaponType if wt != WeaponType.NONE and am.get_weapon(wt.name.lower()).can_use(prof)
+        }
+        expected_a = {
+            at for at in ArmorType if at != ArmorType.NONE and am.get_armor(at.name.lower()).can_use(prof)
+        }
+        assert PROFESSION_WEAPONS[prof] == expected_w, f"Weapon mismatch for {prof}"
+        assert PROFESSION_ARMORS[prof] == expected_a, f"Armor mismatch for {prof}"
+
+    # Non-Dawn town (Britain) with 250g spread across members: J pools gold onto Fighter and buys 2H Sword
+    party = Party()
+    party.add_member(Character("SHADOW", "M", Race.ELF, Profession.THIEF, weapon=WeaponType.SLING, armor=ArmorType.CLOTH, gold=100))
+    party.add_member(Character("GRUMM", "M", Race.DWARF, Profession.FIGHTER, weapon=WeaponType.MACE, armor=ArmorType.CLOTH, gold=50))
+    party.add_member(Character("SERENA", "F", Race.BOBIT, Profession.CLERIC, weapon=WeaponType.MACE, armor=ArmorType.CLOTH, gold=100))
+    party.add_member(Character("ZIRCON", "M", Race.FUZZY, Profession.WIZARD, weapon=WeaponType.DAGGER, armor=ArmorType.CLOTH, gold=0))
+
+    sm = StateMachine(asset_mgr=am, audio=None)
+    ts = TownScreen(party=party, asset_mgr=am, map_id=3, start_x=39, start_y=19)
+    sm.set_screen(ts)
+
+    ctrl = AutoPlayController(enabled=True)
+    for _ in range(80):
+        ctrl.step(sm)
+        if party.members[1].weapon == WeaponType.SWORD_2H:
+            break
+    assert party.members[1].weapon == WeaponType.SWORD_2H
+    assert sum(m.gold for m in party.members) == 0
+
+
 

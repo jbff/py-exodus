@@ -337,7 +337,7 @@ class AutoPlayController:
 
     def _step_town(self, state_machine: StateMachine, screen, party, px: int, py: int, goal: Goal) -> int | None:
         gmap = screen.game_map
-        map_id = getattr(screen, "map_id", party.map_id)
+        map_id = getattr(gmap, "id", getattr(screen, "map_id", party.map_id))
         if map_id == 2:  # EXODUS (Castle of Death)
             status = getattr(party, "exodus_cards_status", 0)
             for tx, ty, bit, letter, card_idx in _EXODUS_PANELS:

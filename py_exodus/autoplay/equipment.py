@@ -25,17 +25,20 @@ _THIEF_WEAPONS: frozenset[WeaponType] = frozenset(
     }
 )
 _FIGHTER_WEAPONS: frozenset[WeaponType] = frozenset(wt for wt in WeaponType if wt != WeaponType.NONE)
+_RANGER_WEAPONS: frozenset[WeaponType] = _FIGHTER_WEAPONS - frozenset(
+    {WeaponType.GLOVES, WeaponType.AXE_P4, WeaponType.BOW_P4, WeaponType.SWORD_P4}
+)
 
 PROFESSION_WEAPONS: dict[Profession, frozenset[WeaponType]] = {
     Profession.FIGHTER: _FIGHTER_WEAPONS,
     Profession.PALADIN: _FIGHTER_WEAPONS,
-    Profession.RANGER: _FIGHTER_WEAPONS,
     Profession.BARBARIAN: _FIGHTER_WEAPONS,
+    Profession.LARK: _FIGHTER_WEAPONS,
+    Profession.RANGER: _RANGER_WEAPONS,
     Profession.THIEF: _THIEF_WEAPONS,
-    Profession.LARK: _THIEF_WEAPONS,
-    Profession.ILLUSIONIST: _THIEF_WEAPONS,
     Profession.CLERIC: _CLERIC_WEAPONS,
     Profession.DRUID: _CLERIC_WEAPONS,
+    Profession.ILLUSIONIST: _CLERIC_WEAPONS,
     Profession.WIZARD: _WIZARD_WEAPONS,
     Profession.ALCHEMIST: _WIZARD_WEAPONS,
 }
@@ -46,20 +49,23 @@ _THIEF_ARMORS: frozenset[ArmorType] = frozenset({ArmorType.CLOTH, ArmorType.LEAT
 _CLERIC_ARMORS: frozenset[ArmorType] = frozenset(
     {ArmorType.CLOTH, ArmorType.LEATHER, ArmorType.CHAIN, ArmorType.EXOTIC}
 )
+_PALADIN_ARMORS: frozenset[ArmorType] = frozenset(
+    {ArmorType.CLOTH, ArmorType.LEATHER, ArmorType.CHAIN, ArmorType.PLATE, ArmorType.EXOTIC}
+)
 _FIGHTER_ARMORS: frozenset[ArmorType] = frozenset(at for at in ArmorType if at != ArmorType.NONE)
 
 PROFESSION_ARMORS: dict[Profession, frozenset[ArmorType]] = {
     Profession.FIGHTER: _FIGHTER_ARMORS,
-    Profession.PALADIN: _FIGHTER_ARMORS,
     Profession.RANGER: _FIGHTER_ARMORS,
-    Profession.BARBARIAN: _FIGHTER_ARMORS,
-    Profession.THIEF: _THIEF_ARMORS,
-    Profession.LARK: _THIEF_ARMORS,
-    Profession.ILLUSIONIST: _THIEF_ARMORS,
+    Profession.PALADIN: _PALADIN_ARMORS,
     Profession.CLERIC: _CLERIC_ARMORS,
-    Profession.DRUID: _CLERIC_ARMORS,
+    Profession.THIEF: _THIEF_ARMORS,
+    Profession.BARBARIAN: _THIEF_ARMORS,
+    Profession.ILLUSIONIST: _THIEF_ARMORS,
     Profession.WIZARD: _WIZARD_ARMORS,
     Profession.ALCHEMIST: _WIZARD_ARMORS,
+    Profession.DRUID: _WIZARD_ARMORS,
+    Profession.LARK: _WIZARD_ARMORS,
 }
 
 # Power ranking (higher is strictly better)
@@ -238,7 +244,7 @@ def best_shop_upgrade(party: Party, *, include_wizard_dagger: bool = False) -> S
     total_gold = sum(m.gold for _, m in living)
 
     needs_starter = any(
-        (m.weapon == WeaponType.NONE and m.profession != Profession.WIZARD and total_gold >= 5)
+        (m.weapon == WeaponType.NONE and m.profession not in (Profession.WIZARD, Profession.ALCHEMIST) and total_gold >= 5)
         or (m.armor == ArmorType.NONE and total_gold >= 75)
         for _, m in living
     )
@@ -252,7 +258,7 @@ def best_shop_upgrade(party: Party, *, include_wizard_dagger: bool = False) -> S
                 continue
             if needs_starter and (dawn_only or price > 150):
                 continue
-            if wt == WeaponType.DAGGER and m.profession == Profession.WIZARD and not include_wizard_dagger:
+            if wt == WeaponType.DAGGER and m.profession in (Profession.WIZARD, Profession.ALCHEMIST) and not include_wizard_dagger:
                 continue
             r = WEAPON_RANK.get(wt, 0)
             if r > cur_w_rank and total_gold >= price:
@@ -294,7 +300,7 @@ def best_shop_upgrade(party: Party, *, include_wizard_dagger: bool = False) -> S
     if not candidates:
         return None
 
-    def _priority(up: ShopUpgrade) -> tuple[int, int, int]:
+    def _priority(up: ShopUpgrade) -> tuple[int, int, int, int]:
         m = party.members[up.member_idx - 1]
         is_empty = (
             (up.kind == "weapon" and m.weapon == WeaponType.NONE)
