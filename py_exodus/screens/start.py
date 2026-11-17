@@ -140,7 +140,13 @@ class StartScreen(BaseScreen):
         # Documented deviation: Java's start screen shows no game-over text;
         # the label is kept for UI clarity (controller ruling, Task 2 fix round 1).
         if self.game_over:
-            over_surf = sub_font.render("Thy party has perished!", True, EGA_BRIGHT_RED)
+            turns = getattr(self.party, "moves", None)
+            msg = (
+                f"Thy party has perished! (Turn {turns})"
+                if turns is not None
+                else "Thy party has perished!"
+            )
+            over_surf = sub_font.render(msg, True, EGA_BRIGHT_RED)
             surface.blit(over_surf, ((w - over_surf.get_width()) // 2, 70 * scale))
 
         # Menu options

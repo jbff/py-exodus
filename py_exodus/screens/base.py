@@ -55,6 +55,15 @@ class BaseScreen(ABC):
         if party is None or not party.is_party_dead():
             return False
 
+        if getattr(self.manager, "autoplay_enabled", False):
+            self.manager.autoplay_enabled = False
+            text_log = getattr(self, "text_log", None)
+            if text_log is not None:
+                text_log.add_message(
+                    f"PARTY DEAD on turn {party.moves}! Autoplay stopped."
+                )
+            return True
+
         from py_exodus.screens.start import StartScreen
 
         start_screen = StartScreen(

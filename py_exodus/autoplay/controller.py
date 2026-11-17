@@ -201,6 +201,13 @@ class AutoPlayController:
             self._key_queue.clear()
             return None
 
+        screen_party = getattr(screen, "party", None)
+        if screen_party is not None and screen_party.is_party_dead():
+            self._key_queue.clear()
+            self.enabled = False
+            state_machine.autoplay_enabled = False
+            return None
+
         if self._key_queue:
             return self._emit_key(state_machine, self._key_queue.popleft())
 
@@ -407,8 +414,8 @@ class AutoPlayController:
                 self._queue_text(f"{caster[0]}h{poison_idx}", enter=False)
                 return self._emit_key(state_machine, pygame.K_c)
 
-        # Heal detour if hurt (skip when starving so BUY_FOOD can reach the shop)
-        if needs_heal(party) and not (goal == Goal.BUY_FOOD and party.food < 100):
+        # Heal detour if hurt (skip during BUY_FOOD or starvation so we don't loop healing)
+        if needs_heal(party) and goal != Goal.BUY_FOOD and party.food > 0:
             caster = self._find_caster(party, (Profession.CLERIC, Profession.PALADIN, Profession.DRUID), min_mp=10)
             if caster is not None:
                 hurt_idx = next(

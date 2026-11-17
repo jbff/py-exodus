@@ -1188,6 +1188,17 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
     assert evaluate_goal(party) == Goal.BUY_FOOD
     assert ctrl.step(sm) != pygame.K_c
 
+    # When party dies during autoplay, check_party_death freezes on current screen & logs turn
+    for m in party.members:
+        m.status = Status.DEAD
+        m.hp = 0
+    party.moves = 321
+    sm.autoplay_enabled = True
+    assert ow.check_party_death() is True
+    assert sm.current_screen is ow
+    assert sm.autoplay_enabled is False
+    assert any("PARTY DEAD on turn 321" in msg for msg in ow.text_log.lines)
+
 
 
 
