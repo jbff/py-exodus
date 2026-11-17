@@ -1199,6 +1199,16 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
     assert sm.autoplay_enabled is False
     assert any("PARTY DEAD on turn 321" in msg for msg in ow.text_log.lines)
 
+    # Empty party on RosterScreen must NOT stop autoplay (is_party_dead is True when empty)
+    from py_exodus.screens.roster_screen import RosterScreen
+
+    empty_party = Party()
+    rs = RosterScreen(party=empty_party, asset_mgr=am)
+    sm.set_screen(rs)
+    ctrl.enabled = True
+    assert ctrl.step(sm) is not None
+    assert ctrl.enabled is True
+
 
 
 

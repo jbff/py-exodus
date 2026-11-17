@@ -202,7 +202,12 @@ class AutoPlayController:
             return None
 
         screen_party = getattr(screen, "party", None)
-        if screen_party is not None and screen_party.is_party_dead():
+        if (
+            screen_name not in ("StartScreen", "RosterScreen")
+            and screen_party is not None
+            and bool(screen_party.members)
+            and screen_party.is_party_dead()
+        ):
             self._key_queue.clear()
             self.enabled = False
             state_machine.autoplay_enabled = False
