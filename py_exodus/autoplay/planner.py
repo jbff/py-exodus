@@ -39,10 +39,10 @@ class Goal(str, Enum):
 
 
 def needs_heal(party: Party) -> bool:
-    """Return True if any living member is below 67% HP or poisoned and missing HP."""
+    """Return True if any living member is below 75% HP or poisoned and missing HP."""
     for m in party.members:
         if not m.is_dead() and m.max_hp > 0 and (
-            m.hp * 3 < m.max_hp * 2 or (m.status == Status.POISONED and m.hp + 30 < m.max_hp)
+            m.hp * 4 < m.max_hp * 3 or (m.status == Status.POISONED and m.hp + 30 < m.max_hp)
         ):
             return True
     return False
@@ -125,7 +125,7 @@ def evaluate_goal(party: Party) -> Goal:
     if max(m.level for m in living) < 5:
         return Goal.GRIND_AND_LEVEL
 
-    if not all(m.marks[0] > 0 for m in living):
+    if not all(m.marks[0] > 0 for m in party.members):
         if (
             party.map_id not in (13, 15, 16, 17, 18, 19, 20)
             and party.transport != Transport.SHIP

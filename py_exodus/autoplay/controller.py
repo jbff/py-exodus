@@ -683,7 +683,27 @@ class AutoPlayController:
                 for m in party.members
             )
         ):
-            # Rest on Sosaria to regenerate MP for SANCTU rather than fighting while hurt
+            # Evade adjacent monsters while resting on Sosaria to regen MP for SANCTU
+            nearby = [
+                (c["x"], c["y"])
+                for c in getattr(screen, "creatures", [])
+                if "x" in c and "y" in c and abs(c["x"] - px) + abs(c["y"] - py) <= 3
+            ]
+            if nearby:
+                from py_exodus.screens.overworld import can_move_to
+
+                best_dir = None
+                best_dist = -1
+                for d, (dx, dy) in ((Direction.NORTH, (0, -1)), (Direction.SOUTH, (0, 1)), (Direction.WEST, (-1, 0)), (Direction.EAST, (1, 0))):
+                    nx, ny = (px + dx) % gmap.width, (py + dy) % gmap.height
+                    if not can_move_to(gmap, nx, ny, transport=Transport.FOOT, party=party):
+                        continue
+                    min_d = min(abs(nx - cx) + abs(ny - cy) for cx, cy in nearby)
+                    if min_d > best_dist:
+                        best_dist = min_d
+                        best_dir = d
+                if best_dir is not None:
+                    return self._emit_key(state_machine, _DIR_TO_KEY[best_dir])
             return self._emit_key(state_machine, pygame.K_SPACE)
 
         if goal == Goal.GET_MARK_KINGS:

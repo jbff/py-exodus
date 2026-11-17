@@ -1086,7 +1086,9 @@ def test_heal_rest_on_sosaria_and_walkable_coast_patrol(pygame_setup):
     sm.set_screen(ow)
 
     ctrl = AutoPlayController(enabled=True)
-    # Hurt party with living Cleric at 0 MP rests with K_SPACE to regen MP for SANCTU
+    # Hurt party with living Cleric at 0 MP evades adjacent monster, then rests with K_SPACE when safe
+    assert ctrl.step(sm) in (pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT)
+    ow.creatures = []
     assert ctrl.step(sm) == pygame.K_SPACE
 
     # Coast patrol points for CAPTURE_SHIP must all be reachable on foot from Dardin's Pit (46, 7)
@@ -1117,6 +1119,18 @@ def test_mark_kings_triggers_on_first_level5_and_resurrection_reserve():
     party.members[0].gold = 950
     up_950 = best_shop_upgrade(party)
     assert up_950 is not None and 100 < up_950.price <= 450
+
+    # If a member is dead when someone is L5, resurrect before Mark of Kings;
+    # and if one member still lacks Mark of Kings after revival, go get it.
+    party.members[1].status = Status.DEAD
+    party.members[1].hp = 0
+    assert evaluate_goal(party) == Goal.RESURRECT_DEAD
+    party.members[0].gold = 0
+    party.members[1].status = Status.GOOD
+    party.members[1].hp = 150
+    party.members[0].marks[0] = 1
+    assert evaluate_goal(party) == Goal.GET_MARK_KINGS
+
 
 
 
