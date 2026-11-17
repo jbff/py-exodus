@@ -648,7 +648,10 @@ class AutoPlayController:
                 for m in living
             )
             on_mainland = (px, py) == (46, 19) or find_2d_step(gmap, (px, py), {(46, 19)}, Transport.FOOT, party=party) is not None
-            if (not has_exotics and goal in (Goal.GRIND_AND_LEVEL, Goal.OUTFIT_BRITAIN, Goal.GET_MARK_KINGS)) or not on_mainland:
+            if goal not in (Goal.DIG_EXOTICS, Goal.AMBROSIA_CARDS_SHRINES, Goal.EXIT_AMBROSIA) and (
+                (not has_exotics and goal in (Goal.GRIND_AND_LEVEL, Goal.OUTFIT_BRITAIN, Goal.GET_MARK_KINGS))
+                or not on_mainland
+            ):
                 frigates = {
                     (obj.get("x"), obj.get("y"))
                     for obj in getattr(party, "dynamic_objects", ())

@@ -1288,7 +1288,12 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
     # Disembarking onto exotic island (34, 3) stays in DIG_EXOTICS instead of looping K_x <-> K_b
     p_ex = _make_party(level=5, exp=500, gold=100, food=250, marks=[1, 0, 0, 0], transport=Transport.FOOT)
     p_ex.x, p_ex.y = 34, 3
+    p_ex.dynamic_objects.append({"tile": "frigate", "x": 34, "y": 3})
+    ow_ex = OverworldScreen(party=p_ex, asset_mgr=am, random_encounters=False)
+    sm.set_screen(ow_ex)
+    ctrl._key_queue.clear()
     assert evaluate_goal(p_ex) == Goal.DIG_EXOTICS
+    assert ctrl.step(sm) == pygame.K_LEFT
 
     # Stranded on island for BUY_FOOD uses reachable moongate or frigate instead of passing turns
     p_isl = _make_party(level=5, exp=500, gold=100, food=50)
