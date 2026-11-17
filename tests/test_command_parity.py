@@ -681,7 +681,8 @@ class TestHandDialog:
 class TestCannonTrace:
     """Cannon broadsides trace 4 tiles (Java Utils.java:539-546, 403-421)."""
 
-    def test_broadside_hits_creature_at_4_tiles(self, ow, sample_party):
+    def test_broadside_hits_creature_at_4_tiles(self, ow, sample_party, monkeypatch):
+        monkeypatch.setattr("py_exodus.screens.overworld.random.randint", lambda a, b: 0)
         sample_party.transport = Transport.SHIP
         ow.heading = Direction.NORTH  # broadside fires EAST/WEST
         ow.creatures.append({"tile_name": "squid", "tile": "squid", "x": 14, "y": 10})

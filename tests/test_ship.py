@@ -506,3 +506,91 @@ class TestSunkFrigateRemoved:
         key(overworld, pygame.K_b)
         assert sample_party.transport == Transport.FOOT
         assert any(m == "Board What?" for m in overworld.text_log.history)
+
+
+class TestStackedFrigateLastMatch:
+    """util/Utils.java:536-547 fireAt — scans all objects without early
+    break, so the last matching ``frigate`` on the target tile takes 10
+    hull damage while earlier stacked frigates remain untouched."""
+
+    def test_player_broadside_damages_last_stacked_frigate(self, overworld, sample_party):
+        sample_party.transport = Transport.SHIP
+        overworld.heading = Direction.NORTH
+        frigate_first = {"tile": "frigate", "x": 11, "y": 10, "hull": 50}
+        frigate_last = {"tile": "frigate", "x": 11, "y": 10, "hull": 50}
+        sample_party.dynamic_objects.extend([frigate_first, frigate_last])
+        overworld._fire_cannons(Direction.EAST)
+        assert frigate_first["hull"] == 50
+        assert frigate_last["hull"] == 40
+
+    def test_enemy_broadside_damages_last_stacked_frigate(self, overworld, sample_party):
+        sample_party.x, sample_party.y = 30, 30
+        pirate = {"tile": "pirate", "x": 3, "y": 3}
+        frigate_first = {"tile": "frigate", "x": 4, "y": 3, "hull": 50}
+        frigate_last = {"tile": "frigate", "x": 4, "y": 3, "hull": 50}
+        sample_party.dynamic_objects.extend([frigate_first, frigate_last])
+        overworld._enemy_fire_cannons(pirate, Direction.EAST)
+        assert frigate_first["hull"] == 50
+        assert frigate_last["hull"] == 40
+
+
+class TestPlayerCannonShorelineWhirlpoolAndHitRoll:
+    """util/Utils.java:423-444 (avatarfireCannon), 471 (getDirectionalActionPath
+    with isCannonBall=true), 551-569 (fireAt whirlpool skip & 1-in-3 hit)."""
+
+    def test_player_broadside_fires_past_intervening_land_tile(
+        self, overworld, sample_party, asset_mgr, monkeypatch
+    ):
+        sample_party.transport = Transport.SHIP
+        overworld.heading = Direction.NORTH
+        mountain = asset_mgr.get_tile_by_name("mountains")
+        assert mountain is not None and not mountain.walkable and not mountain.sailable
+        monkeypatch.setattr(
+            overworld.game_map,
+            "get_tile",
+            lambda x, y: mountain if (x, y) == (11, 10) else asset_mgr.get_tile_by_name("water"),
+        )
+        frigate = {"tile": "frigate", "x": 12, "y": 10, "hull": 50}
+        sample_party.dynamic_objects.append(frigate)
+        overworld._fire_cannons(Direction.EAST)
+        assert frigate["hull"] == 40
+
+    def test_player_broadside_skips_whirlpool_and_hits_beyond(
+        self, overworld, sample_party, monkeypatch
+    ):
+        monkeypatch.setattr("py_exodus.screens.overworld.random.randint", lambda a, b: 0)
+        sample_party.transport = Transport.SHIP
+        overworld.heading = Direction.NORTH
+        whirlpool = {"tile_name": "whirlpool", "tile": "whirlpool", "x": 11, "y": 10, "hp": 50}
+        serpent = {"tile_name": "serpent", "tile": "serpent", "x": 12, "y": 10, "hp": 50}
+        overworld.creatures = [whirlpool, serpent]
+        overworld._fire_cannons(Direction.EAST)
+        assert whirlpool in overworld.creatures
+        assert whirlpool["hp"] == 50
+        assert serpent not in overworld.creatures
+
+    def test_player_broadside_creature_hits_on_roll_zero(
+        self, overworld, sample_party, monkeypatch
+    ):
+        monkeypatch.setattr("py_exodus.screens.overworld.random.randint", lambda a, b: 0)
+        sample_party.transport = Transport.SHIP
+        overworld.heading = Direction.NORTH
+        serpent = {"tile_name": "serpent", "tile": "serpent", "x": 11, "y": 10, "hp": 99}
+        overworld.creatures = [serpent]
+        overworld._fire_cannons(Direction.EAST)
+        assert serpent not in overworld.creatures
+
+    def test_player_broadside_creature_misses_on_nonzero_roll_and_stops_trace(
+        self, overworld, sample_party, monkeypatch
+    ):
+        monkeypatch.setattr("py_exodus.screens.overworld.random.randint", lambda a, b: 1)
+        sample_party.transport = Transport.SHIP
+        overworld.heading = Direction.NORTH
+        serpent = {"tile_name": "serpent", "tile": "serpent", "x": 11, "y": 10, "hp": 50}
+        frigate_behind = {"tile": "frigate", "x": 12, "y": 10, "hull": 50}
+        overworld.creatures = [serpent]
+        sample_party.dynamic_objects.append(frigate_behind)
+        overworld._fire_cannons(Direction.EAST)
+        assert serpent in overworld.creatures
+        # fireAt returns MISS (!= NONE), so avatarfireCannon stops the trace.
+        assert frigate_behind["hull"] == 50

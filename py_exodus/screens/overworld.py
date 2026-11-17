@@ -1573,6 +1573,31 @@ class OverworldScreen(BaseScreen):
 
         self.text_log.prompt("Fire cannon direction? (N,S,E,W):", callback=_on_dir, single_char=True)
 
+    def _damage_unmanned_frigate_at(self, tx: int, ty: int, message: str) -> bool:
+        """Damage the last unmanned ``frigate`` at ``(tx, ty)`` by 10 hull.
+
+        Java truth: ``util/Utils.java:536-547`` ``fireAt`` scans all
+        objects without breaking, so the last matching ``frigate`` at the
+        target tile takes 10 hull damage; ``animateCannonFire``
+        (``Utils.java:509-514``) removes it if ``hull <= 0``.
+        """
+        target_idx = None
+        for idx, obj in enumerate(self.party.dynamic_objects):
+            if (
+                str(obj.get("tile", "")).lower() == "frigate"
+                and obj.get("x") == tx
+                and obj.get("y") == ty
+            ):
+                target_idx = idx
+        if target_idx is None:
+            return False
+        target = self.party.dynamic_objects[target_idx]
+        target["hull"] = target.get("hull", 50) - 10
+        self.text_log.add_message(message)
+        if target["hull"] <= 0:
+            self.party.dynamic_objects.pop(target_idx)
+        return True
+
     def _fire_cannons(self, direction: Direction) -> None:
         if self.party.transport == Transport.SHIP:
             if self.heading in (Direction.NORTH, Direction.SOUTH):
@@ -1603,26 +1628,13 @@ class OverworldScreen(BaseScreen):
                 break
 
             # Empty frigate in the path: hit, 10 hull damage, trace stops.
-            # Java truth: ``util/Utils.java:538-546`` ``fireAt`` — either
-            # broadside striking an unmanned frigate damages it (10) and
-            # ends the volley before any creature check. Java matches the
-            # exact tile name (`"frigate".equals(d.getTile().getName())`,
-            # Utils.java:538). animateCannonFire (Utils.java:509-514)
-            # removes a frigate whose hull has reached 0 — a sunk hull is
-            # not left on the map boardable.
-            for obj in self.party.dynamic_objects:
-                if (
-                    str(obj.get("tile", "")).lower() == "frigate"
-                    and obj.get("x") == tx
-                    and obj.get("y") == ty
-                ):
-                    obj["hull"] = obj.get("hull", 50) - 10
-                    self.text_log.add_message("Direct hit on an unmanned frigate!")
-                    if obj["hull"] <= 0:
-                        self.party.dynamic_objects.remove(obj)
-                    return
+            if self._damage_unmanned_frigate_at(tx, ty, "Direct hit on an unmanned frigate!"):
+                return
 
-            # Check creature hit
+            # Check creature hit (Utils.java:551-569): whirlpools are
+            # skipped (AttackResult.NONE, trace continues); any other
+            # creature is a 1-in-3 hit (removed on hit) and stops the
+            # trace on both HIT and MISS (Utils.java:434-436: res != NONE).
             hit_creature = None
             for c in list(self.creatures):
                 if c.get("x") == tx and c.get("y") == ty:
@@ -1630,21 +1642,15 @@ class OverworldScreen(BaseScreen):
                     break
 
             if hit_creature is not None:
-                c_name = hit_creature.get("tile_name", "creature").capitalize()
-                hp = hit_creature.get("hp", 50)
-                damage = random.randint(30, 60)
-                hp -= damage
-                hit_creature["hp"] = hp
-                if hp <= 0:
+                tile_name = str(hit_creature.get("tile_name") or hit_creature.get("tile") or "")
+                if tile_name.lower() == "whirlpool":
+                    continue
+                c_name = (tile_name or "creature").capitalize()
+                if random.randint(0, 2) == 0:
                     self.creatures.remove(hit_creature)
                     self.text_log.add_message(f"Direct hit! The {c_name} sinks into the sea!")
                 else:
-                    self.text_log.add_message(f"Direct hit on {c_name}!")
-                break
-
-            tile = self.game_map.get_tile(tx, ty)
-            if tile is not None and not tile.walkable and not tile.sailable:
-                self.text_log.add_message("Cannonball crashed into the shoreline!")
+                    self.text_log.add_message("The cannonball splashes down!")
                 break
 
     def _enter_portal(self) -> None:
@@ -2053,22 +2059,9 @@ class OverworldScreen(BaseScreen):
             if tx < 0 or tx >= self.game_map.width or ty < 0 or ty >= self.game_map.height:
                 break
 
-            # fireAt: unmanned frigate first (Utils.java:538-546). Java
-            # matches the exact tile name (`"frigate".equals(
-            # d.getTile().getName())`, Utils.java:538); animateCannonFire
-            # (Utils.java:509-514) removes a frigate whose hull has
-            # reached 0.
-            for obj in self.party.dynamic_objects:
-                if (
-                    str(obj.get("tile", "")).lower() == "frigate"
-                    and obj.get("x") == tx
-                    and obj.get("y") == ty
-                ):
-                    obj["hull"] = obj.get("hull", 50) - 10
-                    self.text_log.add_message("Cannon fire strikes the unmanned frigate!")
-                    if obj["hull"] <= 0:
-                        self.party.dynamic_objects.remove(obj)
-                    return
+            # fireAt: unmanned frigate first (Utils.java:536-547).
+            if self._damage_unmanned_frigate_at(tx, ty, "Cannon fire strikes the unmanned frigate!"):
+                return
 
             if tx == self.party.x and ty == self.party.y:
                 if self.party.transport == Transport.SHIP:

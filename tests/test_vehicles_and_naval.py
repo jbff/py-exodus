@@ -95,8 +95,9 @@ def test_board_and_exit_horse(asset_mgr, sample_party):
     assert len([o for o in sample_party.dynamic_objects if o.get("tile") == "horse"]) == 1
 
 
-def test_ship_broadside_cannons_restrictions_and_hits(asset_mgr, sample_party):
+def test_ship_broadside_cannons_restrictions_and_hits(asset_mgr, sample_party, monkeypatch):
     """Firing cannons is broadsides only; hits sea creatures in range."""
+    monkeypatch.setattr("py_exodus.screens.overworld.random.randint", lambda a, b: 0)
     sample_party.transport = Transport.SHIP
     overworld = OverworldScreen(party=sample_party, map_id=0, asset_mgr=asset_mgr, start_x=10, start_y=10)
     overworld.heading = Direction.NORTH
