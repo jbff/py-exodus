@@ -1,5 +1,6 @@
 """Combat package for py-exodus (Tactical Combat Arena & Resolvers)."""
 from py_exodus.combat.arena import Action, ActionResult, ActionType, CombatArena, CombatMonster
+from py_exodus.combat.auto_combat import choose_auto_combat_action
 from py_exodus.combat.magic import (
     DIRECTIONAL_SPELLS,
     TARGETED_MEMBER_SPELLS,
@@ -38,6 +39,7 @@ __all__ = [
     "TARGETED_MEMBER_SPELLS",
     "SpellResult",
     "cast_spell",
+    "choose_auto_combat_action",
     "get_castable_spell_types",
     "prompt_cast_party",
     "resolve_spell",

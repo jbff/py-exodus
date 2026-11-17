@@ -7,6 +7,7 @@ import pygame
 
 from py_exodus import debug
 from py_exodus.combat.arena import Action, ActionType, CombatArena
+from py_exodus.combat.auto_combat import choose_auto_combat_action
 from py_exodus.combat.magic import (
     DIRECTIONAL_SPELLS,
     TARGETED_MEMBER_SPELLS,
@@ -112,6 +113,8 @@ class CombatScreen(BaseScreen):
         self._pending_dying: list[dict[str, Any]] = []
         self._pending_action: Action | None = None
         self._pending_res: Any = None
+        self.auto_combat: bool = False
+        self._auto_combat_timer: float = 0.0
 
     @property
     def active_party_member(self) -> PartyMember | None:
@@ -193,6 +196,19 @@ class CombatScreen(BaseScreen):
         # only inside the log's own prompt handling, when they cannot act as
         # direction/command answers).
         if self.text_log.handle_scroll_key(event.key):
+            return
+
+        if event.key in (pygame.K_TAB, pygame.K_F2):
+            self.auto_combat = not self.auto_combat
+            self._auto_combat_timer = 0.05
+            self.text_log.add_message(
+                "Auto-combat ON." if self.auto_combat else "Auto-combat OFF."
+            )
+            return
+
+        if self.auto_combat and event.key == pygame.K_ESCAPE:
+            self.auto_combat = False
+            self.text_log.add_message("Auto-combat OFF.")
             return
 
         # Standard combat keys
@@ -736,6 +752,23 @@ class CombatScreen(BaseScreen):
                 self._complete_pending_action()
         elif self._anim_stage == "projectile" and not self.combat_fx:
             self._complete_pending_action()
+
+        if (
+            self.auto_combat
+            and self._anim_stage is None
+            and not self.arena.is_finished
+            and not self.text_log.is_waiting_for_input
+        ):
+            self._auto_combat_timer -= dt
+            if self._auto_combat_timer <= 0:
+                self._auto_combat_timer = 0.12
+                action = choose_auto_combat_action(
+                    self.arena, self.arena.active_party_member_idx, self.asset_mgr
+                )
+                try:
+                    self._execute_action(action)
+                except PartyDeathException:
+                    self.check_party_death()
 
     def render(self, surface: pygame.Surface) -> None:
         surface.fill(EGA_BLACK)
