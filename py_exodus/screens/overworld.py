@@ -1269,9 +1269,12 @@ class OverworldScreen(BaseScreen):
             if member is None:
                 self.text_log.add_message("Nobody selected!")
                 return
+            # Java SecondaryInputProcessor.java:535-538: empty ENTER keeps the
+            # prompt open, while ESC remains available so keyboard players cannot softlock.
             self.text_log.prompt(
                 "Yell what? ",
                 callback=lambda phrase: self._yell(member, phrase),
+                allow_empty=False,
             )
 
         self.text_log.prompt("YELL> Which party member? (1-4):", callback=_on_member, single_char=True)

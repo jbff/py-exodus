@@ -136,6 +136,7 @@ class TextLog:
         self.current_prompt: str = ""
         self.input_buffer: str = ""
         self.single_char: bool = False
+        self._allow_empty: bool = True
         self._callback: Callable[[str], None] | None = None
         self._on_cancel: Callable[[], None] | None = None
         # Scroll-back viewport: 0 = stuck to the newest line; N = the window
@@ -259,11 +260,13 @@ class TextLog:
         callback: Callable[[str], None] | None = None,
         single_char: bool | None = None,
         on_cancel: Callable[[], None] | None = None,
+        allow_empty: bool = True,
     ) -> None:
         """Initiate an interactive prompt stream query (e.g. 'Direction?', 'Buy what?')."""
         self.is_waiting_for_input = True
         self.current_prompt = query
         self.input_buffer = ""
+        self._allow_empty = allow_empty
         self._callback = callback
         self._on_cancel = on_cancel
         # A newly opened prompt is always answered from the bottom-most view
@@ -336,6 +339,8 @@ class TextLog:
         """Commit the current input buffer, add to history, and fire callback."""
         if not self.is_waiting_for_input:
             return
+        if not self._allow_empty and not self.input_buffer.strip():
+            return
 
         val = self.input_buffer
         prompt_str = self.current_prompt
@@ -346,6 +351,7 @@ class TextLog:
         self.current_prompt = ""
         self.input_buffer = ""
         self.single_char = False
+        self._allow_empty = True
         self._callback = None
         self._on_cancel = None
         self._snap_to_bottom()
@@ -371,6 +377,7 @@ class TextLog:
         self.current_prompt = ""
         self.input_buffer = ""
         self.single_char = False
+        self._allow_empty = True
         self._callback = None
         self._on_cancel = None
         self._snap_to_bottom()

@@ -645,6 +645,36 @@ class TestYell:
         assert ow.game_map.get_tile(10, 57).name == snake_before
         assert ow.game_map.get_tile(10, 58).name != "water"
 
+    def test_yell_empty_enter_keeps_prompt_open_and_accepts_subsequent_word(self, ow):
+        key(ow, pygame.K_y)
+        assert "YELL" in ow.text_log.current_prompt
+        answer(ow, "1")
+        assert ow.text_log.is_waiting_for_input
+        assert "Yell what?" in ow.text_log.current_prompt
+
+        # Empty ENTER keeps the prompt open (Java SecondaryInputProcessor.java:535-538)
+        key(ow, pygame.K_RETURN)
+        assert ow.text_log.is_waiting_for_input
+        assert "Yell what?" in ow.text_log.current_prompt
+        assert not any(m == "What?" for m in ow.text_log.history)
+
+        # Typing a word and pressing ENTER afterwards still submits normally
+        for ch in "XYZZY":
+            key(ow, ord(ch.lower()), unicode=ch)
+        key(ow, pygame.K_RETURN)
+        assert not ow.text_log.is_waiting_for_input
+        assert any(m == "What?" for m in ow.text_log.history)
+
+    def test_yell_escape_still_cancels_cleanly(self, ow):
+        key(ow, pygame.K_y)
+        answer(ow, "1")
+        assert ow.text_log.is_waiting_for_input
+        assert "Yell what?" in ow.text_log.current_prompt
+
+        key(ow, pygame.K_ESCAPE)
+        assert not ow.text_log.is_waiting_for_input
+        assert ow.text_log.current_prompt == ""
+
 
 class TestHandDialog:
     """(j) H transfers any unequipped weapon OR armor; there is no gold
