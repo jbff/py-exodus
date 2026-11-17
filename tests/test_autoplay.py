@@ -972,4 +972,43 @@ def test_resurrect_dead_member_at_healer(pygame_setup):
     assert evaluate_goal(party) != Goal.RESURRECT_DEAD
 
 
+def test_cure_poisoned_member_by_spell_or_healer(pygame_setup):
+    """Poisoned members are cured on the spot via ALCORT (35 MP) or at a Healer (100g)."""
+    from py_exodus.assets import AssetManager
+    from py_exodus.screens.overworld import OverworldScreen
+    from py_exodus.screens.town import TownScreen
+
+    am = AssetManager("data")
+    am.load_all()
+    party = _make_party(level=5, exp=500, gold=50, food=500)
+    party.members[1].status = Status.POISONED
+    assert evaluate_goal(party) == Goal.CURE_POISON
+
+    # 1. With >= 35 MP on Cleric, casts ALCORT (h) on Overworld immediately
+    party.members[2].mp = 35
+    party.members[2].max_mp = 50
+    sm = StateMachine(asset_mgr=am, audio=None)
+    ow = OverworldScreen(party=party, asset_mgr=am, random_encounters=False)
+    ow.creatures = []
+    sm.set_screen(ow)
+    ctrl = AutoPlayController(enabled=True)
+    for _ in range(5):
+        ctrl.step(sm)
+        if party.members[1].status == Status.GOOD:
+            break
+    assert party.members[1].status == Status.GOOD
+
+    # 2. With < 35 MP and >= 100g, cured at Castle British Healer for 100g
+    party.members[1].status = Status.POISONED
+    party.members[2].mp = 0
+    ts = TownScreen(party=party, asset_mgr=am, map_id=1, start_x=46, start_y=26)
+    sm.set_screen(ts)
+    for _ in range(25):
+        ctrl.step(sm)
+        if party.members[1].status == Status.GOOD and not ts.text_log.is_waiting_for_input:
+            break
+    assert party.members[1].status == Status.GOOD
+    assert ts.text_log.is_waiting_for_input is False
+
+
 

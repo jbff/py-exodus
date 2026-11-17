@@ -390,6 +390,14 @@ class AutoPlayController:
                 self._queue_text(f"{caster[0]}p{ash_idx}", enter=False)
                 return self._emit_key(state_machine, pygame.K_c)
 
+        # Cast ALCORT to cure poison on the spot if a Cleric/Druid has >= 35 MP
+        poison_idx = next((i + 1 for i, m in enumerate(party.members) if m.status == Status.POISONED), None)
+        if poison_idx is not None:
+            caster = self._find_caster(party, (Profession.CLERIC, Profession.DRUID), min_mp=35)
+            if caster is not None:
+                self._queue_text(f"{caster[0]}h{poison_idx}", enter=False)
+                return self._emit_key(state_machine, pygame.K_c)
+
         # Heal detour if hurt
         if needs_heal(party):
             caster = self._find_caster(party, (Profession.CLERIC, Profession.PALADIN, Profession.DRUID), min_mp=10)
@@ -519,17 +527,27 @@ class AutoPlayController:
                 if d is not None:
                     return self._emit_key(state_machine, _DIR_TO_KEY[d])
 
-        if map_id in _HEALER_TOWNS and goal == Goal.RESURRECT_DEAD:
+        if map_id in _HEALER_TOWNS and goal in (Goal.RESURRECT_DEAD, Goal.CURE_POISON):
             _, _, healer_xy = _HEALER_TOWNS[map_id]
             living = [(i + 1, m) for i, m in enumerate(party.members) if not m.is_dead()]
-            patient = next(
-                (
-                    (i + 1, m, (900 if m.status == Status.ASH else 500), ("d" if m.status == Status.ASH else "c"))
-                    for i, m in enumerate(party.members)
-                    if m.status in (Status.DEAD, Status.ASH)
-                ),
-                None,
-            )
+            if goal == Goal.RESURRECT_DEAD:
+                patient = next(
+                    (
+                        (i + 1, m, (900 if m.status == Status.ASH else 500), ("d" if m.status == Status.ASH else "c"))
+                        for i, m in enumerate(party.members)
+                        if m.status in (Status.DEAD, Status.ASH)
+                    ),
+                    None,
+                )
+            else:
+                patient = next(
+                    (
+                        (i + 1, m, 100, "a")
+                        for i, m in enumerate(party.members)
+                        if m.status == Status.POISONED
+                    ),
+                    None,
+                )
             if living and patient is not None:
                 patient_idx, _, cost, letter = patient
                 payer_idx, payer = max(living, key=lambda im: im[1].gold)
@@ -671,7 +689,7 @@ class AutoPlayController:
             )
             return self._enter_portal_or_wait_dawn(state_machine, screen, gmap, party, px, py, target_portal)
 
-        if goal == Goal.RESURRECT_DEAD:
+        if goal in (Goal.RESURRECT_DEAD, Goal.CURE_POISON):
             healer_portals = [(info[0], info[1]) for info in _HEALER_TOWNS.values()]
             target_portal = self._nearest_reachable_portal(
                 gmap, px, py, party.transport, healer_portals, party=party

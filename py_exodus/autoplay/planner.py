@@ -21,6 +21,7 @@ class Goal(str, Enum):
     SETUP_PARTY = "setup_party"
     BUY_FOOD = "buy_food"
     RESURRECT_DEAD = "resurrect_dead"
+    CURE_POISON = "cure_poison"
     OUTFIT_BRITAIN = "outfit_britain"
     GRIND_AND_LEVEL = "grind_and_level"
     BUY_GEMS = "buy_gems"
@@ -94,6 +95,14 @@ def evaluate_goal(party: Party) -> Goal:
         if total_living_gold >= needed_cost:
             return Goal.RESURRECT_DEAD
         return Goal.GRIND_AND_LEVEL
+
+    if (
+        party.map_id not in (13, 15, 16, 17, 18, 19, 20)
+        and party.transport != Transport.SHIP
+        and any(m.status == Status.POISONED for m in living)
+        and sum(m.gold for m in living) >= 100
+    ):
+        return Goal.CURE_POISON
 
     has_all_cards = all(any(m.cards[i] > 0 for m in living) for i in range(4))
     has_remaining_marks = all(any(m.marks[i] > 0 for m in living) for i in (1, 2, 3))
