@@ -85,8 +85,6 @@ Original numbers kept for history against the 2026-11-13 list above.
 
 ### Standing items (open, original numbers)
 
-- 5. Creature 3D draw edge cases: side wall at shallower depth doesn't
-  occlude; off-axis creature at depth 1 clips the screen edge — open.
 - 10. Java's E-edge wrap quirk in `getValidMovesMask` (second-to-last column
   redirects to 0) — deliberate non-reproduction; port uses correct `% width`.
 - 12. Members at exactly 0 hp treated as alive-but-wiped in some combat paths
@@ -98,15 +96,6 @@ Original numbers kept for history against the 2026-11-13 list above.
 
 ### New follow-ups found during the 2026-11-14 batch
 
-28. LW trap-typing distribution 56/19/19/6 — chest trap weights (per LW);
-    note alongside the Bomb-trap wiring from closed item 21 for future
-    verification.
-29. Camouflage tele/ranged gate-placement nuance — where Java's camouflaged
-    creatures gate tele/ranged actions relative to gate placement.
-30. Spell-cast narration + overworld move-narration purge (P12 flagged) —
-    audit invented narration lines vs Java/GBC during spell casts and
-    overworld moves.
-31. Group-damage kill lines — narration when one hit kills a whole group.
 32. Item-3 GBC-mechanic-string carve-out (ledger note; comments-only
     today): "Magic Blast!" (resolver.py:207-209; GBC prints no text on that
     branch — battle3.c:856-866, magiceffect2(3) + damageplayer, no
@@ -218,6 +207,31 @@ Original numbers kept for history against the 2026-11-13 list above.
     (`shrine.py:155, 173`)** — CLOSED (`e2b5ac0`; guarded `event.unicode`
     with `uni = getattr(event, "unicode", "") or ""` so `KEYDOWN` events
     without `.unicode` do not raise `AttributeError`).
+
+### Closed 2026-11-17 (Final backlog & 3D dungeon batch)
+
+5. Creature 3D draw edge cases & 3D dungeon navigation — CLOSED (`a622ee7`;
+   added shallow side-wall ray occlusion for `lateral != 0`, skipped/clamped
+   depth-1 off-axis creatures in `_render_creature`, and decluttered
+   `DungeonCamera.render_wireframe` by removing floor/ceiling longitudinal
+   seams and `open_side` shadow wedges while adding depth-faded outlines and
+   `s >= 3` wall darkening).
+28. LW trap-typing distribution 56/19/19/6 — CLOSED (`8f9b989`; replaced
+    uniform `randrange(4)` in `chests._chest_trap` with LW's
+    `(random.randrange(256) & random.randrange(256)) & 0x03` per
+    `UltimaMain.c:1628`).
+29. Camouflage tele/ranged gate-placement nuance — CLOSED (`8f9b989`; moved
+    `_hide_or_show` gate before `if teleports:` and `if ranged:` in
+    `CombatArena._run_single_monster_turn` per `CombatScreen.java:696-718`).
+30. Spell-cast & overworld move-narration audit — CLOSED (`d240338` audit;
+    normal overworld steps already log nothing, and existing mount/board/spell
+    feedback strings are intentional/tested UI affordances).
+31. Group-damage kill lines — CLOSED (`d240338`; `PONTORI`, `REPOND`, and
+    `_apply_group_damage` in `py_exodus/combat/magic.py` now emit
+    `"{name} Killed! Exp. {exp}"` per killed monster via `_kill_line`, split
+    cleanly in `CombatScreen` via `TextLog.add_message`).
+- Start-screen tagline (`8f9b989`): Updated `StartScreen` subtitle to
+  `"From the depths of hell... he comes for vengeance!"`.
 
 ## How to resume
 
