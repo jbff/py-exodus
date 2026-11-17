@@ -3,9 +3,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from py_exodus.aura import AuraType
 from py_exodus.combat.arena import Action
 from py_exodus.combat.resolver import trace_projectile_path
-from py_exodus.constants import Direction, TileAttrib, WeaponType
+from py_exodus.constants import Direction, Spell, TileAttrib, WeaponType
 
 if TYPE_CHECKING:
     from py_exodus.combat.arena import CombatArena, CombatMonster
@@ -25,6 +26,16 @@ _RANGED_WEAPON_TYPES: frozenset[WeaponType] = frozenset(
         WeaponType.SLING,
     }
 )
+
+_NO_MITTAR_WEAPONS: frozenset[WeaponType] = frozenset(
+    {
+        WeaponType.BOW_P2,
+        WeaponType.BOW_P4,
+        WeaponType.EXOTIC,
+    }
+)
+
+_UNDEAD_TILES: frozenset[str] = frozenset({"skeleton", "ghoul", "zombie"})
 
 
 def _get_weapon_info(member: Any, asset_mgr: Any) -> tuple[int, bool]:
@@ -112,6 +123,121 @@ def _try_low_hp_retreat(
     return Action.move(best_dir) if best_dir is not None else None
 
 
+def _is_member_dead(member: Any) -> bool:
+    """Return True if ``member`` is dead (handling both method and bool attr)."""
+    is_dead_attr = getattr(member, "is_dead", False)
+    return is_dead_attr() if callable(is_dead_attr) else bool(is_dead_attr)
+
+
+def _is_magic_negated(arena: CombatArena) -> bool:
+    """Return True if the party is currently under an active NEGATE aura."""
+    aura = getattr(arena.party, "aura", None)
+    return aura is not None and aura.get_type() == AuraType.NEGATE
+
+
+def _can_cast_spell(member: Any, spell: Spell, *, check_free: bool = False) -> bool:
+    """Return True if ``member`` can cast ``spell`` with current MP and free-cast state."""
+    prof = getattr(member, "profession", None)
+    if prof is None or not spell.can_cast(prof):
+        return False
+    if getattr(member, "mp", 0) < spell.cost:
+        return False
+    if check_free and getattr(member, "used_free_spell_in_combat", False):
+        return False
+    return True
+
+
+def _is_undead(monster: CombatMonster) -> bool:
+    """Return True if ``monster`` is undead by definition flag or tile."""
+    definition = getattr(monster, "definition", None)
+    if definition is not None and getattr(definition, "undead", False):
+        return True
+    return getattr(monster, "tile", None) in _UNDEAD_TILES
+
+
+def _is_poisonous(monster: CombatMonster) -> bool:
+    """Return True if ``monster`` inflicts poison."""
+    if getattr(monster, "poisons", False):
+        return True
+    definition = getattr(monster, "definition", None)
+    if definition is None:
+        return False
+    return bool(getattr(definition, "poisons", False) or getattr(definition, "poison", False))
+
+
+def _find_lowest_hp_heal_target(party: Any) -> Any | None:
+    """Return the lowest-HP living party member needing urgent healing, or None."""
+    candidates = [
+        m
+        for m in getattr(party, "members", ())
+        if not _is_member_dead(m)
+        and m.hp < min(75, m.max_hp // 2)
+        and m.hp < m.max_hp
+    ]
+    if not candidates:
+        return None
+    return min(candidates, key=lambda m: m.hp)
+
+
+def _try_pre_attack_spell(
+    arena: CombatArena,
+    member: Any,
+    visible_monsters: list[CombatMonster],
+) -> Action | None:
+    """Evaluate Lairware-style priority spellcasting before melee/ranged attacks."""
+    if _can_cast_spell(member, Spell.REPOND, check_free=True):
+        if any(getattr(m, "tile", None) == "orc" for m in visible_monsters):
+            return Action.cast(Spell.REPOND)
+
+    if _can_cast_spell(member, Spell.PONTORI, check_free=True):
+        if any(_is_undead(m) for m in visible_monsters):
+            return Action.cast(Spell.PONTORI)
+
+    if len(visible_monsters) >= 2:
+        threat = sum(
+            getattr(m, "exp", 10) * (2 if _is_poisonous(m) else 1)
+            for m in visible_monsters
+        )
+        if threat > 60 and _can_cast_spell(member, Spell.UNSPEAKABLE):
+            return Action.cast(Spell.UNSPEAKABLE)
+        if threat > 80 and _can_cast_spell(member, Spell.ZXKUQYB):
+            return Action.cast(Spell.ZXKUQYB)
+
+    lowest_member = _find_lowest_hp_heal_target(arena.party)
+    if lowest_member is not None:
+        if _can_cast_spell(member, Spell.SANCTU_MANI):
+            return Action.cast(Spell.SANCTU_MANI, target_member=lowest_member)
+        if _can_cast_spell(member, Spell.SANCTU):
+            return Action.cast(Spell.SANCTU, target_member=lowest_member)
+
+    return None
+
+
+def _find_ranged_attack_dir(
+    arena: CombatArena,
+    px: int,
+    py: int,
+    max_range: int,
+    attack_through: bool,
+    visible_positions: set[tuple[int, int]],
+) -> Direction | None:
+    """Return the first cardinal direction with a clear LoS hit on a visible monster."""
+    for d in _CARDINAL_DIRS:
+        path = trace_projectile_path(
+            combat_map=arena.combat_map,
+            start_x=px,
+            start_y=py,
+            direction=d,
+            max_range=max_range,
+            attack_through_objects=attack_through,
+            monsters=arena.monsters,
+            players=arena.player_positions,
+        )
+        if path and path[-1] in visible_positions:
+            return d
+    return None
+
+
 def choose_auto_combat_action(
     arena: CombatArena, member_idx: int, asset_mgr: Any = None
 ) -> Action:
@@ -120,9 +246,7 @@ def choose_auto_combat_action(
         return Action.pass_turn()
 
     member = arena.party.members[member_idx]
-    is_dead_attr = getattr(member, "is_dead", False)
-    is_dead = is_dead_attr() if callable(is_dead_attr) else bool(is_dead_attr)
-    if is_dead or member_idx not in arena.player_positions:
+    if _is_member_dead(member) or member_idx not in arena.player_positions:
         return Action.pass_turn()
 
     pos = arena.player_positions[member_idx]
@@ -134,6 +258,12 @@ def choose_auto_combat_action(
     if retreat is not None:
         return retreat
 
+    negated = _is_magic_negated(arena)
+    if not negated:
+        spell_action = _try_pre_attack_spell(arena, member, visible_monsters)
+        if spell_action is not None:
+            return spell_action
+
     px, py = pos
     visible_positions = {(m.x, m.y) for m in visible_monsters}
 
@@ -142,24 +272,33 @@ def choose_auto_combat_action(
         if (px + d.dx, py + d.dy) in visible_positions:
             return Action.attack(d)
 
+    can_cast_mittar = (
+        not negated
+        and _can_cast_spell(member, Spell.MITTAR)
+        and getattr(member, "weapon", WeaponType.NONE) not in _NO_MITTAR_WEAPONS
+    )
+    if can_cast_mittar:
+        mittar_dir = _find_ranged_attack_dir(
+            arena, px, py, max_range=5, attack_through=False, visible_positions=visible_positions
+        )
+        if mittar_dir is not None:
+            return Action.cast(Spell.MITTAR, direction=mittar_dir)
+
     effective_asset_mgr = asset_mgr if asset_mgr is not None else getattr(arena, "asset_mgr", None)
     weapon_range, attack_through = _get_weapon_info(member, effective_asset_mgr)
 
     # Cardinal ranged attack with clear line of sight
     if weapon_range > 1:
-        for d in _CARDINAL_DIRS:
-            path = trace_projectile_path(
-                combat_map=arena.combat_map,
-                start_x=px,
-                start_y=py,
-                direction=d,
-                max_range=weapon_range,
-                attack_through_objects=attack_through,
-                monsters=arena.monsters,
-                players=arena.player_positions,
-            )
-            if path and path[-1] in visible_positions:
-                return Action.attack(d)
+        ranged_dir = _find_ranged_attack_dir(
+            arena,
+            px,
+            py,
+            max_range=weapon_range,
+            attack_through=attack_through,
+            visible_positions=visible_positions,
+        )
+        if ranged_dir is not None:
+            return Action.attack(ranged_dir)
 
     # Advance toward nearest visible living monster
     target = min(
@@ -178,7 +317,7 @@ def choose_auto_combat_action(
         new_dist = abs(target.x - nx) + abs(target.y - ny)
         if new_dist >= cur_dist:
             continue
-        if weapon_range > 1:
+        if weapon_range > 1 or can_cast_mittar:
             score = (new_dist, min(abs(target.x - nx), abs(target.y - ny)))
         else:
             score = (new_dist, max(abs(target.x - nx), abs(target.y - ny)))

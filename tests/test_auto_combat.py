@@ -5,9 +5,10 @@ import pygame
 import pytest
 
 from py_exodus.assets import AssetManager
+from py_exodus.aura import AuraType
 from py_exodus.combat.arena import ActionType, CombatArena
 from py_exodus.combat.auto_combat import choose_auto_combat_action
-from py_exodus.constants import Direction, Profession, Race, TileAttrib, WeaponType
+from py_exodus.constants import Direction, Profession, Race, Spell, Status, TileAttrib, WeaponType
 from py_exodus.entities.character import Character
 from py_exodus.entities.party import Party
 from py_exodus.screens.combat_screen import CombatScreen
@@ -209,3 +210,181 @@ def test_combat_screen_auto_combat_full_battle_to_victory(asset_mgr, conflict_ma
 
     assert combat.arena.is_finished is True
     assert combat.arena.is_victory is True
+
+
+def _caster_arena(
+    profession: Profession,
+    mp: int = 50,
+    weapon: WeaponType = WeaponType.DAGGER,
+    creature_tile: str = "orc",
+    monster_count: int = 1,
+    asset_mgr: AssetManager | None = None,
+) -> CombatArena:
+    party = Party()
+    caster = Character("Caster", "M", Race.HUMAN, profession, intelligence=50, wisdom=50)
+    caster.weapon = weapon
+    caster.hp = 100
+    caster.max_hp = 100
+    caster.mp = mp
+    party.add_member(caster)
+
+    cmap = ConflictMap(width=11, height=11, tiles=[None] * (11 * 11))
+    arena = CombatArena(
+        party=party,
+        combat_map=cmap,
+        creature_tile=creature_tile,
+        asset_mgr=asset_mgr,
+        monster_count=monster_count,
+    )
+    arena.player_positions[0] = (5, 5)
+    return arena
+
+
+def test_wizard_casts_repond_against_orcs_and_respects_free_flag_and_negate():
+    arena = _caster_arena(Profession.WIZARD, mp=0, creature_tile="orc", monster_count=1)
+    arena.monsters[0].x = 5
+    arena.monsters[0].y = 2
+
+    action = choose_auto_combat_action(arena, 0)
+    assert action.type == ActionType.CAST
+    assert action.spell == Spell.REPOND
+
+    # Already used free spell in combat -> does not cast REPOND
+    arena.party.members[0].used_free_spell_in_combat = True
+    action = choose_auto_combat_action(arena, 0)
+    assert action.spell != Spell.REPOND
+
+    # Reset free flag, activate NEGATE aura -> does not cast any spell
+    arena.party.members[0].used_free_spell_in_combat = False
+    arena.party.aura.set(AuraType.NEGATE, 5)
+    action = choose_auto_combat_action(arena, 0)
+    assert action.type != ActionType.CAST
+
+
+def test_cleric_casts_pontori_against_skeletons():
+    arena = _caster_arena(Profession.CLERIC, mp=0, creature_tile="skeleton", monster_count=1)
+    arena.monsters[0].x = 5
+    arena.monsters[0].y = 2
+
+    action = choose_auto_combat_action(arena, 0)
+    assert action.type == ActionType.CAST
+    assert action.spell == Spell.PONTORI
+
+    arena.party.members[0].used_free_spell_in_combat = True
+    action = choose_auto_combat_action(arena, 0)
+    assert action.spell != Spell.PONTORI
+
+
+def test_cleric_heals_lowest_hp_living_ally_with_sanctu_and_sanctu_mani():
+    arena = _caster_arena(Profession.CLERIC, mp=20, creature_tile="orc", monster_count=1)
+    arena.monsters[0].x = 9
+    arena.monsters[0].y = 9
+
+    dead_ally = Character("Dead", "M", Race.HUMAN, Profession.FIGHTER)
+    dead_ally.hp = 0
+    dead_ally.max_hp = 100
+    dead_ally.status = Status.DEAD
+
+    hurt_ally = Character("Hurt", "M", Race.HUMAN, Profession.FIGHTER)
+    hurt_ally.hp = 30
+    hurt_ally.max_hp = 100
+
+    critical_ally = Character("Crit", "M", Race.HUMAN, Profession.FIGHTER)
+    critical_ally.hp = 15
+    critical_ally.max_hp = 100
+
+    arena.party.add_member(dead_ally)
+    arena.party.add_member(hurt_ally)
+    arena.party.add_member(critical_ally)
+
+    # With 20 MP (< 50), Cleric casts SANCTU on lowest-HP living ally
+    action = choose_auto_combat_action(arena, 0)
+    assert action.type == ActionType.CAST
+    assert action.spell == Spell.SANCTU
+    assert action.target_member is arena.party.members[3]
+
+    # With >= 50 MP, Cleric upgrades to SANCTU_MANI
+    arena.party.members[0].mp = 50
+    action = choose_auto_combat_action(arena, 0)
+    assert action.type == ActionType.CAST
+    assert action.spell == Spell.SANCTU_MANI
+    assert action.target_member is arena.party.members[3]
+
+
+def test_wizard_casts_mittar_when_lined_up_and_skips_with_strong_weapons(asset_mgr):
+    arena = _caster_arena(
+        Profession.WIZARD,
+        mp=10,
+        weapon=WeaponType.DAGGER,
+        creature_tile="orc",
+        monster_count=1,
+        asset_mgr=asset_mgr,
+    )
+    arena.party.members[0].used_free_spell_in_combat = True
+    arena.monsters[0].x = 5
+    arena.monsters[0].y = 1  # Distance 4 (within range 5)
+
+    action = choose_auto_combat_action(arena, 0, asset_mgr=asset_mgr)
+    assert action.type == ActionType.CAST
+    assert action.spell == Spell.MITTAR
+    assert action.direction == Direction.NORTH
+
+    # Wielding BOW_P2 or EXOTIC skips MITTAR
+    for w in (WeaponType.BOW_P2, WeaponType.EXOTIC):
+        arena.party.members[0].weapon = w
+        action = choose_auto_combat_action(arena, 0, asset_mgr=asset_mgr)
+        assert action.spell != Spell.MITTAR
+
+
+def test_wizard_advances_to_cardinal_alignment_when_can_cast_mittar():
+    arena = _caster_arena(
+        Profession.WIZARD, mp=10, weapon=WeaponType.DAGGER, creature_tile="orc", monster_count=1
+    )
+    arena.party.members[0].used_free_spell_in_combat = True
+    arena.player_positions[0] = (5, 8)
+    arena.monsters[0].x = 3
+    arena.monsters[0].y = 5
+
+    action = choose_auto_combat_action(arena, 0)
+    assert action.type == ActionType.MOVE
+    assert action.direction == Direction.WEST
+
+
+def test_high_threat_masskill_unspeakable_and_zxkuqyb():
+    # Wizard: UNSPEAKABLE when >= 2 monsters and threat > 60
+    wiz_arena = _caster_arena(
+        Profession.WIZARD, mp=80, creature_tile="orc", monster_count=2
+    )
+    wiz_arena.party.members[0].used_free_spell_in_combat = True
+    wiz_arena.monsters[0].x = 1
+    wiz_arena.monsters[0].y = 1
+    wiz_arena.monsters[0].exp = 35
+    wiz_arena.monsters[1].x = 9
+    wiz_arena.monsters[1].y = 9
+    wiz_arena.monsters[1].exp = 35  # total threat = 70 > 60
+
+    action = choose_auto_combat_action(wiz_arena, 0)
+    assert action.type == ActionType.CAST
+    assert action.spell == Spell.UNSPEAKABLE
+
+    # Cleric: ZXKUQYB when >= 2 monsters and threat > 80 (poisonous doubles exp)
+    cleric_arena = _caster_arena(
+        Profession.CLERIC, mp=80, creature_tile="orc", monster_count=2
+    )
+    cleric_arena.monsters[0].x = 1
+    cleric_arena.monsters[0].y = 1
+    cleric_arena.monsters[0].exp = 25
+    cleric_arena.monsters[0].poisons = True  # 50 threat
+    cleric_arena.monsters[1].x = 9
+    cleric_arena.monsters[1].y = 9
+    cleric_arena.monsters[1].exp = 35  # total threat = 85 > 80
+
+    action = choose_auto_combat_action(cleric_arena, 0)
+    assert action.type == ActionType.CAST
+    assert action.spell == Spell.ZXKUQYB
+
+    # Only 1 monster -> does not cast masskill even with high exp
+    cleric_arena.monsters[1].hp = 0
+    cleric_arena.monsters[0].exp = 100
+    action = choose_auto_combat_action(cleric_arena, 0)
+    assert action.spell != Spell.ZXKUQYB
