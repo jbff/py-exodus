@@ -886,6 +886,7 @@ def test_dungeon_peer_gem_once_per_level_and_touch_mark(pygame_setup):
     dmap = load_map(15, am)
     sm = StateMachine(asset_mgr=am, audio=None)
     ds = DungeonScreen(party=party, dungeon_map=dmap, asset_mgr=am)
+    ds.state.wandering_creatures = []
     sm.set_screen(ds)
 
     ctrl = AutoPlayController(enabled=True)
@@ -926,6 +927,7 @@ def test_dungeon_buys_torches_and_lights_darkness(pygame_setup):
     dmap = load_map(15, am)
     sm = StateMachine(asset_mgr=am, audio=None)
     ds = DungeonScreen(party=party, dungeon_map=dmap, asset_mgr=am)
+    ds.state.wandering_creatures = []
     sm.set_screen(ds)
 
     ctrl = AutoPlayController(enabled=True)
