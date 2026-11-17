@@ -428,6 +428,20 @@ class TestShrineDonation:
         assert shrine.is_finished is True
         assert m.gold == 500  # nothing debited
 
+    def test_keydown_without_unicode_does_not_crash(self, pygame_setup):
+        """KEYDOWN events without .unicode (e.g. arrow keys or programmatic events)
+        must not raise AttributeError in STATE_WHO or STATE_DONATE (Item 50)."""
+        m = Character(name="Donor", profession=Profession.CLERIC, wisdom=10, gold=500)
+        shrine = self._shrine(m)
+
+        assert shrine.state == ShrineScreen.STATE_WHO
+        shrine.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_LEFT))
+        assert shrine.state == ShrineScreen.STATE_WHO
+
+        shrine.state = ShrineScreen.STATE_DONATE
+        shrine.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RIGHT))
+        assert shrine.state == ShrineScreen.STATE_DONATE
+
 
 # --------------------------------------------------------------------------- #
 # (e) Mark-of-Kings gate: required only from level 6 (expLvl >= 5)

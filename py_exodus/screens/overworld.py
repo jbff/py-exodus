@@ -1388,6 +1388,12 @@ class OverworldScreen(BaseScreen):
 
         start_tile = self.game_map.get_tile(self.party.x, self.party.y)
 
+        # Java preMove intercepts the step onto Ambrosia's WHIRLPOOL portal
+        # before tile walkability / valid-moves mask checks and ferries the
+        # party to a random Sosaria coast tile (GameScreen.java:661-670).
+        if portal_entry.step_in_whirlpool_portal(self, nx, ny):
+            return
+
         if can_move_to(self.game_map, nx, ny, transport=self.party.transport, party=self.party):
             # Java exploration movement is never slowed (slowedByTile's only
             # caller is CombatScreen.java:937, combat creatures only) — no
@@ -1401,12 +1407,6 @@ class OverworldScreen(BaseScreen):
                 self.audio.play_sfx("walk_normal")
 
             self._finish_turn(start_tile)
-
-            # Java preMove intercepts the step onto Ambrosia's WHIRLPOOL
-            # portal and ferries the party to a random Sosaria coast tile
-            # (GameScreen.java:661-670).
-            if portal_entry.step_in_whirlpool_portal(self, nx, ny):
-                return
 
             # Check moongate teleports
             self._check_moongates()

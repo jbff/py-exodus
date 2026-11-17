@@ -204,6 +204,30 @@ def test_ambrosia_whirlpool_routes_to_sosaria_coast(asset_mgr, party, monkeypatc
     assert ow.map_id == 0
 
 
+def test_ambrosia_whirlpool_ship_sailing_exits_to_sosaria(asset_mgr, party):
+    """Sailing Transport.SHIP SOUTH from (32, 57) onto Ambrosia's whirlpool at
+    (32, 58) transitions to Sosaria (map_id=0) without monkeypatching can_move_to,
+    while Transport.FOOT still cannot walk onto water (32, 57) — Item 49 /
+    Java GameScreen.java:661-670.
+    """
+    from py_exodus.ui.renderer import can_move_to
+
+    party.transport = Transport.SHIP
+    party.wind_direction = Direction.SOUTH
+    party.x = 32
+    party.y = 57
+    ow = OverworldScreen(party=party, map_id=13, asset_mgr=asset_mgr, start_x=32, start_y=57)
+    ambrosia_map = ow.game_map
+    assert can_move_to(ambrosia_map, 32, 57, transport=Transport.FOOT, party=party) is False
+
+    ow.heading = Direction.SOUTH
+    ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_DOWN, unicode=""))
+
+    assert ow.map_id == 0
+    assert 48 <= party.x <= 53
+    assert 0 <= party.y <= 8
+
+
 def test_ambrosia_whirlpool_portal_e_fixed_start(asset_mgr, party):
     """Pressing E at Ambrosia's WHIRLPOOL portal uses the portal's fixed
     startx/starty (maps.xml startx="1" starty="1") — GameScreen.java:538-556."""

@@ -150,10 +150,12 @@ class ShrineScreen(BaseScreen):
             self.exit_screen()
             return
 
+        uni = getattr(event, "unicode", "") or ""
+
         if self.state == self.STATE_WHO:
             # Keys 1-4 for party members
-            if event.unicode in ("1", "2", "3", "4"):
-                idx = int(event.unicode) - 1
+            if uni in ("1", "2", "3", "4"):
+                idx = int(uni) - 1
                 if 0 <= idx < len(self.party.members):
                     self.selected_member_idx = idx
                     member = self.party.get_member(idx)
@@ -170,8 +172,8 @@ class ShrineScreen(BaseScreen):
                 self.log_messages.append(f"{name}: Offering * 100? (Press 1-9 for amount, ESC to leave)")
 
         elif self.state == self.STATE_DONATE:
-            if event.unicode in "123456789":
-                amt = int(event.unicode)
+            if uni and uni in "123456789":
+                amt = int(uni)
                 # Java truth: ShrineScreen.java:207-231. An offer the member
                 # cannot pay draws "You cannot cheat the gods!" and the shrine
                 # stays open for another amount; a paid offer logs "Shazam!"
@@ -179,7 +181,7 @@ class ShrineScreen(BaseScreen):
                 if self.donate(self.selected_member_idx, amount=amt):
                     self.state = self.STATE_DONE
                     self.exit_screen()
-            elif event.unicode == "0":
+            elif uni == "0":
                 self.log_messages.append("Begone then!")
                 self.last_message = "Begone then!"
                 self.state = self.STATE_DONE
