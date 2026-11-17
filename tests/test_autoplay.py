@@ -1177,6 +1177,18 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
     ctrl.enabled = True
     assert ctrl.step(sm) in (pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT)
 
+    # Starving party in BUY_FOOD does not loop casting SANCTU instead of walking to buy food
+    party.food = 0
+    party.members[0].hp = 50
+    party.members[0].max_hp = 150
+    party.members[0].gold = 100
+    party.members[2].mp = 25
+    party.members[2].max_mp = 25
+    ow.creatures = []
+    assert evaluate_goal(party) == Goal.BUY_FOOD
+    assert ctrl.step(sm) != pygame.K_c
+
+
 
 
 
