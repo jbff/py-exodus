@@ -384,6 +384,7 @@ class OverworldScreen(BaseScreen):
 
         # Heading / facing direction (for broadside cannon checks)
         self.heading: Direction = Direction.NORTH
+        self.cannon_fx: list[dict[str, Any]] = []
 
         has_restored_monsters = (
             str(self.map_id) == "0"
@@ -1651,15 +1652,19 @@ class OverworldScreen(BaseScreen):
         if self.game_map is None:
             return
         cx, cy = self.party.x, self.party.y
+        path: list[tuple[int, int]] = []
+        hit = False
         for step in range(1, 5):
             tx = cx + direction.dx * step
             ty = cy + direction.dy * step
             if tx < 0 or tx >= self.game_map.width or ty < 0 or ty >= self.game_map.height:
                 break
+            path.append((tx, ty))
 
             # Empty frigate in the path: hit, 10 hull damage, trace stops.
             if self._damage_unmanned_frigate_at(tx, ty, "Direct hit on an unmanned frigate!"):
-                return
+                hit = True
+                break
 
             # Check creature hit (Utils.java:551-569): whirlpools are
             # skipped (AttackResult.NONE, trace continues); any other
@@ -1679,9 +1684,22 @@ class OverworldScreen(BaseScreen):
                 if random.randint(0, 2) == 0:
                     self.creatures.remove(hit_creature)
                     self.text_log.add_message(f"Direct hit! The {c_name} sinks into the sea!")
+                    hit = True
                 else:
                     self.text_log.add_message("The cannonball splashes down!")
                 break
+
+        if path:
+            self.cannon_fx.append(
+                {
+                    "start_pos": (cx, cy),
+                    "path": path,
+                    "target_pos": path[-1],
+                    "hit": hit,
+                    "duration": 0.35,
+                    "timer": 0.35,
+                }
+            )
 
     def _enter_portal(self) -> None:
         """Enter the portal at the party's tile (Java GameScreen.java:538-556).
@@ -2083,15 +2101,19 @@ class OverworldScreen(BaseScreen):
         self.text_log.add_message("The pirate ship fires its broadside!")
 
         sx, sy = pirate["x"], pirate["y"]
+        path: list[tuple[int, int]] = []
+        hit = False
         for distance in range(1, 5):
             tx = sx + fire_dir.dx * distance
             ty = sy + fire_dir.dy * distance
             if tx < 0 or tx >= self.game_map.width or ty < 0 or ty >= self.game_map.height:
                 break
+            path.append((tx, ty))
 
             # fireAt: unmanned frigate first (Utils.java:536-547).
             if self._damage_unmanned_frigate_at(tx, ty, "Cannon fire strikes the unmanned frigate!"):
-                return
+                hit = True
+                break
 
             if tx == self.party.x and ty == self.party.y:
                 if self.party.transport == Transport.SHIP:
@@ -2099,6 +2121,7 @@ class OverworldScreen(BaseScreen):
                     if random.randint(0, 2) == 0:
                         self.party.adjust_ship_hull(-10)
                         self.text_log.add_message("Cannon fire rakes thy ship!")
+                        hit = True
                     else:
                         self.text_log.add_message("The cannonball splashes down!")
                 else:
@@ -2109,9 +2132,22 @@ class OverworldScreen(BaseScreen):
                             if random.randint(0, 1) == 0 and not member.is_dead():
                                 member.apply_damage(random.randint(10, 25), True)
                         self.text_log.add_message("Cannon fire strikes thy party!")
+                        hit = True
                     else:
                         self.text_log.add_message("The cannonball splashes down!")
-                return
+                break
+
+        if path:
+            self.cannon_fx.append(
+                {
+                    "start_pos": (sx, sy),
+                    "path": path,
+                    "target_pos": path[-1],
+                    "hit": hit,
+                    "duration": 0.35,
+                    "timer": 0.35,
+                }
+            )
 
     def _trigger_combat(self, creature_name: str, creature: dict[str, Any] | None = None) -> None:
         """Initiate tactical combat screen with creature.
@@ -2312,6 +2348,65 @@ class OverworldScreen(BaseScreen):
         # out of _finish_turn), so both wall-clock timer blocks are gone.
         self.party.moons = self.moons
 
+        if self.cannon_fx:
+            remaining_fx: list[dict[str, Any]] = []
+            for fx in self.cannon_fx:
+                fx["timer"] -= dt
+                if fx["timer"] > 0:
+                    remaining_fx.append(fx)
+            self.cannon_fx = remaining_fx
+
+    def _render_cannon_fx(self, surface: pygame.Surface) -> None:
+        """Render active cannonball projectiles and hit/splash effects."""
+        if not self.cannon_fx or self.game_map is None:
+            return
+        half = 5
+        wrap = self.game_map.border_behavior == "wrap"
+        map_w, map_h = self.game_map.width, self.game_map.height
+
+        def _to_px(wx: int, wy: int) -> tuple[int, int]:
+            dx = wx - self.party.x
+            dy = wy - self.party.y
+            if wrap:
+                if dx > map_w // 2:
+                    dx -= map_w
+                elif dx < -(map_w // 2):
+                    dx += map_w
+                if dy > map_h // 2:
+                    dy -= map_h
+                elif dy < -(map_h // 2):
+                    dy += map_h
+            return (
+                (half + dx) * TILE_SIZE + TILE_SIZE // 2,
+                (half + dy) * TILE_SIZE + TILE_SIZE // 2,
+            )
+
+        for fx in self.cannon_fx:
+            duration = fx.get("duration", 0.35)
+            timer = fx.get("timer", 0.0)
+            progress = max(0.0, min(1.0, 1.0 - (timer / duration))) if duration > 0 else 1.0
+            t_travel = min(1.0, progress / 0.7)
+            sx, sy = _to_px(*fx["start_pos"])
+            tx, ty = _to_px(*fx["target_pos"])
+            cur_x = int(round(sx + (tx - sx) * t_travel))
+            cur_y = int(round(sy + (ty - sy) * t_travel))
+
+            if progress < 0.75:
+                pygame.draw.circle(surface, (255, 96, 32), (cur_x, cur_y), 3)
+                pygame.draw.circle(surface, (255, 255, 255), (cur_x, cur_y), 1)
+
+            if progress >= 0.6:
+                if fx.get("hit"):
+                    if self.asset_mgr is not None:
+                        fire_surf = self.asset_mgr.get_tile_surface("fire")
+                        surface.blit(fire_surf, (tx - TILE_SIZE // 2, ty - TILE_SIZE // 2))
+                    else:
+                        pygame.draw.circle(surface, (255, 80, 20), (tx, ty), 6)
+                        pygame.draw.circle(surface, (255, 220, 60), (tx, ty), 3)
+                else:
+                    pygame.draw.circle(surface, (120, 220, 255), (tx, ty), 5, 1)
+                    pygame.draw.circle(surface, (255, 255, 255), (tx, ty), 3, 1)
+
     def render(self, surface: pygame.Surface) -> None:
         surface.fill(EGA_BLACK)
         w, h = surface.get_width(), surface.get_height()
@@ -2354,6 +2449,7 @@ class OverworldScreen(BaseScreen):
                     # the kwarg is the SLOW phase — only site[trammel] renders.
                     moon_phase=self.trammel_phase,
                 )
+            self._render_cannon_fx(temp_v)
             scaled_v = pygame.transform.scale(temp_v, (v_size, v_size))
             surface.blit(scaled_v, (0, 0))
             self._render_sky_strip(surface, pane_right=v_size, pane_top=0)
@@ -2386,6 +2482,7 @@ class OverworldScreen(BaseScreen):
                     # Same SLOW-phase gate visibility contract as above.
                     moon_phase=self.trammel_phase,
                 )
+            self._render_cannon_fx(surface)
             self._render_sky_strip(surface, pane_right=176, pane_top=0)
             self.stats_panel.render(
                 surface,

@@ -751,3 +751,81 @@ class TestFrigateNoStacking:
         assert len(frigates_at_tile) == 1
 
 
+class TestOverworldCannonFX:
+    """Visual cannonball projectile & hit/splash FX in OverworldScreen."""
+
+    def test_fire_cannons_air_records_fx_renders_and_clears(self, overworld):
+        overworld.party.x, overworld.party.y = 20, 20
+        overworld.party.transport = Transport.SHIP
+        overworld.heading = Direction.NORTH
+        overworld.creatures.clear()
+
+        surf_before = pygame.Surface((176, 176))
+        overworld.render(surf_before)
+        before_bytes = pygame.image.tobytes(surf_before, "RGB")
+
+        overworld._fire_cannons(Direction.EAST)
+        assert len(overworld.cannon_fx) == 1
+        fx = overworld.cannon_fx[0]
+        assert fx["start_pos"] == (20, 20)
+        assert len(fx["path"]) == 4
+        assert fx["path"] == [(21, 20), (22, 20), (23, 20), (24, 20)]
+        assert fx["target_pos"] == (24, 20)
+        assert fx["hit"] is False
+
+        # Advance slightly so the projectile is mid-flight over the path tiles.
+        overworld.update(0.15)
+        assert len(overworld.cannon_fx) == 1
+
+        surf_during = pygame.Surface((176, 176))
+        overworld.render(surf_during)
+        during_bytes = pygame.image.tobytes(surf_during, "RGB")
+        assert during_bytes != before_bytes
+
+        # Advance past duration (0.35s) to clear expired FX.
+        overworld.update(0.40)
+        assert overworld.cannon_fx == []
+
+    def test_fire_cannons_hit_stops_path_and_sets_hit_true(self, overworld, monkeypatch):
+        overworld.party.x, overworld.party.y = 20, 20
+        overworld.party.transport = Transport.SHIP
+        overworld.heading = Direction.NORTH
+        overworld.creatures = [{"tile_name": "pirate", "x": 22, "y": 20}]
+        monkeypatch.setattr(overworld_module.random, "randint", lambda a, b: 0)
+
+        overworld._fire_cannons(Direction.EAST)
+        assert len(overworld.cannon_fx) == 1
+        fx = overworld.cannon_fx[0]
+        assert fx["path"] == [(21, 20), (22, 20)]
+        assert fx["target_pos"] == (22, 20)
+        assert fx["hit"] is True
+
+    def test_fire_cannons_hit_unmanned_frigate_records_fx(self, overworld):
+        overworld.party.x, overworld.party.y = 20, 20
+        overworld.party.transport = Transport.SHIP
+        overworld.heading = Direction.NORTH
+        overworld.party.dynamic_objects.append({"tile": "frigate", "x": 22, "y": 20, "hull": 50})
+
+        overworld._fire_cannons(Direction.EAST)
+        assert len(overworld.cannon_fx) == 1
+        fx = overworld.cannon_fx[0]
+        assert fx["path"] == [(21, 20), (22, 20)]
+        assert fx["target_pos"] == (22, 20)
+        assert fx["hit"] is True
+
+    def test_enemy_fire_cannons_records_fx_from_pirate(self, overworld, monkeypatch):
+        overworld.party.x, overworld.party.y = 20, 20
+        overworld.party.transport = Transport.SHIP
+        pirate = {"tile_name": "pirate", "x": 23, "y": 20}
+        monkeypatch.setattr(overworld_module.random, "randint", lambda a, b: 0)
+
+        overworld._enemy_fire_cannons(pirate, Direction.WEST)
+        assert len(overworld.cannon_fx) == 1
+        fx = overworld.cannon_fx[0]
+        assert fx["start_pos"] == (23, 20)
+        assert fx["path"] == [(22, 20), (21, 20), (20, 20)]
+        assert fx["target_pos"] == (20, 20)
+        assert fx["hit"] is True
+
+
+
