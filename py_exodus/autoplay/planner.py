@@ -130,6 +130,18 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
     has_all_cards = all(any(m.cards[i] > 0 for m in living) for i in range(4))
     has_remaining_marks = all(any(m.marks[i] > 0 for m in living) for i in (1, 2, 3))
 
+    if cur_map_id == 13:
+        has_key = any(m.keys > 0 for m in living)
+        needs_key_card = any(not any(m.cards[idx] > 0 for m in living) for idx in (0, 2))
+        if (
+            max(m.level for m in living) < 5
+            or not all(m.marks[0] > 0 for m in party.members)
+            or has_all_cards
+            or (needs_key_card and not has_key)
+        ):
+            return Goal.EXIT_AMBROSIA
+        return Goal.AMBROSIA_CARDS_SHRINES
+
     if cur_map_id == 0 and not has_exotics and (party.transport == Transport.SHIP or at_exotic_island):
         return Goal.DIG_EXOTICS
 

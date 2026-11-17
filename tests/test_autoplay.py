@@ -291,11 +291,18 @@ def test_evaluate_goal_progression():
         m.armors[ArmorType.EXOTIC] = 1
     assert evaluate_goal(marked_ship) == Goal.SAIL_WHIRLPOOL
 
-    # OverworldScreen map_id=13 overrides stale party.map_id=0 for Ambrosia
+    # OverworldScreen map_id=13 overrides stale party.map_id=0 for Ambrosia (requires keys for Death/Moons)
+    marked_foot.members[0].keys = 1
     assert evaluate_goal(marked_foot, map_id=13) == Goal.AMBROSIA_CARDS_SHRINES
+
+    # Prematurely entering Ambrosia (below L5, missing Mark of Kings, or 0 keys) -> EXIT_AMBROSIA
+    assert evaluate_goal(lvl5, map_id=13) == Goal.EXIT_AMBROSIA
+    marked_foot.members[0].keys = 0
+    assert evaluate_goal(marked_foot, map_id=13) == Goal.EXIT_AMBROSIA
 
     # In Ambrosia without all cards -> AMBROSIA_CARDS_SHRINES
     ambrosia = _make_party(level=5, exp=500, marks=[1, 0, 0, 0], map_id=13, cards=[1, 0, 0, 0])
+    ambrosia.members[0].keys = 1
     assert evaluate_goal(ambrosia) == Goal.AMBROSIA_CARDS_SHRINES
 
     # In Ambrosia with all 4 cards -> EXIT_AMBROSIA
@@ -1294,6 +1301,16 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
     ctrl._key_queue.clear()
     assert evaluate_goal(p_ex) == Goal.DIG_EXOTICS
     assert ctrl.step(sm) == pygame.K_LEFT
+
+    # Ship in DIG_EXOTICS steers around whirlpool instead of sailing into it
+    p_whirl = _make_party(level=3, exp=200, gold=0, food=500, transport=Transport.SHIP)
+    p_whirl.x, p_whirl.y = 49, 13
+    p_whirl.wind_direction = Direction.NORTH
+    ow_w = OverworldScreen(party=p_whirl, asset_mgr=am, random_encounters=False)
+    ow_w.creatures = [{"x": 50, "y": 13, "tile_name": "whirlpool"}]
+    sm.set_screen(ow_w)
+    ctrl._key_queue.clear()
+    assert ctrl.step(sm) != pygame.K_RIGHT
 
     # Stranded on island for BUY_FOOD uses reachable moongate or frigate instead of passing turns
     p_isl = _make_party(level=5, exp=500, gold=100, food=50)

@@ -685,9 +685,16 @@ class AutoPlayController:
             }
             for c in getattr(screen, "creatures", []):
                 tname = str(c.get("tile_name") or c.get("tile") or "").lower()
-                if tname not in cannon_targets or "x" not in c or "y" not in c:
+                if "x" not in c or "y" not in c:
                     continue
                 cx, cy = c["x"], c["y"]
+                if tname == "whirlpool" and cur_map_id == 0 and goal != Goal.SAIL_WHIRLPOOL:
+                    avoid_monsters.add((cx, cy))
+                    for ox, oy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+                        avoid_monsters.add(((cx + ox) % gmap.width, (cy + oy) % gmap.height))
+                    continue
+                if tname not in cannon_targets:
+                    continue
                 dx_e = (cx - px) % gmap.width
                 dx_w = (px - cx) % gmap.width
                 dy_s = (cy - py) % gmap.height
@@ -1005,7 +1012,7 @@ class AutoPlayController:
             return self._emit_key(state_machine, _char_to_key(self._wear_item_letter) or pygame.K_b)
         if "who is in need" in prompt:
             return self._emit_key(state_machine, pygame.K_0 + self._heal_patient_idx)
-        if "your need" in prompt:
+        if "your need" in prompt or "wat'l it be" in prompt:
             return self._emit_key(state_machine, _char_to_key(self._shop_item_letter) or pygame.K_c)
         if "talk" in prompt or "which" in prompt or "who" in prompt:
             return self._emit_key(state_machine, pygame.K_0 + self._shop_member_idx)
