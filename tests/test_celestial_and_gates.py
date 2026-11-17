@@ -271,7 +271,7 @@ class TestSkyStrip:
 
         texts = sky_strip_texts(Direction.NORTH, 3, 0)
         assert "Wind NORTH ^" in texts
-        assert "T:3 F:0" in texts
+        assert not any(t.startswith("T:") for t in texts)
 
         # Arrow tracks the direction; the moon counters are Trammel/Felucca.
         assert "Wind SOUTH v" in sky_strip_texts(Direction.SOUTH, 0, 7)
@@ -288,11 +288,11 @@ class TestSkyStrip:
         ow = OverworldScreen(party=party, map_id=0, asset_mgr=asset_mgr, start_x=45, start_y=19)
         texts = ow.sky_strip_texts()
         assert any("Wind NORTH" in t for t in texts)
-        assert any("T:0 F:0" in t for t in texts)
+        assert not any(t.startswith("T:") for t in texts)
 
         # Same source the moongate code reads: bump the phase counters.
         ow.moon_phase = 10  # Trammel 3, Felucca 2
-        assert any("T:3 F:2" in t for t in ow.sky_strip_texts())
+        assert (ow.trammel_phase, ow.felucca_phase) == (3, 2)
 
         # Wind comes from the party record the sailing code tracks.
         party.wind_direction = Direction.SOUTH
@@ -304,7 +304,7 @@ class TestSkyStrip:
         for _ in range(4):
             ow._finish_turn(None)
         assert ow.moon_phase == 1
-        assert any("T:0 F:1" in t for t in ow.sky_strip_texts())
+        assert (ow.trammel_phase, ow.felucca_phase) == (0, 1)
 
     def test_moon_glyph_eight_distinct_phases(self, pygame_setup):
         """Two visible phase indicators: one glyph per moon, 8 distinct phase

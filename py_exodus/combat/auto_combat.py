@@ -309,7 +309,23 @@ def choose_auto_combat_action(
         if ranged_dir is not None:
             return Action.attack(ranged_dir)
 
-    # Advance toward nearest visible living monster
+    # Advance toward nearest visible living monster.
+    # For melee fighters, prefer BFS shortest path first so obstacles (like ship masts)
+    # don't cause greedy-Manhattan orbiting loops.
+    if weapon_range <= 1 and not can_cast_mittar:
+        bfs_dir = _find_bfs_move_dir(
+            arena,
+            member_idx,
+            px,
+            py,
+            visible_positions=visible_positions,
+            weapon_range=weapon_range,
+            attack_through=attack_through,
+            can_cast_mittar=can_cast_mittar,
+        )
+        if bfs_dir is not None:
+            return Action.move(bfs_dir)
+
     target = min(
         visible_monsters,
         key=lambda m: (abs(m.x - px) + abs(m.y - py), max(abs(m.x - px), abs(m.y - py))),

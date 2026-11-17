@@ -159,6 +159,7 @@ class AutoPlayController:
     def update(self, dt: float, state_machine: StateMachine) -> bool:
         """Advance step timer and emit steps when enabled."""
         state_machine.autoplay_enabled = self.enabled
+        state_machine.autoplay_step_interval = self.step_interval
         if not self.enabled:
             return False
         self._timer += dt
@@ -190,6 +191,7 @@ class AutoPlayController:
     def step(self, state_machine: StateMachine) -> int | None:
         """Emit one logical input step for the active screen."""
         state_machine.autoplay_enabled = self.enabled
+        state_machine.autoplay_step_interval = self.step_interval
         screen = state_machine.current_screen
         if screen is None:
             return None
@@ -203,6 +205,11 @@ class AutoPlayController:
             return self._emit_key(state_machine, self._key_queue.popleft())
 
         if screen_name == "StartScreen":
+            if getattr(screen, "game_over", False):
+                self._key_queue.clear()
+                self.enabled = False
+                state_machine.autoplay_enabled = False
+                return None
             return self._step_start(state_machine)
         if screen_name == "RosterScreen":
             return self._step_roster(state_machine, screen)
@@ -676,14 +683,8 @@ class AutoPlayController:
             and party.food >= 100
             and goal not in (Goal.BUY_FOOD, Goal.RESURRECT_DEAD, Goal.CURE_POISON)
             and needs_heal(party)
-            and any(
-                not m.is_dead()
-                and m.profession in (Profession.CLERIC, Profession.PALADIN, Profession.DRUID)
-                and m.max_mp >= 10
-                for m in party.members
-            )
         ):
-            # Evade adjacent monsters while resting on Sosaria to regen MP for SANCTU
+            # Evade nearby monsters while hurt on Sosaria
             nearby = [
                 (c["x"], c["y"])
                 for c in getattr(screen, "creatures", [])
@@ -704,7 +705,40 @@ class AutoPlayController:
                         best_dir = d
                 if best_dir is not None:
                     return self._emit_key(state_machine, _DIR_TO_KEY[best_dir])
-            return self._emit_key(state_machine, pygame.K_SPACE)
+            if any(
+                not m.is_dead()
+                and m.profession in (Profession.CLERIC, Profession.PALADIN, Profession.DRUID)
+                and m.max_mp >= 10
+                for m in party.members
+            ):
+                return self._emit_key(state_machine, pygame.K_SPACE)
+
+        # Low-level parties on foot evade coastal sea monsters (pirate/serpent/squid)
+        if party.map_id == 0 and party.transport != Transport.SHIP and living:
+            avg_max_hp = sum(m.max_hp for m in party.members) // max(1, len(party.members))
+            if avg_max_hp < 400:
+                sea_near = [
+                    (c["x"], c["y"])
+                    for c in getattr(screen, "creatures", [])
+                    if "x" in c and "y" in c
+                    and str(c.get("tile_name") or c.get("tile") or "").lower() in ("pirate", "serpent", "squid")
+                    and abs(c["x"] - px) + abs(c["y"] - py) <= 2
+                ]
+                if sea_near:
+                    from py_exodus.screens.overworld import can_move_to
+
+                    best_dir = None
+                    best_dist = -1
+                    for d, (dx, dy) in ((Direction.NORTH, (0, -1)), (Direction.SOUTH, (0, 1)), (Direction.WEST, (-1, 0)), (Direction.EAST, (1, 0))):
+                        nx, ny = (px + dx) % gmap.width, (py + dy) % gmap.height
+                        if not can_move_to(gmap, nx, ny, transport=Transport.FOOT, party=party):
+                            continue
+                        min_d = min(abs(nx - cx) + abs(ny - cy) for cx, cy in sea_near)
+                        if min_d > best_dist:
+                            best_dist = min_d
+                            best_dir = d
+                    if best_dir is not None:
+                        return self._emit_key(state_machine, _DIR_TO_KEY[best_dir])
 
         if goal == Goal.GET_MARK_KINGS:
             if (px, py) == (46, 7):

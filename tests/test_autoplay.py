@@ -1059,11 +1059,24 @@ def test_stats_panel_autoplay_autocombat_and_turn_count(pygame_setup):
     ow.stats_panel = panel
     sm.set_screen(ow)
     sm.autoplay_enabled = True
+    sm.autoplay_step_interval = 0.05
+    party.transport = Transport.SHIP
+    party.ship_hull = 38
+    party.members[0].gold = 77
+    party.members[0].marks[0] = 1
     captured.clear()
     ow._render_stats_panel(surf, pygame.Rect(0, 0, 300, 500))
-    assert any("AUTOPLAY:" in s and "ON" in s for s in captured)
+    assert any("AUTOPLAY:" in s and "ON (0.05s)" in s for s in captured)
     assert any("AUTOCOMBAT:" in s and "ON" in s for s in captured)
     assert any("TURN: 42" in s for s in captured)
+    assert any("G:77" in s for s in captured)
+    assert any("TOR:" in s for s in captured)
+    assert any("SHIP HULL: 38/50" in s for s in captured)
+    assert any("MARKS: K:1 F:0 S:0 O:0" in s for s in captured)
+    assert any("CARDS: L:0 S:0 M:0 D:0" in s for s in captured)
+    assert any("EXOTICS: W:0/4 A:0/4" in s for s in captured)
+    assert any("LOC: Sosaria" in s for s in captured)
+    assert any("GOAL:" in s for s in captured)
 
 
 def test_heal_rest_on_sosaria_and_walkable_coast_patrol(pygame_setup):
@@ -1120,16 +1133,50 @@ def test_mark_kings_triggers_on_first_level5_and_resurrection_reserve():
     up_950 = best_shop_upgrade(party)
     assert up_950 is not None and 100 < up_950.price <= 450
 
-    # If a member is dead when someone is L5, resurrect before Mark of Kings;
-    # and if one member still lacks Mark of Kings after revival, go get it.
+    # If a member is dead when someone is L5, resurrect before Mark of Kings
+    # (even when the dead member holds the pooled gold!); and if a dead member
+    # cannot be revived yet (<500g) while living members are poisoned (>=100g),
+    # cure poison before grinding.
+    party.members[0].gold = 0
+    party.members[1].gold = 1200
     party.members[1].status = Status.DEAD
     party.members[1].hp = 0
     assert evaluate_goal(party) == Goal.RESURRECT_DEAD
-    party.members[0].gold = 0
+    party.members[1].gold = 200
+    party.members[2].status = Status.POISONED
+    assert evaluate_goal(party) == Goal.CURE_POISON
+    party.members[2].status = Status.GOOD
     party.members[1].status = Status.GOOD
     party.members[1].hp = 150
     party.members[0].marks[0] = 1
+    party.members[1].gold = 0
     assert evaluate_goal(party) == Goal.GET_MARK_KINGS
+
+
+def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup):
+    """Autoplay stops on StartScreen(game_over=True) instead of restarting, and L1 parties evade coastal serpents."""
+    from py_exodus.assets import AssetManager
+    from py_exodus.screens.overworld import OverworldScreen
+    from py_exodus.screens.start import StartScreen
+
+    am = AssetManager("data")
+    am.load_all()
+    sm = StateMachine(asset_mgr=am, audio=None)
+    ss = StartScreen(asset_mgr=am, game_over=True)
+    sm.set_screen(ss)
+    ctrl = AutoPlayController(enabled=True)
+    assert ctrl.step(sm) is None
+    assert ctrl.enabled is False
+    assert sm.autoplay_enabled is False
+
+    # L1 party on coast steps away from adjacent serpent instead of fighting it
+    party = _make_party(level=1, exp=0, gold=0, food=500)
+    ow = OverworldScreen(party=party, asset_mgr=am, random_encounters=False, start_x=47, start_y=19)
+    ow.creatures = [{"x": 48, "y": 19, "tile_name": "serpent"}]
+    sm.set_screen(ow)
+    ctrl.enabled = True
+    assert ctrl.step(sm) in (pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT)
+
 
 
 

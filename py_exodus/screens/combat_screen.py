@@ -955,12 +955,14 @@ class CombatScreen(BaseScreen):
     def _render_players(self, surface: pygame.Surface) -> None:
         font = get_hud_font(size=12)
         for p_idx, (px, py) in self.arena.player_positions.items():
+            member = self.party.get_member(p_idx)
+            if member is None or member.is_dead():
+                continue
             screen_x = px * TILE_SIZE
             screen_y = py * TILE_SIZE
             is_active = (p_idx == self.arena.active_party_member_idx)
 
             blitted = False
-            member = self.party.get_member(p_idx)
             if self.asset_mgr is not None and member is not None:
                 try:
                     t_name = getattr(member.profession, "tile", "fighter")

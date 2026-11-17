@@ -29,6 +29,7 @@ class StateMachine:
         self.party = party
         self.screen_stack: list[BaseScreen] = []
         self.autoplay_enabled: bool = False
+        self.autoplay_step_interval: float | None = None
         self.auto_combat_enabled: bool = False
 
         if initial_screen is not None:

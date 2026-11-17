@@ -207,6 +207,8 @@ class StatsPanel:
         draw_border: bool = True,
         autoplay: bool = False,
         auto_combat: bool = False,
+        step_interval: float | None = None,
+        location_text: str | None = None,
     ) -> None:
         """Render party status sidebar to surface."""
         w, h = surface.get_width(), surface.get_height()
@@ -273,6 +275,7 @@ class StatsPanel:
             # the whole panel height for its stat rows plus the complete
             # equipment listings down to the mark/card rows.
             if member_inspect_index is None:
+                w_names, a_names = _equipment_display_names(self.asset_mgr)
                 for i, pm in enumerate(party.members):
                     is_active = (i == party.active_member_index)
                     marker = ">" if is_active else " "
@@ -309,6 +312,15 @@ class StatsPanel:
                         f" H:{pm.hp} M:{pm.mp} F:{pm.food} E:{pm.exp}",
                         EGA_LIGHT_GRAY if not is_active else EGA_YELLOW,
                     )
+                    if is_large:
+                        w_key = getattr(getattr(pm, "weapon", None), "name", "NONE")
+                        a_key = getattr(getattr(pm, "armor", None), "name", "NONE")
+                        w_lbl = w_names.get(w_key, "None")
+                        a_lbl = a_names.get(a_key, "None")
+                        draw_line(
+                            f" G:{pm.gold:<4} {w_lbl}/{a_lbl}",
+                            EGA_LIGHT_GRAY if not is_active else EGA_YELLOW,
+                        )
 
         # 5. Inspection Section
         eff_inspect = inspect_index if inspect_index is not None else self.inspect_index
@@ -350,19 +362,68 @@ class StatsPanel:
                 draw_line(f"FOOD:{party.food:<5} GOLD:{party.gold}", EGA_WHITE)
                 tot_keys = sum(m.keys for m in party.members)
                 tot_gems = sum(m.gems for m in party.members)
+                tot_torches = sum(m.torches for m in party.members)
                 tot_powder = sum(m.powder for m in party.members)
-                draw_line(f"KEYS:{tot_keys} GEMS:{tot_gems} POWD:{tot_powder}", EGA_LIGHT_GRAY)
+                draw_line(
+                    f"KEYS:{tot_keys} GEMS:{tot_gems} TOR:{tot_torches} POWD:{tot_powder}",
+                    EGA_LIGHT_GRAY,
+                )
                 if party.torch_duration > 0:
                     draw_line(f"TORCH LIGHT: {party.torch_duration}", EGA_YELLOW)
+                if party.transport == Transport.SHIP:
+                    draw_line(f"SHIP HULL: {party.ship_hull}/50", EGA_BRIGHT_CYAN)
+            if is_large and target_rect.bottom - curr_y >= line_h * 3 + 8:
+                draw_separator()
+                mk, mf, ms, mo = (
+                    sum(1 for m in party.members if m.marks[idx] > 0)
+                    for idx in range(4)
+                )
+                cl, cs, cm, cd = (
+                    sum(1 for m in party.members if m.cards[idx] > 0)
+                    for idx in (3, 1, 2, 0)
+                )
+                ew = sum(
+                    1
+                    for m in party.members
+                    if m.weapon == WeaponType.EXOTIC or m.weapons.get(WeaponType.EXOTIC, 0) > 0
+                )
+                ea = sum(
+                    1
+                    for m in party.members
+                    if m.armor == ArmorType.EXOTIC or m.armors.get(ArmorType.EXOTIC, 0) > 0
+                )
+                draw_line(
+                    f"MARKS: K:{mk} F:{mf} S:{ms} O:{mo}",
+                    EGA_BRIGHT_GREEN if (mk and mf and ms and mo) else EGA_WHITE,
+                )
+                draw_line(
+                    f"CARDS: L:{cl} S:{cs} M:{cm} D:{cd}",
+                    EGA_BRIGHT_GREEN if (cl and cs and cm and cd) else EGA_WHITE,
+                )
+                draw_line(
+                    f"EXOTICS: W:{ew}/4 A:{ea}/4",
+                    EGA_BRIGHT_GREEN if (ew == 4 and ea == 4) else EGA_LIGHT_GRAY,
+                )
             if target_rect.bottom - curr_y >= line_h * 3 + 6:
                 draw_separator()
+                if is_large and location_text:
+                    draw_line(f"LOC: {location_text}", EGA_BRIGHT_CYAN)
                 eff_auto_combat = bool(autoplay or auto_combat)
+                speed_txt = (
+                    f" ({step_interval:.2f}s)"
+                    if autoplay and step_interval is not None
+                    else ""
+                )
                 draw_line(
-                    f"AUTOPLAY:   {'ON' if autoplay else 'OFF'}",
+                    f"AUTOPLAY:   {'ON' if autoplay else 'OFF'}{speed_txt}",
                     EGA_BRIGHT_GREEN if autoplay else EGA_LIGHT_GRAY,
                 )
                 draw_line(
                     f"AUTOCOMBAT: {'ON' if eff_auto_combat else 'OFF'}",
                     EGA_BRIGHT_GREEN if eff_auto_combat else EGA_LIGHT_GRAY,
                 )
+                if is_large and autoplay:
+                    from py_exodus.autoplay.planner import evaluate_goal
+
+                    draw_line(f"GOAL: {evaluate_goal(party).value}", EGA_YELLOW)
                 draw_line(f"TURN: {party.moves}", EGA_WHITE)

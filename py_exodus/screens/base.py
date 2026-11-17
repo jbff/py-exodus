@@ -82,19 +82,36 @@ class BaseScreen(ABC):
         surface: pygame.Surface,
         rect: pygame.Rect,
     ) -> None:
-        """Render the sidebar StatsPanel with autoplay, auto-combat, and turn count."""
+        """Render the sidebar StatsPanel with autoplay, auto-combat, location, and turn count."""
+        from py_exodus.assets import MAP_ID_TO_LABEL
+
         autoplay_on = bool(getattr(self.manager, "autoplay_enabled", False))
         autocombat_on = (
             autoplay_on
             or bool(getattr(self, "auto_combat", False))
             or bool(getattr(self.manager, "auto_combat_enabled", False))
         )
+        step_interval = (
+            getattr(self.manager, "autoplay_step_interval", None)
+            if autoplay_on
+            else None
+        )
+        map_id = getattr(self, "map_id", getattr(self.party, "map_id", 0))
+        label = MAP_ID_TO_LABEL.get(map_id) or f"Map {map_id}"
+        if hasattr(self, "state") and hasattr(self.state, "z"):
+            location_text = f"{label} L{self.state.z + 1} ({self.state.x},{self.state.y})"
+        elif hasattr(self, "avatar_x"):
+            location_text = f"{label} ({self.avatar_x},{self.avatar_y})"
+        else:
+            location_text = f"{label} ({self.party.x},{self.party.y})"
         self.stats_panel.render(
             surface,
             self.party,
             rect=rect,
             autoplay=autoplay_on,
             auto_combat=autocombat_on,
+            step_interval=step_interval,
+            location_text=location_text,
         )
 
     def on_exit(self) -> None:

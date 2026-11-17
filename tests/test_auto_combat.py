@@ -499,3 +499,31 @@ def test_combat_screen_default_party_view_and_z_toggle():
     assert cs.stats_panel.inspect_index == 1
     cs.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_z, unicode="z"))
     assert cs.stats_panel.inspect_index is None
+
+
+def test_dead_party_members_not_rendered_in_combat():
+    """Dead party members are not drawn on the combat grid in CombatScreen._render_players."""
+    from py_exodus.assets import AssetManager
+    from py_exodus.constants import Status
+    from py_exodus.screens.combat_screen import CombatScreen
+    from py_exodus.world.loader import load_conflict_map
+
+    pygame.init()
+    pygame.font.init()
+    am = AssetManager("data")
+    am.load_all()
+    party = Party()
+    a = Character("A", "M", Race.HUMAN, Profession.FIGHTER)
+    b = Character("B", "M", Race.HUMAN, Profession.FIGHTER)
+    b.status = Status.DEAD
+    b.hp = 0
+    party.add_member(a)
+    party.add_member(b)
+
+    cs = CombatScreen(party=party, combat_map=load_conflict_map(37, am), asset_mgr=am, monster_count=1)
+    bx, by = cs.arena.player_positions[1]
+    surf = pygame.Surface((176, 176))
+    surf.fill((0, 0, 0))
+    cs._render_players(surf)
+    assert surf.get_at((bx * 16 + 8, by * 16 + 8))[:3] == (0, 0, 0)
+

@@ -86,21 +86,22 @@ def evaluate_goal(party: Party) -> Goal:
         and party.transport != Transport.SHIP
         and any(m.is_dead() for m in party.members)
     ):
-        total_living_gold = sum(m.gold for m in living)
         needed_cost = min(
             (900 if m.status == Status.ASH else 500)
             for m in party.members
             if m.is_dead()
         )
-        if total_living_gold >= needed_cost:
+        if party.gold >= needed_cost:
             return Goal.RESURRECT_DEAD
+        if any(m.status == Status.POISONED for m in living) and party.gold >= 100:
+            return Goal.CURE_POISON
         return Goal.GRIND_AND_LEVEL
 
     if (
         party.map_id not in (13, 15, 16, 17, 18, 19, 20)
         and party.transport != Transport.SHIP
         and any(m.status == Status.POISONED for m in living)
-        and sum(m.gold for m in living) >= 100
+        and party.gold >= 100
     ):
         return Goal.CURE_POISON
 

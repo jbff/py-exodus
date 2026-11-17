@@ -80,6 +80,7 @@ class GameApp:
 
         self.autoplay = AutoPlayController(enabled=autoplay)
         self.state_machine.autoplay_enabled = self.autoplay.enabled
+        self.state_machine.autoplay_step_interval = self.autoplay.step_interval
         self.clock = pygame.time.Clock()
 
     def run(self, max_frames: int | None = None) -> None:

@@ -290,7 +290,6 @@ def sky_strip_texts(
         texts.append("Wind CALM")
     else:
         texts.append(f"Wind {wind_direction.name} {WIND_ARROWS[wind_direction]}")
-    texts.append(f"T:{trammel_phase} F:{felucca_phase}")
     return texts
 
 
@@ -489,11 +488,6 @@ class OverworldScreen(BaseScreen):
             else f"Wind {wind.name} {WIND_ARROWS[wind]}"
         )
         surface.blit(f.render(wind_txt, False, EGA_LIGHT_GRAY), (margin, y))
-        moon_txt = f"T:{self.trammel_phase} F:{self.felucca_phase}"
-        surface.blit(
-            f.render(moon_txt, False, EGA_WHITE),
-            (margin + f.size(wind_txt)[0] + 3 * scale, y),
-        )
 
         size = 2 * radius + 3
         gx2 = pane_right - margin - radius - 2
