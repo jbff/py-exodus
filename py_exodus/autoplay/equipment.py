@@ -249,10 +249,10 @@ def best_shop_upgrade(party: Party, *, include_wizard_dagger: bool = False) -> S
         for _, m in living
     )
 
-    # At level 5+, keep a 500g emergency resurrection reserve once starter gear is bought
+    # At level 3+ (when Giants/stronger monsters spawn), keep a 500g resurrection reserve
     spendable_gold = (
         max(0, total_gold - 500)
-        if (not needs_starter and max(m.level for _, m in living) >= 5)
+        if (not needs_starter and max(m.level for _, m in living) >= 3)
         else total_gold
     )
 
