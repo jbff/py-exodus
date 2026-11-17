@@ -206,18 +206,18 @@ Original numbers kept for history against the 2026-11-13 list above.
     `ZXKuqyb` 70 MP masskill (`SERENA` 75->5 MP) and `9999` gold cap
     (`adjust_gold(99999) -> 9999`) exercised in Playtest-3).
 
-### New follow-ups found during Playtest-3 (2026-11-16)
+### Closed 2026-11-17 (Playtest-3 fix batch)
 
 49. **CRITICAL — Softlock exiting Ambrosia (`overworld.py:1391` vs `:1408`,
-    `portal_entry.py:28-50`)**: On Ambrosia (`map_id=13`), the exit
-    `WHIRLPOOL` portal at `(32, 58)` is a `whirlpool` tile
-    (`UNWALKABLE|LIVINGTHING`) adjacent to `water` at `(32, 57)`. Because
-    `step_in_whirlpool_portal` runs inside `if can_move_to(...)`, a party
-    on `Transport.FOOT` cannot step onto `(32, 58)` to return to Sosaria.
+    `portal_entry.py:28-50`)** — CLOSED (`e2b5ac0`; moved
+    `portal_entry.step_in_whirlpool_portal(self, nx, ny)` before
+    `can_move_to(...)` per `GameScreen.java:661-670` so a party sailing a
+    captured `Transport.SHIP` from water `(32, 57)` onto `(32, 58)` returns
+    to Sosaria while `Transport.FOOT` remains blocked by surrounding water).
 50. **MINOR — `ShrineScreen.handle_event` `.unicode` guard
-    (`shrine.py:155, 173`)**: Reads `event.unicode` directly instead of
-    `getattr(event, "unicode", "") or ""`, raising `AttributeError` on
-    `KEYDOWN` events without `.unicode`.
+    (`shrine.py:155, 173`)** — CLOSED (`e2b5ac0`; guarded `event.unicode`
+    with `uni = getattr(event, "unicode", "") or ""` so `KEYDOWN` events
+    without `.unicode` do not raise `AttributeError`).
 
 ## How to resume
 
