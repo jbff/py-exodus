@@ -41,6 +41,22 @@ _UNDEAD_TILES: frozenset[str] = frozenset({"skeleton", "ghoul", "zombie"})
 def _get_weapon_info(member: Any, asset_mgr: Any) -> tuple[int, bool]:
     """Return ``(range, attack_through_objects)`` for ``member``'s equipped weapon."""
     weapon = getattr(member, "weapon", WeaponType.NONE)
+    if isinstance(weapon, WeaponType):
+        wt = weapon
+    else:
+        try:
+            wt = WeaponType(str(weapon))
+        except ValueError:
+            wt = WeaponType.NONE
+
+    # Never throw the last Dagger (no spare in member.weapons) in auto-combat;
+    # throwing it disarms the character for a single low-damage ranged shot.
+    if wt == WeaponType.DAGGER:
+        weapons = getattr(member, "weapons", None)
+        spare_daggers = weapons.get(WeaponType.DAGGER, 0) if isinstance(weapons, dict) else 0
+        if spare_daggers <= 0:
+            return (1, False)
+
     if asset_mgr is not None:
         w_name = weapon.value if isinstance(weapon, WeaponType) else str(weapon)
         w_def = asset_mgr.get_weapon(w_name)
@@ -49,14 +65,6 @@ def _get_weapon_info(member: Any, asset_mgr: Any) -> tuple[int, bool]:
                 max(1, int(getattr(w_def, "range", 1))),
                 bool(getattr(w_def, "attack_through_objects", False)),
             )
-
-    if isinstance(weapon, WeaponType):
-        wt = weapon
-    else:
-        try:
-            wt = WeaponType(str(weapon))
-        except ValueError:
-            wt = WeaponType.NONE
 
     if wt in _RANGED_WEAPON_TYPES:
         return (16, False)

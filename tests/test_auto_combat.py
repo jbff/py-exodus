@@ -392,3 +392,30 @@ def test_high_threat_masskill_unspeakable_and_zxkuqyb():
     cleric_arena.monsters[0].exp = 100
     action = choose_auto_combat_action(cleric_arena, 0)
     assert action.spell != Spell.ZXKUQYB
+
+
+def test_auto_combat_never_throws_last_dagger():
+    from py_exodus.assets import AssetManager
+
+    am = AssetManager("data")
+    am.load_all()
+
+    arena = _caster_arena(Profession.WIZARD, mp=0, creature_tile="orc", monster_count=1)
+    wiz = arena.party.members[0]
+    wiz.used_free_spell_in_combat = True
+    wiz.weapon = WeaponType.DAGGER
+    wiz.weapons = {}
+    arena.player_positions[0] = (5, 5)
+    arena.monsters[0].x = 5
+    arena.monsters[0].y = 2  # 3 tiles north (clear cardinal line of sight)
+
+    # With only 1 Dagger (no spares), do not throw it; advance instead
+    action_single = choose_auto_combat_action(arena, 0, asset_mgr=am)
+    assert action_single.type == ActionType.MOVE
+    assert action_single.direction == Direction.NORTH
+
+    # With a spare Dagger (> 1 total), throwing at range is allowed
+    wiz.weapons = {WeaponType.DAGGER: 1}
+    action_spare = choose_auto_combat_action(arena, 0, asset_mgr=am)
+    assert action_spare.type == ActionType.ATTACK
+    assert action_spare.direction == Direction.NORTH
