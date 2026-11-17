@@ -11,6 +11,7 @@ import pygame
 from py_exodus import debug
 from py_exodus.assets import AssetManager
 from py_exodus.audio import AudioManager
+from py_exodus.autoplay import AutoPlayController
 from py_exodus.constants import (
     BASE_HEIGHT,
     BASE_WIDTH,
@@ -28,6 +29,7 @@ class GameApp:
         scale: int = SCALE,
         headless: bool = False,
         sound_enabled: bool = True,
+        autoplay: bool = False,
         **kwargs: Any,
     ) -> None:
         self.scale = scale
@@ -76,6 +78,7 @@ class GameApp:
             audio=self.audio,
         )
 
+        self.autoplay = AutoPlayController(enabled=autoplay)
         self.clock = pygame.time.Clock()
 
     def run(self, max_frames: int | None = None) -> None:
@@ -91,12 +94,23 @@ class GameApp:
                 if event.type == pygame.QUIT:
                     self.running = False
                     break
+                if event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_F9:
+                        self.autoplay.toggle()
+                        continue
+                    if self.autoplay.enabled and event.key == pygame.K_LEFTBRACKET:
+                        self.autoplay.adjust_speed(faster=False)
+                        continue
+                    if self.autoplay.enabled and event.key == pygame.K_RIGHTBRACKET:
+                        self.autoplay.adjust_speed(faster=True)
+                        continue
                 self.state_machine.handle_event(event)
 
             if not self.running:
                 break
 
             # 2. Logic Update
+            self.autoplay.update(dt, self.state_machine)
             self.state_machine.update(dt)
 
             # 3. Render directly onto display surface (or internal_surface if headless)
@@ -139,13 +153,19 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Enable the debug cheat harness (F10 opens the cheat menu).",
     )
+    parser.add_argument(
+        "--autoplay",
+        action="store_true",
+        help="Start in Full Autoplay (Watch Mode); F9 toggles at runtime.",
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> None:
     """CLI execution entrypoint."""
-    debug.set_debug(parse_args(argv).debug)
-    app = GameApp()
+    args = parse_args(argv)
+    debug.set_debug(args.debug)
+    app = GameApp(autoplay=args.autoplay)
     try:
         app.run()
     except KeyboardInterrupt:
