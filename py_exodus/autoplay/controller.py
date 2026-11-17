@@ -412,6 +412,25 @@ class AutoPlayController:
         gmap = screen.game_map
         living = [m for m in party.members if not m.is_dead()]
 
+        # Loot dropped chests on foot on Sosaria (prefer APPAR_UNEM, else G with member 1)
+        if party.map_id == 0 and party.transport == Transport.FOOT:
+            chests = {
+                (obj.get("x"), obj.get("y"))
+                for obj in getattr(party, "dynamic_objects", [])
+                if str(obj.get("tile", "")).lower() == "chest"
+            }
+            if (px, py) in chests:
+                caster = self._find_caster(
+                    party, (Profession.CLERIC, Profession.PALADIN, Profession.DRUID), min_mp=5
+                )
+                if caster is not None:
+                    self._queue_text(f"{caster[0]}b", enter=False)
+                    return self._emit_key(state_machine, pygame.K_c)
+                self._queue_text("1", enter=False)
+                return self._emit_key(state_machine, pygame.K_g)
+            if chests and goal in (Goal.GRIND_AND_LEVEL, Goal.OUTFIT_BRITAIN):
+                return self._move_toward(state_machine, gmap, party, (px, py), chests)
+
         if goal == Goal.DIG_EXOTICS:
             # Weapon site (33, 3)
             need_wpn_idx = next(

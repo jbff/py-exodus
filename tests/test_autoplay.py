@@ -463,3 +463,33 @@ def test_autoplay_outfits_fresh_l1_party_in_britain(pygame_setup):
     assert all(m.weapon != WeaponType.NONE for m in party.members)
     assert all(m.armor == ArmorType.CLOTH for m in party.members)
 
+
+def test_autoplay_loots_dropped_chest_on_sosaria(pygame_setup):
+    """AutoPlayController walks to a dropped chest on Sosaria and opens it (APPAR_UNEM or G)."""
+    from py_exodus.assets import AssetManager
+    from py_exodus.screens.overworld import OverworldScreen
+    from py_exodus.state_machine import StateMachine
+
+    am = AssetManager()
+    am.load_all()
+    party = Party()
+    party.add_member(Character("SHADOW", "M", Race.ELF, Profession.THIEF, dexterity=25, gold=0))
+    party.add_member(Character("SERENA", "F", Race.BOBIT, Profession.CLERIC, wisdom=25, mp=10, max_mp=25, gold=0))
+    party.x, party.y = 43, 21
+    party.dynamic_objects.append({"tile": "chest", "x": 45, "y": 21})
+
+    sm = StateMachine(asset_mgr=am, audio=None)
+    ow = OverworldScreen(party=party, asset_mgr=am, random_encounters_enabled=False)
+    ow.creatures = []
+    sm.set_screen(ow)
+
+    ctrl = AutoPlayController(enabled=True)
+    for _ in range(25):
+        ctrl.step(sm)
+        if not any(o.get("tile") == "chest" for o in party.dynamic_objects):
+            break
+
+    assert not any(o.get("tile") == "chest" for o in party.dynamic_objects)
+    assert party.gold > 0
+
+
