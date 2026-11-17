@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections import deque
+import heapq
 from typing import TYPE_CHECKING
 
 import pygame
@@ -29,6 +30,7 @@ def find_2d_step(
     party: Party | None = None,
     avoid_tiles: set[tuple[int, int]] | None = None,
     wind_direction: Direction | None = None,
+    prefer_paths: bool = False,
 ) -> Direction | None:
     """Return the first cardinal Direction toward the nearest reachable goal on a 2D map."""
     goal_set: set[tuple[int, int]] = (
@@ -61,6 +63,53 @@ def find_2d_step(
         if party is not None
         else set()
     )
+
+    def _tile_cost(tx: int, ty: int) -> int:
+        if not prefer_paths:
+            return 1
+        t = game_map.get_tile(tx, ty)
+        tname = str(getattr(t, "name", "")).lower() if t else ""
+        return 1 if tname in ("floor", "bridge", "path") else 4
+
+    if prefer_paths:
+        pq: list[tuple[int, int, tuple[int, int], Direction | None]] = [(0, 0, start, None)]
+        best_cost: dict[tuple[int, int], int] = {start: 0}
+        tie = 0
+        while pq:
+            cost, _, (cx, cy), first_dir = heapq.heappop(pq)
+            if cost > best_cost.get((cx, cy), float("inf")):
+                continue
+            if (cx, cy) in goal_set and first_dir is not None:
+                return first_dir
+            for d in _CARDINALS:
+                if blocked_dir is not None and d == blocked_dir:
+                    continue
+                nx, ny = cx + d.dx, cy + d.dy
+                if wraps:
+                    nx %= width
+                    ny %= height
+                elif not (0 <= nx < width and 0 <= ny < height):
+                    continue
+                nxt = (nx, ny)
+                step_dir = first_dir if first_dir is not None else d
+                if nxt in goal_set:
+                    if nxt in avoid and nxt not in portal_coords and nxt not in frigate_coords:
+                        continue
+                    tile = game_map.get_tile(nx, ny)
+                    tile_name = str(getattr(tile, "name", "")).lower() if tile else ""
+                    is_special = nxt in portal_coords or nxt in frigate_coords or tile_name == "whirlpool"
+                    if not (is_special or can_move_to(game_map, nx, ny, transport=transport, party=party)):
+                        continue
+                    ncost = cost + _tile_cost(nx, ny)
+                else:
+                    if nxt in avoid or not can_move_to(game_map, nx, ny, transport=transport, party=party):
+                        continue
+                    ncost = cost + _tile_cost(nx, ny)
+                if ncost < best_cost.get(nxt, 10**9):
+                    best_cost[nxt] = ncost
+                    tie += 1
+                    heapq.heappush(pq, (ncost, tie, nxt, step_dir))
+        return None
 
     queue: deque[tuple[tuple[int, int], Direction | None]] = deque([(start, None)])
     visited: set[tuple[int, int]] = {start}

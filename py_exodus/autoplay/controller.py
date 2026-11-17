@@ -38,6 +38,30 @@ _AMBROSIA_CARD_SITES: tuple[tuple[int, int, int], ...] = (
     (4, 36, 3),   # Love
 )
 
+# Towns with Weapon & Armor vendors: map_id -> (portal_x, portal_y, wep_stand_xy, arm_stand_xy)
+_SHOP_TOWNS: dict[int, tuple[int, int, tuple[int, int], tuple[int, int]]] = {
+    3: (46, 19, (39, 19), (50, 20)),   # Britain
+    6: (7, 44, (29, 47), (35, 48)),    # Grey
+    8: (49, 58, (26, 11), (35, 12)),   # Montor East
+    9: (47, 58, (50, 39), (51, 28)),   # Montor West
+    10: (56, 31, (16, 11), (16, 56)),  # Death Gulch
+    11: (37, 53, (27, 19), (19, 20)),  # Dawn
+}
+
+# Broad Sosaria mainland patrol route for grinding & exploration
+_SOSARIA_PATROL: tuple[tuple[int, int], ...] = (
+    (44, 22),
+    (34, 18),
+    (24, 24),
+    (18, 32),
+    (12, 42),
+    (24, 48),
+    (38, 48),
+    (50, 48),
+    (52, 32),
+    (48, 22),
+)
+
 
 def _key_to_unicode(key: int) -> str:
     """Return the pygame unicode string corresponding to a key constant."""
@@ -324,6 +348,8 @@ class AutoPlayController:
                         return self._emit_key(state_machine, _DIR_TO_KEY[d])
                     return self._emit_key(state_machine, pygame.K_SPACE)
 
+        npc_tiles = {(npc.x, npc.y) for npc in getattr(gmap, "npcs", [])}
+
         if map_id == 1:  # Castle of Lord British
             living = [m for m in party.members if not m.is_dead()]
             can_level = any(m.exp >= m.level * 100 for m in living)
@@ -332,11 +358,15 @@ class AutoPlayController:
                     self._queue_text("1", enter=False)
                     self._queue_text("n", enter=False)
                     return self._emit_key(state_machine, pygame.K_t)
-                d = find_2d_step(gmap, (px, py), (32, 15), Transport.FOOT, party=party)
+                d = find_2d_step(
+                    gmap, (px, py), (32, 15), Transport.FOOT, party=party,
+                    avoid_tiles=npc_tiles, prefer_paths=True,
+                )
                 if d is not None:
                     return self._emit_key(state_machine, _DIR_TO_KEY[d])
 
-        if map_id == 3 and goal == Goal.OUTFIT_BRITAIN:  # Britain
+        if map_id in _SHOP_TOWNS and goal == Goal.OUTFIT_BRITAIN:
+            _, _, wep_xy, arm_xy = _SHOP_TOWNS[map_id]
             # 1. Equip any owned unequipped weapons
             for i, m in enumerate(party.members):
                 if m.is_dead() or m.weapon != WeaponType.NONE:
@@ -369,7 +399,7 @@ class AutoPlayController:
                     self._wear_item_letter = chr(ord("a") + list(ArmorType).index(owned_a))
                     return self._emit_key(state_machine, pygame.K_w)
 
-            # 3. Buy starter weapon at Osbert's Weaponry (39, 19)
+            # 3. Buy starter weapon at town's Weaponry
             for i, m in enumerate(party.members):
                 if m.is_dead() or m.weapon != WeaponType.NONE or m.gold < 5:
                     continue
@@ -379,23 +409,29 @@ class AutoPlayController:
                     letter = "c"  # Mace
                 else:
                     letter = "b"  # Dagger
-                if (px, py) == (39, 19):
+                if (px, py) == wep_xy:
                     self._shop_member_idx = i + 1
                     self._shop_item_letter = letter
                     return self._emit_key(state_machine, pygame.K_t)
-                d = find_2d_step(gmap, (px, py), (39, 19), Transport.FOOT, party=party)
+                d = find_2d_step(
+                    gmap, (px, py), wep_xy, Transport.FOOT, party=party,
+                    avoid_tiles=npc_tiles, prefer_paths=True,
+                )
                 if d is not None:
                     return self._emit_key(state_machine, _DIR_TO_KEY[d])
 
-            # 4. Buy Cloth armor at British Armour (50, 20)
+            # 4. Buy Cloth armor at town's Armoury
             for i, m in enumerate(party.members):
                 if m.is_dead() or m.armor != ArmorType.NONE or m.gold < 75:
                     continue
-                if (px, py) == (50, 20):
+                if (px, py) == arm_xy:
                     self._shop_member_idx = i + 1
                     self._shop_item_letter = "b"  # Cloth
                     return self._emit_key(state_machine, pygame.K_t)
-                d = find_2d_step(gmap, (px, py), (50, 20), Transport.FOOT, party=party)
+                d = find_2d_step(
+                    gmap, (px, py), arm_xy, Transport.FOOT, party=party,
+                    avoid_tiles=npc_tiles, prefer_paths=True,
+                )
                 if d is not None:
                     return self._emit_key(state_machine, _DIR_TO_KEY[d])
 
@@ -403,7 +439,10 @@ class AutoPlayController:
         exits = {(x, gmap.height - 1) for x in range(gmap.width)}
         if py == gmap.height - 1:
             return self._emit_key(state_machine, pygame.K_DOWN)
-        d = find_2d_step(gmap, (px, py), exits, Transport.FOOT, party=party)
+        d = find_2d_step(
+            gmap, (px, py), exits, Transport.FOOT, party=party,
+            avoid_tiles=npc_tiles, prefer_paths=True,
+        )
         if d is not None:
             return self._emit_key(state_machine, _DIR_TO_KEY[d])
         return self._emit_key(state_machine, pygame.K_DOWN)
@@ -508,9 +547,10 @@ class AutoPlayController:
             return self._move_toward(state_machine, gmap, party, (px, py), {(58, 44)})
 
         if goal == Goal.OUTFIT_BRITAIN:
-            if (px, py) == (46, 19):
+            nearest_portal = self._nearest_shop_town_portal(gmap.width, gmap.height, px, py)
+            if (px, py) == nearest_portal:
                 return self._emit_key(state_machine, pygame.K_e)
-            return self._move_toward(state_machine, gmap, party, (px, py), {(46, 19)})
+            return self._move_toward(state_machine, gmap, party, (px, py), {nearest_portal})
 
         # GRIND_AND_LEVEL
         if any(m.exp >= m.level * 100 and m.level < 5 for m in living):
@@ -518,11 +558,28 @@ class AutoPlayController:
                 return self._emit_key(state_machine, pygame.K_e)
             return self._move_toward(state_machine, gmap, party, (px, py), {(45, 18)})
 
-        patrol = [(43, 21), (45, 21), (45, 23), (43, 23)]
-        target = patrol[self._patrol_idx % len(patrol)]
+        # Actively chase nearby reachable land creatures on Sosaria
+        land_targets: set[tuple[int, int]] = set()
+        for c in getattr(screen, "creatures", []):
+            tname = str(c.get("tile_name") or c.get("tile") or "").lower()
+            if tname in ("whirlpool", "pirate", "serpent", "squid"):
+                continue
+            cx, cy = c.get("x"), c.get("y")
+            if cx is None or cy is None:
+                continue
+            dx = min((cx - px) % gmap.width, (px - cx) % gmap.width)
+            dy = min((cy - py) % gmap.height, (py - cy) % gmap.height)
+            if dx + dy <= 12:
+                land_targets.add((cx, cy))
+        if land_targets:
+            d = find_2d_step(gmap, (px, py), land_targets, party.transport, party=party)
+            if d is not None:
+                return self._emit_key(state_machine, _DIR_TO_KEY[d])
+
+        target = _SOSARIA_PATROL[self._patrol_idx % len(_SOSARIA_PATROL)]
         if (px, py) == target:
             self._patrol_idx += 1
-            target = patrol[self._patrol_idx % len(patrol)]
+            target = _SOSARIA_PATROL[self._patrol_idx % len(_SOSARIA_PATROL)]
         return self._move_toward(state_machine, gmap, party, (px, py), {target})
 
     def _handle_town_prompt(self, state_machine: StateMachine, screen) -> int | None:
@@ -571,6 +628,17 @@ class AutoPlayController:
         if d is not None:
             return self._emit_key(state_machine, _DIR_TO_KEY[d])
         return self._emit_key(state_machine, pygame.K_SPACE)
+
+    @staticmethod
+    def _nearest_shop_town_portal(width: int, height: int, px: int, py: int) -> tuple[int, int]:
+        def _dist(tx_ty: tuple[int, int]) -> int:
+            tx, ty = tx_ty
+            dx = min((tx - px) % width, (px - tx) % width)
+            dy = min((ty - py) % height, (py - ty) % height)
+            return dx + dy
+
+        portals = [(info[0], info[1]) for info in _SHOP_TOWNS.values()]
+        return min(portals, key=_dist)
 
     @staticmethod
     def _find_caster(

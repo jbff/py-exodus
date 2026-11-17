@@ -474,7 +474,9 @@ def test_autoplay_loots_dropped_chest_on_sosaria(pygame_setup):
     am.load_all()
     party = Party()
     party.add_member(Character("SHADOW", "M", Race.ELF, Profession.THIEF, dexterity=25, gold=0))
+    party.add_member(Character("GRUMM", "M", Race.DWARF, Profession.FIGHTER, strength=25, gold=0))
     party.add_member(Character("SERENA", "F", Race.BOBIT, Profession.CLERIC, wisdom=25, mp=10, max_mp=25, gold=0))
+    party.add_member(Character("ZIRCON", "M", Race.FUZZY, Profession.WIZARD, intelligence=25, gold=0))
     party.x, party.y = 43, 21
     party.dynamic_objects.append({"tile": "chest", "x": 45, "y": 21})
 
@@ -491,5 +493,49 @@ def test_autoplay_loots_dropped_chest_on_sosaria(pygame_setup):
 
     assert not any(o.get("tile") == "chest" for o in party.dynamic_objects)
     assert party.gold > 0
+
+
+def test_find_2d_step_prefer_paths_follows_floor():
+    """prefer_paths=True routes along floor tiles rather than cutting straight across grass."""
+    from py_exodus.assets import TileDef
+    from py_exodus.constants import TileAttrib
+    from py_exodus.world.map import GameMap
+
+    floor_t = TileDef(index=8, name="floor", rule="floors", attribs=TileAttrib.NONE)
+    grass_t = TileDef(index=1, name="grass", rule="none", attribs=TileAttrib.NONE)
+    gm = GameMap(id=3, name="Town", width=5, height=5, border_behavior="exit")
+    gm.tiles = [grass_t] * (5 * 5)
+    # Path goes EAST along y=1 from (1,1) to (3,1) then SOUTH to (3,3)
+    for x in (1, 2, 3):
+        gm.set_tile(x, 1, floor_t)
+    for y in (2, 3):
+        gm.set_tile(3, y, floor_t)
+
+    # Without prefer_paths: (1,1)->(3,3) can go SOUTH into grass; with prefer_paths: goes EAST along floor
+    assert find_2d_step(gm, (1, 1), (3, 3), Transport.FOOT, prefer_paths=True) == Direction.EAST
+
+
+def test_nearest_shop_town_and_monster_chasing(pygame_setup):
+    from py_exodus.assets import AssetManager
+    from py_exodus.screens.overworld import OverworldScreen
+    from py_exodus.state_machine import StateMachine
+
+    assert AutoPlayController._nearest_shop_town_portal(64, 64, 10, 44) == (7, 44)  # Grey
+    assert AutoPlayController._nearest_shop_town_portal(64, 64, 44, 20) == (46, 19)  # Britain
+
+    am = AssetManager()
+    am.load_all()
+    party = Party()
+    party.add_member(Character("HERO", "M", Race.HUMAN, Profession.FIGHTER, weapon=WeaponType.MACE, armor=ArmorType.CLOTH))
+    party.x, party.y = 43, 21
+    sm = StateMachine(asset_mgr=am, audio=None)
+    ow = OverworldScreen(party=party, asset_mgr=am, random_encounters_enabled=False)
+    ow.creatures = [{"tile_name": "orc", "x": 45, "y": 21}]
+    sm.set_screen(ow)
+
+    ctrl = AutoPlayController(enabled=True)
+    key = ctrl.step(sm)
+    assert key == pygame.K_RIGHT  # chases orc at (45, 21)
+
 
 

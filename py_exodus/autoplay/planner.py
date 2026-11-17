@@ -28,9 +28,9 @@ class Goal(str, Enum):
 
 
 def needs_heal(party: Party) -> bool:
-    """Return True if any living member is below 50% HP."""
+    """Return True if any living member is below 67% HP."""
     for m in party.members:
-        if not m.is_dead() and m.max_hp > 0 and m.hp * 2 < m.max_hp:
+        if not m.is_dead() and m.max_hp > 0 and m.hp * 3 < m.max_hp * 2:
             return True
     return False
 
