@@ -95,27 +95,9 @@ Original numbers kept for history against the 2026-11-13 list above.
 - 15. Zstats compact labels — ruled adaptation; some styling deviates.
 - 17. Java binary `party.sav`/roster interop — deferred own project.
 - 18. Gamepad support — keyboard only today.
-- 33. Publicize `py_exodus.combat.magic._PROJECTILE_SPELLS` — combat_screen
-  imports it under its private name (combat_screen.py:6); rename for import
-  (or re-home) — cosmetic hygiene, no behavior change.
-- 34. Identify + seed the suite's latent stream-sensitive unseeded test(s) —
-  at least one test is sensitive to the RNG stream yet runs unseeded; the
-  `hermetic_rng` fixture (tests/test_play_driver.py) masks the symptom, it
-  does not fix the leak. Find the test(s) and seed them (or the system RNG
-  source) explicitly.
 
 ### New follow-ups found during the 2026-11-14 batch
 
-25. `dynamic_monsters` save cap 8 (Java `Context.java:176-185`) — the
-    creature-side counterpart of closed item 9; verify the port caps the
-    dynamic creature list the same way at save time.
-26. Player-cannon shoreline halt + creature-hit damage formula
-    (`Utils.java:471` edge stop; `Utils.java:549-568` per-creature damage)
-    — enemy cannons were fixed (`dee5ffa`); the port's own player cannon
-    trace/damage should be re-verified against the same lines.
-27. `fireAt` stacked-tile last-match nuance — Java's match loop resolves to
-    the LAST matching tile/creature on a stacked tile; confirm the port's
-    first-match order or adopt Java's.
 28. LW trap-typing distribution 56/19/19/6 — chest trap weights (per LW);
     note alongside the Bomb-trap wiring from closed item 21 for future
     verification.
@@ -186,26 +168,46 @@ Original numbers kept for history against the 2026-11-13 list above.
     CLOSED (`e83f4d7`; fallback `"Leaving dungeon..."` now only logs
     when `not evt.message`).
 
+### Closed 2026-11-16 (Backlog fix batch)
+
+25. `dynamic_monsters` save cap 8 — CLOSED (`a336cea`; added
+    `Party.DYNAMIC_MONSTERS_SAVE_CAP = 8` and write-time slicing in
+    `Party.to_dict()` per Java `Context.java:176-185`).
+26. Player-cannon shoreline halt + creature-hit damage formula — CLOSED
+    (`cc057db`; updated `OverworldScreen._fire_cannons` per
+    `Utils.java:423-444, 471, 551-569`: removed shoreline halt, skips
+    `"whirlpool"`, uses `1-in-3` (`random.randint(0, 2) == 0`) for creature
+    hits, and stops trace on `HIT` or `MISS`).
+27. `fireAt` stacked-tile last-match nuance — CLOSED (`cc057db`; extracted
+    `OverworldScreen._damage_unmanned_frigate_at` using last-match lookup
+    on stacked tiles per `Utils.java:536-547` for both `_fire_cannons` and
+    `_enemy_fire_cannons`).
+33. Publicize `py_exodus.combat.magic._PROJECTILE_SPELLS` — CLOSED
+    (`087958c`; renamed `_PROJECTILE_SPELLS` -> `PROJECTILE_SPELLS` and
+    updated `py_exodus/screens/combat_screen.py` import).
+34. Identify + seed the suite's latent stream-sensitive unseeded test(s) —
+    CLOSED (`73cf324`; `TestGetChest::test_overworld_g_chest_on_party_tile`
+    and `test_town_g_chest_tile_under_party` in `tests/test_command_parity.py`
+    now seed `py_exodus.world.chests.random` via `monkeypatch` so BombTrap
+    rolls cannot flake `The Chest Holds:` assertions).
+35. Overworld boot string & `DungeonState.spell_exit` map label — CLOSED
+    (`087958c`; `OverworldScreen.__init__` now logs `"Entering {label}!"`
+    via `MAP_ID_TO_LABEL` (`"Sosaria"`, `"Ambrosia"`), and
+    `DungeonState.spell_exit` logs `"Leaving {label}!"`).
+39. `test_party_save.py:716` comment ambiguity & latent unseeded test —
+    CLOSED (`a336cea` clarified `(45, 19)` vs `(44, 20)` in
+    `tests/test_party_save.py`; latent unseeded test resolved in `73cf324`).
+40. YELL empty `ENTER` prompt behavior — CLOSED (`fd766ed`; added
+    `allow_empty` to `TextLog.prompt` and set `allow_empty=False` in
+    `_prompt_yell` (`overworld.py`, `town.py`) per
+    `SecondaryInputProcessor.java:535-538`, keeping `ESC` cancelable).
+
 ### Remaining deferred follow-ups (2026-11-15 / 2026-11-16)
 
-35. Overworld boot string still ad-hoc ("Entering the realm of
-    Sosaria...") vs Java Maps labels everywhere (reviewer note on
-    `a07dc2e`; also `DungeonState.spell_exit` at `dungeon.py:1254` logs
-    `self.dmap.name` rather than `MAP_ID_TO_LABEL`).
-39. Suite-wide: one stream-sensitive unseeded test remains latent somewhere
-    (`hermetic_rng` in `play_driver` masks the driver's own footprint;
-    identify + seed once reproduced — overlap with item 34). Also
-    `test_party_save.py:716` comment ambiguity (`(45,19)` is file-format
-    truth now that Party default is `(44,20)`) — cosmetic.
-40. YELL softlock-ish prompt (`playtest 2`, `docs/analysis/journal.md:28`):
-    empty `ENTER` / `ESC` behavior at `"Yell what? "` vs Java
-    `SecondaryInputProcessor.java:535-538` (`ENTER` on empty buffer keeps
-    prompt open, no `ESC` cancel; `py_exodus` silently closes without
-    emitting anything).
 41. Playtest 1 unexercisable-then: `ZXKuqyb` masskill (70MP), 9999 gold cap,
     Healer Resurrect — Healer Resurrect exercised in Playtest-2 (`500gp`,
-    revived `SERENA` to 1 HP); `ZXKuqyb` and 9999 gold cap still to
-    exercise in a future session.
+    revived `SERENA` to 1 HP); `ZXKuqyb` and 9999 gold cap to exercise in
+    Playtest-3.
 
 ## How to resume
 
