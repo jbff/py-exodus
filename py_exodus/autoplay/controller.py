@@ -60,7 +60,7 @@ _GUILD_TOWNS: dict[int, tuple[int, int, tuple[int, int]]] = {
 
 # Towns with Food shops reachable on foot: map_id -> (portal_x, portal_y, food_stand_xy)
 _FOOD_TOWNS: dict[int, tuple[int, int, tuple[int, int]]] = {
-    1: (45, 18, (16, 19)),   # Castle British (20gp / 25 food)
+    1: (45, 18, (16, 20)),   # Castle British (20gp / 25 food; no counter, stand adjacent)
     3: (46, 19, (48, 49)),   # Britain (25gp / 25 food)
     6: (7, 44, (26, 25)),    # Grey (30gp / 25 food)
 }

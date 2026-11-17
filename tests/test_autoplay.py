@@ -857,6 +857,18 @@ def test_bulk_food_buying_strategy(pygame_setup):
     assert party.food >= 700
     assert evaluate_goal(party) != Goal.BUY_FOOD
 
+    # Castle British Food vendor has no counter, so stand (16, 20) is adjacent
+    party2 = _make_party(level=1, exp=0, gold=200, food=200)
+    for m in party2.members:
+        m.food = 50
+    ts2 = TownScreen(party=party2, asset_mgr=am, map_id=1, start_x=16, start_y=20)
+    sm.set_screen(ts2)
+    for _ in range(30):
+        ctrl.step(sm)
+        if party2.food >= 700:
+            break
+    assert party2.food >= 700
+
 
 def test_dungeon_peer_gem_once_per_level_and_touch_mark(pygame_setup):
     """Entering DungeonScreen doesn't crash, peers 1 Gem per unseen level, and touches Marks with S."""
