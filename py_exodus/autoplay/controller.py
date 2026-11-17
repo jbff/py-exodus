@@ -7,6 +7,12 @@ from typing import TYPE_CHECKING
 
 import pygame
 
+from py_exodus.autoplay.equipment import (
+    best_hand_transfer,
+    best_owned_armor,
+    best_owned_weapon,
+    best_shop_upgrade,
+)
 from py_exodus.autoplay.nav import find_2d_step, find_dungeon_step
 from py_exodus.autoplay.planner import Goal, evaluate_goal, needs_heal
 from py_exodus.constants import ArmorType, Direction, Profession, Transport, WeaponType
@@ -107,6 +113,9 @@ class AutoPlayController:
         self._ready_item_letter: str = "b"
         self._wear_member_idx: int = 1
         self._wear_item_letter: str = "b"
+        self._join_gold_member_idx: int = 1
+        self._hand_from_idx: int = 1
+        self._hand_to_idx: int = 2
         self._talk_dir_key: int = pygame.K_UP
 
     def toggle(self) -> bool:
@@ -296,9 +305,7 @@ class AutoPlayController:
 
     def _step_2d(self, state_machine: StateMachine, screen) -> int | None:
         if screen.text_log.is_waiting_for_input:
-            if type(screen).__name__ == "TownScreen":
-                return self._handle_town_prompt(state_machine, screen)
-            return self._emit_key(state_machine, pygame.K_ESCAPE)
+            return self._handle_town_prompt(state_machine, screen)
 
         party = screen.party
         goal = evaluate_goal(party)
@@ -365,73 +372,26 @@ class AutoPlayController:
                 if d is not None:
                     return self._emit_key(state_machine, _DIR_TO_KEY[d])
 
+        gear_key = self._maybe_manage_gear(state_machine, party)
+        if gear_key is not None:
+            return gear_key
+
         if map_id in _SHOP_TOWNS and goal == Goal.OUTFIT_BRITAIN:
             _, _, wep_xy, arm_xy = _SHOP_TOWNS[map_id]
-            # 1. Equip any owned unequipped weapons
-            for i, m in enumerate(party.members):
-                if m.is_dead() or m.weapon != WeaponType.NONE:
-                    continue
-                owned_w = next(
-                    (
-                        w
-                        for w, cnt in m.weapons.items()
-                        if w != WeaponType.NONE
-                        and cnt > 0
-                        and (m.profession != Profession.WIZARD or w in (WeaponType.DAGGER, WeaponType.EXOTIC))
-                    ),
-                    None,
-                )
-                if owned_w is not None:
-                    self._ready_member_idx = i + 1
-                    self._ready_item_letter = chr(ord("a") + list(WeaponType).index(owned_w))
-                    return self._emit_key(state_machine, pygame.K_r)
-
-            # 2. Equip any owned unequipped armor
-            for i, m in enumerate(party.members):
-                if m.is_dead() or m.armor != ArmorType.NONE:
-                    continue
-                owned_a = next(
-                    (a for a, cnt in m.armors.items() if a != ArmorType.NONE and cnt > 0),
-                    None,
-                )
-                if owned_a is not None:
-                    self._wear_member_idx = i + 1
-                    self._wear_item_letter = chr(ord("a") + list(ArmorType).index(owned_a))
-                    return self._emit_key(state_machine, pygame.K_w)
-
-            # 3. Buy starter weapon at town's Weaponry
-            for i, m in enumerate(party.members):
-                if m.is_dead() or m.weapon != WeaponType.NONE or m.gold < 5:
-                    continue
-                if m.profession == Profession.THIEF and m.gold >= 60:
-                    letter = "d"  # Sling
-                elif m.profession != Profession.WIZARD and m.gold >= 30:
-                    letter = "c"  # Mace
-                else:
-                    letter = "b"  # Dagger
-                if (px, py) == wep_xy:
-                    self._shop_member_idx = i + 1
-                    self._shop_item_letter = letter
+            upgrade = best_shop_upgrade(party, include_wizard_dagger=True)
+            if upgrade is not None and (not upgrade.dawn_only or map_id == 11):
+                buyer = party.members[upgrade.member_idx - 1]
+                if buyer.gold < upgrade.price:
+                    self._join_gold_member_idx = upgrade.member_idx
+                    return self._emit_key(state_machine, pygame.K_j)
+                stand_xy = wep_xy if upgrade.kind == "weapon" else arm_xy
+                if (px, py) == stand_xy:
+                    self._shop_member_idx = upgrade.member_idx
+                    self._shop_item_letter = upgrade.item_letter
                     self._talk_dir_key = self._direction_to_npc(gmap, px, py)
                     return self._emit_key(state_machine, pygame.K_t)
                 d = find_2d_step(
-                    gmap, (px, py), wep_xy, Transport.FOOT, party=party,
-                    avoid_tiles=npc_tiles, prefer_paths=True,
-                )
-                if d is not None:
-                    return self._emit_key(state_machine, _DIR_TO_KEY[d])
-
-            # 4. Buy Cloth armor at town's Armoury
-            for i, m in enumerate(party.members):
-                if m.is_dead() or m.armor != ArmorType.NONE or m.gold < 75:
-                    continue
-                if (px, py) == arm_xy:
-                    self._shop_member_idx = i + 1
-                    self._shop_item_letter = "b"  # Cloth
-                    self._talk_dir_key = self._direction_to_npc(gmap, px, py)
-                    return self._emit_key(state_machine, pygame.K_t)
-                d = find_2d_step(
-                    gmap, (px, py), arm_xy, Transport.FOOT, party=party,
+                    gmap, (px, py), stand_xy, Transport.FOOT, party=party,
                     avoid_tiles=npc_tiles, prefer_paths=True,
                 )
                 if d is not None:
@@ -471,6 +431,10 @@ class AutoPlayController:
                 return self._emit_key(state_machine, pygame.K_g)
             if chests and goal in (Goal.GRIND_AND_LEVEL, Goal.OUTFIT_BRITAIN):
                 return self._move_toward(state_machine, gmap, party, (px, py), chests)
+
+        gear_key = self._maybe_manage_gear(state_machine, party)
+        if gear_key is not None:
+            return gear_key
 
         if goal == Goal.DIG_EXOTICS:
             # Weapon site (33, 3)
@@ -549,10 +513,14 @@ class AutoPlayController:
             return self._move_toward(state_machine, gmap, party, (px, py), {(58, 44)})
 
         if goal == Goal.OUTFIT_BRITAIN:
-            nearest_portal = self._nearest_shop_town_portal(gmap, px, py, party.transport, party=party)
-            if (px, py) == nearest_portal:
+            upgrade = best_shop_upgrade(party)
+            if upgrade is not None and upgrade.dawn_only:
+                target_portal = (_SHOP_TOWNS[11][0], _SHOP_TOWNS[11][1])
+            else:
+                target_portal = self._nearest_shop_town_portal(gmap, px, py, party.transport, party=party)
+            if (px, py) == target_portal:
                 return self._emit_key(state_machine, pygame.K_e)
-            return self._move_toward(state_machine, gmap, party, (px, py), {nearest_portal})
+            return self._move_toward(state_machine, gmap, party, (px, py), {target_portal})
 
         # GRIND_AND_LEVEL
         if any(m.exp >= m.level * 100 and m.level < 5 for m in living):
@@ -589,8 +557,41 @@ class AutoPlayController:
             self._patrol_idx += 1
         return self._emit_key(state_machine, pygame.K_SPACE)
 
+    def _maybe_manage_gear(self, state_machine: StateMachine, party) -> int | None:
+        """Equip best owned weapon/armor or hand off chest loot to a better-fit member."""
+        for i, m in enumerate(party.members):
+            if m.is_dead():
+                continue
+            better_w = best_owned_weapon(m)
+            if better_w is not None:
+                self._ready_member_idx = i + 1
+                self._ready_item_letter = chr(ord("a") + list(WeaponType).index(better_w))
+                return self._emit_key(state_machine, pygame.K_r)
+
+        for i, m in enumerate(party.members):
+            if m.is_dead():
+                continue
+            better_a = best_owned_armor(m)
+            if better_a is not None:
+                self._wear_member_idx = i + 1
+                self._wear_item_letter = chr(ord("a") + list(ArmorType).index(better_a))
+                return self._emit_key(state_machine, pygame.K_w)
+
+        transfer = best_hand_transfer(party)
+        if transfer is not None:
+            self._hand_from_idx, self._hand_to_idx = transfer
+            return self._emit_key(state_machine, pygame.K_h)
+
+        return None
+
     def _handle_town_prompt(self, state_machine: StateMachine, screen) -> int | None:
         prompt = (getattr(screen.text_log, "current_prompt", "") or "").lower()
+        if "join gold" in prompt:
+            return self._emit_key(state_machine, pygame.K_0 + self._join_gold_member_idx)
+        if "from member" in prompt:
+            return self._emit_key(state_machine, pygame.K_0 + self._hand_from_idx)
+        if "to member" in prompt:
+            return self._emit_key(state_machine, pygame.K_0 + self._hand_to_idx)
         if "ready" in prompt and "member" in prompt:
             return self._emit_key(state_machine, pygame.K_0 + self._ready_member_idx)
         if "ready" in prompt or "weapon?" in prompt:

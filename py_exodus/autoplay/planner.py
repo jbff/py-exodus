@@ -4,7 +4,12 @@ from __future__ import annotations
 from enum import Enum
 from typing import TYPE_CHECKING
 
-from py_exodus.constants import ArmorType, Profession, Status, Transport, WeaponType
+from py_exodus.autoplay.equipment import (
+    best_owned_armor,
+    best_owned_weapon,
+    best_shop_upgrade,
+)
+from py_exodus.constants import ArmorType, Status, Transport, WeaponType
 
 if TYPE_CHECKING:
     from py_exodus.entities.party import Party
@@ -60,20 +65,20 @@ def evaluate_goal(party: Party) -> Goal:
     if not living:
         return Goal.SETUP_PARTY
 
+    has_all_cards = all(any(m.cards[i] > 0 for m in living) for i in range(4))
+    has_remaining_marks = all(any(m.marks[i] > 0 for m in living) for i in (1, 2, 3))
+    has_exotics = all(
+        (m.weapon == WeaponType.EXOTIC or m.weapons.get(WeaponType.EXOTIC, 0) > 0)
+        and (m.armor == ArmorType.EXOTIC or m.armors.get(ArmorType.EXOTIC, 0) > 0)
+        for m in living
+    )
+
     if (
-        min(m.level for m in living) < 2
-        and any(
-            (m.weapon == WeaponType.NONE and m.profession != Profession.WIZARD and m.gold >= 5)
-            or (m.armor == ArmorType.NONE and m.gold >= 75)
-            or (
-                m.weapon == WeaponType.NONE
-                and any(cnt > 0 for w, cnt in m.weapons.items() if w != WeaponType.NONE)
-            )
-            or (
-                m.armor == ArmorType.NONE
-                and any(cnt > 0 for a, cnt in m.armors.items() if a != WeaponType.NONE)
-            )
-            for m in living
+        party.map_id != 13
+        and not (has_all_cards and has_remaining_marks and not has_exotics)
+        and (
+            best_shop_upgrade(party) is not None
+            or any(best_owned_weapon(m) is not None or best_owned_armor(m) is not None for m in living)
         )
     ):
         return Goal.OUTFIT_BRITAIN
@@ -84,7 +89,6 @@ def evaluate_goal(party: Party) -> Goal:
     if not all(m.marks[0] > 0 for m in living):
         return Goal.GET_MARK_KINGS
 
-    has_all_cards = all(any(m.cards[i] > 0 for m in living) for i in range(4))
     if not has_all_cards:
         if party.map_id == 13:
             return Goal.AMBROSIA_CARDS_SHRINES
@@ -95,14 +99,9 @@ def evaluate_goal(party: Party) -> Goal:
     if party.map_id == 13:
         return Goal.EXIT_AMBROSIA
 
-    has_remaining_marks = all(any(m.marks[i] > 0 for m in living) for i in (1, 2, 3))
     if not has_remaining_marks:
         return Goal.GET_REMAINING_MARKS
 
-    has_exotics = all(
-        m.weapons.get(WeaponType.EXOTIC, 0) > 0 and m.armors.get(ArmorType.EXOTIC, 0) > 0
-        for m in living
-    )
     if not has_exotics:
         return Goal.DIG_EXOTICS
 

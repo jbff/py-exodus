@@ -82,7 +82,7 @@ def _make_party(
         food=food,
     )
     for name, sex, race, prof in specs:
-        char = Character(name=name, sex=sex, race=race, profession=prof)
+        char = Character(name=name, sex=sex, race=race, profession=prof, gold=gold)
         char.level = level
         char.exp = exp
         char.max_hp = level * 100 + 50
@@ -262,26 +262,26 @@ def test_evaluate_goal_progression():
     assert evaluate_goal(unarmed) == Goal.OUTFIT_BRITAIN
 
     # Level 1 with weapons -> GRIND_AND_LEVEL
-    armed_lvl1 = _make_party(level=1, exp=0)
+    armed_lvl1 = _make_party(level=1, exp=0, gold=0)
     assert evaluate_goal(armed_lvl1) == Goal.GRIND_AND_LEVEL
 
     # Wizard who threw their last Dagger (WeaponType.NONE, no spares) stays in GRIND_AND_LEVEL
     armed_lvl1.members[3].profession = Profession.WIZARD
     armed_lvl1.members[3].weapon = WeaponType.NONE
     armed_lvl1.members[3].weapons.clear()
-    armed_lvl1.members[3].gold = 50
+    armed_lvl1.members[3].gold = 20
     assert evaluate_goal(armed_lvl1) == Goal.GRIND_AND_LEVEL
 
     # Level 5 -> GET_MARK_KINGS
-    lvl5 = _make_party(level=5, exp=500, marks=[0, 0, 0, 0])
+    lvl5 = _make_party(level=5, exp=500, marks=[0, 0, 0, 0], gold=0)
     assert evaluate_goal(lvl5) == Goal.GET_MARK_KINGS
 
     # Has Mark of Kings, on foot -> CAPTURE_SHIP
-    marked_foot = _make_party(level=5, exp=500, marks=[1, 0, 0, 0], transport=Transport.FOOT)
+    marked_foot = _make_party(level=5, exp=500, marks=[1, 0, 0, 0], transport=Transport.FOOT, gold=0)
     assert evaluate_goal(marked_foot) == Goal.CAPTURE_SHIP
 
     # Has Mark of Kings, on ship -> SAIL_WHIRLPOOL
-    marked_ship = _make_party(level=5, exp=500, marks=[1, 0, 0, 0], transport=Transport.SHIP)
+    marked_ship = _make_party(level=5, exp=500, marks=[1, 0, 0, 0], transport=Transport.SHIP, gold=0)
     assert evaluate_goal(marked_ship) == Goal.SAIL_WHIRLPOOL
 
     # In Ambrosia without all cards -> AMBROSIA_CARDS_SHRINES
@@ -293,7 +293,7 @@ def test_evaluate_goal_progression():
     assert evaluate_goal(ambrosia_done) == Goal.EXIT_AMBROSIA
 
     # Back on Sosaria with all 4 cards, missing Fire/Snake/Force -> GET_REMAINING_MARKS
-    need_marks = _make_party(level=6, exp=600, marks=[1, 0, 0, 0], map_id=0, cards=[1, 1, 1, 1])
+    need_marks = _make_party(level=6, exp=600, marks=[1, 0, 0, 0], map_id=0, cards=[1, 1, 1, 1], gold=0)
     assert evaluate_goal(need_marks) == Goal.GET_REMAINING_MARKS
 
     # All 4 marks + 4 cards, no exotics -> DIG_EXOTICS
@@ -536,7 +536,7 @@ def test_nearest_shop_town_and_monster_chasing(pygame_setup):
 
     party = Party()
     for name in ("A", "B", "C", "D"):
-        party.add_member(Character(name, "M", Race.HUMAN, Profession.FIGHTER, weapon=WeaponType.MACE, armor=ArmorType.CLOTH))
+        party.add_member(Character(name, "M", Race.HUMAN, Profession.FIGHTER, weapon=WeaponType.MACE, armor=ArmorType.CLOTH, gold=0))
     party.x, party.y = 43, 21
     sm = StateMachine(asset_mgr=am, audio=None)
     ow = OverworldScreen(party=party, asset_mgr=am, random_encounters_enabled=False)
@@ -567,6 +567,54 @@ def test_sosaria_patrol_and_shop_towns_are_reachable():
         for label, xy in (("weapon", wep_xy), ("armor", arm_xy)):
             assert can_move_to(tmap, xy[0], xy[1], Transport.FOOT), f"Town {mid} {label} {xy} not walkable"
             assert find_2d_step(tmap, (32, 63), xy, Transport.FOOT) is not None, f"Town {mid} {label} {xy} unreachable"
+
+
+def test_equipment_upgrades_hand_and_dawn(pygame_setup):
+    """Chest loot is handed to the best-fit member and worn; Dawn upgrades are targeted as gold accumulates."""
+    from py_exodus.assets import AssetManager
+    from py_exodus.autoplay.equipment import best_shop_upgrade
+    from py_exodus.screens.overworld import OverworldScreen
+    from py_exodus.state_machine import StateMachine
+
+    am = AssetManager()
+    am.load_all()
+    party = Party()
+    party.add_member(Character("SHADOW", "M", Race.ELF, Profession.THIEF, weapon=WeaponType.SLING, armor=ArmorType.CLOTH, gold=0))
+    party.add_member(Character("GRUMM", "M", Race.DWARF, Profession.FIGHTER, weapon=WeaponType.MACE, armor=ArmorType.CLOTH, gold=0))
+    party.add_member(Character("SERENA", "F", Race.BOBIT, Profession.CLERIC, weapon=WeaponType.MACE, armor=ArmorType.CLOTH, gold=0))
+    party.add_member(Character("ZIRCON", "M", Race.FUZZY, Profession.WIZARD, weapon=WeaponType.DAGGER, armor=ArmorType.CLOTH, gold=0))
+    # ZIRCON (Wizard, cannot wear Chain) finds Chain Mail in a chest
+    party.members[3].armors[ArmorType.CHAIN] = 1
+
+    sm = StateMachine(asset_mgr=am, audio=None)
+    ow = OverworldScreen(party=party, asset_mgr=am, random_encounters_enabled=False)
+    ow.creatures = []
+    sm.set_screen(ow)
+
+    ctrl = AutoPlayController(enabled=True)
+    for _ in range(15):
+        ctrl.step(sm)
+        if party.members[1].armor == ArmorType.CHAIN:
+            break
+    assert party.members[1].armor == ArmorType.CHAIN
+    assert party.members[3].armors.get(ArmorType.CHAIN, 0) == 0
+
+    # With 450g pooled, Fighter targets Dawn's Axe +2 (400g, dawn_only=True)
+    party.members[2].gold = 450
+    up = best_shop_upgrade(party)
+    assert up is not None
+    assert up.member_idx == 2
+    assert up.dawn_only is True
+    assert up.item_letter == "i"  # Axe +2
+
+    # Equipped Exotics count toward Goal.CONQUER_EXODUS
+    for m in party.members:
+        m.level = 5
+        m.marks = [1, 1, 1, 1]
+        m.cards = [1, 1, 1, 1]
+        m.weapon = WeaponType.EXOTIC
+        m.armor = ArmorType.EXOTIC
+    assert evaluate_goal(party) == Goal.CONQUER_EXODUS
 
 
 
