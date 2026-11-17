@@ -1791,6 +1791,13 @@ class OverworldScreen(BaseScreen):
             tile = self.game_map.get_tile(sx, sy)
             if tile is None:
                 continue
+            if (
+                tile.swimmable
+                and self.party.transport != Transport.SHIP
+                and self.party.members
+                and (sum(m.max_hp for m in self.party.members) // len(self.party.members)) <= 300
+            ):
+                continue
 
             c_name = self._pick_creature_for_tile(tile)
             if c_name is None:

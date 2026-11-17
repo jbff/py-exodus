@@ -1209,6 +1209,13 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
     assert ctrl.step(sm) is not None
     assert ctrl.enabled is True
 
+    # L1 party on foot near coast must not spawn sea monsters (serpent/pirate)
+    ow_l1 = OverworldScreen(party=_make_party(level=1, exp=0), asset_mgr=am, random_encounters=True, start_x=46, start_y=19)
+    ow_l1.creatures.clear()
+    for _ in range(40):
+        ow_l1._spawn_wandering_creature()
+    assert not any(c.get("tile_name") in ("serpent", "pirate", "squid") for c in ow_l1.creatures)
+
 
 
 
