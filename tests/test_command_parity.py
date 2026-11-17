@@ -19,6 +19,8 @@ Java truth:
 """
 from __future__ import annotations
 
+import random
+
 import pytest
 import pygame
 
@@ -506,7 +508,8 @@ class TestGetChest:
     never reach getChest), "Not Here!" otherwise; the keydown consumes a
     turn (SIP finishTurn passes the party's tile)."""
 
-    def test_overworld_g_chest_on_party_tile(self, ow, sample_party):
+    def test_overworld_g_chest_on_party_tile(self, ow, sample_party, monkeypatch):
+        monkeypatch.setattr("py_exodus.world.chests.random", random.Random(1))
         sample_party.dynamic_objects.append({"tile": "chest", "x": 10, "y": 10})
         moves_before = sample_party.moves
         key(ow, pygame.K_g)
@@ -539,7 +542,8 @@ class TestGetChest:
         assert not any("Nobody selected!" in m for m in ow.text_log.history)
         assert sample_party.moves == moves_before + 1
 
-    def test_town_g_chest_tile_under_party(self, town):
+    def test_town_g_chest_tile_under_party(self, town, monkeypatch):
+        monkeypatch.setattr("py_exodus.world.chests.random", random.Random(1))
         chest_tile = TileDef(index=3, name="chest", rule="chest", attribs=TileAttrib.NONE)
         town.game_map.set_tile(10, 10, chest_tile)
         key(town, pygame.K_g)
