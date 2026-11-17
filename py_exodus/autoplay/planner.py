@@ -19,6 +19,7 @@ class Goal(str, Enum):
     """High-level Ultima III progression milestones."""
 
     SETUP_PARTY = "setup_party"
+    BUY_FOOD = "buy_food"
     OUTFIT_BRITAIN = "outfit_britain"
     GRIND_AND_LEVEL = "grind_and_level"
     GET_MARK_KINGS = "get_mark_kings"
@@ -50,8 +51,8 @@ def needs_cure(party: Party) -> bool:
 
 
 def needs_food(party: Party) -> bool:
-    """Return True if party food supply is critically low."""
-    return party.food < 100
+    """Return True if party food supply is low enough to warrant a bulk restock."""
+    return party.food < 300
 
 
 def evaluate_goal(party: Party) -> Goal:
@@ -65,6 +66,14 @@ def evaluate_goal(party: Party) -> Goal:
     living = [m for m in party.members if not m.is_dead()]
     if not living:
         return Goal.SETUP_PARTY
+
+    if (
+        party.map_id != 13
+        and party.transport != Transport.SHIP
+        and needs_food(party)
+        and sum(m.gold for m in living) >= 30
+    ):
+        return Goal.BUY_FOOD
 
     has_all_cards = all(any(m.cards[i] > 0 for m in living) for i in range(4))
     has_remaining_marks = all(any(m.marks[i] > 0 for m in living) for i in (1, 2, 3))

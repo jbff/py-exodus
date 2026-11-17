@@ -58,6 +58,13 @@ _GUILD_TOWNS: dict[int, tuple[int, int, tuple[int, int]]] = {
     11: (37, 53, (34, 21)),  # Dawn
 }
 
+# Towns with Food shops reachable on foot: map_id -> (portal_x, portal_y, food_stand_xy)
+_FOOD_TOWNS: dict[int, tuple[int, int, tuple[int, int]]] = {
+    1: (45, 18, (16, 19)),   # Castle British (20gp / 25 food)
+    3: (46, 19, (48, 49)),   # Britain (25gp / 25 food)
+    6: (7, 44, (26, 25)),    # Grey (30gp / 25 food)
+}
+
 # Broad Sosaria mainland patrol route for grinding & exploration
 _SOSARIA_PATROL: tuple[tuple[int, int], ...] = (
     (44, 22),
@@ -121,6 +128,7 @@ class AutoPlayController:
         self._join_gold_member_idx: int = 1
         self._hand_from_idx: int = 1
         self._hand_to_idx: int = 2
+        self._food_packs: int = 1
         self._talk_dir_key: int = pygame.K_UP
 
     def toggle(self) -> bool:
@@ -427,6 +435,28 @@ class AutoPlayController:
                 if d is not None:
                     return self._emit_key(state_machine, _DIR_TO_KEY[d])
 
+        if map_id in _FOOD_TOWNS and goal == Goal.BUY_FOOD:
+            _, _, food_xy = _FOOD_TOWNS[map_id]
+            living = [(i + 1, m) for i, m in enumerate(party.members) if not m.is_dead()]
+            if living:
+                total_gold = sum(m.gold for _, m in living)
+                buyer_idx, buyer = max(living, key=lambda im: im[1].gold)
+                if buyer.gold < total_gold and buyer.gold < 300:
+                    self._join_gold_member_idx = buyer_idx
+                    return self._emit_key(state_machine, pygame.K_j)
+                if (px, py) == food_xy:
+                    packs_needed = max(1, (800 - party.food + 24) // 25)
+                    self._food_packs = max(1, min(20, packs_needed, buyer.gold // 30))
+                    self._shop_member_idx = buyer_idx
+                    self._talk_dir_key = self._direction_to_npc(gmap, px, py)
+                    return self._emit_key(state_machine, pygame.K_t)
+                d = find_2d_step(
+                    gmap, (px, py), food_xy, Transport.FOOT, party=party,
+                    avoid_tiles=npc_tiles, prefer_paths=True,
+                )
+                if d is not None:
+                    return self._emit_key(state_machine, _DIR_TO_KEY[d])
+
         # Default in town: walk to exit border (south edge)
         exits = {(x, gmap.height - 1) for x in range(gmap.width)}
         if py == gmap.height - 1:
@@ -542,6 +572,13 @@ class AutoPlayController:
                 return self._emit_key(state_machine, pygame.K_e)
             return self._move_toward(state_machine, gmap, party, (px, py), {(58, 44)})
 
+        if goal == Goal.BUY_FOOD:
+            food_portals = [(info[0], info[1]) for info in _FOOD_TOWNS.values()]
+            target_portal = self._nearest_reachable_portal(
+                gmap, px, py, party.transport, food_portals, party=party
+            )
+            return self._enter_portal_or_wait_dawn(state_machine, screen, gmap, party, px, py, target_portal)
+
         if goal == Goal.BUY_KEYS:
             guild_portals = [(info[0], info[1]) for info in _GUILD_TOWNS.values()]
             target_portal = self._nearest_reachable_portal(
@@ -645,6 +682,9 @@ class AutoPlayController:
             return self._emit_key(state_machine, pygame.K_n)
         if "(y or n)" in prompt or "take it" in prompt or "deal" in prompt:
             return self._emit_key(state_machine, pygame.K_y)
+        if "how many packs" in prompt:
+            self._queue_text(str(self._food_packs), enter=True)
+            return self._emit_key(state_machine, self._key_queue.popleft())
         if "how many" in prompt:
             self._queue_text("1", enter=True)
             return self._emit_key(state_machine, self._key_queue.popleft())

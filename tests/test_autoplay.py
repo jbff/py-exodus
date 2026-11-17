@@ -823,4 +823,30 @@ def test_dawn_double_new_moon_wait_and_moongate_helper(pygame_setup):
     assert ctrl._step_moongate(sm, ow, gmap, party, gx + 1, gy, src_idx=0, dest_idx=0) == pygame.K_LEFT
 
 
+def test_bulk_food_buying_strategy(pygame_setup):
+    """When party food < 300 (or member food < 75), Goal.BUY_FOOD buys bulk rations to ~800+."""
+    from py_exodus.assets import AssetManager
+    from py_exodus.screens.town import TownScreen
+
+    am = AssetManager("data")
+    am.load_all()
+    party = _make_party(level=1, exp=0, gold=200, food=200)
+    for m in party.members:
+        m.food = 50
+    assert evaluate_goal(party) == Goal.BUY_FOOD
+
+    sm = StateMachine(asset_mgr=am, audio=None)
+    ts = TownScreen(party=party, asset_mgr=am, map_id=3, start_x=48, start_y=49)
+    sm.set_screen(ts)
+
+    ctrl = AutoPlayController(enabled=True)
+    for _ in range(30):
+        ctrl.step(sm)
+        if party.food >= 700:
+            break
+
+    assert party.food >= 700
+    assert evaluate_goal(party) != Goal.BUY_FOOD
+
+
 
