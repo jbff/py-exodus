@@ -160,7 +160,7 @@ DIRECTIONAL_SPELLS = {
 # still PROMPTS for it (SpellInputProcessor.java:52-61), but
 # USER RULING 2026-11-11: the port drops that prompt — APPAR_UNEM casts
 # without ever asking for a direction.
-_PROJECTILE_SPELLS = {Spell.MITTAR, Spell.FULGAR, Spell.MENTAR, Spell.DECORP, Spell.EXCUUN}
+PROJECTILE_SPELLS = {Spell.MITTAR, Spell.FULGAR, Spell.MENTAR, Spell.DECORP, Spell.EXCUUN}
 
 # Java spells whose effect branches never call finishPlayerTurn — the caster
 # acts again — plus the effect-less REPLACE ME / default cases (SpellUtil.java
@@ -317,7 +317,7 @@ def cast_spell(
     if target_dir is not None:
         dir_val = target_dir if isinstance(target_dir, Direction) else Direction.from_name_or_key(target_dir)
 
-    if resolved_spell in _PROJECTILE_SPELLS and dir_val is None:
+    if resolved_spell in PROJECTILE_SPELLS and dir_val is None:
         # REFUSED (Task 4): Java's no-direction gate (SpellUtil.java:40-57) —
         # the directional-cancel case stays NON-consuming.
         return SpellResult(
@@ -640,7 +640,7 @@ def _apply_spell_effect(
 
     # Directional projectile attacks (MITTAR, FULGAR, MENTAR, DECORP, EXCUUN).
     # APPAR_UNEM shares the direction *prompt* but is a chest spell, not a bolt.
-    if spell in _PROJECTILE_SPELLS:
+    if spell in PROJECTILE_SPELLS:
         return _apply_projectile_attack(spell, caster_char, caster_entity, target_dir, arena)
 
     # Mass group damage spells (NOXUM, DAG_MENTAR, NECORP, ZXKUQYB, UNSPEAKABLE)
@@ -1393,7 +1393,7 @@ def prompt_cast_party(
                         _dispatch(target_m)
 
                     text_log.prompt("On who? (1-4):", callback=_on_target, single_char=True)
-                elif found_spell in _PROJECTILE_SPELLS:
+                elif found_spell in PROJECTILE_SPELLS:
                     text_log.add_message("Direction?")
 
                     def _on_dir(d_str: str) -> None:

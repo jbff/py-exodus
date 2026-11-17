@@ -1290,3 +1290,20 @@ def test_dungeon_climb_out_logs_exit_message_once(pygame_setup, asset_mgr, test_
     joined = " ".join(" ".join(screen.text_log.history).split())
     assert joined.count("You climb out of the dungeon to the surface!") == 1
     assert screen.text_log.history.count("You climb out of the dungeon") == 1
+
+
+def test_spell_exit_uses_java_map_label(asset_mgr, test_party):
+    """Item 35: DungeonState.spell_exit logs MAP_ID_TO_LABEL ('Leaving Dardin's Pit!'),
+    falling back to dmap.name for custom/unmapped ids."""
+    from py_exodus.world.loader import MapLoader
+
+    dardin_map = MapLoader(asset_mgr).load_map(15)
+    state = DungeonState(dmap=dardin_map, party=test_party)
+    ev = state.spell_exit()
+    assert ev.message == "Leaving Dardin's Pit!"
+    assert "Leaving DARDIN" not in ev.message
+
+    custom_map = DungeonMap(id=99, name="Custom", width=16, height=16, levels=1)
+    custom_state = DungeonState(dmap=custom_map, party=test_party)
+    custom_ev = custom_state.spell_exit()
+    assert custom_ev.message == "Leaving Custom!"

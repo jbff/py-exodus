@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, ClassVar
 
 import pygame
 
+from py_exodus.assets import MAP_ID_TO_LABEL, MAP_NAME_TO_ID
 from py_exodus.aura import AuraType
 from py_exodus.constants import Direction, Status, TileEffect
 from py_exodus.entities.defs import CreatureDef
@@ -1249,9 +1250,21 @@ class DungeonState:
     def spell_exit(self) -> DungeonEvent:
         """SEQUITU (Java SpellUtil.spellXit, SpellUtil.java:501-509): log
         "Leaving <label>!" and return to the overworld screen."""
+        raw_id = getattr(self.dmap, "id", None)
+        lookup_id: int | None = None
+        if raw_id is not None:
+            try:
+                lookup_id = int(raw_id)
+            except (TypeError, ValueError):
+                lookup_id = MAP_NAME_TO_ID.get(str(raw_id).upper())
+        label = (
+            MAP_ID_TO_LABEL.get(lookup_id)
+            if lookup_id is not None and lookup_id != 0
+            else None
+        ) or getattr(self.dmap, "name", "Dungeon")
         return DungeonEvent(
             type=DungeonEventType.EXIT_DUNGEON,
-            message=f"Leaving {self.dmap.name}!",
+            message=f"Leaving {label}!",
             x=self.x,
             y=self.y,
             z=self.z,

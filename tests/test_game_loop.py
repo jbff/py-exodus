@@ -1758,3 +1758,17 @@ def test_combat_screen_zero_mp_casting(pygame_setup, asset_mgr, sample_party):
     combat.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_a, unicode="A"))
     # Repond resolves without MP error
     assert not any("not enough mp" in msg.lower() for msg in combat.text_log.history)
+
+
+def test_overworld_entry_uses_java_map_label(pygame_setup, asset_mgr, sample_party):
+    """Item 35: OverworldScreen logs Java MAP_ID_TO_LABEL ('Entering Sosaria!',
+    'Entering Ambrosia!'), matching GameScreen.java:334 and TownScreen."""
+    sosaria = OverworldScreen(party=sample_party, map_id=0, asset_mgr=asset_mgr)
+    joined_sosaria = " ".join(" ".join(sosaria.text_log.history).split())
+    assert "Entering Sosaria!" in joined_sosaria
+    assert "Entering the realm of" not in joined_sosaria
+
+    ambrosia = OverworldScreen(party=sample_party, map_id=13, asset_mgr=asset_mgr)
+    joined_ambrosia = " ".join(" ".join(ambrosia.text_log.history).split())
+    assert "Entering Ambrosia!" in joined_ambrosia
+    assert "Entering the realm of" not in joined_ambrosia

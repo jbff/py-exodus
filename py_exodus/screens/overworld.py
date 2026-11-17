@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 import pygame
 
 from py_exodus import debug
+from py_exodus.assets import MAP_ID_TO_LABEL, MAP_NAME_TO_ID
 from py_exodus.aura import AuraType
 from py_exodus.combat.magic import prompt_cast_party
 from py_exodus.constants import (
@@ -393,8 +394,21 @@ class OverworldScreen(BaseScreen):
             for _ in range(3):
                 self._spawn_wandering_creature()
 
-        map_name = getattr(self.game_map, "name", "Sosaria")
-        self.text_log.add_message(f"Entering the realm of {map_name}...")
+        raw_id = getattr(self.game_map, "id", None)
+        if raw_id is None:
+            raw_id = self.map_id
+        lookup_id: int | None = None
+        if raw_id is not None:
+            try:
+                lookup_id = int(raw_id)
+            except (TypeError, ValueError):
+                lookup_id = MAP_NAME_TO_ID.get(str(raw_id).upper())
+        label = (
+            MAP_ID_TO_LABEL.get(lookup_id)
+            if lookup_id is not None
+            else None
+        ) or getattr(self.game_map, "name", "Sosaria")
+        self.text_log.add_message(f"Entering {label}!")
         # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): the wind can be
         # becalmed (None) — the entry message names the calm instead of
         # crashing on a missing direction name.

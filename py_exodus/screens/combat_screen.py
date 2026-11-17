@@ -10,7 +10,7 @@ from py_exodus.combat.arena import Action, ActionType, CombatArena
 from py_exodus.combat.magic import (
     DIRECTIONAL_SPELLS,
     TARGETED_MEMBER_SPELLS,
-    _PROJECTILE_SPELLS,
+    PROJECTILE_SPELLS,
     get_castable_spell_types,
     resolve_spell,
 )
@@ -559,7 +559,7 @@ class CombatScreen(BaseScreen):
             # carries it), but every other cast — refusals and effect-only
             # spells — draws no tracer.
             resolved_spell = resolve_spell(getattr(action, "spell", None))
-            if not path and resolved_spell in _PROJECTILE_SPELLS and action.direction:
+            if not path and resolved_spell in PROJECTILE_SPELLS and action.direction:
                 d = action.direction
                 for step in range(1, 6):
                     step_x = start_pos[0] + d.dx * step

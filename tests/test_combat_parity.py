@@ -1284,3 +1284,17 @@ def test_wipe_logs_no_game_event_string(asset_mgr, conflict_map, monkeypatch):
     combat._execute_action(Action.pass_turn())
     assert not any("DEFEAT" in msg for msg in combat.text_log.history)
     assert "Press Enter to continue." in combat.text_log.history
+
+
+def test_projectile_spells_public_export():
+    """Item 33: PROJECTILE_SPELLS is exported as a public constant from py_exodus.combat.magic."""
+    from py_exodus.combat.magic import PROJECTILE_SPELLS
+    from py_exodus.constants import Spell
+
+    assert PROJECTILE_SPELLS == {
+        Spell.MITTAR,
+        Spell.FULGAR,
+        Spell.MENTAR,
+        Spell.DECORP,
+        Spell.EXCUUN,
+    }
