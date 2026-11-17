@@ -212,6 +212,18 @@ class CombatScreen(BaseScreen):
             self.text_log.add_message("Auto-combat OFF.")
             return
 
+        if event.key == pygame.K_z:
+            member_count = len(self.party.members)
+            if member_count > 0:
+                cur = self.stats_panel.inspect_index
+                if cur is None:
+                    self.stats_panel.inspect_index = 0
+                elif cur + 1 < member_count:
+                    self.stats_panel.inspect_index = cur + 1
+                else:
+                    self.stats_panel.inspect_index = None
+            return
+
         # Standard combat keys
         active_member = self.active_party_member
         if active_member is None:
@@ -798,6 +810,8 @@ class CombatScreen(BaseScreen):
         self._apply_flash_invert(temp_v)
         self._render_combat_fx(temp_v)
 
+        self.party.active_member_index = self.arena.active_party_member_idx
+
         if scale > 1:
             scaled_v = pygame.transform.scale(temp_v, (v_size, v_size))
             surface.blit(scaled_v, (0, 0))
@@ -806,7 +820,6 @@ class CombatScreen(BaseScreen):
             self.stats_panel.render(
                 surface,
                 self.party,
-                inspect_index=self.arena.active_party_member_idx,
                 rect=pygame.Rect(v_size, 0, w - v_size, h),
             )
 
@@ -822,7 +835,6 @@ class CombatScreen(BaseScreen):
             self.stats_panel.render(
                 surface,
                 self.party,
-                inspect_index=self.arena.active_party_member_idx,
                 rect=pygame.Rect(176, 0, w - 176, h),
             )
 

@@ -469,3 +469,33 @@ def test_sea_monster_advances_to_closest_water_tile_near_ship():
     arena.combat_map.set_tile(3, 5, reef)
     m_dir = arena._advance_direction(2, 5, 5, 5, monster=arena.monsters[0])
     assert m_dir in (Direction.NORTH, Direction.SOUTH)
+
+
+def test_combat_screen_default_party_view_and_z_toggle():
+    """CombatScreen shows party view with active member highlighted unless Z is pressed."""
+    import pygame
+    from py_exodus.assets import AssetManager
+    from py_exodus.screens.combat_screen import CombatScreen
+    from py_exodus.world.loader import load_conflict_map
+
+    pygame.init()
+    pygame.font.init()
+    am = AssetManager("data")
+    am.load_all()
+    party = Party()
+    for name in ("A", "B"):
+        party.add_member(Character(name, "M", Race.HUMAN, Profession.FIGHTER))
+    cs = CombatScreen(party=party, combat_map=load_conflict_map(37, am), asset_mgr=am, monster_count=1)
+    cs.arena.active_party_member_idx = 1
+
+    surf = pygame.Surface((960, 600))
+    cs.render(surf)
+    assert cs.stats_panel.inspect_index is None
+    assert cs.party.active_member_index == 1
+
+    cs.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_z, unicode="z"))
+    assert cs.stats_panel.inspect_index == 0
+    cs.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_z, unicode="z"))
+    assert cs.stats_panel.inspect_index == 1
+    cs.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_z, unicode="z"))
+    assert cs.stats_panel.inspect_index is None
