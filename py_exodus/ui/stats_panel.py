@@ -266,23 +266,7 @@ class StatsPanel:
             member_inspect_index is not None and 0 <= member_inspect_index < len(party.members)
         )
         if not member_inspect_active:
-            # 1. Party Header with Count
-            party_count_str = f"PARTY ({len(party.members)}/4)"
-            draw_line(party_count_str, EGA_YELLOW, use_title_font=True)
-
-            # 2. Transport Header
-            trans_name = "FOOT"
-            if party.transport == Transport.SHIP:
-                trans_name = f"SHIP (HULL:{party.ship_hull})"
-            elif party.transport == Transport.HORSE:
-                trans_name = "HORSE"
-            draw_line(f"TRANS: {trans_name}", EGA_BRIGHT_CYAN)
-
-            # 3. Pooled Resources (Food & Gold)
-            draw_line(f"FOOD:{party.food:<5} GOLD:{party.gold}", EGA_WHITE)
-            draw_separator()
-
-            # 4. Party Members (up to 4), hidden while in member-inspect mode:
+            # Party Members (up to 4), hidden while in member-inspect mode:
             # the full per-member zstats page (exodus/Party.java getZstats) needs
             # the whole panel height for its stat rows plus the complete
             # equipment listings down to the mark/card rows.
@@ -294,6 +278,12 @@ class StatsPanel:
                     # Status abbreviation
                     st_val = getattr(pm.status, "value", str(pm.status))
                     st_abbr = str(st_val)[0].upper()
+
+                    # Sex / Race / Class 3-letter code (e.g. ODF)
+                    sex_ch = str(getattr(getattr(pm, "sex", None), "value", getattr(pm, "sex", "")) or "?")[:1].upper()
+                    race_ch = str(getattr(getattr(pm, "race", None), "name", getattr(pm, "race", "")) or "?")[:1].upper()
+                    prof_ch = str(getattr(getattr(pm, "profession", None), "name", getattr(pm, "profession", "")) or "?")[:1].upper()
+                    src_code = f"{sex_ch}{race_ch}{prof_ch}"
 
                     # Status-dependent text color
                     if is_active:
@@ -312,7 +302,7 @@ class StatsPanel:
                         member_col = EGA_WHITE
 
                     char_name = pm.name.upper()[:8]
-                    draw_line(f"{marker}[{i+1}] {char_name:<8} {st_abbr}", member_col)
+                    draw_line(f"{marker}[{i+1}] {char_name:<8} {src_code} {st_abbr}", member_col)
                     draw_line(
                         f"    H:{pm.hp:<4} M:{pm.mp:<3} F:{pm.food}",
                         EGA_LIGHT_GRAY if not is_active else EGA_YELLOW,
@@ -353,8 +343,9 @@ class StatsPanel:
                         break
         else:
             # When not in detailed inspect mode, show summary inventory if space permits
-            if target_rect.bottom - curr_y > line_h * 2 + 10:
+            if target_rect.bottom - curr_y > line_h * 3 + 10:
                 draw_separator()
+                draw_line(f"FOOD:{party.food:<5} GOLD:{party.gold}", EGA_WHITE)
                 tot_keys = sum(m.keys for m in party.members)
                 tot_gems = sum(m.gems for m in party.members)
                 tot_powder = sum(m.powder for m in party.members)

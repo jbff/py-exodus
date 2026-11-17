@@ -53,6 +53,11 @@ _SHOP_TOWNS: dict[int, tuple[int, int, tuple[int, int], tuple[int, int]]] = {
     11: (37, 53, (27, 19), (19, 20)),  # Dawn
 }
 
+# Towns with Guild shops reachable on foot: map_id -> (portal_x, portal_y, guild_stand_xy)
+_GUILD_TOWNS: dict[int, tuple[int, int, tuple[int, int]]] = {
+    11: (37, 53, (34, 21)),  # Dawn
+}
+
 # Broad Sosaria mainland patrol route for grinding & exploration
 _SOSARIA_PATROL: tuple[tuple[int, int], ...] = (
     (44, 22),
@@ -398,6 +403,26 @@ class AutoPlayController:
                 if d is not None:
                     return self._emit_key(state_machine, _DIR_TO_KEY[d])
 
+        if map_id in _GUILD_TOWNS and goal == Goal.BUY_KEYS:
+            _, _, guild_xy = _GUILD_TOWNS[map_id]
+            living = [(i + 1, m) for i, m in enumerate(party.members) if not m.is_dead()]
+            if living:
+                buyer_idx, buyer = max(living, key=lambda im: im[1].gold)
+                if buyer.gold < 50:
+                    self._join_gold_member_idx = buyer_idx
+                    return self._emit_key(state_machine, pygame.K_j)
+                if (px, py) == guild_xy:
+                    self._shop_member_idx = buyer_idx
+                    self._shop_item_letter = "c"  # Magic Keys (50g)
+                    self._talk_dir_key = self._direction_to_npc(gmap, px, py)
+                    return self._emit_key(state_machine, pygame.K_t)
+                d = find_2d_step(
+                    gmap, (px, py), guild_xy, Transport.FOOT, party=party,
+                    avoid_tiles=npc_tiles, prefer_paths=True,
+                )
+                if d is not None:
+                    return self._emit_key(state_machine, _DIR_TO_KEY[d])
+
         # Default in town: walk to exit border (south edge)
         exits = {(x, gmap.height - 1) for x in range(gmap.width)}
         if py == gmap.height - 1:
@@ -513,6 +538,15 @@ class AutoPlayController:
                 return self._emit_key(state_machine, pygame.K_e)
             return self._move_toward(state_machine, gmap, party, (px, py), {(58, 44)})
 
+        if goal == Goal.BUY_KEYS:
+            guild_portals = [(info[0], info[1]) for info in _GUILD_TOWNS.values()]
+            target_portal = self._nearest_reachable_portal(
+                gmap, px, py, party.transport, guild_portals, party=party
+            )
+            if (px, py) == target_portal:
+                return self._emit_key(state_machine, pygame.K_e)
+            return self._move_toward(state_machine, gmap, party, (px, py), {target_portal})
+
         if goal == Goal.OUTFIT_BRITAIN:
             upgrade = best_shop_upgrade(party)
             if upgrade is not None and upgrade.dawn_only:
@@ -607,14 +641,14 @@ class AutoPlayController:
             return self._emit_key(state_machine, self._talk_dir_key)
         if "buy" in prompt and "sell" in prompt:
             return self._emit_key(state_machine, pygame.K_b)
-        if "take it" in prompt or "deal" in prompt:
-            return self._emit_key(state_machine, pygame.K_y)
         if "anything else" in prompt:
             return self._emit_key(state_machine, pygame.K_n)
+        if "(y or n)" in prompt or "take it" in prompt or "deal" in prompt:
+            return self._emit_key(state_machine, pygame.K_y)
         if "how many" in prompt:
             self._queue_text("1", enter=True)
             return self._emit_key(state_machine, self._key_queue.popleft())
-        if "buy" in prompt or "what" in prompt or "choice" in prompt or "(a-" in prompt:
+        if "buy" in prompt or "what" in prompt or "wat'l" in prompt or "choice" in prompt or "(a-" in prompt:
             return self._emit_key(state_machine, _char_to_key(self._shop_item_letter) or pygame.K_b)
         return self._emit_key(state_machine, pygame.K_ESCAPE)
 
@@ -626,6 +660,7 @@ class AutoPlayController:
         start: tuple[int, int],
         goals: set[tuple[int, int]],
     ) -> int:
+        has_key = any(not m.is_dead() and m.keys > 0 for m in party.members)
         d = find_2d_step(
             game_map,
             start=start,
@@ -633,8 +668,23 @@ class AutoPlayController:
             transport=party.transport,
             party=party,
             wind_direction=getattr(party, "wind_direction", None),
+            allow_locked_doors=(has_key and party.transport == Transport.FOOT),
         )
         if d is not None:
+            nx = start[0] + d.dx
+            ny = start[1] + d.dy
+            if getattr(game_map, "border_behavior", "exit") == "wrap":
+                nx %= game_map.width
+                ny %= game_map.height
+            nxt_tile = game_map.get_tile(nx, ny) if 0 <= nx < game_map.width and 0 <= ny < game_map.height else None
+            if nxt_tile is not None and str(getattr(nxt_tile, "name", "")).lower() == "locked_door":
+                key_idx = next(
+                    (i + 1 for i, m in enumerate(party.members) if not m.is_dead() and m.keys > 0),
+                    None,
+                )
+                if key_idx is not None:
+                    self._queue_text(f"{key_idx}{d.name[0].lower()}", enter=False)
+                    return self._emit_key(state_machine, pygame.K_u)
             return self._emit_key(state_machine, _DIR_TO_KEY[d])
         return self._emit_key(state_machine, pygame.K_SPACE)
 
@@ -654,8 +704,13 @@ class AutoPlayController:
         return pygame.K_UP
 
     @staticmethod
-    def _nearest_shop_town_portal(
-        game_map, px: int, py: int, transport: Transport, party=None
+    def _nearest_reachable_portal(
+        game_map,
+        px: int,
+        py: int,
+        transport: Transport,
+        portals: list[tuple[int, int]],
+        party=None,
     ) -> tuple[int, int]:
         def _dist(tx_ty: tuple[int, int]) -> int:
             tx, ty = tx_ty
@@ -663,14 +718,18 @@ class AutoPlayController:
             dy = min((ty - py) % game_map.height, (py - ty) % game_map.height)
             return dx + dy
 
-        portals = sorted(
-            ((info[0], info[1]) for info in _SHOP_TOWNS.values()),
-            key=_dist,
-        )
-        for portal in portals:
+        ordered = sorted(portals, key=_dist)
+        for portal in ordered:
             if (px, py) == portal or find_2d_step(game_map, (px, py), {portal}, transport, party=party) is not None:
                 return portal
-        return portals[0]
+        return ordered[0]
+
+    @classmethod
+    def _nearest_shop_town_portal(
+        cls, game_map, px: int, py: int, transport: Transport, party=None
+    ) -> tuple[int, int]:
+        portals = [(info[0], info[1]) for info in _SHOP_TOWNS.values()]
+        return cls._nearest_reachable_portal(game_map, px, py, transport, portals, party=party)
 
     @staticmethod
     def _can_level_at_british(member) -> bool:

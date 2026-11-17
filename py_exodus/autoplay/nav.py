@@ -31,6 +31,7 @@ def find_2d_step(
     avoid_tiles: set[tuple[int, int]] | None = None,
     wind_direction: Direction | None = None,
     prefer_paths: bool = False,
+    allow_locked_doors: bool = False,
 ) -> Direction | None:
     """Return the first cardinal Direction toward the nearest reachable goal on a 2D map."""
     goal_set: set[tuple[int, int]] = (
@@ -71,6 +72,14 @@ def find_2d_step(
         tname = str(getattr(t, "name", "")).lower() if t else ""
         return 1 if tname in ("floor", "bridge", "path") else 4
 
+    def _passable(nx: int, ny: int) -> bool:
+        if can_move_to(game_map, nx, ny, transport=transport, party=party):
+            return True
+        if allow_locked_doors and transport == Transport.FOOT:
+            t = game_map.get_tile(nx, ny)
+            return t is not None and str(getattr(t, "name", "")).lower() == "locked_door"
+        return False
+
     if prefer_paths:
         pq: list[tuple[int, int, tuple[int, int], Direction | None]] = [(0, 0, start, None)]
         best_cost: dict[tuple[int, int], int] = {start: 0}
@@ -98,11 +107,11 @@ def find_2d_step(
                     tile = game_map.get_tile(nx, ny)
                     tile_name = str(getattr(tile, "name", "")).lower() if tile else ""
                     is_special = nxt in portal_coords or nxt in frigate_coords or tile_name == "whirlpool"
-                    if not (is_special or can_move_to(game_map, nx, ny, transport=transport, party=party)):
+                    if not (is_special or _passable(nx, ny)):
                         continue
                     ncost = cost + _tile_cost(nx, ny)
                 else:
-                    if nxt in avoid or not can_move_to(game_map, nx, ny, transport=transport, party=party):
+                    if nxt in avoid or not _passable(nx, ny):
                         continue
                     ncost = cost + _tile_cost(nx, ny)
                 if ncost < best_cost.get(nxt, 10**9):
@@ -142,13 +151,13 @@ def find_2d_step(
                     or nxt in frigate_coords
                     or tile_name == "whirlpool"
                 )
-                if is_special_goal or can_move_to(game_map, nx, ny, transport=transport, party=party):
+                if is_special_goal or _passable(nx, ny):
                     return step_dir
                 continue
 
             if nxt in avoid:
                 continue
-            if not can_move_to(game_map, nx, ny, transport=transport, party=party):
+            if not _passable(nx, ny):
                 continue
 
             visited.add(nxt)

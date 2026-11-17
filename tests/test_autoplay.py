@@ -687,4 +687,86 @@ def test_lord_british_levels_all_eligible_members_and_exits(pygame_setup):
     assert (ts.avatar_x, ts.avatar_y) != (32, 15)
 
 
+def test_buy_keys_before_ambrosia_and_unlock_locked_door(pygame_setup):
+    """Party stocks >= 4 Keys before sailing to Ambrosia and unlocks locked_door tiles with U."""
+    from py_exodus.assets import AssetManager
+    from py_exodus.autoplay.controller import _GUILD_TOWNS
+    from py_exodus.screens.overworld import OverworldScreen
+    from py_exodus.screens.town import TownScreen
+    from py_exodus.state_machine import StateMachine
+
+    am = AssetManager("data")
+    am.load_all()
+    sosaria = load_map(0, am)
+    for mid, (px, py, guild_xy) in _GUILD_TOWNS.items():
+        assert find_2d_step(sosaria, (46, 20), (px, py), Transport.FOOT) is not None
+        tmap = load_map(mid, am)
+        assert find_2d_step(tmap, (32, 63), guild_xy, Transport.FOOT) is not None
+
+    party = _make_party(
+        level=5, exp=500, marks=[1, 0, 0, 0],
+        weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC,
+        gold=60, transport=Transport.FOOT,
+    )
+    assert evaluate_goal(party) == Goal.BUY_KEYS
+
+    # In Dawn (map 11) at Guild stand (34, 21), buys Keys up to 4
+    sm = StateMachine(asset_mgr=am, audio=None)
+    ts = TownScreen(party=party, asset_mgr=am, map_id=11, start_x=34, start_y=21)
+    sm.set_screen(ts)
+    ctrl = AutoPlayController(enabled=True)
+    for _ in range(80):
+        ctrl.step(sm)
+        if sum(m.keys for m in party.members) >= 4:
+            break
+    assert sum(m.keys for m in party.members) >= 4
+    assert evaluate_goal(party) == Goal.CAPTURE_SHIP
+
+    # On Ambrosia (map 13), party at (11, 6) east of locked_door (10, 6) unlocks it with U
+    party.map_id = 13
+    party.x, party.y = 11, 6
+    for m in party.members:
+        m.cards = [1, 1, 0, 1]  # missing Moons (6, 6)
+    ow = OverworldScreen(party=party, map_id=13, asset_mgr=am, random_encounters=False)
+    ow.creatures = []
+    sm.set_screen(ow)
+    assert ow.game_map.get_tile(10, 6).name == "locked_door"
+    keys_before = sum(m.keys for m in party.members)
+    for _ in range(10):
+        ctrl.step(sm)
+        if ow.game_map.get_tile(10, 6).name != "locked_door":
+            break
+    assert ow.game_map.get_tile(10, 6).name != "locked_door"
+    assert sum(m.keys for m in party.members) == keys_before - 1
+
+
+def test_stats_panel_party_hud_layout(pygame_setup, monkeypatch):
+    """StatsPanel shows 3-letter SRC code, omits PARTY/TRANS headers, and places FOOD/GOLD at bottom."""
+    from py_exodus.ui.stats_panel import StatsPanel
+
+    party = Party()
+    party.add_member(Character("GRUMM", "O", Race.DWARF, Profession.FIGHTER, gold=145, food=592))
+    captured: list[str] = []
+
+    class _FakeFont:
+        def get_linesize(self):
+            return 12
+
+        def render(self, text, antialias, color):
+            captured.append(text)
+            return pygame.Surface((max(1, len(text) * 6), 12))
+
+    fake = _FakeFont()
+    panel = StatsPanel(font=fake, small_font=fake)
+    surf = pygame.Surface((400, 600))
+    panel.render(surf, party, rect=pygame.Rect(0, 0, 300, 500))
+
+    assert any("GRUMM" in s and "ODF" in s for s in captured)
+    assert not any("PARTY (" in s or "TRANS:" in s for s in captured)
+    food_idx = next(i for i, s in enumerate(captured) if "FOOD:" in s and "GOLD:" in s)
+    keys_idx = next(i for i, s in enumerate(captured) if "KEYS:" in s and "POWD:" in s)
+    member_idx = next(i for i, s in enumerate(captured) if "GRUMM" in s)
+    assert member_idx < food_idx < keys_idx
+
+
 

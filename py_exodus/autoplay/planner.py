@@ -22,6 +22,7 @@ class Goal(str, Enum):
     OUTFIT_BRITAIN = "outfit_britain"
     GRIND_AND_LEVEL = "grind_and_level"
     GET_MARK_KINGS = "get_mark_kings"
+    BUY_KEYS = "buy_keys"
     CAPTURE_SHIP = "capture_ship"
     SAIL_WHIRLPOOL = "sail_whirlpool"
     AMBROSIA_CARDS_SHRINES = "ambrosia_cards_shrines"
@@ -92,6 +93,12 @@ def evaluate_goal(party: Party) -> Goal:
     if not has_all_cards:
         if party.map_id == 13:
             return Goal.AMBROSIA_CARDS_SHRINES
+        if (
+            party.transport != Transport.SHIP
+            and sum(m.keys for m in living) < 4
+            and sum(m.gold for m in living) >= 50
+        ):
+            return Goal.BUY_KEYS
         if party.transport != Transport.SHIP:
             return Goal.CAPTURE_SHIP
         return Goal.SAIL_WHIRLPOOL
