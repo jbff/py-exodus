@@ -657,4 +657,34 @@ def test_profession_equipment_tables_match_xml_and_town_join_gold(pygame_setup):
     assert sum(m.gold for m in party.members) == 0
 
 
+def test_lord_british_levels_all_eligible_members_and_exits(pygame_setup):
+    """Castle British levels only eligible members (2 & 4 here), skips gated/ineligible ones, and exits."""
+    from py_exodus.assets import AssetManager
+    from py_exodus.screens.town import TownScreen
+    from py_exodus.state_machine import StateMachine
+
+    am = AssetManager("data")
+    am.load_all()
+    party = _make_party(level=1, exp=0, gold=0)
+    party.members[0].level, party.members[0].exp = 2, 120   # already L2, needs 200 for L3
+    party.members[1].level, party.members[1].exp = 1, 250   # eligible for L3
+    party.members[2].level, party.members[2].exp = 1, 520   # gated by missing Mark of Kings
+    party.members[3].level, party.members[3].exp = 1, 110   # eligible for L2
+
+    sm = StateMachine(asset_mgr=am, audio=None)
+    ts = TownScreen(party=party, asset_mgr=am, map_id=1, start_x=32, start_y=15)
+    sm.set_screen(ts)
+
+    ctrl = AutoPlayController(enabled=True)
+    for _ in range(20):
+        ctrl.step(sm)
+
+    assert party.members[0].level == 2
+    assert party.members[1].level == 3
+    assert party.members[2].level == 1
+    assert party.members[3].level == 2
+    # Should have left (32, 15) heading toward the exit rather than looping T 1 N
+    assert (ts.avatar_x, ts.avatar_y) != (32, 15)
+
+
 

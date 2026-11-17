@@ -358,12 +358,13 @@ class AutoPlayController:
         npc_tiles = {(npc.x, npc.y) for npc in getattr(gmap, "npcs", [])}
 
         if map_id == 1:  # Castle of Lord British
-            living = [m for m in party.members if not m.is_dead()]
-            can_level = any(m.exp >= m.level * 100 for m in living)
-            if can_level:
+            level_idx = next(
+                (i + 1 for i, m in enumerate(party.members) if self._can_level_at_british(m)),
+                None,
+            )
+            if level_idx is not None:
                 if (px, py) == (32, 15):
-                    self._queue_text("1", enter=False)
-                    self._queue_text("n", enter=False)
+                    self._queue_text(f"{level_idx}n", enter=False)
                     return self._emit_key(state_machine, pygame.K_t)
                 d = find_2d_step(
                     gmap, (px, py), (32, 15), Transport.FOOT, party=party,
@@ -523,7 +524,7 @@ class AutoPlayController:
             return self._move_toward(state_machine, gmap, party, (px, py), {target_portal})
 
         # GRIND_AND_LEVEL
-        if any(m.exp >= m.level * 100 and m.level < 5 for m in living):
+        if any(self._can_level_at_british(m) for m in living):
             if (px, py) == (45, 18):
                 return self._emit_key(state_machine, pygame.K_e)
             return self._move_toward(state_machine, gmap, party, (px, py), {(45, 18)})
@@ -670,6 +671,18 @@ class AutoPlayController:
             if (px, py) == portal or find_2d_step(game_map, (px, py), {portal}, transport, party=party) is not None:
                 return portal
         return portals[0]
+
+    @staticmethod
+    def _can_level_at_british(member) -> bool:
+        """Return True iff ``member.meet_lord_british()`` would actually advance their level."""
+        if member.is_dead() or member.level >= 25:
+            return False
+        eligible_level = member.exp // 100 + 1
+        if eligible_level <= member.level:
+            return False
+        if member.exp // 100 >= 5 and (not member.marks or member.marks[0] == 0):
+            return False
+        return True
 
     @staticmethod
     def _find_caster(
