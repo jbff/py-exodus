@@ -1272,6 +1272,17 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
     sm.set_screen(ow_y)
     assert ctrl.step(sm) == pygame.K_RIGHT  # toward Yew (34, 16)
 
+    # CAPTURE_SHIP ignores unreachable open-ocean frigates and keeps patrolling coast
+    p_cap = _make_party(level=5, exp=500, gold=0, food=500, marks=[1, 0, 0, 0])
+    p_cap.members[0].keys = 4
+    p_cap.x, p_cap.y = 45, 12
+    p_cap.dynamic_objects.append({"tile": "frigate", "x": 55, "y": 12})  # unreachable in deep water
+    ow_c = OverworldScreen(party=p_cap, asset_mgr=am, random_encounters=False)
+    ow_c.creatures = []
+    sm.set_screen(ow_c)
+    assert evaluate_goal(p_cap) == Goal.CAPTURE_SHIP
+    assert ctrl.step(sm) != pygame.K_SPACE
+
 
 
 

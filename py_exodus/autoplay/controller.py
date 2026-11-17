@@ -660,14 +660,20 @@ class AutoPlayController:
                         avoid_monsters.add(((cx + ox) % gmap.width, (cy + oy) % gmap.height))
         elif party.map_id == 0 and party.transport != Transport.SHIP and living:
             avg_max_hp = sum(m.max_hp for m in party.members) // max(1, len(party.members))
-            if avg_max_hp < 400:
-                for c in getattr(screen, "creatures", []):
-                    tname = str(c.get("tile_name") or c.get("tile") or "").lower()
-                    if tname in ("pirate", "serpent", "squid") and "x" in c and "y" in c:
-                        cx, cy = c["x"], c["y"]
-                        avoid_monsters.add((cx, cy))
-                        for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
-                            avoid_monsters.add(((cx + dx) % gmap.width, (cy + dy) % gmap.height))
+            avoid_all_land = (
+                goal in (Goal.RESURRECT_DEAD, Goal.CURE_POISON, Goal.BUY_FOOD)
+                or needs_heal(party)
+            )
+            for c in getattr(screen, "creatures", []):
+                tname = str(c.get("tile_name") or c.get("tile") or "").lower()
+                if "x" not in c or "y" not in c or tname == "whirlpool":
+                    continue
+                is_sea = tname in ("pirate", "serpent", "squid")
+                if (is_sea and avg_max_hp < 400) or (not is_sea and avoid_all_land):
+                    cx, cy = c["x"], c["y"]
+                    avoid_monsters.add((cx, cy))
+                    for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+                        avoid_monsters.add(((cx + dx) % gmap.width, (cy + dy) % gmap.height))
         self._overworld_avoid = avoid_monsters
 
         if goal == Goal.DIG_EXOTICS:
@@ -731,8 +737,13 @@ class AutoPlayController:
             }
             if (px, py) in frigates:
                 return self._emit_key(state_machine, pygame.K_b)
-            if frigates:
-                return self._move_toward(state_machine, gmap, party, (px, py), frigates)
+            reachable_frigates = {
+                pos
+                for pos in frigates
+                if find_2d_step(gmap, (px, py), {pos}, Transport.FOOT, party=party) is not None
+            }
+            if reachable_frigates:
+                return self._move_toward(state_machine, gmap, party, (px, py), reachable_frigates)
             coast = [(45, 12), (45, 14), (44, 16), (44, 14)]
             target = coast[self._patrol_idx % len(coast)]
             if (px, py) == target:
