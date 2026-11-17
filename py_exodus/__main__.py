@@ -79,6 +79,7 @@ class GameApp:
         )
 
         self.autoplay = AutoPlayController(enabled=autoplay)
+        self.state_machine.autoplay_enabled = self.autoplay.enabled
         self.clock = pygame.time.Clock()
 
     def run(self, max_frames: int | None = None) -> None:
@@ -97,6 +98,7 @@ class GameApp:
                 if event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_F9:
                         self.autoplay.toggle()
+                        self.state_machine.autoplay_enabled = self.autoplay.enabled
                         continue
                     if self.autoplay.enabled and event.key == pygame.K_LEFTBRACKET:
                         self.autoplay.adjust_speed(faster=False)

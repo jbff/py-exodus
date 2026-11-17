@@ -117,6 +117,15 @@ class CombatScreen(BaseScreen):
         self.auto_combat_interval: float = 0.12
         self._auto_combat_timer: float = 0.0
 
+    def on_enter(self) -> None:
+        """Sync auto-combat flag from manager when entering combat."""
+        super().on_enter()
+        if self.manager is not None and (
+            getattr(self.manager, "autoplay_enabled", False)
+            or getattr(self.manager, "auto_combat_enabled", False)
+        ):
+            self.auto_combat = True
+
     @property
     def active_party_member(self) -> PartyMember | None:
         """Return currently active party member taking turn in combat."""
@@ -202,6 +211,8 @@ class CombatScreen(BaseScreen):
         if event.key in (pygame.K_TAB, pygame.K_F2):
             self.auto_combat = not self.auto_combat
             self._auto_combat_timer = 0.05
+            if self.manager is not None:
+                self.manager.auto_combat_enabled = self.auto_combat
             self.text_log.add_message(
                 "Auto-combat ON." if self.auto_combat else "Auto-combat OFF."
             )
@@ -209,6 +220,8 @@ class CombatScreen(BaseScreen):
 
         if self.auto_combat and event.key == pygame.K_ESCAPE:
             self.auto_combat = False
+            if self.manager is not None:
+                self.manager.auto_combat_enabled = False
             self.text_log.add_message("Auto-combat OFF.")
             return
 
@@ -817,10 +830,9 @@ class CombatScreen(BaseScreen):
             surface.blit(scaled_v, (0, 0))
 
             # Right Sidebar (Party Stats) at native high resolution
-            self.stats_panel.render(
+            self._render_stats_panel(
                 surface,
-                self.party,
-                rect=pygame.Rect(v_size, 0, w - v_size, h),
+                pygame.Rect(v_size, 0, w - v_size, h),
             )
 
             # Bottom HUD Text Log at native resolution
@@ -832,10 +844,9 @@ class CombatScreen(BaseScreen):
         else:
             surface.blit(temp_v, (0, 0))
 
-            self.stats_panel.render(
+            self._render_stats_panel(
                 surface,
-                self.party,
-                rect=pygame.Rect(176, 0, w - 176, h),
+                pygame.Rect(176, 0, w - 176, h),
             )
 
             log_h = max(24, h - 176)

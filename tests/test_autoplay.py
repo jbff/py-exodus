@@ -1011,4 +1011,60 @@ def test_cure_poisoned_member_by_spell_or_healer(pygame_setup):
     assert ts.text_log.is_waiting_for_input is False
 
 
+def test_stats_panel_autoplay_autocombat_and_turn_count(pygame_setup):
+    """StatsPanel renders Autoplay ON/OFF, Autocombat ON/OFF (forced ON when Autoplay ON), and Turn count."""
+    from py_exodus.assets import AssetManager
+    from py_exodus.screens.overworld import OverworldScreen
+    from py_exodus.ui.stats_panel import StatsPanel
+
+    party = Party(moves=42)
+    party.add_member(Character("GRUMM", "O", Race.DWARF, Profession.FIGHTER))
+    captured: list[str] = []
+
+    class _FakeFont:
+        def get_linesize(self):
+            return 12
+
+        def render(self, text, antialias, color):
+            captured.append(text)
+            return pygame.Surface((max(1, len(text) * 6), 12))
+
+    fake = _FakeFont()
+    panel = StatsPanel(font=fake, small_font=fake)
+    surf = pygame.Surface((400, 600))
+
+    # 1. Both OFF
+    panel.render(surf, party, rect=pygame.Rect(0, 0, 300, 500), autoplay=False, auto_combat=False)
+    assert any("AUTOPLAY:" in s and "OFF" in s for s in captured)
+    assert any("AUTOCOMBAT:" in s and "OFF" in s for s in captured)
+    assert any("TURN: 42" in s for s in captured)
+
+    # 2. Autoplay OFF, Autocombat ON
+    captured.clear()
+    panel.render(surf, party, rect=pygame.Rect(0, 0, 300, 500), autoplay=False, auto_combat=True)
+    assert any("AUTOPLAY:" in s and "OFF" in s for s in captured)
+    assert any("AUTOCOMBAT:" in s and "ON" in s for s in captured)
+
+    # 3. Autoplay ON always forces Autocombat ON
+    captured.clear()
+    panel.render(surf, party, rect=pygame.Rect(0, 0, 300, 500), autoplay=True, auto_combat=False)
+    assert any("AUTOPLAY:" in s and "ON" in s for s in captured)
+    assert any("AUTOCOMBAT:" in s and "ON" in s for s in captured)
+
+    # 4. Screen integration via StateMachine + OverworldScreen
+    am = AssetManager("data")
+    am.load_all()
+    sm = StateMachine(asset_mgr=am, audio=None)
+    ow = OverworldScreen(party=party, asset_mgr=am, random_encounters=False)
+    ow.stats_panel = panel
+    sm.set_screen(ow)
+    sm.autoplay_enabled = True
+    captured.clear()
+    ow._render_stats_panel(surf, pygame.Rect(0, 0, 300, 500))
+    assert any("AUTOPLAY:" in s and "ON" in s for s in captured)
+    assert any("AUTOCOMBAT:" in s and "ON" in s for s in captured)
+    assert any("TURN: 42" in s for s in captured)
+
+
+
 

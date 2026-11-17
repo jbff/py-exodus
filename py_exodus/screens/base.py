@@ -77,6 +77,26 @@ class BaseScreen(ABC):
         self.is_active = True
         self.is_finished = False
 
+    def _render_stats_panel(
+        self,
+        surface: pygame.Surface,
+        rect: pygame.Rect,
+    ) -> None:
+        """Render the sidebar StatsPanel with autoplay, auto-combat, and turn count."""
+        autoplay_on = bool(getattr(self.manager, "autoplay_enabled", False))
+        autocombat_on = (
+            autoplay_on
+            or bool(getattr(self, "auto_combat", False))
+            or bool(getattr(self.manager, "auto_combat_enabled", False))
+        )
+        self.stats_panel.render(
+            surface,
+            self.party,
+            rect=rect,
+            autoplay=autoplay_on,
+            auto_combat=autocombat_on,
+        )
+
     def on_exit(self) -> None:
         """Hook called when screen transitions away."""
         self.is_active = False

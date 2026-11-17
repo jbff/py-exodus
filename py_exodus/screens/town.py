@@ -1141,10 +1141,9 @@ class TownScreen(BaseScreen):
             surface.blit(scaled_v, (0, 0))
 
             # Right Sidebar (Party Stats) at native high resolution
-            self.stats_panel.render(
+            self._render_stats_panel(
                 surface,
-                self.party,
-                rect=pygame.Rect(v_size, 0, w - v_size, h),
+                pygame.Rect(v_size, 0, w - v_size, h),
             )
 
             # Bottom HUD Text Log at native resolution
@@ -1168,10 +1167,9 @@ class TownScreen(BaseScreen):
                     avatar_override="ranger",
                 )
 
-            self.stats_panel.render(
+            self._render_stats_panel(
                 surface,
-                self.party,
-                rect=pygame.Rect(176, 0, w - 176, h),
+                pygame.Rect(176, 0, w - 176, h),
             )
 
             log_h = max(24, h - 176)

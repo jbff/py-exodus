@@ -158,6 +158,7 @@ class AutoPlayController:
 
     def update(self, dt: float, state_machine: StateMachine) -> bool:
         """Advance step timer and emit steps when enabled."""
+        state_machine.autoplay_enabled = self.enabled
         if not self.enabled:
             return False
         self._timer += dt
@@ -188,6 +189,7 @@ class AutoPlayController:
 
     def step(self, state_machine: StateMachine) -> int | None:
         """Emit one logical input step for the active screen."""
+        state_machine.autoplay_enabled = self.enabled
         screen = state_machine.current_screen
         if screen is None:
             return None

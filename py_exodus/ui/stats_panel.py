@@ -205,6 +205,8 @@ class StatsPanel:
         inspect_index: int | None = None,
         rect: pygame.Rect | tuple[int, int, int, int] | None = None,
         draw_border: bool = True,
+        autoplay: bool = False,
+        auto_combat: bool = False,
     ) -> None:
         """Render party status sidebar to surface."""
         w, h = surface.get_width(), surface.get_height()
@@ -352,3 +354,15 @@ class StatsPanel:
                 draw_line(f"KEYS:{tot_keys} GEMS:{tot_gems} POWD:{tot_powder}", EGA_LIGHT_GRAY)
                 if party.torch_duration > 0:
                     draw_line(f"TORCH LIGHT: {party.torch_duration}", EGA_YELLOW)
+            if target_rect.bottom - curr_y >= line_h * 3 + 6:
+                draw_separator()
+                eff_auto_combat = bool(autoplay or auto_combat)
+                draw_line(
+                    f"AUTOPLAY:   {'ON' if autoplay else 'OFF'}",
+                    EGA_BRIGHT_GREEN if autoplay else EGA_LIGHT_GRAY,
+                )
+                draw_line(
+                    f"AUTOCOMBAT: {'ON' if eff_auto_combat else 'OFF'}",
+                    EGA_BRIGHT_GREEN if eff_auto_combat else EGA_LIGHT_GRAY,
+                )
+                draw_line(f"TURN: {party.moves}", EGA_WHITE)

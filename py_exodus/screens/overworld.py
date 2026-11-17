@@ -2460,10 +2460,9 @@ class OverworldScreen(BaseScreen):
             self._render_sky_strip(surface, pane_right=v_size, pane_top=0)
 
             # Right Sidebar (Party Stats) at native high resolution
-            self.stats_panel.render(
+            self._render_stats_panel(
                 surface,
-                self.party,
-                rect=pygame.Rect(v_size, 0, w - v_size, h),
+                pygame.Rect(v_size, 0, w - v_size, h),
             )
 
             # Bottom HUD Text Log at native resolution
@@ -2489,10 +2488,9 @@ class OverworldScreen(BaseScreen):
                 )
             self._render_cannon_fx(surface)
             self._render_sky_strip(surface, pane_right=176, pane_top=0)
-            self.stats_panel.render(
+            self._render_stats_panel(
                 surface,
-                self.party,
-                rect=pygame.Rect(176, 0, w - 176, h),
+                pygame.Rect(176, 0, w - 176, h),
             )
             log_h = max(24, h - 176)
             self.text_log.render(
