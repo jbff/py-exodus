@@ -642,11 +642,15 @@ class AutoPlayController:
                 if tname not in ("pirate", "serpent", "squid") or "x" not in c or "y" not in c:
                     continue
                 cx, cy = c["x"], c["y"]
-                dx = min((cx - px) % gmap.width, (px - cx) % gmap.width)
-                dy = min((cy - py) % gmap.height, (py - cy) % gmap.height)
-                if (broadsides_horiz and cy == py and 1 <= dx <= 3) or (
-                    not broadsides_horiz and cx == px and 1 <= dy <= 3
-                ):
+                dx_e = (cx - px) % gmap.width
+                dx_w = (px - cx) % gmap.width
+                dy_s = (cy - py) % gmap.height
+                dy_n = (py - cy) % gmap.height
+                if broadsides_horiz and cy == py and (1 <= dx_e <= 3 or 1 <= dx_w <= 3):
+                    self._key_queue.append(pygame.K_RIGHT if 1 <= dx_e <= 3 else pygame.K_LEFT)
+                    return self._emit_key(state_machine, pygame.K_f)
+                if not broadsides_horiz and cx == px and (1 <= dy_s <= 3 or 1 <= dy_n <= 3):
+                    self._key_queue.append(pygame.K_DOWN if 1 <= dy_s <= 3 else pygame.K_UP)
                     return self._emit_key(state_machine, pygame.K_f)
                 if goal != Goal.CAPTURE_SHIP:
                     avoid_monsters.add((cx, cy))
@@ -707,7 +711,15 @@ class AutoPlayController:
             return self._move_toward(state_machine, gmap, party, (px, py), {(32, 58)})
 
         if goal == Goal.SAIL_WHIRLPOOL:
-            return self._move_toward(state_machine, gmap, party, (px, py), {(50, 13), (17, 48)})
+            whirlpools = {
+                (c["x"], c["y"])
+                for c in getattr(screen, "creatures", ())
+                if str(c.get("tile_name") or c.get("tile") or "").lower() == "whirlpool"
+                and "x" in c and "y" in c
+            }
+            return self._move_toward(
+                state_machine, gmap, party, (px, py), whirlpools or {(50, 13), (17, 48)}
+            )
 
         if goal == Goal.CAPTURE_SHIP:
             frigates = {

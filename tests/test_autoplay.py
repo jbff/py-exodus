@@ -1236,14 +1236,20 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
     # Sailing ship fires cannons (K_f) at aligned broadsides serpent and steers around non-aligned serpents
     p_ship = _make_party(level=5, exp=500, gold=0, food=500, marks=[1, 0, 0, 0], transport=Transport.SHIP)
     p_ship.members[0].keys = 4
-    p_ship.x, p_ship.y = 52, 14
+    p_ship.x, p_ship.y = 52, 15
     ow_s = OverworldScreen(party=p_ship, asset_mgr=am, random_encounters=False)
     ow_s.heading = Direction.NORTH
-    ow_s.creatures = [{"x": 54, "y": 14, "tile_name": "serpent"}]
+    ow_s.creatures = [{"x": 54, "y": 15, "tile_name": "serpent"}]
     sm.set_screen(ow_s)
     ctrl._key_queue.clear()
     assert evaluate_goal(p_ship) == Goal.SAIL_WHIRLPOOL
     assert ctrl.step(sm) == pygame.K_f
+    assert ctrl.step(sm) == pygame.K_RIGHT
+
+    # SAIL_WHIRLPOOL tracks live whirlpool creature coordinates, not just static (50, 13)
+    p_ship.wind_direction = Direction.EAST
+    ow_s.creatures = [{"x": 52, "y": 17, "tile_name": "whirlpool"}]
+    assert ctrl.step(sm) == pygame.K_DOWN
 
 
 
