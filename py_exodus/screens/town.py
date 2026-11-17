@@ -950,8 +950,21 @@ class TownScreen(BaseScreen):
             self.party.dynamic_objects.append({"tile": "horse", "x": self.avatar_x, "y": self.avatar_y})
             self.text_log.add_message("Dismounted horse.")
         else:
-            ship = {"tile": "frigate", "x": self.avatar_x, "y": self.avatar_y}
-            self.party.dynamic_objects.append(ship)
+            existing = next(
+                (
+                    obj
+                    for obj in self.party.dynamic_objects
+                    if str(obj.get("tile", "")).lower() == "frigate"
+                    and obj.get("x") == self.avatar_x
+                    and obj.get("y") == self.avatar_y
+                ),
+                None,
+            )
+            if existing is None:
+                ship = {"tile": "frigate", "x": self.avatar_x, "y": self.avatar_y}
+                self.party.dynamic_objects.append(ship)
+            else:
+                ship = existing
             self.party.last_ship = ship
             self.text_log.add_message("Disembarked frigate.")
 

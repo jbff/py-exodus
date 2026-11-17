@@ -1403,6 +1403,13 @@ class CombatArena:
         elif is_pirate:
             self.chest_spawned = False
             if hasattr(self.party, "dynamic_objects"):
-                self.party.dynamic_objects.append({"tile": "frigate", "x": chest_x, "y": chest_y})
+                already_has_frigate = any(
+                    str(obj.get("tile", "")).lower() == "frigate"
+                    and obj.get("x") == chest_x
+                    and obj.get("y") == chest_y
+                    for obj in self.party.dynamic_objects
+                )
+                if not already_has_frigate:
+                    self.party.dynamic_objects.append({"tile": "frigate", "x": chest_x, "y": chest_y})
         else:
             self.chest_spawned = False

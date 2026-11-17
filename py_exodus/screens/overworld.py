@@ -861,8 +861,21 @@ class OverworldScreen(BaseScreen):
             self.party.dynamic_objects.append({"tile": "horse", "x": self.party.x, "y": self.party.y})
             self.text_log.add_message("Dismounted horse.")
         else:
-            ship = {"tile": "frigate", "x": self.party.x, "y": self.party.y}
-            self.party.dynamic_objects.append(ship)
+            existing = next(
+                (
+                    obj
+                    for obj in self.party.dynamic_objects
+                    if str(obj.get("tile", "")).lower() == "frigate"
+                    and obj.get("x") == self.party.x
+                    and obj.get("y") == self.party.y
+                ),
+                None,
+            )
+            if existing is None:
+                ship = {"tile": "frigate", "x": self.party.x, "y": self.party.y}
+                self.party.dynamic_objects.append(ship)
+            else:
+                ship = existing
             self.party.last_ship = ship
             self.text_log.add_message("Disembarked frigate.")
 

@@ -707,3 +707,47 @@ class TestFrigateDirectionalRendering:
         south_bytes = _render_center()
         assert south_bytes != baseline
 
+
+class TestFrigateNoStacking:
+    """Winning a pirate fight or disembarking must not stack duplicate frigates."""
+
+    def test_pirate_victory_does_not_stack_frigate(self, asset_mgr, sample_party):
+        from py_exodus.combat.arena import CombatArena
+        from py_exodus.world.loader import MapLoader
+
+        combat_map = MapLoader(asset_mgr).load_conflict_map("CNFLCT_A.ULT")
+        sample_party.x, sample_party.y = 46, 18
+        sample_party.dynamic_objects.append({"tile": "frigate", "x": 46, "y": 18})
+
+        arena = CombatArena(
+            party=sample_party,
+            combat_map=combat_map,
+            creature_tile="pirate",
+            asset_mgr=asset_mgr,
+            monster_count=1,
+            encounter_x=46,
+            encounter_y=18,
+            encounter_tile_walkable=False,
+        )
+        arena._handle_victory()
+
+        frigates_at_tile = [
+            o for o in sample_party.dynamic_objects
+            if o.get("tile") == "frigate" and o.get("x") == 46 and o.get("y") == 18
+        ]
+        assert len(frigates_at_tile) == 1
+
+    def test_disembark_does_not_stack_frigate(self, overworld):
+        overworld.party.x, overworld.party.y = 46, 18
+        overworld.party.transport = Transport.SHIP
+        overworld.party.dynamic_objects.append({"tile": "frigate", "x": 46, "y": 18})
+
+        overworld._exit_transport()
+
+        frigates_at_tile = [
+            o for o in overworld.party.dynamic_objects
+            if o.get("tile") == "frigate" and o.get("x") == 46 and o.get("y") == 18
+        ]
+        assert len(frigates_at_tile) == 1
+
+
