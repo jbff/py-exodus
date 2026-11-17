@@ -201,13 +201,23 @@ Original numbers kept for history against the 2026-11-13 list above.
     `allow_empty` to `TextLog.prompt` and set `allow_empty=False` in
     `_prompt_yell` (`overworld.py`, `town.py`) per
     `SecondaryInputProcessor.java:535-538`, keeping `ESC` cancelable).
-
-### Remaining deferred follow-ups (2026-11-15 / 2026-11-16)
-
 41. Playtest 1 unexercisable-then: `ZXKuqyb` masskill (70MP), 9999 gold cap,
-    Healer Resurrect — Healer Resurrect exercised in Playtest-2 (`500gp`,
-    revived `SERENA` to 1 HP); `ZXKuqyb` and 9999 gold cap to exercise in
-    Playtest-3.
+    Healer Resurrect — CLOSED (Healer Resurrect exercised in Playtest-2;
+    `ZXKuqyb` 70 MP masskill (`SERENA` 75->5 MP) and `9999` gold cap
+    (`adjust_gold(99999) -> 9999`) exercised in Playtest-3).
+
+### New follow-ups found during Playtest-3 (2026-11-16)
+
+49. **CRITICAL — Softlock exiting Ambrosia (`overworld.py:1391` vs `:1408`,
+    `portal_entry.py:28-50`)**: On Ambrosia (`map_id=13`), the exit
+    `WHIRLPOOL` portal at `(32, 58)` is a `whirlpool` tile
+    (`UNWALKABLE|LIVINGTHING`) adjacent to `water` at `(32, 57)`. Because
+    `step_in_whirlpool_portal` runs inside `if can_move_to(...)`, a party
+    on `Transport.FOOT` cannot step onto `(32, 58)` to return to Sosaria.
+50. **MINOR — `ShrineScreen.handle_event` `.unicode` guard
+    (`shrine.py:155, 173`)**: Reads `event.unicode` directly instead of
+    `getattr(event, "unicode", "") or ""`, raising `AttributeError` on
+    `KEYDOWN` events without `.unicode`.
 
 ## How to resume
 

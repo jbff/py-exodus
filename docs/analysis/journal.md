@@ -98,3 +98,29 @@ Using an in-memory-only monkeypatch inside the scratch runner (`SOSARIA=0`, `DUN
 6. **MEDIUM — `DungeonState.touch_mark` (`dungeon.py:2036-2039`) & `chests._apply_fire_lava` (`chests.py:199-201`) bypass `apply_damage`**: Mutate `hp` directly and kill at `hp == 0`, bypassing `< 0` death convention and `PartyDeathException`.
 7. **MEDIUM — Dungeon entry enum label `"Entering DARDIN..."` (item 38, `dungeon_screen.py`)** & **duplicate `"You climb out of the dungeon to the surface!"` on exit (`dungeon_screen.py:317-318, 345`)**.
 8. **MEDIUM — `YELL` prompt edge cases (item 40, `journal.md:28`)**: Empty `ENTER` / `ESC` closes `"Yell what? "` silently returning nothing vs Java's non-empty keep-open behavior.
+
+---
+
+# py-exodus playtest #3 (Endgame Walkthrough, 2026-11-16 @ 7cefcea)
+
+Resumed via headless driver (`tests/play_driver.py` + `PlaySession`) from `saves/party.bak-2026-11-16-level6-qsave.json` (`(45, 18)` Sosaria, `moves=3590`, `SHADOW` L7, `GRUMM` L7, `SERENA` L6, `ZIRCON` L6, `marks=[1, 0, 0, 0]`, `3,221` gp). Boot logged `"Entering Sosaria!"` and `"Wind blows WEST."`, and restored both Sosaria whirlpools at `(50, 13)` and `(17, 48)`.
+
+## Walkthrough Legs
+
+- **Naval Frigate & Broadsides (`F`)**: Boarded unmanned frigate (`B` -> `Transport.SHIP`, `"Board Frigate!"`). Broadside `F` -> `N` while heading `NORTH` refused with `"Broadsides only!"`; `F` -> `E` fired `"BOOM! Broadside fired EAST!"` -> `"Direct hit! The Serpent sinks into the sea!"`.
+- **Whirlpool -> Ambrosia (`map_id=13`)**: Sailed `SOUTH` onto the Sosaria whirlpool -> `"lungs you pass into / Darkness! / You awaken on the shores of / a forgotten Land. / Your ship and crew lost to / the sea!"`, landing at `(32, 54)` on `Transport.FOOT`.
+- **9999 Gold Cap & Ambrosia Shrines/Cards**: `adjust_gold(99999)` capped cleanly at `9999`. Collected all 4 Cards via `O -> SEARCH` (`"You found a Card with / Strange Marks."`, `cards=[1, 1, 1, 1]`) at `(55, 27)` Death, `(45, 52)` Sol, `(6, 6)` Moons, `(4, 36)` Love. Entered all 4 Shrines (`ShrineScreen`): raised `SERENA` WIS `25 -> 79` (`max_mp=79`) and `ZIRCON` INT `25 -> 79` (`max_mp=79`).
+- **Remaining Marks & `ZXKuqyb` (70 MP masskill, Item 41)**:
+  - Entered `Dungeon of Fire` (`map_id=17` at `(49, 34)`): `show_minimap=True` verified; touched `MARK_FIRE` at `(5, 14, 7)` (`marks=[1, 1, 0, 0]`) and `MARK_FORCE` at `(4, 10, 7)` (`marks=[1, 1, 0, 1]`).
+  - Entered `Dungeon of the Snake` (`map_id=19` at `(58, 44)`): touched `MARK_SNAKE` at `(6, 15, 7)` (`marks=[1, 1, 1, 1]`).
+  - Entered combat (`4` orcs) with `SERENA` at `75 MP`, cast Cleric spell `O` (`ZXKUQYB`): spent `70 MP` (`75 -> 5`), logged `"Zxkuqyb destroys 2 monsters!"` (75% per-monster kill roll).
+- **Exotic Gear (`O -> DIG`)**: Dug at `(33, 3)` (`EXOTIC` weapon) and `(19, 44)` (`EXOTIC` armor) on Sosaria (`weapons[EXOTIC]=1`, `armors[EXOTIC]=1`).
+- **Castle of Death (`EXODUS`, `map_id=2` at `(10, 53)`), `PRAY`, `INSERT` Cards & Ending**:
+  - `O -> PRAY` at `(48, 48)` logged `"A vision appears: Yell / 'EVOCARE'!"`.
+  - Entered EXODUS combat (`context_map_id=2`, `daemon x 2`) with `EXOTIC` gear equipped.
+  - At EXODUS machine panels `(30..33, 12)`, `O -> INSERT` inserted Love (`L`, `0x1`), Sol (`S`, `0x3`), Moons (`M`, `0x7`), Death (`D`, `0xf`), transitioning cleanly to `FinalScreen` with `exodus_defeated=1`.
+
+## Playtest-3 Anomaly Summary (by severity)
+
+1. **CRITICAL — Softlock exiting Ambrosia (`py_exodus/screens/overworld.py:1391` vs `:1408`, `py_exodus/world/portal_entry.py:28-50`)**: On Ambrosia (`map_id=13`), the exit `WHIRLPOOL` portal at `(32, 58)` is a `whirlpool` tile (`UNWALKABLE|LIVINGTHING`) adjacent to `water` at `(32, 57)` (`UNWALKABLE`). Because `step_in_whirlpool_portal(self, nx, ny)` runs *inside* `if can_move_to(...)`, a party arriving on Ambrosia on `Transport.FOOT` cannot step onto `(32, 58)` and is permanently softlocked on Ambrosia.
+2. **MINOR — `ShrineScreen.handle_event` missing `.unicode` guard (`py_exodus/screens/shrine.py:155, 173`)**: Reads `event.unicode` directly without `getattr(event, "unicode", "") or ""`, raising `AttributeError` on `KEYDOWN` events lacking `.unicode` (e.g. modifier/programmatic events).
