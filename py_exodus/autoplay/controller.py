@@ -130,6 +130,7 @@ class AutoPlayController:
         self._hand_to_idx: int = 2
         self._food_packs: int = 1
         self._talk_dir_key: int = pygame.K_UP
+        self._mapped_dungeon_levels: set[tuple[int, int]] = set()
 
     def toggle(self) -> bool:
         """Flip autoplay enabled state and clear any queued keystrokes."""
@@ -275,8 +276,36 @@ class AutoPlayController:
             return self._emit_key(state_machine, pygame.K_ESCAPE)
 
         party = screen.party
-        dmap = screen.dmap
+        dmap = getattr(screen, "dungeon_map", None) or getattr(screen, "dmap", None) or screen.state.dmap
         goal = evaluate_goal(party)
+
+        # Peer a gem once per unseen dungeon level to legitimately map its layout
+        level_key = (int(getattr(dmap, "id", 0)), int(screen.state.z))
+        if level_key not in self._mapped_dungeon_levels:
+            self._mapped_dungeon_levels.add(level_key)
+            gem_holder = next((m for m in party.members if not m.is_dead() and m.gems > 0), None)
+            if gem_holder is not None:
+                gem_holder.gems -= 1
+                if not getattr(screen, "show_minimap", False):
+                    return self._emit_key(state_machine, pygame.K_p)
+
+        # Touch a Mark tile when standing on one that living members still need
+        mark_map = {
+            DungeonTile.MARK_KINGS: 0,
+            DungeonTile.MARK_FIRE: 1,
+            DungeonTile.MARK_SNAKE: 2,
+            DungeonTile.MARK_FORCE: 3,
+        }
+        cur_tile = getattr(screen.state, "current_tile", None)
+        if cur_tile in mark_map:
+            mark_idx = mark_map[cur_tile]
+            need_idx = next(
+                (i + 1 for i, m in enumerate(party.members) if not m.is_dead() and m.marks[mark_idx] == 0),
+                None,
+            )
+            if need_idx is not None:
+                self._queue_text(str(need_idx), enter=False)
+                return self._emit_key(state_machine, pygame.K_s)
 
         # Light spell if dark
         if party.torch_duration <= 1:
@@ -415,17 +444,19 @@ class AutoPlayController:
                 if d is not None:
                     return self._emit_key(state_machine, _DIR_TO_KEY[d])
 
-        if map_id in _GUILD_TOWNS and goal == Goal.BUY_KEYS:
+        if map_id in _GUILD_TOWNS and goal in (Goal.BUY_KEYS, Goal.BUY_GEMS):
             _, _, guild_xy = _GUILD_TOWNS[map_id]
             living = [(i + 1, m) for i, m in enumerate(party.members) if not m.is_dead()]
             if living:
+                cost = 50 if goal == Goal.BUY_KEYS else 75
+                letter = "c" if goal == Goal.BUY_KEYS else "b"
                 buyer_idx, buyer = max(living, key=lambda im: im[1].gold)
-                if buyer.gold < 50:
+                if buyer.gold < cost:
                     self._join_gold_member_idx = buyer_idx
                     return self._emit_key(state_machine, pygame.K_j)
                 if (px, py) == guild_xy:
                     self._shop_member_idx = buyer_idx
-                    self._shop_item_letter = "c"  # Magic Keys (50g)
+                    self._shop_item_letter = letter
                     self._talk_dir_key = self._direction_to_npc(gmap, px, py)
                     return self._emit_key(state_machine, pygame.K_t)
                 d = find_2d_step(
@@ -579,7 +610,7 @@ class AutoPlayController:
             )
             return self._enter_portal_or_wait_dawn(state_machine, screen, gmap, party, px, py, target_portal)
 
-        if goal == Goal.BUY_KEYS:
+        if goal in (Goal.BUY_KEYS, Goal.BUY_GEMS):
             guild_portals = [(info[0], info[1]) for info in _GUILD_TOWNS.values()]
             target_portal = self._nearest_reachable_portal(
                 gmap, px, py, party.transport, guild_portals, party=party

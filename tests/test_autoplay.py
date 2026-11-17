@@ -441,9 +441,12 @@ def test_cli_autoplay_flag_and_headless_app(pygame_setup):
 
 def test_autoplay_outfits_fresh_l1_party_in_britain(pygame_setup):
     """Fresh L1 party at Sosaria (44, 20) walks into Britain, buys weapons & Cloth, equips all 4, and exits."""
+    import random
     from py_exodus.assets import AssetManager
     from py_exodus.screens.overworld import OverworldScreen
     from py_exodus.state_machine import StateMachine
+
+    random.seed(42)
 
     am = AssetManager()
     am.load_all()
@@ -473,9 +476,12 @@ def test_autoplay_outfits_fresh_l1_party_in_britain(pygame_setup):
 
 def test_autoplay_loots_dropped_chest_on_sosaria(pygame_setup):
     """AutoPlayController walks to a dropped chest on Sosaria and opens it (APPAR_UNEM or G)."""
+    import random
     from py_exodus.assets import AssetManager
     from py_exodus.screens.overworld import OverworldScreen
     from py_exodus.state_machine import StateMachine
+
+    random.seed(42)
 
     am = AssetManager()
     am.load_all()
@@ -524,9 +530,12 @@ def test_find_2d_step_prefer_paths_follows_floor():
 
 
 def test_nearest_shop_town_and_monster_chasing(pygame_setup):
+    import random
     from py_exodus.assets import AssetManager
     from py_exodus.screens.overworld import OverworldScreen
     from py_exodus.state_machine import StateMachine
+
+    random.seed(42)
 
     am = AssetManager()
     am.load_all()
@@ -847,6 +856,44 @@ def test_bulk_food_buying_strategy(pygame_setup):
 
     assert party.food >= 700
     assert evaluate_goal(party) != Goal.BUY_FOOD
+
+
+def test_dungeon_peer_gem_once_per_level_and_touch_mark(pygame_setup):
+    """Entering DungeonScreen doesn't crash, peers 1 Gem per unseen level, and touches Marks with S."""
+    from py_exodus.assets import AssetManager
+    from py_exodus.screens.dungeon_screen import DungeonScreen
+
+    am = AssetManager("data")
+    am.load_all()
+    party = _make_party(
+        level=5, exp=500, marks=[0, 0, 0, 0],
+        weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC,
+        gold=0, food=500,
+    )
+    party.members[0].gems = 2
+    dmap = load_map(15, am)
+    sm = StateMachine(asset_mgr=am, audio=None)
+    ds = DungeonScreen(party=party, dungeon_map=dmap, asset_mgr=am)
+    sm.set_screen(ds)
+
+    ctrl = AutoPlayController(enabled=True)
+    # First step on (15, 0): peers 1 gem -> gems 2 -> 1, minimap visible
+    ctrl.step(sm)
+    assert party.members[0].gems == 1
+    assert ds.show_minimap is True
+    # Subsequent steps on (15, 0) do not consume another gem
+    ctrl.step(sm)
+    assert party.members[0].gems == 1
+
+    # Place party on MARK_KINGS at (11, 3, 1) -> touches mark for all 4 living members
+    ds.state.x, ds.state.y, ds.state.z = 11, 3, 1
+    for _ in range(12):
+        ctrl.step(sm)
+        if all(m.marks[0] > 0 for m in party.members):
+            break
+    assert all(m.marks[0] > 0 for m in party.members)
+    # Only 1 additional gem used for level (15, 1)
+    assert party.members[0].gems == 0
 
 
 

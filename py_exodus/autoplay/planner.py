@@ -22,6 +22,7 @@ class Goal(str, Enum):
     BUY_FOOD = "buy_food"
     OUTFIT_BRITAIN = "outfit_britain"
     GRIND_AND_LEVEL = "grind_and_level"
+    BUY_GEMS = "buy_gems"
     GET_MARK_KINGS = "get_mark_kings"
     BUY_KEYS = "buy_keys"
     CAPTURE_SHIP = "capture_ship"
@@ -97,6 +98,13 @@ def evaluate_goal(party: Party) -> Goal:
         return Goal.GRIND_AND_LEVEL
 
     if not all(m.marks[0] > 0 for m in living):
+        if (
+            party.map_id not in (13, 15, 16, 17, 18, 19, 20)
+            and party.transport != Transport.SHIP
+            and sum(m.gems for m in living) < 2
+            and sum(m.gold for m in living) >= 75
+        ):
+            return Goal.BUY_GEMS
         return Goal.GET_MARK_KINGS
 
     if not has_all_cards:
@@ -116,6 +124,13 @@ def evaluate_goal(party: Party) -> Goal:
         return Goal.EXIT_AMBROSIA
 
     if not has_remaining_marks:
+        if (
+            party.map_id not in (13, 15, 16, 17, 18, 19, 20)
+            and party.transport != Transport.SHIP
+            and sum(m.gems for m in living) < 8
+            and sum(m.gold for m in living) >= 75
+        ):
+            return Goal.BUY_GEMS
         return Goal.GET_REMAINING_MARKS
 
     if not has_exotics:
