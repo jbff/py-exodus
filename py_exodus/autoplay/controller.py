@@ -62,7 +62,9 @@ _GUILD_TOWNS: dict[int, tuple[int, int, tuple[int, int]]] = {
 _FOOD_TOWNS: dict[int, tuple[int, int, tuple[int, int]]] = {
     1: (45, 18, (16, 20)),   # Castle British (20gp / 25 food; no counter, stand adjacent)
     3: (46, 19, (48, 49)),   # Britain (25gp / 25 food)
+    4: (34, 16, (31, 17)),   # Yew (20gp / 25 food)
     6: (7, 44, (26, 25)),    # Grey (30gp / 25 food)
+    11: (37, 53, (29, 41)),  # Dawn (25gp / 25 food; only selected when Dawn is open)
 }
 
 # Towns with Healers reachable on foot: map_id -> (portal_x, portal_y, healer_stand_xy)
@@ -789,14 +791,30 @@ class AutoPlayController:
             return self._move_toward(state_machine, gmap, party, (px, py), {(58, 44)})
 
         if goal == Goal.BUY_FOOD:
-            food_portals = [(info[0], info[1]) for info in _FOOD_TOWNS.values()]
+            dawn_open = (
+                getattr(screen, "trammel_phase", 0) == 0
+                and getattr(screen, "felucca_phase", 0) == 0
+            )
+            food_portals = [
+                (info[0], info[1])
+                for mid, info in _FOOD_TOWNS.items()
+                if mid != 11 or dawn_open
+            ]
             target_portal = self._nearest_reachable_portal(
                 gmap, px, py, party.transport, food_portals, party=party
             )
             return self._enter_portal_or_wait_dawn(state_machine, screen, gmap, party, px, py, target_portal)
 
         if goal in (Goal.RESURRECT_DEAD, Goal.CURE_POISON):
-            healer_portals = [(info[0], info[1]) for info in _HEALER_TOWNS.values()]
+            dawn_open = (
+                getattr(screen, "trammel_phase", 0) == 0
+                and getattr(screen, "felucca_phase", 0) == 0
+            )
+            healer_portals = [
+                (info[0], info[1])
+                for mid, info in _HEALER_TOWNS.items()
+                if mid != 11 or dawn_open
+            ]
             target_portal = self._nearest_reachable_portal(
                 gmap, px, py, party.transport, healer_portals, party=party
             )

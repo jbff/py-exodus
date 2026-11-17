@@ -1263,6 +1263,15 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
     p_isl.dynamic_objects.append({"tile": "frigate", "x": 58, "y": 44})
     assert ctrl.step(sm) == pygame.K_b
 
+    # BUY_FOOD picks Yew (34, 16) when closer than Britain, and skips closed Dawn
+    p_yew = _make_party(level=5, exp=500, gold=100, food=50)
+    p_yew.food = 50
+    p_yew.x, p_yew.y = 33, 16
+    ow_y = OverworldScreen(party=p_yew, asset_mgr=am, random_encounters=False)
+    ow_y.creatures = []
+    sm.set_screen(ow_y)
+    assert ctrl.step(sm) == pygame.K_RIGHT  # toward Yew (34, 16)
+
 
 
 
