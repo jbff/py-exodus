@@ -949,7 +949,7 @@ def test_resurrect_dead_member_at_healer(pygame_setup):
 
     am = AssetManager("data")
     am.load_all()
-    party = _make_party(level=3, exp=200, gold=200, food=500)
+    party = _make_party(level=5, exp=500, gold=200, food=500)
     party.members[1].status = Status.DEAD
     party.members[1].hp = 0
     assert evaluate_goal(party) == Goal.RESURRECT_DEAD
@@ -959,13 +959,14 @@ def test_resurrect_dead_member_at_healer(pygame_setup):
     sm.set_screen(ts)
 
     ctrl = AutoPlayController(enabled=True)
-    for _ in range(25):
+    for _ in range(30):
         ctrl.step(sm)
-        if not party.members[1].is_dead():
+        if not party.members[1].is_dead() and not ts.text_log.is_waiting_for_input:
             break
 
     assert party.members[1].status == Status.GOOD
     assert party.members[1].hp > 0
+    assert ts.text_log.is_waiting_for_input is False
     assert evaluate_goal(party) != Goal.RESURRECT_DEAD
 
 

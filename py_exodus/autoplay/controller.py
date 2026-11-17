@@ -781,7 +781,7 @@ class AutoPlayController:
             return self._emit_key(state_machine, self._talk_dir_key)
         if "buy" in prompt and "sell" in prompt:
             return self._emit_key(state_machine, pygame.K_b)
-        if "anything else" in prompt:
+        if "anything else" in prompt or "give blood" in prompt or "more help" in prompt:
             return self._emit_key(state_machine, pygame.K_n)
         if "(y or n)" in prompt or "take it" in prompt or "deal" in prompt:
             return self._emit_key(state_machine, pygame.K_y)
