@@ -942,4 +942,31 @@ def test_dungeon_buys_torches_and_lights_darkness(pygame_setup):
     assert ctrl.step(sm) == pygame.K_c
 
 
+def test_resurrect_dead_member_at_healer(pygame_setup):
+    """Dead party member with >= 500g pooled triggers Goal.RESURRECT_DEAD and is revived at Castle British."""
+    from py_exodus.assets import AssetManager
+    from py_exodus.screens.town import TownScreen
+
+    am = AssetManager("data")
+    am.load_all()
+    party = _make_party(level=3, exp=200, gold=200, food=500)
+    party.members[1].status = Status.DEAD
+    party.members[1].hp = 0
+    assert evaluate_goal(party) == Goal.RESURRECT_DEAD
+
+    sm = StateMachine(asset_mgr=am, audio=None)
+    ts = TownScreen(party=party, asset_mgr=am, map_id=1, start_x=46, start_y=26)
+    sm.set_screen(ts)
+
+    ctrl = AutoPlayController(enabled=True)
+    for _ in range(25):
+        ctrl.step(sm)
+        if not party.members[1].is_dead():
+            break
+
+    assert party.members[1].status == Status.GOOD
+    assert party.members[1].hp > 0
+    assert evaluate_goal(party) != Goal.RESURRECT_DEAD
+
+
 

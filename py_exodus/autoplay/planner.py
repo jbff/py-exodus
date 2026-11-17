@@ -20,6 +20,7 @@ class Goal(str, Enum):
 
     SETUP_PARTY = "setup_party"
     BUY_FOOD = "buy_food"
+    RESURRECT_DEAD = "resurrect_dead"
     OUTFIT_BRITAIN = "outfit_britain"
     GRIND_AND_LEVEL = "grind_and_level"
     BUY_GEMS = "buy_gems"
@@ -37,9 +38,11 @@ class Goal(str, Enum):
 
 
 def needs_heal(party: Party) -> bool:
-    """Return True if any living member is below 67% HP."""
+    """Return True if any living member is below 67% HP or poisoned and missing HP."""
     for m in party.members:
-        if not m.is_dead() and m.max_hp > 0 and m.hp * 3 < m.max_hp * 2:
+        if not m.is_dead() and m.max_hp > 0 and (
+            m.hp * 3 < m.max_hp * 2 or (m.status == Status.POISONED and m.hp + 30 < m.max_hp)
+        ):
             return True
     return False
 
@@ -77,6 +80,21 @@ def evaluate_goal(party: Party) -> Goal:
     ):
         return Goal.BUY_FOOD
 
+    if (
+        party.map_id not in (13, 15, 16, 17, 18, 19, 20)
+        and party.transport != Transport.SHIP
+        and any(m.is_dead() for m in party.members)
+    ):
+        total_living_gold = sum(m.gold for m in living)
+        needed_cost = min(
+            (900 if m.status == Status.ASH else 500)
+            for m in party.members
+            if m.is_dead()
+        )
+        if total_living_gold >= needed_cost:
+            return Goal.RESURRECT_DEAD
+        return Goal.GRIND_AND_LEVEL
+
     has_all_cards = all(any(m.cards[i] > 0 for m in living) for i in range(4))
     has_remaining_marks = all(any(m.marks[i] > 0 for m in living) for i in (1, 2, 3))
     has_exotics = all(
@@ -95,7 +113,7 @@ def evaluate_goal(party: Party) -> Goal:
     ):
         return Goal.OUTFIT_BRITAIN
 
-    if min(m.level for m in living) < 5:
+    if min(m.level for m in party.members) < 5:
         return Goal.GRIND_AND_LEVEL
 
     if not all(m.marks[0] > 0 for m in living):

@@ -15,7 +15,7 @@ from py_exodus.autoplay.equipment import (
 )
 from py_exodus.autoplay.nav import find_2d_step, find_dungeon_step
 from py_exodus.autoplay.planner import Goal, evaluate_goal, needs_heal
-from py_exodus.constants import ArmorType, Direction, Profession, Transport, WeaponType
+from py_exodus.constants import ArmorType, Direction, Profession, Status, Transport, WeaponType
 from py_exodus.world.map import DungeonTile
 
 if TYPE_CHECKING:
@@ -63,6 +63,14 @@ _FOOD_TOWNS: dict[int, tuple[int, int, tuple[int, int]]] = {
     1: (45, 18, (16, 20)),   # Castle British (20gp / 25 food; no counter, stand adjacent)
     3: (46, 19, (48, 49)),   # Britain (25gp / 25 food)
     6: (7, 44, (26, 25)),    # Grey (30gp / 25 food)
+}
+
+# Towns with Healers reachable on foot: map_id -> (portal_x, portal_y, healer_stand_xy)
+_HEALER_TOWNS: dict[int, tuple[int, int, tuple[int, int]]] = {
+    1: (45, 18, (46, 26)),   # Castle British
+    4: (34, 16, (48, 10)),   # Yew
+    5: (6, 13, (50, 50)),    # Moon
+    11: (37, 53, (21, 42)),  # Dawn
 }
 
 # Broad Sosaria mainland patrol route for grinding & exploration
@@ -129,6 +137,7 @@ class AutoPlayController:
         self._hand_from_idx: int = 1
         self._hand_to_idx: int = 2
         self._food_packs: int = 1
+        self._heal_patient_idx: int = 1
         self._talk_dir_key: int = pygame.K_UP
         self._mapped_dungeon_levels: set[tuple[int, int]] = set()
 
@@ -367,6 +376,20 @@ class AutoPlayController:
         else:
             px, py = party.x, party.y
 
+        # Cast resurrection spell on the spot if a Cleric has enough MP
+        dead_idx = next((i + 1 for i, m in enumerate(party.members) if m.status == Status.DEAD), None)
+        if dead_idx is not None:
+            caster = self._find_caster(party, (Profession.CLERIC, Profession.DRUID), min_mp=65)
+            if caster is not None:
+                self._queue_text(f"{caster[0]}n{dead_idx}", enter=False)
+                return self._emit_key(state_machine, pygame.K_c)
+        ash_idx = next((i + 1 for i, m in enumerate(party.members) if m.status == Status.ASH), None)
+        if ash_idx is not None:
+            caster = self._find_caster(party, (Profession.CLERIC, Profession.DRUID), min_mp=75)
+            if caster is not None:
+                self._queue_text(f"{caster[0]}p{ash_idx}", enter=False)
+                return self._emit_key(state_machine, pygame.K_c)
+
         # Heal detour if hurt
         if needs_heal(party):
             caster = self._find_caster(party, (Profession.CLERIC, Profession.PALADIN, Profession.DRUID), min_mp=10)
@@ -496,6 +519,36 @@ class AutoPlayController:
                 if d is not None:
                     return self._emit_key(state_machine, _DIR_TO_KEY[d])
 
+        if map_id in _HEALER_TOWNS and goal == Goal.RESURRECT_DEAD:
+            _, _, healer_xy = _HEALER_TOWNS[map_id]
+            living = [(i + 1, m) for i, m in enumerate(party.members) if not m.is_dead()]
+            patient = next(
+                (
+                    (i + 1, m, (900 if m.status == Status.ASH else 500), ("d" if m.status == Status.ASH else "c"))
+                    for i, m in enumerate(party.members)
+                    if m.status in (Status.DEAD, Status.ASH)
+                ),
+                None,
+            )
+            if living and patient is not None:
+                patient_idx, _, cost, letter = patient
+                payer_idx, payer = max(living, key=lambda im: im[1].gold)
+                if payer.gold < cost:
+                    self._join_gold_member_idx = payer_idx
+                    return self._emit_key(state_machine, pygame.K_j)
+                if (px, py) == healer_xy:
+                    self._shop_member_idx = payer_idx
+                    self._shop_item_letter = letter
+                    self._heal_patient_idx = patient_idx
+                    self._talk_dir_key = self._direction_to_npc(gmap, px, py)
+                    return self._emit_key(state_machine, pygame.K_t)
+                d = find_2d_step(
+                    gmap, (px, py), healer_xy, Transport.FOOT, party=party,
+                    avoid_tiles=npc_tiles, prefer_paths=True,
+                )
+                if d is not None:
+                    return self._emit_key(state_machine, _DIR_TO_KEY[d])
+
         # Default in town: walk to exit border (south edge)
         exits = {(x, gmap.height - 1) for x in range(gmap.width)}
         if py == gmap.height - 1:
@@ -618,6 +671,13 @@ class AutoPlayController:
             )
             return self._enter_portal_or_wait_dawn(state_machine, screen, gmap, party, px, py, target_portal)
 
+        if goal == Goal.RESURRECT_DEAD:
+            healer_portals = [(info[0], info[1]) for info in _HEALER_TOWNS.values()]
+            target_portal = self._nearest_reachable_portal(
+                gmap, px, py, party.transport, healer_portals, party=party
+            )
+            return self._enter_portal_or_wait_dawn(state_machine, screen, gmap, party, px, py, target_portal)
+
         if goal in (Goal.BUY_KEYS, Goal.BUY_GEMS, Goal.BUY_TORCHES):
             guild_portals = [(info[0], info[1]) for info in _GUILD_TOWNS.values()]
             target_portal = self._nearest_reachable_portal(
@@ -711,6 +771,10 @@ class AutoPlayController:
             return self._emit_key(state_machine, pygame.K_0 + self._wear_member_idx)
         if "wear" in prompt or "armor?" in prompt:
             return self._emit_key(state_machine, _char_to_key(self._wear_item_letter) or pygame.K_b)
+        if "who is in need" in prompt:
+            return self._emit_key(state_machine, pygame.K_0 + self._heal_patient_idx)
+        if "your need" in prompt:
+            return self._emit_key(state_machine, _char_to_key(self._shop_item_letter) or pygame.K_c)
         if "talk" in prompt or "which" in prompt or "who" in prompt:
             return self._emit_key(state_machine, pygame.K_0 + self._shop_member_idx)
         if "direction" in prompt:
