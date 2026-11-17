@@ -1312,6 +1312,20 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
     ctrl._key_queue.clear()
     assert ctrl.step(sm) != pygame.K_RIGHT
 
+    # Ship returning to mainland in GRIND_AND_LEVEL targets water tiles adjacent to mainland, not land
+    p_ret = _make_party(level=3, exp=200, gold=0, food=500, transport=Transport.SHIP)
+    for m in p_ret.members:
+        m.weapons[WeaponType.EXOTIC] = 1
+        m.armors[ArmorType.EXOTIC] = 1
+    p_ret.x, p_ret.y = 18, 44
+    p_ret.wind_direction = Direction.NORTH
+    ow_r = OverworldScreen(party=p_ret, asset_mgr=am, random_encounters=False)
+    ow_r.creatures = []
+    sm.set_screen(ow_r)
+    ctrl._key_queue.clear()
+    assert evaluate_goal(p_ret) == Goal.GRIND_AND_LEVEL
+    assert ctrl.step(sm) != pygame.K_SPACE
+
     # Stranded on island for BUY_FOOD uses reachable moongate or frigate instead of passing turns
     p_isl = _make_party(level=5, exp=500, gold=100, food=50)
     p_isl.food = 50

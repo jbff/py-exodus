@@ -925,7 +925,9 @@ class AutoPlayController:
                     (lx, ly) == (46, 19) or find_2d_step(gmap, (lx, ly), {(46, 19)}, Transport.FOOT, party=party) is not None
                 ):
                     return self._emit_key(state_machine, pygame.K_x)
-            return self._move_toward(state_machine, gmap, party, (px, py), {(45, 13), (44, 16)})
+            return self._move_toward(
+                state_machine, gmap, party, (px, py), {(46, 12), (46, 13), (46, 14), (45, 15), (45, 16)}
+            )
 
         # GRIND_AND_LEVEL
         if any(self._can_level_at_british(m) for m in living):
