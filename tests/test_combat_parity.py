@@ -1035,6 +1035,56 @@ def test_camouflage_hides_at_distance_and_takes_no_action(asset_mgr, conflict_ma
     assert arena.monsters[0].visible is False
 
 
+def test_camouflage_teleporter_hides_at_distance_and_takes_no_action(
+    asset_mgr, conflict_map, monkeypatch
+):
+    """Item 29: Java CombatScreen.java:696-718 gates TELEPORT behind
+    creature.getCamouflage() && !hideOrShow(creature) before switch(action)."""
+    # randrange(100) -> 0 triggers teleports=True (<= 25)
+    monkeypatch.setattr(arena_mod.random, "randrange", lambda n: 0)
+    party = build_party(hp=1000)
+    arena = CombatArena(party, conflict_map, asset_mgr=asset_mgr, monster_count=1)
+    monster = arena.monsters[0]
+    monster.definition = CreatureDef(
+        id=40, name="CamoTele", tile="orc", basehp=48, camouflage=True, teleports=True
+    )
+    monster.teleports = True
+    monster.visible = True
+    arena.player_positions[0] = (5, 5)
+    monster.x, monster.y = 0, 0  # movement distance 10 (>= 5)
+
+    res = arena._execute_single_monster_ai(monster)
+
+    assert res is None
+    assert monster.visible is False
+    assert (monster.x, monster.y) == (0, 0)
+
+
+def test_camouflage_ranged_hides_at_distance_and_takes_no_action(
+    asset_mgr, conflict_map, monkeypatch
+):
+    """Item 29: Java CombatScreen.java:696-718 gates RANGED behind
+    creature.getCamouflage() && !hideOrShow(creature) before switch(action)."""
+    # randrange(100) -> 0 triggers ranged=True (<= 33) when teleports=False
+    monkeypatch.setattr(arena_mod.random, "randrange", lambda n: 0)
+    party = build_party(hp=1000)
+    arena = CombatArena(party, conflict_map, asset_mgr=asset_mgr, monster_count=1)
+    monster = arena.monsters[0]
+    monster.definition = CreatureDef(
+        id=41, name="CamoRanged", tile="orc", basehp=48, camouflage=True, ranged=True
+    )
+    monster.ranged = True
+    monster.visible = True
+    arena.player_positions[0] = (5, 5)
+    monster.x, monster.y = 0, 0  # movement distance 10 (>= 5)
+
+    res = arena._execute_single_monster_ai(monster)
+
+    assert res is None
+    assert monster.visible is False
+    assert party.members[0].hp == 1000
+
+
 def test_camouflage_reveals_when_within_5_then_acts(asset_mgr, conflict_map, monkeypatch):
     """Java CombatScreen.java:867-870 — dist < 5 reveals; the visible creature
     then goes on to take its chosen action in the SAME turn."""

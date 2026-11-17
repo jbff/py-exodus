@@ -457,7 +457,7 @@ def test_overworld_chest_acid_trap_wipe_transitions_to_start_screen(sm, asset_mg
 
     class _FakeRandom:
         def randrange(self, n: int) -> int:  # trap hits, evade fails, trap #0 = acid
-            return {2: 0, 100: 99, 4: 0, 7: 0, 50: 0, 8: 0, 32: 31}[n]
+            return {2: 0, 100: 99, 4: 0, 256: 0, 7: 0, 50: 0, 8: 0, 32: 31}[n]
 
     import py_exodus.world.chests as chests_mod
 
@@ -630,7 +630,7 @@ def test_town_chest_acid_trap_wipe_transitions_to_start_screen(sm, asset_mgr, mo
 
     class _FakeRandom:
         def randrange(self, n: int) -> int:
-            return {2: 0, 100: 99, 4: 0, 7: 0, 50: 0, 8: 0, 32: 31}[n]
+            return {2: 0, 100: 99, 4: 0, 256: 0, 7: 0, 50: 0, 8: 0, 32: 31}[n]
 
     import py_exodus.world.chests as chests_mod
 

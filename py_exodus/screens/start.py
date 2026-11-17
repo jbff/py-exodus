@@ -128,7 +128,9 @@ class StartScreen(BaseScreen):
             ((w - title_surf.get_width()) // 2, 20 * scale),
         )
 
-        sub_surf = sub_font.render("From the depths of hell... he comes!", True, EGA_BRIGHT_RED)
+        sub_surf = sub_font.render(
+            "From the depths of hell... he comes for vengeance!", True, EGA_BRIGHT_RED
+        )
         surface.blit(
             sub_surf,
             ((w - sub_surf.get_width()) // 2, 50 * scale),

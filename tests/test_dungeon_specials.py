@@ -548,7 +548,7 @@ def test_dungeon_chest_trapped_without_disarm(open_dmap, test_party, monkeypatch
     # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): Gas trap poisons every
     # living member (GBC menucmd.c:1077-1147; LW UltimaMain.c:1718-1734 case
     # 3) — no damage rolls, both living members end POISONED at full HP.
-    seq = [0, 99, 3]
+    seq = [0, 99, 3, 3]
 
     def fake_randrange(n, **kwargs):
         return seq.pop(0) if seq else 0

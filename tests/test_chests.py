@@ -138,7 +138,7 @@ def test_acid_trap_damages_opener(monkeypatch):
 
     # Trap present, evade roll 99 (hit for dex 15), acid, damage roll 5 -> 21,
     # gold, then the drop rolls both miss (3, 3)
-    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 0, 5, 25, 6, 3, 3]))
+    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 0, 0, 5, 25, 6, 3, 3]))
 
     lines = open_chest(party, member, dungeon=False)
 
@@ -168,7 +168,7 @@ def test_apply_fire_lava_below_zero_kills_without_raising_out_of_open_chest(monk
     member = make_member("Fighter", hp=20, max_hp=100)
     party = make_party([member])
     # Trap present, evade fails, Acid (0), damage roll 5 -> 21 > 20 HP, gold rolls, drops miss
-    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 0, 5, 25, 6, 3, 3]))
+    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 0, 0, 5, 25, 6, 3, 3]))
 
     lines = open_chest(party, member, dungeon=False)
 
@@ -185,7 +185,7 @@ def test_acid_trap_with_mark_of_fire_is_a_no_op(monkeypatch):
 
     # Trap present, hit, acid; NO damage roll is consumed, then gold rolls,
     # then the drop rolls both miss (3, 3)
-    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 0, 25, 6, 3, 3]))
+    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 0, 0, 25, 6, 3, 3]))
 
     lines = open_chest(party, member, dungeon=False)
 
@@ -207,7 +207,7 @@ def test_gas_trap_poisons_whole_party(monkeypatch):
 
     # Trap, hit, gas; no damage rolls exist under GBC rules, then gold, then
     # the drop rolls both miss (3, 3)
-    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 3, 25, 6, 3, 3]))
+    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 3, 3, 25, 6, 3, 3]))
     already.status = Status.POISONED
     dead.status = Status.DEAD
 
@@ -227,7 +227,7 @@ def test_gas_trap_hits_living_members_only(monkeypatch):
     dead = make_member("Wizard")
     party = make_party([member, dead])
 
-    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 3, 25, 6]))
+    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 3, 3, 25, 6]))
     dead.status = Status.DEAD
     dead.hp = 0
 
@@ -243,13 +243,36 @@ def test_poison_trap_poisons_opener(monkeypatch):
     member = make_member("Fighter")
     party = make_party([member])
 
-    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 1, 25, 6, 3, 3]))
+    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 1, 1, 25, 6, 3, 3]))
 
     lines = open_chest(party, member, dungeon=False)
 
     assert lines == ["Poison Trap!", "The Chest Holds: 41 Gold"]
     assert member.status == Status.POISONED
     assert member.hp == 100
+
+
+def test_chest_trap_lw_typing_distribution_56_19_19_6(monkeypatch):
+    """Item 28: LW UltimaMain.c:1628 uses (RandNum(0,255) & RandNum(0,255)) & 0x03,
+    yielding 9/16 Acid (0), 3/16 Poison (1), 3/16 Bomb (2), 1/16 Gas (3)."""
+    from collections import Counter
+
+    counts: Counter[str] = Counter()
+    for a in range(4):
+        for b in range(4):
+            member = make_member("Fighter", dexterity=0, marks=[0, 1, 0, 0], max_hp=1000, hp=1000)
+            party = make_party([member])
+            monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, a, b, 0]))
+            lines, _ = chests._chest_trap(party, member)
+            assert len(lines) == 1
+            counts[lines[0]] += 1
+
+    assert counts == {
+        "Acid Trap!": 9,
+        "Poison Trap!": 3,
+        "Bomb Trap!": 3,
+        "Gas Trap!": 1,
+    }
 
 
 # --- Step: chest Bomb trap (LW BombTrap, UltimaMain.c:1662-1669 + 1728-1740) ---
@@ -270,7 +293,7 @@ def test_bomb_trap_damages_whole_party_living_only(monkeypatch):
 
     # Trap present, evade hit, Bomb; member roll 0x33 (51), other roll 0
     # (0x77 & roll). The script ends there: no gold or drop rolls exist.
-    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 2, 0x33, 0]))
+    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 2, 2, 0x33, 0]))
 
     lines = open_chest(party, member, dungeon=True)
 
@@ -295,7 +318,7 @@ def test_bomb_trap_surface_band_8_to_127(monkeypatch):
         member.hp = 1000
         other.hp = 1000
         # Bomb roll for the opener walks 0..199; the Cleric always rolls 0x77.
-        monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 2, i % 200, 0x77]))
+        monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 2, 2, i % 200, 0x77]))
         m_hp, o_hp = member.hp, other.hp
         m_damage = (i % 200) & 0x77  # the mask folds bit-3 rolls onto others
         lines = open_chest(party, member, dungeon=False)
@@ -319,7 +342,7 @@ def test_bomb_trap_dungeon_band_includes_level_term(monkeypatch):
         monkeypatch.setattr(
             chests,
             "random",
-            ScriptedRNG([0, 99, 2, (i * 119 // 199) & 0x77, 0x77]),
+            ScriptedRNG([0, 99, 2, 2, (i * 119 // 199) & 0x77, 0x77]),
         )
         m_hp, o_hp = member.hp, other.hp
         open_chest(party, member, dungeon=True)
@@ -336,7 +359,7 @@ def test_bomb_trap_wipes_through_apply_damage(monkeypatch):
     party = make_party([member])
 
     # Blast at level 0: (0x77 & 0x77) + 8 = 127 > 10 hp.
-    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 2, 0x77]))
+    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 2, 2, 0x77]))
 
     with pytest.raises(PartyDeathException):
         open_chest(party, member, dungeon=False)
@@ -356,7 +379,7 @@ def test_bomb_trap_single_death_does_not_raise(monkeypatch):
 
     # member roll 0x77 -> 119 + 8 = 127 > 10: dead; other roll 0 -> 8: alive.
     # The script ends there: no gold or drop rolls exist after the bomb.
-    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 2, 0x77, 0]))
+    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 2, 2, 0x77, 0]))
 
     lines = open_chest(party, member, dungeon=False)
 

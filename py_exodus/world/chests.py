@@ -137,8 +137,9 @@ def _chest_trap(party: Party, member: PartyMember) -> tuple[list[str], bool]:
     before the booty rolls.
 
     OUTCOME TABLE — 4-way per LairWare (pending item 21; the trap ODDS and
-    the dex+25 evade above stay the port's Java-parity ladder, the typing
-    roll stays the port's uniform randrange(4)):
+    the dex+25 evade above stay the port's Java-parity ladder, while the typing
+    roll follows LW UltimaMain.c:1628 `(RandNum(0, 255) & RandNum(0, 255)) & 0x03`
+    (9/16 Acid, 3/16 Poison, 3/16 Bomb, 1/16 Gas)):
       0 Acid  — the Java FIRE/LAVA opener damage (LW case 0, UltimaMain.c:1637-1646,
                 damages the opener only)         -> "Acid Trap!"
       1 Poison— single-member POISONED write (LW case 1, UltimaMain.c:1647-1654)
@@ -159,7 +160,7 @@ def _chest_trap(party: Party, member: PartyMember) -> tuple[list[str], bool]:
     if member.dex + 25 >= random.randrange(100):  # evade: dex + 25 >= rand(100)
         return ["Evaded!"], False
 
-    which_trap = random.randrange(4)
+    which_trap = (random.randrange(256) & random.randrange(256)) & 0x03
     if which_trap == 1:  # POISON
         if member.status != Status.POISONED:
             member.status = Status.POISONED

@@ -325,6 +325,32 @@ def test_start_screen_navigation(pygame_setup, asset_mgr):
     assert scr.selected_idx == 2
 
 
+def test_start_screen_renders_tagline(pygame_setup, asset_mgr, monkeypatch):
+    import py_exodus.screens.start as start_mod
+
+    rendered_texts: list[str] = []
+    real_get_hud_font = start_mod.get_hud_font
+
+    class _SpyFont:
+        def __init__(self, inner):
+            self._inner = inner
+
+        def render(self, text, *args, **kwargs):
+            rendered_texts.append(text)
+            return self._inner.render(text, *args, **kwargs)
+
+    monkeypatch.setattr(
+        start_mod,
+        "get_hud_font",
+        lambda *args, **kwargs: _SpyFont(real_get_hud_font(*args, **kwargs)),
+    )
+
+    scr = StartScreen(asset_mgr=asset_mgr)
+    surface = pygame.Surface((640, 480))
+    scr.render(surface)
+    assert "From the depths of hell... he comes for vengeance!" in rendered_texts
+
+
 def test_start_screen_journey_onward(pygame_setup, asset_mgr, sample_party, monkeypatch, tmp_path):
     """Java StartScreen.java:100-117 — Journey Onward reads the on-disk party
     save; a valid save launches the overworld."""

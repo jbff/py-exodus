@@ -956,6 +956,14 @@ class CombatArena:
         target_pos = self.player_positions[target_idx]
         from_pos = (monster.x, monster.y)
 
+        # Java creatureAction (CombatScreen.java:696-718) + hideOrShow (858-880):
+        # every turn a camouflaged creature revises its visibility by movement
+        # distance to the nearest party member BEFORE `switch (action)`,
+        # gating TELEPORT and RANGED as well as ATTACK/ADVANCE. A still-hidden
+        # creature takes NO action (`return true`) and stays on the map.
+        if getattr(monster.definition, "camouflage", False) and not self._hide_or_show(monster):
+            return None
+
         if teleports:
             return self._monster_teleport(monster, from_pos)
 
@@ -967,16 +975,6 @@ class CombatArena:
             action = "advance"
         else:
             action = "attack"
-
-        # Java creatureAction:714-716 + hideOrShow (CombatScreen.java:858-880)
-        # — every turn a camouflaged creature revises its visibility by
-        # movement distance to the nearest party member; a still-hidden
-        # creature takes NO action (Java `return true` — "hide and take no
-        # action!") but stays on the map. The gate runs AFTER the
-        # ATTACK→ADVANCE conversion, so a far creature that had chosen
-        # ADVANCE still sits out when its distance hides it. Item 4.
-        if getattr(monster.definition, "camouflage", False) and not self._hide_or_show(monster):
-            return None
 
         if action == "advance":
             return self._monster_advance(monster, target_pos, from_pos)
