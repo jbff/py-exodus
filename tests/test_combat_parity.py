@@ -1348,3 +1348,114 @@ def test_projectile_spells_public_export():
         Spell.DECORP,
         Spell.EXCUUN,
     }
+
+
+def test_group_damage_spells_emit_per_kill_lines(asset_mgr, conflict_map, monkeypatch):
+    """Item 31: Group-damage spells (NOXUM, ZXKUQYB, REPOND, PONTORI) emit
+    `"{name} Killed! Exp. {n}"` per killed monster (Utils.java:628) in
+    addition to their summary line."""
+    import py_exodus.combat.magic as magic
+    from py_exodus.combat.magic import cast_spell
+    from py_exodus.constants import Profession, Race, Spell
+    from py_exodus.entities.character import Character
+    from py_exodus.entities.defs import CreatureDef
+    from py_exodus.entities.party import Party
+
+    # 1. NOXUM: 2 monsters killed, 1 survives
+    party = Party()
+    wiz = Character("Wiz", "M", Race.FUZZY, Profession.WIZARD, intelligence=50, mp=99)
+    party.add_member(wiz)
+    arena = CombatArena(
+        party, conflict_map, creature_tile="orc", asset_mgr=asset_mgr, monster_count=3
+    )
+    for idx, m in enumerate(arena.monsters):
+        m.name = f"Orc{idx}"
+        m.exp = 7 + idx
+        m.hp = 5 if idx < 2 else 200
+        m.max_hp = 200
+    res_noxum = cast_spell(Spell.NOXUM, caster=wiz, arena=arena)
+    assert res_noxum.success
+    lines = res_noxum.message.split("\n")
+    assert "Orc0 Killed! Exp. 7" in lines
+    assert "Orc1 Killed! Exp. 8" in lines
+    assert not any("Orc2 Killed!" in line for line in lines)
+    assert any("Noxum blasts 3 monsters" in line for line in lines)
+
+    # 2. ZXKUQYB: 2 monsters killed
+    cleric = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC, wisdom=75, mp=99)
+    party_z = Party()
+    party_z.add_member(cleric)
+    arena_z = CombatArena(
+        party_z, conflict_map, creature_tile="orc", asset_mgr=asset_mgr, monster_count=2
+    )
+    for idx, m in enumerate(arena_z.monsters):
+        m.name = f"Orc{idx}"
+        m.exp = 10 + idx
+    monkeypatch.setattr(magic.random, "randrange", lambda *a, **k: 7)
+    res_zx = cast_spell(Spell.ZXKUQYB, caster=cleric, arena=arena_z)
+    assert res_zx.success
+    assert "Orc0 Killed! Exp. 10" in res_zx.message.split("\n")
+    assert "Orc1 Killed! Exp. 11" in res_zx.message.split("\n")
+    assert "destroys 2" in res_zx.message
+
+    # 3. REPOND: masskill latched, kills orcs
+    arena_r = CombatArena(
+        party, conflict_map, creature_tile="orc", asset_mgr=asset_mgr, monster_count=2
+    )
+    arena_r.masskill = True
+    for idx, m in enumerate(arena_r.monsters):
+        m.name = f"Goblin{idx}"
+        m.exp = 5 + idx
+    res_repond = cast_spell(Spell.REPOND, caster=wiz, arena=arena_r)
+    assert res_repond.success
+    assert "Goblin0 Killed! Exp. 5" in res_repond.message.split("\n")
+    assert "Goblin1 Killed! Exp. 6" in res_repond.message.split("\n")
+    assert "Repond destroys 2 goblinoid creatures!" in res_repond.message.split("\n")
+
+    # 4. PONTORI: masskill latched, kills undead
+    arena_p = CombatArena(
+        party_z, conflict_map, creature_tile="skeleton", asset_mgr=asset_mgr, monster_count=2
+    )
+    arena_p.masskill = True
+    for idx, m in enumerate(arena_p.monsters):
+        m.name = f"Skeleton{idx}"
+        m.exp = 12 + idx
+        m.definition = CreatureDef(
+            id=2, name=f"Skeleton{idx}", tile="skeleton", basehp=48, hp=48, exp=12 + idx, undead=True
+        )
+    res_pontori = cast_spell(Spell.PONTORI, caster=cleric, arena=arena_p)
+    assert res_pontori.success
+    assert "Skeleton0 Killed! Exp. 12" in res_pontori.message.split("\n")
+    assert "Skeleton1 Killed! Exp. 13" in res_pontori.message.split("\n")
+    assert "Holy power turns 2 undead creatures!" in res_pontori.message.split("\n")
+
+
+def test_combat_screen_splits_multiline_spell_kill_lines(asset_mgr, conflict_map, monkeypatch):
+    """CombatScreen + TextLog.add_message splits multi-line SpellResult.message
+    into individual log lines."""
+    import py_exodus.combat.magic as magic
+    from py_exodus.combat.arena import Action
+    from py_exodus.constants import Profession, Race, Spell
+    from py_exodus.entities.character import Character
+    from py_exodus.entities.party import Party
+    from py_exodus.screens.combat_screen import CombatScreen
+
+    party = Party()
+    wiz = Character("Wiz", "M", Race.FUZZY, Profession.WIZARD, intelligence=50, mp=99)
+    party.add_member(wiz)
+    combat = CombatScreen(
+        party=party,
+        combat_map=conflict_map,
+        creature_tile="orc",
+        asset_mgr=asset_mgr,
+        monster_count=2,
+    )
+    combat.arena.masskill = True
+    for idx, m in enumerate(combat.arena.monsters):
+        m.name = f"Orc{idx}"
+        m.exp = 7 + idx
+    monkeypatch.setattr(magic.random, "randrange", lambda *a, **k: 7)
+    combat._execute_action(Action.cast(Spell.REPOND))
+    assert "Orc0 Killed! Exp. 7" in combat.text_log.history
+    assert "Orc1 Killed! Exp. 8" in combat.text_log.history
+    assert any("Repond destroys 2 goblinoid" in line for line in combat.text_log.history)

@@ -557,6 +557,7 @@ def _apply_spell_effect(
 
     if spell == Spell.PONTORI:
         killed_count = 0
+        kill_lines: list[str] = []
         if arena is not None:
             # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): per-battle 50% masskill flag gates PONTORI/REPOND (GBC funcs5.c:1354-1358; LW latch + cast-time roll is functionally equivalent)
             if not arena.masskill:
@@ -592,11 +593,13 @@ def _apply_spell_effect(
                             9999, caster_char.exp + getattr(m, "exp", 0)
                         )
                         killed_count += 1
+                        kill_lines.append(_kill_line(m))
             # GBC consumes the latch after a gated-in cast (battle.c:1050,1232)
             arena.masskill = False
+            summary = f"Holy power turns {killed_count} undead creatures!"
             return SpellResult(
                 success=True,
-                message=f"Holy power turns {killed_count} undead creatures!",
+                message="\n".join([*kill_lines, summary]),
                 targets_affected=killed_count,
                 spell=spell,
             )
@@ -604,6 +607,7 @@ def _apply_spell_effect(
 
     if spell == Spell.REPOND:
         killed_count = 0
+        kill_lines = []
         if arena is not None:
             # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): per-battle 50% masskill flag gates PONTORI/REPOND (GBC funcs5.c:1354-1358; LW latch + cast-time roll is functionally equivalent)
             if not arena.masskill:
@@ -628,11 +632,13 @@ def _apply_spell_effect(
                             9999, caster_char.exp + getattr(m, "exp", 0)
                         )
                         killed_count += 1
+                        kill_lines.append(_kill_line(m))
             # GBC consumes the latch after a gated-in cast (battle.c:1232)
             arena.masskill = False
+            summary = f"Repond destroys {killed_count} goblinoid creatures!"
             return SpellResult(
                 success=True,
-                message=f"Repond destroys {killed_count} goblinoid creatures!",
+                message="\n".join([*kill_lines, summary]),
                 targets_affected=killed_count,
                 spell=spell,
             )
@@ -1021,6 +1027,12 @@ def _apply_projectile_attack(
     )
 
 
+def _kill_line(monster: Any) -> str:
+    """Format the canonical per-creature kill line (Utils.java:628)."""
+    name = getattr(monster, "name", "Creature")
+    return f"{name} Killed! Exp. {getattr(monster, 'exp', 0)}"
+
+
 def _apply_group_damage(
     spell: Spell,
     caster_char: Character,
@@ -1037,6 +1049,7 @@ def _apply_group_damage(
     if arena is not None:
         total_dmg = 0
         affected_count = 0
+        kill_lines: list[str] = []
         for m in list(arena.monsters):
             if not m.is_dead:
                 if spell == Spell.NECORP:
@@ -1092,23 +1105,24 @@ def _apply_group_damage(
                         caster_char.exp = min(
                             9999, caster_char.exp + getattr(m, "exp", 0)
                         )
+                    kill_lines.append(_kill_line(m))
                 total_dmg += dmg
                 affected_count += 1
 
         if spell == Spell.NECORP:
             # No damage was dealt — NECORP only clamps hp to 5 and weakens.
-            message = f"Necorp weakens {affected_count} monsters to 5 hp!"
+            summary = f"Necorp weakens {affected_count} monsters to 5 hp!"
         elif spell == Spell.ZXKUQYB:
             # Ruling above: only kills count — survivors were untouched.
-            message = f"{spell.name.capitalize()} destroys {affected_count} monsters!"
+            summary = f"{spell.name.capitalize()} destroys {affected_count} monsters!"
         else:
-            message = (
+            summary = (
                 f"{spell.name.capitalize()} blasts {affected_count} monsters "
                 f"for {total_dmg} total damage!"
             )
         return SpellResult(
             success=True,
-            message=message,
+            message="\n".join([*kill_lines, summary]),
             damage=total_dmg,
             targets_affected=affected_count,
             spell=spell,
