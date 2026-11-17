@@ -78,6 +78,12 @@ class AutoPlayController:
         self._timer: float = 0.0
         self._key_queue: deque[int] = deque()
         self._patrol_idx: int = 0
+        self._shop_member_idx: int = 1
+        self._shop_item_letter: str = "b"
+        self._ready_member_idx: int = 1
+        self._ready_item_letter: str = "b"
+        self._wear_member_idx: int = 1
+        self._wear_item_letter: str = "b"
 
     def toggle(self) -> bool:
         """Flip autoplay enabled state and clear any queued keystrokes."""
@@ -266,6 +272,8 @@ class AutoPlayController:
 
     def _step_2d(self, state_machine: StateMachine, screen) -> int | None:
         if screen.text_log.is_waiting_for_input:
+            if type(screen).__name__ == "TownScreen":
+                return self._handle_town_prompt(state_machine, screen)
             return self._emit_key(state_machine, pygame.K_ESCAPE)
 
         party = screen.party
@@ -298,7 +306,8 @@ class AutoPlayController:
 
     def _step_town(self, state_machine: StateMachine, screen, party, px: int, py: int, goal: Goal) -> int | None:
         gmap = screen.game_map
-        if party.map_id == 2:  # EXODUS (Castle of Death)
+        map_id = getattr(screen, "map_id", party.map_id)
+        if map_id == 2:  # EXODUS (Castle of Death)
             status = getattr(party, "exodus_cards_status", 0)
             for tx, ty, bit, letter, card_idx in _EXODUS_PANELS:
                 if not (status & bit):
@@ -315,7 +324,7 @@ class AutoPlayController:
                         return self._emit_key(state_machine, _DIR_TO_KEY[d])
                     return self._emit_key(state_machine, pygame.K_SPACE)
 
-        if party.map_id == 1:  # Castle of Lord British
+        if map_id == 1:  # Castle of Lord British
             living = [m for m in party.members if not m.is_dead()]
             can_level = any(m.exp >= m.level * 100 for m in living)
             if can_level:
@@ -324,6 +333,69 @@ class AutoPlayController:
                     self._queue_text("n", enter=False)
                     return self._emit_key(state_machine, pygame.K_t)
                 d = find_2d_step(gmap, (px, py), (32, 15), Transport.FOOT, party=party)
+                if d is not None:
+                    return self._emit_key(state_machine, _DIR_TO_KEY[d])
+
+        if map_id == 3 and goal == Goal.OUTFIT_BRITAIN:  # Britain
+            # 1. Equip any owned unequipped weapons
+            for i, m in enumerate(party.members):
+                if m.is_dead() or m.weapon != WeaponType.NONE:
+                    continue
+                owned_w = next(
+                    (
+                        w
+                        for w, cnt in m.weapons.items()
+                        if w != WeaponType.NONE
+                        and cnt > 0
+                        and (m.profession != Profession.WIZARD or w in (WeaponType.DAGGER, WeaponType.EXOTIC))
+                    ),
+                    None,
+                )
+                if owned_w is not None:
+                    self._ready_member_idx = i + 1
+                    self._ready_item_letter = chr(ord("a") + list(WeaponType).index(owned_w))
+                    return self._emit_key(state_machine, pygame.K_r)
+
+            # 2. Equip any owned unequipped armor
+            for i, m in enumerate(party.members):
+                if m.is_dead() or m.armor != ArmorType.NONE:
+                    continue
+                owned_a = next(
+                    (a for a, cnt in m.armors.items() if a != ArmorType.NONE and cnt > 0),
+                    None,
+                )
+                if owned_a is not None:
+                    self._wear_member_idx = i + 1
+                    self._wear_item_letter = chr(ord("a") + list(ArmorType).index(owned_a))
+                    return self._emit_key(state_machine, pygame.K_w)
+
+            # 3. Buy starter weapon at Osbert's Weaponry (39, 19)
+            for i, m in enumerate(party.members):
+                if m.is_dead() or m.weapon != WeaponType.NONE or m.gold < 5:
+                    continue
+                if m.profession == Profession.THIEF and m.gold >= 60:
+                    letter = "d"  # Sling
+                elif m.profession != Profession.WIZARD and m.gold >= 30:
+                    letter = "c"  # Mace
+                else:
+                    letter = "b"  # Dagger
+                if (px, py) == (39, 19):
+                    self._shop_member_idx = i + 1
+                    self._shop_item_letter = letter
+                    return self._emit_key(state_machine, pygame.K_t)
+                d = find_2d_step(gmap, (px, py), (39, 19), Transport.FOOT, party=party)
+                if d is not None:
+                    return self._emit_key(state_machine, _DIR_TO_KEY[d])
+
+            # 4. Buy Cloth armor at British Armour (50, 20)
+            for i, m in enumerate(party.members):
+                if m.is_dead() or m.armor != ArmorType.NONE or m.gold < 75:
+                    continue
+                if (px, py) == (50, 20):
+                    self._shop_member_idx = i + 1
+                    self._shop_item_letter = "b"  # Cloth
+                    return self._emit_key(state_machine, pygame.K_t)
+                d = find_2d_step(gmap, (px, py), (50, 20), Transport.FOOT, party=party)
                 if d is not None:
                     return self._emit_key(state_machine, _DIR_TO_KEY[d])
 
@@ -416,7 +488,12 @@ class AutoPlayController:
                 return self._emit_key(state_machine, pygame.K_e)
             return self._move_toward(state_machine, gmap, party, (px, py), {(58, 44)})
 
-        # GRIND_AND_LEVEL / OUTFIT_BRITAIN
+        if goal == Goal.OUTFIT_BRITAIN:
+            if (px, py) == (46, 19):
+                return self._emit_key(state_machine, pygame.K_e)
+            return self._move_toward(state_machine, gmap, party, (px, py), {(46, 19)})
+
+        # GRIND_AND_LEVEL
         if any(m.exp >= m.level * 100 and m.level < 5 for m in living):
             if (px, py) == (45, 18):
                 return self._emit_key(state_machine, pygame.K_e)
@@ -428,6 +505,33 @@ class AutoPlayController:
             self._patrol_idx += 1
             target = patrol[self._patrol_idx % len(patrol)]
         return self._move_toward(state_machine, gmap, party, (px, py), {target})
+
+    def _handle_town_prompt(self, state_machine: StateMachine, screen) -> int | None:
+        prompt = (getattr(screen.text_log, "current_prompt", "") or "").lower()
+        if "ready" in prompt and "member" in prompt:
+            return self._emit_key(state_machine, pygame.K_0 + self._ready_member_idx)
+        if "ready" in prompt or "weapon?" in prompt:
+            return self._emit_key(state_machine, _char_to_key(self._ready_item_letter) or pygame.K_b)
+        if "wear" in prompt and "member" in prompt:
+            return self._emit_key(state_machine, pygame.K_0 + self._wear_member_idx)
+        if "wear" in prompt or "armor?" in prompt:
+            return self._emit_key(state_machine, _char_to_key(self._wear_item_letter) or pygame.K_b)
+        if "talk" in prompt or "which" in prompt or "who" in prompt:
+            return self._emit_key(state_machine, pygame.K_0 + self._shop_member_idx)
+        if "direction" in prompt:
+            return self._emit_key(state_machine, pygame.K_UP)
+        if "buy" in prompt and "sell" in prompt:
+            return self._emit_key(state_machine, pygame.K_b)
+        if "take it" in prompt or "deal" in prompt:
+            return self._emit_key(state_machine, pygame.K_y)
+        if "anything else" in prompt:
+            return self._emit_key(state_machine, pygame.K_n)
+        if "how many" in prompt:
+            self._queue_text("1", enter=True)
+            return self._emit_key(state_machine, self._key_queue.popleft())
+        if "buy" in prompt or "what" in prompt or "choice" in prompt or "(a-" in prompt:
+            return self._emit_key(state_machine, _char_to_key(self._shop_item_letter) or pygame.K_b)
+        return self._emit_key(state_machine, pygame.K_ESCAPE)
 
     def _move_toward(
         self,

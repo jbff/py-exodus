@@ -430,3 +430,36 @@ def test_cli_autoplay_flag_and_headless_app(pygame_setup):
     assert slower > faster
     app.run(max_frames=5)
     app.cleanup()
+
+
+def test_autoplay_outfits_fresh_l1_party_in_britain(pygame_setup):
+    """Fresh L1 party at Sosaria (44, 20) walks into Britain, buys weapons & Cloth, equips all 4, and exits."""
+    from py_exodus.assets import AssetManager
+    from py_exodus.screens.overworld import OverworldScreen
+    from py_exodus.state_machine import StateMachine
+
+    am = AssetManager()
+    am.load_all()
+    party = Party()
+    party.add_member(Character("SHADOW", "M", Race.ELF, Profession.THIEF, strength=15, dexterity=25, gold=150))
+    party.add_member(Character("GRUMM", "M", Race.DWARF, Profession.FIGHTER, strength=25, dexterity=15, gold=150))
+    party.add_member(Character("SERENA", "F", Race.BOBIT, Profession.CLERIC, wisdom=25, strength=15, gold=150))
+    party.add_member(Character("ZIRCON", "M", Race.FUZZY, Profession.WIZARD, intelligence=25, strength=15, gold=150))
+    party.x, party.y = 44, 20
+
+    sm = StateMachine(asset_mgr=am, audio=None)
+    ow = OverworldScreen(party=party, asset_mgr=am, random_encounters_enabled=False)
+    ow.creatures = []
+    sm.set_screen(ow)
+
+    ctrl = AutoPlayController(enabled=True)
+    for _ in range(400):
+        ctrl.step(sm)
+        if isinstance(sm.current_screen, OverworldScreen) and evaluate_goal(party) == Goal.GRIND_AND_LEVEL:
+            break
+
+    assert evaluate_goal(party) == Goal.GRIND_AND_LEVEL
+    assert isinstance(sm.current_screen, OverworldScreen)
+    assert all(m.weapon != WeaponType.NONE for m in party.members)
+    assert all(m.armor == ArmorType.CLOTH for m in party.members)
+

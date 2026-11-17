@@ -62,8 +62,19 @@ def evaluate_goal(party: Party) -> Goal:
 
     if (
         min(m.level for m in living) < 2
-        and any(m.weapon == WeaponType.NONE for m in living)
-        and party.gold >= 50
+        and any(
+            (m.weapon == WeaponType.NONE and m.gold >= 5)
+            or (m.armor == ArmorType.NONE and m.gold >= 75)
+            or (
+                m.weapon == WeaponType.NONE
+                and any(cnt > 0 for w, cnt in m.weapons.items() if w != WeaponType.NONE)
+            )
+            or (
+                m.armor == ArmorType.NONE
+                and any(cnt > 0 for a, cnt in m.armors.items() if a != WeaponType.NONE)
+            )
+            for m in living
+        )
     ):
         return Goal.OUTFIT_BRITAIN
 
