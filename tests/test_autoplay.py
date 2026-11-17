@@ -1285,6 +1285,11 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
     # Gate 1 (57, 46) picks reachable Gate 3 instead of impossible dest_idx=0
     assert ctrl._pick_moongate_dest(ow_s.game_map, 1, (45, 18), p_ship) == 3
 
+    # Disembarking onto exotic island (34, 3) stays in DIG_EXOTICS instead of looping K_x <-> K_b
+    p_ex = _make_party(level=5, exp=500, gold=100, food=250, marks=[1, 0, 0, 0], transport=Transport.FOOT)
+    p_ex.x, p_ex.y = 34, 3
+    assert evaluate_goal(p_ex) == Goal.DIG_EXOTICS
+
     # Stranded on island for BUY_FOOD uses reachable moongate or frigate instead of passing turns
     p_isl = _make_party(level=5, exp=500, gold=100, food=50)
     p_isl.food = 50

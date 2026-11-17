@@ -85,10 +85,20 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
 
     cur_map_id = _normalize_map_id(party, map_id)
 
+    at_exotic_island = cur_map_id == 0 and any(
+        abs(party.x - tx) + abs(party.y - ty) <= 2 for tx, ty in ((33, 3), (19, 44))
+    )
+    has_exotics = all(
+        (m.weapon == WeaponType.EXOTIC or m.weapons.get(WeaponType.EXOTIC, 0) > 0)
+        and (m.armor == ArmorType.EXOTIC or m.armors.get(ArmorType.EXOTIC, 0) > 0)
+        for m in living
+    )
+
     if (
         cur_map_id != 13
         and party.transport != Transport.SHIP
         and needs_food(party)
+        and not (at_exotic_island and not has_exotics and party.food >= 100)
         and sum(m.gold for m in living) >= 30
     ):
         return Goal.BUY_FOOD
@@ -119,13 +129,8 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
 
     has_all_cards = all(any(m.cards[i] > 0 for m in living) for i in range(4))
     has_remaining_marks = all(any(m.marks[i] > 0 for m in living) for i in (1, 2, 3))
-    has_exotics = all(
-        (m.weapon == WeaponType.EXOTIC or m.weapons.get(WeaponType.EXOTIC, 0) > 0)
-        and (m.armor == ArmorType.EXOTIC or m.armors.get(ArmorType.EXOTIC, 0) > 0)
-        for m in living
-    )
 
-    if cur_map_id == 0 and party.transport == Transport.SHIP and not has_exotics:
+    if cur_map_id == 0 and not has_exotics and (party.transport == Transport.SHIP or at_exotic_island):
         return Goal.DIG_EXOTICS
 
     if (
