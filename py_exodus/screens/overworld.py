@@ -2333,6 +2333,7 @@ class OverworldScreen(BaseScreen):
                     center_y=self.party.y,
                     anim_frame=self.anim_frame,
                     party=self.party,
+                    heading=self.heading,
                     dest_pos=(0, 0),
                     monsters=self.creatures,
                     # moongate model per refs (GBC funcs5.c:1134-1152; LW
@@ -2366,6 +2367,7 @@ class OverworldScreen(BaseScreen):
                     center_y=self.party.y,
                     anim_frame=self.anim_frame,
                     party=self.party,
+                    heading=self.heading,
                     dest_pos=(0, 0),
                     monsters=self.creatures,
                     # Same SLOW-phase gate visibility contract as above.

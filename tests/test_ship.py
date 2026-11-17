@@ -594,3 +594,116 @@ class TestPlayerCannonShorelineWhirlpoolAndHitRoll:
         assert serpent in overworld.creatures
         # fireAt returns MISS (!= NONE), so avatarfireCannon stops the trace.
         assert frigate_behind["hull"] == 50
+
+
+class TestFrigateDirectionalRendering:
+    """Frigate's 4 atlas frames are directional headings
+    (WEST=0, NORTH=1, EAST=2, SOUTH=3), not an animation loop."""
+
+    @staticmethod
+    def _center_tile_bytes(surface: pygame.Surface, tile_size: int = 16) -> bytes:
+        half = 5  # VIEWPORT_TILES // 2
+        rect = pygame.Rect(half * tile_size, half * tile_size, tile_size, tile_size)
+        return pygame.image.tobytes(surface.subsurface(rect), "RGBA")
+
+    @staticmethod
+    def _expected_frigate_bytes(
+        asset_mgr: AssetManager,
+        bg_tile_name: str,
+        frame: int,
+    ) -> bytes:
+        tile_surf = pygame.Surface((16, 16))
+        tile_surf.blit(asset_mgr.get_tile_surface(bg_tile_name, 0), (0, 0))
+        tile_surf.blit(asset_mgr.get_tile_surface("frigate", frame), (0, 0))
+        return pygame.image.tobytes(tile_surf, "RGBA")
+
+    def test_render_viewport_frigate_does_not_spin_across_anim_frames(
+        self, overworld, sample_party, asset_mgr, monkeypatch
+    ):
+        from py_exodus.ui.renderer import WorldRenderer
+
+        grass = asset_mgr.get_tile_by_name("grass")
+        monkeypatch.setattr(overworld.game_map, "get_tile", lambda x, y: grass)
+        sample_party.transport = Transport.SHIP
+
+        renderer = WorldRenderer(asset_mgr)
+        expected = self._expected_frigate_bytes(asset_mgr, "grass", 1)  # NORTH -> 1
+
+        for anim_frame in range(4):
+            surf = pygame.Surface((176, 176))
+            renderer.render_viewport(
+                surf,
+                overworld.game_map,
+                center_x=sample_party.x,
+                center_y=sample_party.y,
+                anim_frame=anim_frame,
+                party=sample_party,
+                heading=Direction.NORTH,
+            )
+            assert self._center_tile_bytes(surf) == expected
+
+    @pytest.mark.parametrize(
+        ("heading", "expected_frame"),
+        [
+            (Direction.WEST, 0),
+            (Direction.NORTH, 1),
+            (Direction.EAST, 2),
+            (Direction.SOUTH, 3),
+        ],
+    )
+    def test_render_viewport_frigate_selects_frame_by_heading(
+        self, overworld, sample_party, asset_mgr, monkeypatch, heading, expected_frame
+    ):
+        from py_exodus.ui.renderer import WorldRenderer
+
+        grass = asset_mgr.get_tile_by_name("grass")
+        monkeypatch.setattr(overworld.game_map, "get_tile", lambda x, y: grass)
+        sample_party.transport = Transport.SHIP
+
+        renderer = WorldRenderer(asset_mgr)
+        surf = pygame.Surface((176, 176))
+        renderer.render_viewport(
+            surf,
+            overworld.game_map,
+            center_x=sample_party.x,
+            center_y=sample_party.y,
+            anim_frame=0,
+            party=sample_party,
+            heading=heading,
+        )
+        assert self._center_tile_bytes(surf) == self._expected_frigate_bytes(
+            asset_mgr, "grass", expected_frame
+        )
+
+    @pytest.mark.parametrize("screen_size", [(320, 240), (640, 480)])
+    def test_overworld_render_passes_heading_and_does_not_spin(
+        self, overworld, sample_party, asset_mgr, monkeypatch, screen_size
+    ):
+        grass = asset_mgr.get_tile_by_name("grass")
+        monkeypatch.setattr(overworld.game_map, "get_tile", lambda x, y: grass)
+        sample_party.transport = Transport.SHIP
+        overworld.heading = Direction.EAST
+
+        scale = 3 if screen_size[0] >= 640 else 1
+        tile_px = 16 * scale
+        half = 5
+
+        def _render_center() -> bytes:
+            surf = pygame.Surface(screen_size)
+            overworld.render(surf)
+            rect = pygame.Rect(half * tile_px, half * tile_px, tile_px, tile_px)
+            return pygame.image.tobytes(surf.subsurface(rect), "RGBA")
+
+        # Cycling anim_frame must not spin the frigate.
+        overworld.anim_frame = 0
+        baseline = _render_center()
+        for af in (1, 2, 3):
+            overworld.anim_frame = af
+            assert _render_center() == baseline
+
+        # Turning the ship updates its rendered facing.
+        overworld.anim_frame = 0
+        overworld.heading = Direction.SOUTH
+        south_bytes = _render_center()
+        assert south_bytes != baseline
+

@@ -9,6 +9,7 @@ from py_exodus import debug
 from py_exodus.constants import (
     TILE_SIZE,
     VIEWPORT_TILES,
+    Direction,
     TileAttrib,
     Transport,
 )
@@ -19,6 +20,21 @@ if TYPE_CHECKING:
     from py_exodus.assets import AssetManager
     from py_exodus.entities.party import Party
     from py_exodus.world.map import GameMap
+
+
+_FRIGATE_HEADING_FRAME: dict[Direction, int] = {
+    Direction.WEST: 0,
+    Direction.NORTH: 1,
+    Direction.EAST: 2,
+    Direction.SOUTH: 3,
+}
+
+
+def _avatar_frame(avatar_name: str, anim_frame: int, heading: Any) -> int:
+    """Return the directional sprite frame for 'frigate', or anim_frame otherwise."""
+    if avatar_name.lower() == "frigate":
+        return _FRIGATE_HEADING_FRAME.get(heading, 0)
+    return anim_frame
 
 
 def can_move_to(
@@ -377,11 +393,18 @@ class WorldRenderer:
                     else:
                         avatar_name = "ranger"
 
-                avatar_surf = self.asset_manager.get_tile_surface(avatar_name, anim_frame)
+                heading = kwargs.get("heading")
+                avatar_surf = self.asset_manager.get_tile_surface(
+                    avatar_name,
+                    _avatar_frame(str(avatar_name), anim_frame, heading),
+                )
                 surface.blit(avatar_surf, (ox + col * self.tile_size, oy + row * self.tile_size))
         elif kwargs.get("avatar_tile") or kwargs.get("avatar_name"):
-            av_name = kwargs.get("avatar_tile") or kwargs.get("avatar_name")
-            av_surf = self.asset_manager.get_tile_surface(str(av_name), anim_frame)
+            av_name = str(kwargs.get("avatar_tile") or kwargs.get("avatar_name"))
+            av_surf = self.asset_manager.get_tile_surface(
+                av_name,
+                _avatar_frame(av_name, anim_frame, kwargs.get("heading")),
+            )
             surface.blit(av_surf, (ox + half * self.tile_size, oy + half * self.tile_size))
 
     def can_move(
