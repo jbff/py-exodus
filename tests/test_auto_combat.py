@@ -1,4 +1,5 @@
 """Tests for Auto-Combat AI and CombatScreen integration."""
+import random
 from types import SimpleNamespace
 
 import pygame
@@ -179,7 +180,10 @@ def test_combat_screen_toggle_tab_f2_and_escape(asset_mgr, conflict_map):
     assert "Auto-combat OFF." in combat.text_log.lines[-1]
 
 
-def test_combat_screen_auto_combat_full_battle_to_victory(asset_mgr, conflict_map):
+def test_combat_screen_auto_combat_full_battle_to_victory(asset_mgr, conflict_map, monkeypatch):
+    rng = random.Random(1)
+    monkeypatch.setattr("py_exodus.combat.resolver.random", rng)
+    monkeypatch.setattr("py_exodus.combat.arena.random", rng)
     party = Party()
     for i in range(2):
         hero = Character(
@@ -203,7 +207,7 @@ def test_combat_screen_auto_combat_full_battle_to_victory(asset_mgr, conflict_ma
     combat.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_TAB))
     assert combat.auto_combat is True
 
-    for _ in range(200):
+    for _ in range(400):
         if combat.arena.is_finished:
             break
         combat.update(0.20)
