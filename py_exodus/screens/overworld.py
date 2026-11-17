@@ -1791,6 +1791,8 @@ class OverworldScreen(BaseScreen):
                 continue
             if sx == self.party.x and sy == self.party.y:
                 continue
+            if any(p.x == sx and p.y == sy for p in getattr(self.game_map, "portals", ())):
+                continue
 
             tile = self.game_map.get_tile(sx, sy)
             if tile is None:
@@ -2053,6 +2055,7 @@ class OverworldScreen(BaseScreen):
         if self.game_map is None or cr_def is None:
             return mask
         wrap = self.game_map.border_behavior == "wrap"
+        portal_coords = {(p.x, p.y) for p in getattr(self.game_map, "portals", ())}
         for d in _DIRECTION_VALUES:
             tx = c["x"] + d.dx
             ty = c["y"] + d.dy
@@ -2063,6 +2066,8 @@ class OverworldScreen(BaseScreen):
                 continue
             tx %= self.game_map.width
             ty %= self.game_map.height
+            if (tx, ty) in portal_coords:
+                continue
             tile = self.game_map.get_tile(tx, ty)
             if tile is None:
                 continue

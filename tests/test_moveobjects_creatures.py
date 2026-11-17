@@ -582,3 +582,20 @@ class TestR1ReadmeWording:
 
         text = pathlib.Path("README.md").read_text()
         assert "poison/fire field" in text
+
+
+def test_creatures_cannot_step_onto_portal_entrances(asset_mgr):
+    """Wandering monsters must not step onto town/castle/dungeon/shrine portal tiles."""
+    from py_exodus.constants import Direction
+    from py_exodus.entities.character import Character
+    from py_exodus.entities.party import Party
+    from py_exodus.screens.overworld import OverworldScreen
+
+    party = Party(x=46, y=21)
+    party.add_member(Character("HERO", "M"))
+    ow = OverworldScreen(party=party, asset_mgr=asset_mgr, random_encounters_enabled=False)
+    # Britain town portal is at (46, 19); place an orc at (46, 20) directly south of it
+    orc = {"tile_name": "orc", "tile": "orc", "x": 46, "y": 20}
+    cr_def = asset_mgr.get_creature("orc")
+    mask = ow._creature_valid_moves_mask(orc, cr_def, wontattack=False)
+    assert not (mask & Direction.NORTH.mask)
