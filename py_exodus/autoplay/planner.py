@@ -115,6 +115,7 @@ def evaluate_goal(party: Party) -> Goal:
 
     if (
         party.map_id != 13
+        and party.transport != Transport.SHIP
         and not (has_all_cards and has_remaining_marks and not has_exotics)
         and (
             best_shop_upgrade(party) is not None

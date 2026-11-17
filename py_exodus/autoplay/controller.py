@@ -632,6 +632,38 @@ class AutoPlayController:
         if gear_key is not None:
             return gear_key
 
+        # Low-level parties on foot avoid coastal sea monsters; ships avoid sea monsters & fire broadsides
+        avoid_monsters: set[tuple[int, int]] = set()
+        if party.map_id == 0 and party.transport == Transport.SHIP:
+            heading = getattr(screen, "heading", Direction.EAST)
+            broadsides_horiz = heading in (Direction.NORTH, Direction.SOUTH)
+            for c in getattr(screen, "creatures", []):
+                tname = str(c.get("tile_name") or c.get("tile") or "").lower()
+                if tname not in ("pirate", "serpent", "squid") or "x" not in c or "y" not in c:
+                    continue
+                cx, cy = c["x"], c["y"]
+                dx = min((cx - px) % gmap.width, (px - cx) % gmap.width)
+                dy = min((cy - py) % gmap.height, (py - cy) % gmap.height)
+                if (broadsides_horiz and cy == py and 1 <= dx <= 3) or (
+                    not broadsides_horiz and cx == px and 1 <= dy <= 3
+                ):
+                    return self._emit_key(state_machine, pygame.K_f)
+                if goal != Goal.CAPTURE_SHIP:
+                    avoid_monsters.add((cx, cy))
+                    for ox, oy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+                        avoid_monsters.add(((cx + ox) % gmap.width, (cy + oy) % gmap.height))
+        elif party.map_id == 0 and party.transport != Transport.SHIP and living:
+            avg_max_hp = sum(m.max_hp for m in party.members) // max(1, len(party.members))
+            if avg_max_hp < 400:
+                for c in getattr(screen, "creatures", []):
+                    tname = str(c.get("tile_name") or c.get("tile") or "").lower()
+                    if tname in ("pirate", "serpent", "squid") and "x" in c and "y" in c:
+                        cx, cy = c["x"], c["y"]
+                        avoid_monsters.add((cx, cy))
+                        for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+                            avoid_monsters.add(((cx + dx) % gmap.width, (cy + dy) % gmap.height))
+        self._overworld_avoid = avoid_monsters
+
         if goal == Goal.DIG_EXOTICS:
             # Weapon site (33, 3)
             need_wpn_idx = next(
@@ -729,20 +761,6 @@ class AutoPlayController:
                 for m in party.members
             ):
                 return self._emit_key(state_machine, pygame.K_SPACE)
-
-        # Low-level parties on foot avoid coastal sea monsters (pirate/serpent/squid)
-        avoid_monsters: set[tuple[int, int]] = set()
-        if party.map_id == 0 and party.transport != Transport.SHIP and living:
-            avg_max_hp = sum(m.max_hp for m in party.members) // max(1, len(party.members))
-            if avg_max_hp < 400:
-                for c in getattr(screen, "creatures", []):
-                    tname = str(c.get("tile_name") or c.get("tile") or "").lower()
-                    if tname in ("pirate", "serpent", "squid") and "x" in c and "y" in c:
-                        cx, cy = c["x"], c["y"]
-                        avoid_monsters.add((cx, cy))
-                        for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
-                            avoid_monsters.add(((cx + dx) % gmap.width, (cy + dy) % gmap.height))
-        self._overworld_avoid = avoid_monsters
 
         if goal == Goal.GET_MARK_KINGS:
             if (px, py) == (46, 7):
