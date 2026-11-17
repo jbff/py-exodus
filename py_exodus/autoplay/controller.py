@@ -423,9 +423,13 @@ class AutoPlayController:
         if needs_heal(party) and goal != Goal.BUY_FOOD and party.food > 0:
             caster = self._find_caster(party, (Profession.CLERIC, Profession.PALADIN, Profession.DRUID), min_mp=10)
             if caster is not None:
-                hurt_idx = next(
-                    (i + 1 for i, m in enumerate(party.members) if not m.is_dead() and m.hp < m.max_hp),
-                    1,
+                hurt_candidates = [
+                    (i + 1, m) for i, m in enumerate(party.members) if not m.is_dead() and m.hp < m.max_hp
+                ]
+                hurt_idx = (
+                    min(hurt_candidates, key=lambda im: im[1].hp / max(1, im[1].max_hp))[0]
+                    if hurt_candidates
+                    else 1
                 )
                 self._queue_text(f"{caster[0]}c{hurt_idx}", enter=False)
                 return self._emit_key(state_machine, pygame.K_c)
@@ -536,7 +540,8 @@ class AutoPlayController:
                     self._join_gold_member_idx = buyer_idx
                     return self._emit_key(state_machine, pygame.K_j)
                 if (px, py) == food_xy:
-                    packs_needed = max(1, (800 - party.food + 24) // 25)
+                    target_food = 800 if buyer.gold >= 700 else 550
+                    packs_needed = max(1, (target_food - party.food + 24) // 25)
                     self._food_packs = max(1, min(20, packs_needed, buyer.gold // 30))
                     self._shop_member_idx = buyer_idx
                     self._talk_dir_key = self._direction_to_npc(gmap, px, py)

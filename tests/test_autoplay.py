@@ -1216,6 +1216,24 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
         ow_l1._spawn_wandering_creature()
     assert not any(c.get("tile_name") in ("serpent", "pirate", "squid") for c in ow_l1.creatures)
 
+    # Out-of-combat SANCTU targets the most injured member, not member 1 at 540/550
+    p_heal = _make_party(level=5, exp=500, gold=0, food=500)
+    p_heal.members[0].hp = 540
+    p_heal.members[0].max_hp = 550
+    p_heal.members[3].hp = 50
+    p_heal.members[3].max_hp = 350
+    p_heal.members[2].mp = 20
+    p_heal.members[2].max_mp = 50
+    ow_h = OverworldScreen(party=p_heal, asset_mgr=am, random_encounters=False)
+    ow_h.creatures = []
+    sm.set_screen(ow_h)
+    ctrl.enabled = True
+    for _ in range(5):
+        ctrl.step(sm)
+    assert p_heal.members[3].hp > 50
+    assert p_heal.members[0].hp == 540
+
+
 
 
 
