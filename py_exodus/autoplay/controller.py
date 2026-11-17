@@ -307,13 +307,17 @@ class AutoPlayController:
                 self._queue_text(str(need_idx), enter=False)
                 return self._emit_key(state_machine, pygame.K_s)
 
-        # Light spell if dark
-        if party.torch_duration <= 1:
-            caster = self._find_caster(party, (Profession.WIZARD, Profession.CLERIC), min_mp=10)
-            if caster is not None:
-                c_idx, prof = caster
-                spell_key = "c" if prof == Profession.WIZARD else "d"
-                self._queue_text(f"{c_idx}{spell_key}", enter=False)
+        # Ignite a torch or cast light spell whenever dungeon light is out
+        if not getattr(screen.state, "is_torch_on", False):
+            if any(not m.is_dead() and m.torches > 0 for m in party.members):
+                return self._emit_key(state_machine, pygame.K_i)
+            wiz = self._find_caster(party, (Profession.WIZARD,), min_mp=10)
+            if wiz is not None:
+                self._queue_text(f"{wiz[0]}c", enter=False)
+                return self._emit_key(state_machine, pygame.K_c)
+            cleric = self._find_caster(party, (Profession.CLERIC,), min_mp=15)
+            if cleric is not None:
+                self._queue_text(f"{cleric[0]}d", enter=False)
                 return self._emit_key(state_machine, pygame.K_c)
 
         target_tiles: set[tuple[int, int, int]] = set()
@@ -444,12 +448,16 @@ class AutoPlayController:
                 if d is not None:
                     return self._emit_key(state_machine, _DIR_TO_KEY[d])
 
-        if map_id in _GUILD_TOWNS and goal in (Goal.BUY_KEYS, Goal.BUY_GEMS):
+        if map_id in _GUILD_TOWNS and goal in (Goal.BUY_KEYS, Goal.BUY_GEMS, Goal.BUY_TORCHES):
             _, _, guild_xy = _GUILD_TOWNS[map_id]
             living = [(i + 1, m) for i, m in enumerate(party.members) if not m.is_dead()]
             if living:
-                cost = 50 if goal == Goal.BUY_KEYS else 75
-                letter = "c" if goal == Goal.BUY_KEYS else "b"
+                if goal == Goal.BUY_KEYS:
+                    cost, letter = 50, "c"
+                elif goal == Goal.BUY_GEMS:
+                    cost, letter = 75, "b"
+                else:
+                    cost, letter = 30, "a"
                 buyer_idx, buyer = max(living, key=lambda im: im[1].gold)
                 if buyer.gold < cost:
                     self._join_gold_member_idx = buyer_idx
@@ -610,7 +618,7 @@ class AutoPlayController:
             )
             return self._enter_portal_or_wait_dawn(state_machine, screen, gmap, party, px, py, target_portal)
 
-        if goal in (Goal.BUY_KEYS, Goal.BUY_GEMS):
+        if goal in (Goal.BUY_KEYS, Goal.BUY_GEMS, Goal.BUY_TORCHES):
             guild_portals = [(info[0], info[1]) for info in _GUILD_TOWNS.values()]
             target_portal = self._nearest_reachable_portal(
                 gmap, px, py, party.transport, guild_portals, party=party

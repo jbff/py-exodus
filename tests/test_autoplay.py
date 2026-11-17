@@ -896,4 +896,38 @@ def test_dungeon_peer_gem_once_per_level_and_touch_mark(pygame_setup):
     assert party.members[0].gems == 0
 
 
+def test_dungeon_buys_torches_and_lights_darkness(pygame_setup):
+    """Autoplay stocks torches before dungeons and ignites a torch (or casts light) whenever dark."""
+    from py_exodus.assets import AssetManager
+    from py_exodus.screens.dungeon_screen import DungeonScreen
+
+    am = AssetManager("data")
+    am.load_all()
+    party = _make_party(
+        level=5, exp=500, marks=[0, 0, 0, 0],
+        weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC,
+        gold=50, food=500,
+    )
+    party.members[0].gems = 2
+    assert evaluate_goal(party) == Goal.BUY_TORCHES
+
+    dmap = load_map(15, am)
+    sm = StateMachine(asset_mgr=am, audio=None)
+    ds = DungeonScreen(party=party, dungeon_map=dmap, asset_mgr=am)
+    sm.set_screen(ds)
+
+    ctrl = AutoPlayController(enabled=True)
+    # With a torch owned and darkness, ignites torch via K_i
+    party.members[0].torches = 1
+    ds.state.torchtime = 0
+    assert ctrl.step(sm) == pygame.K_i
+    assert ds.state.is_torch_on is True
+
+    # Out of torches and dark, Wizard casts LORUM via K_c
+    party.members[0].torches = 0
+    ds.state.torchtime = 0
+    party.members[3].mp = 20
+    assert ctrl.step(sm) == pygame.K_c
+
+
 

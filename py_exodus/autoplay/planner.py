@@ -23,6 +23,7 @@ class Goal(str, Enum):
     OUTFIT_BRITAIN = "outfit_britain"
     GRIND_AND_LEVEL = "grind_and_level"
     BUY_GEMS = "buy_gems"
+    BUY_TORCHES = "buy_torches"
     GET_MARK_KINGS = "get_mark_kings"
     BUY_KEYS = "buy_keys"
     CAPTURE_SHIP = "capture_ship"
@@ -101,10 +102,11 @@ def evaluate_goal(party: Party) -> Goal:
         if (
             party.map_id not in (13, 15, 16, 17, 18, 19, 20)
             and party.transport != Transport.SHIP
-            and sum(m.gems for m in living) < 2
-            and sum(m.gold for m in living) >= 75
         ):
-            return Goal.BUY_GEMS
+            if sum(m.gems for m in living) < 2 and sum(m.gold for m in living) >= 75:
+                return Goal.BUY_GEMS
+            if sum(m.torches for m in living) < 4 and sum(m.gold for m in living) >= 30:
+                return Goal.BUY_TORCHES
         return Goal.GET_MARK_KINGS
 
     if not has_all_cards:
@@ -127,10 +129,11 @@ def evaluate_goal(party: Party) -> Goal:
         if (
             party.map_id not in (13, 15, 16, 17, 18, 19, 20)
             and party.transport != Transport.SHIP
-            and sum(m.gems for m in living) < 8
-            and sum(m.gold for m in living) >= 75
         ):
-            return Goal.BUY_GEMS
+            if sum(m.gems for m in living) < 8 and sum(m.gold for m in living) >= 75:
+                return Goal.BUY_GEMS
+            if sum(m.torches for m in living) < 4 and sum(m.gold for m in living) >= 30:
+                return Goal.BUY_TORCHES
         return Goal.GET_REMAINING_MARKS
 
     if not has_exotics:
