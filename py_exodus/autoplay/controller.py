@@ -725,32 +725,19 @@ class AutoPlayController:
             ):
                 return self._emit_key(state_machine, pygame.K_SPACE)
 
-        # Low-level parties on foot evade coastal sea monsters (pirate/serpent/squid)
+        # Low-level parties on foot avoid coastal sea monsters (pirate/serpent/squid)
+        avoid_monsters: set[tuple[int, int]] = set()
         if party.map_id == 0 and party.transport != Transport.SHIP and living:
             avg_max_hp = sum(m.max_hp for m in party.members) // max(1, len(party.members))
             if avg_max_hp < 400:
-                sea_near = [
-                    (c["x"], c["y"])
-                    for c in getattr(screen, "creatures", [])
-                    if "x" in c and "y" in c
-                    and str(c.get("tile_name") or c.get("tile") or "").lower() in ("pirate", "serpent", "squid")
-                    and abs(c["x"] - px) + abs(c["y"] - py) <= 2
-                ]
-                if sea_near:
-                    from py_exodus.screens.overworld import can_move_to
-
-                    best_dir = None
-                    best_dist = -1
-                    for d, (dx, dy) in ((Direction.NORTH, (0, -1)), (Direction.SOUTH, (0, 1)), (Direction.WEST, (-1, 0)), (Direction.EAST, (1, 0))):
-                        nx, ny = (px + dx) % gmap.width, (py + dy) % gmap.height
-                        if not can_move_to(gmap, nx, ny, transport=Transport.FOOT, party=party):
-                            continue
-                        min_d = min(abs(nx - cx) + abs(ny - cy) for cx, cy in sea_near)
-                        if min_d > best_dist:
-                            best_dist = min_d
-                            best_dir = d
-                    if best_dir is not None:
-                        return self._emit_key(state_machine, _DIR_TO_KEY[best_dir])
+                for c in getattr(screen, "creatures", []):
+                    tname = str(c.get("tile_name") or c.get("tile") or "").lower()
+                    if tname in ("pirate", "serpent", "squid") and "x" in c and "y" in c:
+                        cx, cy = c["x"], c["y"]
+                        avoid_monsters.add((cx, cy))
+                        for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+                            avoid_monsters.add(((cx + dx) % gmap.width, (cy + dy) % gmap.height))
+        self._overworld_avoid = avoid_monsters
 
         if goal == Goal.GET_MARK_KINGS:
             if (px, py) == (46, 7):
@@ -951,6 +938,7 @@ class AutoPlayController:
         goals: set[tuple[int, int]],
     ) -> int:
         has_key = any(not m.is_dead() and m.keys > 0 for m in party.members)
+        avoid = getattr(self, "_overworld_avoid", None) or None
         d = find_2d_step(
             game_map,
             start=start,
@@ -958,8 +946,19 @@ class AutoPlayController:
             transport=party.transport,
             party=party,
             wind_direction=getattr(party, "wind_direction", None),
+            avoid_tiles=avoid,
             allow_locked_doors=(has_key and party.transport == Transport.FOOT),
         )
+        if d is None and avoid:
+            d = find_2d_step(
+                game_map,
+                start=start,
+                goals=goals,
+                transport=party.transport,
+                party=party,
+                wind_direction=getattr(party, "wind_direction", None),
+                allow_locked_doors=(has_key and party.transport == Transport.FOOT),
+            )
         if d is not None:
             nx = start[0] + d.dx
             ny = start[1] + d.dy
