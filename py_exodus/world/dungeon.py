@@ -4,6 +4,7 @@ Authentic Ultima III first-person stepped wireframe projection and dungeon state
 """
 from __future__ import annotations
 
+import math
 import random
 from dataclasses import dataclass
 from enum import Enum
@@ -233,7 +234,7 @@ class DungeonCamera:
         focal: float,
         fill: tuple[int, int, int],
         outline: tuple[int, int, int],
-        seam: tuple[int, int, int],
+        seam: tuple[int, int, int] | None = None,
         lat: float | None = None,
         d0: float = 0.0,
         d1: float = 0.0,
@@ -270,14 +271,15 @@ class DungeonCamera:
         quad = self._face_quad(cx, cy, focal, corners)
         pygame.draw.polygon(surface, fill, quad)
         pygame.draw.lines(surface, outline, True, quad, 1)
-        for seg in verticals + horizontals:
-            pygame.draw.line(
-                surface,
-                seam,
-                self._project(cx, cy, focal, *seg[0]),
-                self._project(cx, cy, focal, *seg[1]),
-                1,
-            )
+        if seam is not None:
+            for seg in verticals + horizontals:
+                pygame.draw.line(
+                    surface,
+                    seam,
+                    self._project(cx, cy, focal, *seg[0]),
+                    self._project(cx, cy, focal, *seg[1]),
+                    1,
+                )
         return quad
 
     # --- tile helpers -------------------------------------------------------
@@ -377,7 +379,17 @@ class DungeonCamera:
         floor_fill = (38, 38, 38)
         ceil_fill = (30, 30, 30)
         shadow_fill = (25, 25, 25)
-        frame_col = COLOR_LIGHT_GRAY
+        depth_frames = {
+            0: (220, 220, 220),
+            1: (220, 220, 220),
+            2: (175, 175, 175),
+            3: (135, 135, 135),
+            4: (100, 100, 100),
+        }
+        depth_wall_fills = {
+            3: ((72, 72, 72), (46, 46, 46), (34, 34, 34)),
+            4: ((60, 60, 60), (38, 38, 38), (28, 28, 28)),
+        }
 
         max_col = min(stop_depth, max_depth) - 1  # last column with open corridor
 
@@ -387,6 +399,19 @@ class DungeonCamera:
         for s in range(max_col, -1, -1):  # far to near
             plane_near = s
             plane_far = s + 1
+            frame_col = depth_frames.get(s, (70, 70, 70))
+            if s <= 2:
+                s_front_fill, s_side_fill, s_opening_fill = (
+                    front_fill, side_fill, opening_fill
+                )
+            else:
+                s_front_fill, s_side_fill, s_opening_fill = depth_wall_fills.get(
+                    s, ((48, 48, 48), (30, 30, 30), (22, 22, 22))
+                )
+            side_seam = (72, 72, 72) if s <= 1 else None
+            front_seam = (100, 100, 100) if s <= 1 else None
+            opening_seam = (55, 55, 55) if s <= 1 else None
+            ceil_outline = COLOR_DARK_GRAY if s <= 2 else (55, 55, 55)
 
             # --- corridor floor and ceiling strips (y=0 / y=1 planes)
             floor_quad = quad_for(
@@ -399,19 +424,6 @@ class DungeonCamera:
             )
             pygame.draw.polygon(surface, floor_fill, floor_quad)
             pygame.draw.polygon(surface, ceil_fill, ceiling_quad)
-            # longitudinal slab seams running along the corridor converge on
-            # the vanishing point — the strongest depth cue in the view
-            for lat_seam in (-0.25, 0.0, 0.25):
-                pygame.draw.line(
-                    surface, COLOR_SEAM,
-                    self._project(cx, cy, focal, lat_seam, 0.0, plane_near),
-                    self._project(cx, cy, focal, lat_seam, 0.0, plane_far), 1,
-                )
-                pygame.draw.line(
-                    surface, COLOR_SEAM,
-                    self._project(cx, cy, focal, lat_seam, 1.0, plane_near),
-                    self._project(cx, cy, focal, lat_seam, 1.0, plane_far), 1,
-                )
 
             # --- side geometry, left then right (side = -1 / +1)
             for side in (-1, 1):
@@ -441,23 +453,6 @@ class DungeonCamera:
                          (boundary, 1.0, plane_far),
                          (lat_solid, 1.0, plane_far)]
                     ))
-                    # Java floor/ceiling boxes also show their side faces
-                    # below/above the planes — dark shadow wedges whose seams
-                    # continue the opening's block grid.
-                    self._draw_face(
-                        surface, cx, cy, focal,
-                        lat=lat_solid, d0=plane_near, d1=plane_far,
-                        h0=1.0, h1=2.0,
-                        fill=shadow_fill, outline=COLOR_DARK_GRAY,
-                        seam=(75, 75, 75),
-                    )
-                    self._draw_face(
-                        surface, cx, cy, focal,
-                        lat=lat_solid, d0=plane_near, d1=plane_far,
-                        h0=-1.0, h1=0.0,
-                        fill=shadow_fill, outline=COLOR_DARK_GRAY,
-                        seam=(75, 75, 75),
-                    )
 
                     # first solid tile seen through the opening
                     for k in (2, 3):
@@ -467,8 +462,8 @@ class DungeonCamera:
                             quad = self._draw_face(
                                 surface, cx, cy, focal,
                                 lat=lat, d0=plane_near, d1=plane_far,
-                                fill=opening_fill, outline=COLOR_DARK_GRAY,
-                                seam=COLOR_SEAM,
+                                fill=s_opening_fill, outline=ceil_outline,
+                                seam=opening_seam,
                             )
                             if self._is_door(far):
                                 self._front_door_detail(surface, quad, far, dim=True)
@@ -480,8 +475,8 @@ class DungeonCamera:
                     quad = self._draw_face(
                         surface, cx, cy, focal,
                         lat=lat_solid, d0=plane_near, d1=far_boundary,
-                        fill=side_fill, outline=COLOR_LIGHT_GRAY,
-                        seam=COLOR_SEAM,
+                        fill=s_side_fill, outline=frame_col,
+                        seam=side_seam,
                     )
                     if self._is_door(st):
                         self._side_door_detail(
@@ -494,8 +489,8 @@ class DungeonCamera:
                         surface, cx, cy, focal,
                         lat=lat_solid, d0=plane_near, d1=plane_far,
                         h0=1.0, h1=2.0,
-                        fill=ceil_fill, outline=COLOR_DARK_GRAY,
-                        seam=(75, 75, 75),
+                        fill=ceil_fill, outline=ceil_outline,
+                        seam=None,
                     )
 
             # --- opening edges receding outward + opening far frame
@@ -538,16 +533,17 @@ class DungeonCamera:
                 quad = self._draw_face(
                     surface, cx, cy, focal,
                     front_plane=zf,
-                    fill=front_fill, outline=COLOR_WHITE,
-                    seam=COLOR_SEAM,
+                    fill=s_front_fill,
+                    outline=COLOR_WHITE if s <= 1 else frame_col,
+                    seam=front_seam,
                 )
                 if self._is_door(front_tile):
                     self._front_door_detail(surface, quad, front_tile)
                 self._draw_face(
                     surface, cx, cy, focal,
                     front_plane=zf, h0=1.0, h1=2.0,
-                    fill=shadow_fill, outline=COLOR_DARK_GRAY,
-                    seam=(75, 75, 75),
+                    fill=shadow_fill, outline=ceil_outline,
+                    seam=None,
                 )
 
         # Render dungeon fixtures along the corridor (back to front)
@@ -582,17 +578,32 @@ class DungeonCamera:
                     continue
                 # Occlusion: the eye sees a creature only if everything
                 # between its tile and the corridor centre line at its depth
-                # is open (wall blocks side corridors the same way it blocks
-                # the floor).
-                if lateral == int(lateral) and all(
-                    not self._is_solid(
-                        tile_at((1 if lateral > 0 else -1) * k, s)
+                # is open, AND no wall at a shallower depth blocks the ray
+                # from (0, 0.5) to (lateral, s + 0.5).
+                if lateral == int(lateral):
+                    lat_i = int(lateral)
+                    sign = 1 if lat_i > 0 else -1
+                    occluded = any(
+                        self._is_solid(tile_at(sign * k, s))
+                        for k in range(0, abs(lat_i) + 1)
                     )
-                    for k in range(0, abs(int(lateral)) + 1)
-                ):
-                    self._render_creature(
-                        surface, cx, cy, focal, int(lateral), s
-                    )
+                    if not occluded and lat_i != 0:
+                        abs_lat = abs(lat_i)
+                        for d_col in range(1, s):
+                            lat_near = abs_lat * (d_col - 0.5) / s
+                            lat_far = abs_lat * (d_col + 0.5) / s
+                            c_min = math.floor(lat_near + 0.5 + 1e-9)
+                            c_max = math.ceil(lat_far - 0.5 - 1e-9)
+                            if any(
+                                self._is_solid(tile_at(sign * c, d_col))
+                                for c in range(c_min, c_max + 1)
+                            ):
+                                occluded = True
+                                break
+                    if not occluded:
+                        self._render_creature(
+                            surface, cx, cy, focal, lat_i, s
+                        )
 
     def _render_creature(
         self,
@@ -610,28 +621,38 @@ class DungeonCamera:
         (stepped convention: column s spans z [s, s+1]), so a monster one
         step away fills a far bigger screen region than one two steps out.
         """
+        surf_w = surface.get_width()
+        if depth == 1 and abs(lateral) >= 2:
+            return
         d = depth + 0.5
         half = self._half_extent(focal, d)
         fxc = ccx + lateral * focal / d
+        if not (0 <= fxc < surf_w):
+            return
         top = ccy - (0.62 - self.EYE) * focal / d
         bottom = ccy - (0.0 - self.EYE) * focal / d
         w = max(3, int(half * 0.8))
+        left = max(0, int(fxc - w // 2))
+        right = min(surf_w - 1, int(fxc - w // 2) + w - 1)
+        rect_w = max(1, right - left + 1)
         # body
         pygame.draw.rect(
             surface, COLOR_YELLOW,
-            (int(fxc - w // 2), int(top), w, int(bottom - top)), 1,
+            (left, int(top), rect_w, int(bottom - top)), 1,
         )
         # shoulders
+        shoulder_y = int(top + (bottom - top) * 0.25)
         pygame.draw.line(
             surface, COLOR_YELLOW,
-            (fxc - w // 2, int(top + (bottom - top) * 0.25)),
-            (fxc + w // 2, int(top + (bottom - top) * 0.25)), 1,
+            (left, shoulder_y),
+            (right, shoulder_y), 1,
         )
         # head
         head_r = max(2, w // 4)
+        head_cx = max(head_r, min(surf_w - 1 - head_r, int(fxc)))
         pygame.draw.circle(
             surface, COLOR_YELLOW,
-            (int(fxc), int(top) - head_r), head_r, 1,
+            (head_cx, int(top) - head_r), head_r, 1,
         )
 
     def _front_door_detail(

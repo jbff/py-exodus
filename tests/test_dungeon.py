@@ -169,6 +169,67 @@ def test_creature_off_axis_positions_with_facing(empty_dmap):
     assert box[0] > 88, "a monster to the east must appear in the right half"
 
 
+def test_creature_occluded_by_shallow_side_wall(empty_dmap):
+    """A solid wall at a shallower depth along the sightline occludes a
+    creature behind it in a side column."""
+    pygame.init()
+    cam = DungeonCamera()
+    surf = pygame.Surface((176, 176))
+    empty_dmap.set_tile(6, 4, 0, DungeonTile.WALL)
+    wc = _wc()
+    wc.x = 6
+    wc.y = 3  # depth=2, lateral=1 behind wall at (6, 4)
+    cam.render_wireframe(
+        surf, empty_dmap, 5, 5, 0, Direction.NORTH, torch_lit=True,
+        creatures=[wc],
+    )
+    assert _creature_pixels(surf) is None
+
+
+def test_creature_depth1_off_axis_clipping(empty_dmap):
+    """At depth=1, |lateral|>=2 is outside the viewport and skipped;
+    |lateral|==1 is clamped within [0, 176)."""
+    pygame.init()
+    cam = DungeonCamera()
+
+    # depth=1, lateral=2 -> outside horizontal viewport, skipped
+    surf_far_lat = pygame.Surface((176, 176))
+    wc_out = _wc()
+    wc_out.x = 7
+    wc_out.y = 4
+    cam.render_wireframe(
+        surf_far_lat, empty_dmap, 5, 5, 0, Direction.NORTH, torch_lit=True,
+        creatures=[wc_out],
+    )
+    assert _creature_pixels(surf_far_lat) is None
+
+    # depth=1, lateral=1 -> clamped within [0, 176) on right half
+    surf_right = pygame.Surface((176, 176))
+    wc_r = _wc()
+    wc_r.x = 6
+    wc_r.y = 4
+    cam.render_wireframe(
+        surf_right, empty_dmap, 5, 5, 0, Direction.NORTH, torch_lit=True,
+        creatures=[wc_r],
+    )
+    box_r = _creature_pixels(surf_right)
+    assert box_r is not None
+    assert 88 < box_r[0] and box_r[2] < 176
+
+    # depth=1, lateral=-1 -> clamped within [0, 176) on left half
+    surf_left = pygame.Surface((176, 176))
+    wc_l = _wc()
+    wc_l.x = 4
+    wc_l.y = 4
+    cam.render_wireframe(
+        surf_left, empty_dmap, 5, 5, 0, Direction.NORTH, torch_lit=True,
+        creatures=[wc_l],
+    )
+    box_l = _creature_pixels(surf_left)
+    assert box_l is not None
+    assert 0 <= box_l[0] and box_l[2] < 88
+
+
 def test_dungeon_wireframe_all_directions(empty_dmap):
     pygame.init()
     surf = pygame.Surface((176, 176))
@@ -1013,6 +1074,21 @@ def test_front_face_occludes_deeper_geometry():
     for px in range(0, 176, 4):
         for py in range(0, 176, 4):
             assert surf.get_at((px, py))[:3] != (0, 255, 0)
+
+
+def test_navigation_depth_darkening_and_clean_planes():
+    """Open floor/ceiling planes have no noisy longitudinal seam lines, and
+    distant terminating walls (s >= 3) are depth-darkened."""
+    dmap = _flat_dmap()
+    # Wall 4 tiles ahead (stop_depth=4, s=3) facing NORTH from (8, 8)
+    dmap.set_tile(8, 4, 0, DungeonTile.WALL)
+    surf = _render_geom(dmap, 8, 8)
+    # Centre floor and ceiling have no longitudinal seam at x=88
+    assert surf.get_at((88, 160))[:3] == (38, 38, 38)
+    assert surf.get_at((88, 16))[:3] == CEILING_FILL
+    # Distant front face at s=3 is darkened below FRONT_FILL (85, 85, 85)
+    far_col = surf.get_at((88, 88))[:3]
+    assert (0, 0, 0) < far_col < FRONT_FILL
 
 
 # --- Task 24: GBC finite torch durations --------------------------------
