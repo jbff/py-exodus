@@ -4,7 +4,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import TYPE_CHECKING
 
-from py_exodus.constants import ArmorType, Status, Transport, WeaponType
+from py_exodus.constants import ArmorType, Profession, Status, Transport, WeaponType
 
 if TYPE_CHECKING:
     from py_exodus.entities.party import Party
@@ -63,7 +63,7 @@ def evaluate_goal(party: Party) -> Goal:
     if (
         min(m.level for m in living) < 2
         and any(
-            (m.weapon == WeaponType.NONE and m.gold >= 5)
+            (m.weapon == WeaponType.NONE and m.profession != Profession.WIZARD and m.gold >= 5)
             or (m.armor == ArmorType.NONE and m.gold >= 75)
             or (
                 m.weapon == WeaponType.NONE

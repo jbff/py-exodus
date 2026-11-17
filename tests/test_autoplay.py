@@ -265,6 +265,13 @@ def test_evaluate_goal_progression():
     armed_lvl1 = _make_party(level=1, exp=0)
     assert evaluate_goal(armed_lvl1) == Goal.GRIND_AND_LEVEL
 
+    # Wizard who threw their last Dagger (WeaponType.NONE, no spares) stays in GRIND_AND_LEVEL
+    armed_lvl1.members[3].profession = Profession.WIZARD
+    armed_lvl1.members[3].weapon = WeaponType.NONE
+    armed_lvl1.members[3].weapons.clear()
+    armed_lvl1.members[3].gold = 50
+    assert evaluate_goal(armed_lvl1) == Goal.GRIND_AND_LEVEL
+
     # Level 5 -> GET_MARK_KINGS
     lvl5 = _make_party(level=5, exp=500, marks=[0, 0, 0, 0])
     assert evaluate_goal(lvl5) == Goal.GET_MARK_KINGS
