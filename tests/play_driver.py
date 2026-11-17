@@ -261,6 +261,8 @@ class PlaySession:
         screen = self.screen if screen is None else screen
         if screen is None:
             return
+        if hasattr(screen, "flush_animations"):
+            screen.flush_animations()
         log = getattr(screen, "text_log", None)
         if log is None:
             return

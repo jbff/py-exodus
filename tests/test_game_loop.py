@@ -1609,11 +1609,11 @@ def test_combat_screen_flash_and_visual_fx(pygame_setup, asset_mgr, sample_party
     active.mp = 50
     combat._execute_action(Action.cast(Spell.FULGAR, direction=Direction.NORTH))
     assert combat.flash_timer > 0.0
-    assert any(fx["type"] == "spell" for fx in combat.combat_fx)
 
-    # Update decrements flash_timer
-    combat.update(0.3)
+    # Update past cast flash -> flash_timer hits 0 and spell projectile spawns
+    combat.update(0.2)
     assert combat.flash_timer == 0.0
+    assert any(fx["type"] == "spell" for fx in combat.combat_fx)
 
     # Weapon attack creates weapon combat FX
     combat._execute_action(Action.attack(Direction.NORTH))
@@ -1646,8 +1646,10 @@ def test_combat_fx_only_for_real_projectile_spells(pygame_setup, asset_mgr, samp
     active.mp = 50
     before = spell_fx_count()
     combat._execute_action(Action.cast(Spell.MITTAR, direction=Direction.NORTH))
+    combat.update(0.20)
     assert spell_fx_count() > before
     combat._render_combat_fx(pygame.Surface((100, 100)))
+    combat.flush_animations()
 
     # Case 2: non-projectile directional cast that REFUSES (APPAR_UNEM with
     # no mana) — nothing happened, so no tracer path may reach
@@ -1657,6 +1659,7 @@ def test_combat_fx_only_for_real_projectile_spells(pygame_setup, asset_mgr, samp
     before = spell_fx_count()
     res = combat.arena.execute_turn(Action.cast(Spell.APPAR_UNEM, direction=Direction.NORTH))
     combat._execute_action(res.action)  # refused casts are idempotent (mp stays 0)
+    combat.update(0.20)
     assert res.success is False
     assert spell_fx_count() == before
 
@@ -1667,6 +1670,7 @@ def test_combat_fx_only_for_real_projectile_spells(pygame_setup, asset_mgr, samp
     if not combat.arena.is_finished:
         before = spell_fx_count()
         combat._execute_action(Action.cast(Spell.REPOND, direction=Direction.NORTH))
+        combat.update(0.20)
         assert spell_fx_count() == before
 
 
@@ -1742,8 +1746,13 @@ def test_combat_screen_mittar_visual_projectile(pygame_setup, asset_mgr, sample_
     cast_action = Action.cast(Spell.MITTAR, direction=Direction.NORTH)
     combat._execute_action(cast_action)
 
-    # Check flash timer is set to a crisp 0.10s
-    assert combat.flash_timer == pytest.approx(0.10, rel=1e-2)
+    # Check flash timer is set to 0.15s before projectile spawns
+    assert combat.flash_timer == pytest.approx(0.15, rel=1e-2)
+    assert combat.combat_fx == []
+
+    # Advance past cast flash so projectile spawns
+    combat.update(0.20)
+    assert combat.flash_timer == 0.0
 
     # Check combat_fx has the projectile
     assert len(combat.combat_fx) == 1

@@ -519,8 +519,9 @@ def test_dying_monster_visible_during_attack_burst(asset_mgr, conflict_map):
     combat.combat_fx.clear()
     combat.dying_monsters.clear()
 
-    # Melee attack kills the monster
+    # Melee attack kills the monster; advance past attack projectile so dying flash starts
     combat._execute_action(Action.attack(Direction.NORTH))
+    combat.update(0.40)
 
     # Monster is dead in arena, but registered in dying_monsters for the hit animation
     assert len(combat.dying_monsters) == 1

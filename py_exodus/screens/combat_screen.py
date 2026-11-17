@@ -107,6 +107,11 @@ class CombatScreen(BaseScreen):
         self.flash_timer: float = 0.0
         self.combat_fx: list[dict[str, Any]] = []
         self.dying_monsters: list[dict[str, Any]] = []
+        self._anim_stage: str | None = None
+        self._pending_fx: dict[str, Any] | None = None
+        self._pending_dying: list[dict[str, Any]] = []
+        self._pending_action: Action | None = None
+        self._pending_res: Any = None
 
     @property
     def active_party_member(self) -> PartyMember | None:
@@ -148,6 +153,9 @@ class CombatScreen(BaseScreen):
 
         if event.type != pygame.KEYDOWN:
             return
+
+        if self._anim_stage is not None:
+            self.flush_animations()
 
         # If waiting for prompt input (e.g. Direction or Spell code)
         if self.text_log.is_waiting_for_input:
@@ -476,7 +484,10 @@ class CombatScreen(BaseScreen):
         self.text_log.prompt("Wear Armor? (A-H): ", callback=_on_arm, single_char=True)
 
     def _execute_action(self, action: Action) -> None:
-        """Execute action in CombatArena, trigger visual FX, update audio, and sync logs."""
+        """Execute player action in CombatArena and sequence visual FX / monster turns."""
+        if self._anim_stage is not None:
+            self.flush_animations()
+
         active_before = self.active_party_member
         p_idx = self.arena.active_party_member_idx
         start_pos = self.arena.player_positions.get(p_idx, (5, 5))
@@ -490,52 +501,28 @@ class CombatScreen(BaseScreen):
             for m in self.arena.monsters if not m.is_dead and m.visible
         ]
 
-        res = self.arena.execute_turn(action)
+        res = self.arena.execute_player_action(p_idx, action)
         self._prompt_ran_action = True
 
         current_living_objs = {m for m in self.arena.monsters if not m.is_dead}
-        for mb in monsters_before:
-            if mb["obj"] not in current_living_objs:
-                self.dying_monsters.append({
-                    "tile": mb["tile"],
-                    "name": mb["name"],
-                    "x": mb["x"],
-                    "y": mb["y"],
-                    "timer": 0.35,
-                })
-
-        # Reverse viewport screen flash on cast
-        if action.type == ActionType.CAST:
-            self.flash_timer = 0.10
-
-        # Visual FX for weapon attack
-        if action.type == ActionType.ATTACK and res.attack_res:
-            ares = res.attack_res
-            w_def = None
-            if self.asset_mgr and active_before and hasattr(active_before, "weapon"):
-                w_name = active_before.weapon.value if hasattr(active_before.weapon, "value") else str(active_before.weapon)
-                w_def = self.asset_mgr.get_weapon(w_name)
-
-            is_magic = w_def is not None and (w_def.magic or getattr(w_def, "hit_tile", "") == "magic")
-            color = (85, 255, 255) if is_magic else (255, 85, 85)
-            hit_tile = "magic" if is_magic else "fire"
-
-            target_pos = ares.target_pos
-            if not target_pos and ares.projectile_path:
-                target_pos = ares.projectile_path[-1]
-
-            path = ares.projectile_path if ares.projectile_path else ([target_pos] if target_pos else [])
-            self.combat_fx.append({
-                "type": "weapon",
-                "color": color,
-                "start_pos": start_pos,
-                "path": path,
-                "target_pos": target_pos,
-                "hit_tile": hit_tile if ares.hit else None,
-                "duration": 0.35,
+        pending_dying = [
+            {
+                "tile": mb["tile"],
+                "name": mb["name"],
+                "x": mb["x"],
+                "y": mb["y"],
                 "timer": 0.35,
-            })
-        elif action.type == ActionType.CAST:
+            }
+            for mb in monsters_before
+            if mb["obj"] not in current_living_objs
+        ]
+
+        self._pending_dying = pending_dying
+        self._pending_action = action
+        self._pending_res = res
+        self._pending_fx = None
+
+        if action.type == ActionType.CAST:
             spell_obj = action.spell
             s_name = getattr(spell_obj, "name", str(spell_obj)).upper()
             if "FULGAR" in s_name:
@@ -572,7 +559,7 @@ class CombatScreen(BaseScreen):
                 target_pos = path[-1]
 
             if path or target_pos:
-                self.combat_fx.append({
+                self._pending_fx = {
                     "type": "spell",
                     "color": color,
                     "start_pos": start_pos,
@@ -581,16 +568,17 @@ class CombatScreen(BaseScreen):
                     "hit_tile": "magic" if hit else None,
                     "duration": 0.35,
                     "timer": 0.35,
-                })
+                }
 
-        # Sync arena log messages to HUD
-        for msg in self.arena.log_messages:
-            self.text_log.add_message(msg)
-        self.arena.log_messages.clear()
+            # Phase 1: cast flash + magic SFX; bolt & logs wait until flash ends.
+            self.flash_timer = 0.15
+            self._anim_stage = "cast_flash"
+            if self.audio is not None:
+                self.audio.play_sfx("magic")
+            return
 
-        # Play audio effects
-        if self.audio is not None:
-            if action.type == ActionType.ATTACK:
+        if action.type == ActionType.ATTACK:
+            if self.audio is not None:
                 # Java SecondaryInputProcessor.java:345-347: the refusal of a
                 # non-exotic attack on the EXODUS map plays
                 # Sound.NEGATIVE_EFFECT, never PC_ATTACK; a real attack (the
@@ -600,10 +588,61 @@ class CombatScreen(BaseScreen):
                     self.audio.play_sfx("negative_effect")
                 else:
                     self.audio.play_sfx("pc_attack")
-            elif action.type == ActionType.CAST:
-                self.audio.play_sfx("magic")
-            elif action.type == ActionType.MOVE:
-                self.audio.play_sfx("walk_normal")
+
+            if res.attack_res:
+                ares = res.attack_res
+                w_def = None
+                if self.asset_mgr and active_before and hasattr(active_before, "weapon"):
+                    w_name = active_before.weapon.value if hasattr(active_before.weapon, "value") else str(active_before.weapon)
+                    w_def = self.asset_mgr.get_weapon(w_name)
+
+                is_magic = w_def is not None and (w_def.magic or getattr(w_def, "hit_tile", "") == "magic")
+                color = (85, 255, 255) if is_magic else (255, 85, 85)
+                hit_tile = "magic" if is_magic else "fire"
+
+                target_pos = ares.target_pos
+                if not target_pos and ares.projectile_path:
+                    target_pos = ares.projectile_path[-1]
+
+                path = ares.projectile_path if ares.projectile_path else ([target_pos] if target_pos else [])
+                self.combat_fx.append({
+                    "type": "weapon",
+                    "color": color,
+                    "start_pos": start_pos,
+                    "path": path,
+                    "target_pos": target_pos,
+                    "hit_tile": hit_tile if ares.hit else None,
+                    "duration": 0.35,
+                    "timer": 0.35,
+                })
+                self._anim_stage = "projectile"
+                return
+
+        if self.audio is not None and action.type == ActionType.MOVE:
+            self.audio.play_sfx("walk_normal")
+
+        self._complete_pending_action()
+
+    def _complete_pending_action(self) -> None:
+        """Finish an action after its visual phase: flush logs, run monster turns, check end state."""
+        self._anim_stage = None
+        if self._pending_dying:
+            self.dying_monsters.extend(self._pending_dying)
+            self._pending_dying = []
+
+        for msg in self.arena.log_messages:
+            self.text_log.add_message(msg)
+        self.arena.log_messages.clear()
+
+        if self.arena.is_party_round_done and not self.arena.is_finished:
+            self.arena.execute_monster_turns()
+            for msg in self.arena.log_messages:
+                self.text_log.add_message(msg)
+            self.arena.log_messages.clear()
+
+        self._pending_fx = None
+        self._pending_action = None
+        self._pending_res = None
 
         # Check end states. Java logs exactly one line via
         # GameScreen.endCombat (GameScreen.java:421-437): "Victory!" on a win,
@@ -641,6 +680,17 @@ class CombatScreen(BaseScreen):
         if not self.arena.is_finished:
             self._log_turn_marker()
 
+    def flush_animations(self) -> None:
+        """Synchronously complete any pending animation stage and clear active FX."""
+        self.flash_timer = 0.0
+        self.combat_fx.clear()
+        self.dying_monsters.clear()
+        if self._anim_stage == "cast_flash":
+            self._pending_fx = None
+            self._complete_pending_action()
+        elif self._anim_stage == "projectile":
+            self._complete_pending_action()
+
     def _notify_end_combat(self) -> None:
         """Java CombatScreen.end (CombatScreen.java:579-587): at battle end
         the returning screen receives ``endCombat(isWon, combatMap, wounded)``
@@ -676,6 +726,16 @@ class CombatScreen(BaseScreen):
             dm["timer"] -= dt
             if dm["timer"] <= 0:
                 self.dying_monsters.remove(dm)
+
+        if self._anim_stage == "cast_flash" and self.flash_timer <= 0:
+            if self._pending_fx is not None:
+                self.combat_fx.append(self._pending_fx)
+                self._pending_fx = None
+                self._anim_stage = "projectile"
+            else:
+                self._complete_pending_action()
+        elif self._anim_stage == "projectile" and not self.combat_fx:
+            self._complete_pending_action()
 
     def render(self, surface: pygame.Surface) -> None:
         surface.fill(EGA_BLACK)

@@ -1321,7 +1321,7 @@ def test_wipe_logs_no_game_event_string(asset_mgr, conflict_map, monkeypatch):
         monster_count=1,
     )
 
-    def _wipe(action):
+    def _wipe(member_idx, action):
         combat.arena.is_defeat = True
         combat.arena.is_finished = True
         combat.log_messages = []
@@ -1329,7 +1329,7 @@ def test_wipe_logs_no_game_event_string(asset_mgr, conflict_map, monkeypatch):
 
     from py_exodus.combat.arena import ActionResult
 
-    monkeypatch.setattr(combat.arena, "execute_turn", _wipe)
+    monkeypatch.setattr(combat.arena, "execute_player_action", _wipe)
     monkeypatch.setattr(combat, "check_party_death", lambda: None)
     combat._execute_action(Action.pass_turn())
     assert not any("DEFEAT" in msg for msg in combat.text_log.history)
@@ -1456,6 +1456,95 @@ def test_combat_screen_splits_multiline_spell_kill_lines(asset_mgr, conflict_map
         m.exp = 7 + idx
     monkeypatch.setattr(magic.random, "randrange", lambda *a, **k: 7)
     combat._execute_action(Action.cast(Spell.REPOND))
+    combat.flush_animations()
     assert "Orc0 Killed! Exp. 7" in combat.text_log.history
     assert "Orc1 Killed! Exp. 8" in combat.text_log.history
     assert any("Repond destroys 2 goblinoid" in line for line in combat.text_log.history)
+
+
+class TestCombatTiming:
+    """Tests for sequenced cast flash -> projectile -> log/monster-turn timing."""
+
+    def test_cast_flash_precedes_bolt_and_no_effect_log(self, asset_mgr, conflict_map):
+        from py_exodus.constants import Profession, Race, Spell
+        from py_exodus.screens.combat_screen import CombatScreen
+
+        party = Party()
+        wiz = Character("Wiz", "M", Race.FUZZY, Profession.WIZARD, intelligence=50, mp=99)
+        party.add_member(wiz)
+        combat = CombatScreen(
+            party=party,
+            combat_map=conflict_map,
+            creature_tile="orc",
+            asset_mgr=asset_mgr,
+            monster_count=1,
+        )
+        # Place player at (5, 8) and monster far away at (1, 1) so NORTH lane is empty
+        combat.arena.player_positions[0] = (5, 8)
+        combat.arena.monsters[0].x, combat.arena.monsters[0].y = 1, 1
+        history_before = len(combat.text_log.history)
+
+        combat._execute_action(Action.cast(Spell.MITTAR, direction=Direction.NORTH))
+
+        # t=0: flash is active, bolt has NOT spawned yet, no result/No effect logged yet
+        assert combat.flash_timer > 0
+        assert combat.combat_fx == []
+        assert combat.text_log.history[history_before:] == []
+
+        # Advance past cast flash (0.15-0.18s) -> bolt spawns, still no result logged
+        combat.update(0.20)
+        assert combat.flash_timer == 0
+        assert len(combat.combat_fx) == 1
+        assert combat.text_log.history[history_before:] == []
+
+        # Advance past projectile (0.35s) -> bolt finishes, turn/result logged
+        combat.update(0.40)
+        assert combat.combat_fx == []
+        new_lines = combat.text_log.history[history_before:]
+        assert len(new_lines) > 0
+        assert "Wiz's turn." in new_lines
+
+    def test_ranged_attack_bolt_completes_before_monster_moves(
+        self, asset_mgr, conflict_map, monkeypatch
+    ):
+        from py_exodus.constants import Profession, Race
+        from py_exodus.screens.combat_screen import CombatScreen
+
+        # Prevent monster ranged/teleport so it advances toward the player
+        monkeypatch.setattr(arena_mod.random, "randrange", lambda n: n - 1)
+
+        party = Party()
+        archer = Character("Archer", "M", Race.HUMAN, Profession.FIGHTER, dexterity=25)
+        archer.weapon = WeaponType.BOW
+        party.add_member(archer)
+        combat = CombatScreen(
+            party=party,
+            combat_map=conflict_map,
+            creature_tile="orc",
+            asset_mgr=asset_mgr,
+            monster_count=1,
+        )
+        combat.arena.player_positions[0] = (3, 8)
+        m = combat.arena.monsters[0]
+        m.hp = 500
+        m.ranged = False
+        m.teleports = False
+        m.x, m.y = 3, 5
+        orig_pos = (m.x, m.y)
+
+        combat._execute_action(Action.attack(Direction.NORTH))
+
+        # t=0: bolt is active and monster has NOT moved yet
+        assert len(combat.combat_fx) == 1
+        assert (m.x, m.y) == orig_pos
+
+        # Midway through projectile (0.10s): bolt still active, monster STILL at original tile
+        combat.update(0.10)
+        assert len(combat.combat_fx) == 1
+        assert (m.x, m.y) == orig_pos
+
+        # Advance past projectile (0.40s): bolt finished AND monster has moved
+        combat.update(0.40)
+        assert combat.combat_fx == []
+        assert (m.x, m.y) != orig_pos
+
