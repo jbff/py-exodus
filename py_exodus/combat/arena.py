@@ -1233,7 +1233,9 @@ class CombatArena:
         left; no direction survives → no move. The mask excludes null tiles,
         so a creature can never step off the map (the old "flees from battle!"
         escape is gone — Java's FLEE branch is dead code)."""
-        step_dir = self._advance_direction(monster.x, monster.y, target_pos[0], target_pos[1])
+        step_dir = self._advance_direction(
+            monster.x, monster.y, target_pos[0], target_pos[1], monster=monster
+        )
         if step_dir is None:
             return None
 
@@ -1252,7 +1254,9 @@ class CombatArena:
             message="",
         )
 
-    def _advance_direction(self, fx: int, fy: int, tx: int, ty: int) -> Direction | None:
+    def _advance_direction(
+        self, fx: int, fy: int, tx: int, ty: int, monster: CombatMonster | None = None
+    ) -> Direction | None:
         """``Utils.getPath`` + ``Direction.getRandomValidDirection``
         (Utils.java:299-312, Constants.java:319-333): the toward-directions
         filtered to passable — and OCCUPIED-FREE — tiles (Java
@@ -1269,7 +1273,7 @@ class CombatArena:
         for d in (Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST):
             if not (d.mask & toward_mask):
                 continue
-            if self._is_tile_passable_for_creature(fx + d.dx, fy + d.dy):
+            if self._is_tile_passable_for_creature(fx + d.dx, fy + d.dy, monster=monster):
                 candidates.append(d)
         if candidates:
             return random.choice(candidates)
@@ -1278,21 +1282,28 @@ class CombatArena:
         w, h = self.combat_map.width, self.combat_map.height
         queue: deque[tuple[int, int, Direction]] = deque()
         visited: set[tuple[int, int]] = {(fx, fy)}
+        best_score = (abs(fx - tx) + abs(fy - ty), (fx - tx) ** 2 + (fy - ty) ** 2)
+        best_dir: Direction | None = None
         for d in (Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST):
             nx, ny = fx + d.dx, fy + d.dy
-            if (nx, ny) not in visited and self._is_tile_passable_for_creature(nx, ny):
+            if (nx, ny) not in visited and self._is_tile_passable_for_creature(nx, ny, monster=monster):
                 visited.add((nx, ny))
                 queue.append((nx, ny, d))
         while queue:
             cx, cy, first_dir = queue.popleft()
-            if abs(cx - tx) + abs(cy - ty) <= 1:
+            dist = abs(cx - tx) + abs(cy - ty)
+            if dist <= 1:
                 return first_dir
+            score = (dist, (cx - tx) ** 2 + (cy - ty) ** 2)
+            if score < best_score:
+                best_score = score
+                best_dir = first_dir
             for d in (Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST):
                 nx, ny = cx + d.dx, cy + d.dy
-                if 0 <= nx < w and 0 <= ny < h and (nx, ny) not in visited and self._is_tile_passable_for_creature(nx, ny):
+                if 0 <= nx < w and 0 <= ny < h and (nx, ny) not in visited and self._is_tile_passable_for_creature(nx, ny, monster=monster):
                     visited.add((nx, ny))
                     queue.append((nx, ny, first_dir))
-        return None
+        return best_dir
 
     def _move_is_too_slow(self, monster: CombatMonster, nx: int, ny: int) -> bool:
         """Java ``moveCreature`` slowed-type gate (CombatScreen.java:925-956).
@@ -1352,14 +1363,26 @@ class CombatArena:
 
         return best_idx, best_member, least_dist
 
-    def _is_tile_passable_for_creature(self, x: int, y: int) -> bool:
+    def _is_tile_passable_for_creature(
+        self, x: int, y: int, monster: CombatMonster | None = None
+    ) -> bool:
         if not (0 <= x < self.combat_map.width and 0 <= y < self.combat_map.height):
             return False
 
         tile = self.combat_map.get_tile(x, y)
         if tile is not None:
             attribs = getattr(tile, "attribs", TileAttrib.NONE)
-            if bool(attribs & TileAttrib.UNWALKABLE) or bool(attribs & TileAttrib.CREATUREUNWALKABLE):
+            cdef = getattr(monster, "definition", None) if monster is not None else None
+            if cdef is not None and getattr(cdef, "sails", False):
+                if not bool(attribs & TileAttrib.SAILABLE):
+                    return False
+            elif cdef is not None and getattr(cdef, "swims", False):
+                if not bool(attribs & TileAttrib.SWIMMABLE):
+                    return False
+            elif cdef is not None and getattr(cdef, "flies", False):
+                if bool(attribs & TileAttrib.UNFLYABLE):
+                    return False
+            elif bool(attribs & TileAttrib.UNWALKABLE) or bool(attribs & TileAttrib.CREATUREUNWALKABLE):
                 return False
 
         # Cannot step onto another living monster

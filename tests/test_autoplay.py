@@ -745,7 +745,7 @@ def test_stats_panel_party_hud_layout(pygame_setup, monkeypatch):
     from py_exodus.ui.stats_panel import StatsPanel
 
     party = Party()
-    party.add_member(Character("GRUMM", "O", Race.DWARF, Profession.FIGHTER, gold=145, food=592))
+    party.add_member(Character("GRUMM", "O", Race.DWARF, Profession.FIGHTER, gold=145, food=592, exp=45))
     captured: list[str] = []
 
     class _FakeFont:
@@ -762,6 +762,7 @@ def test_stats_panel_party_hud_layout(pygame_setup, monkeypatch):
     panel.render(surf, party, rect=pygame.Rect(0, 0, 300, 500))
 
     assert any("GRUMM" in s and "ODF" in s for s in captured)
+    assert any("E:45" in s for s in captured)
     assert not any("PARTY (" in s or "TRANS:" in s for s in captured)
     food_idx = next(i for i, s in enumerate(captured) if "FOOD:" in s and "GOLD:" in s)
     keys_idx = next(i for i, s in enumerate(captured) if "KEYS:" in s and "POWD:" in s)

@@ -304,7 +304,7 @@ class StatsPanel:
                     char_name = pm.name.upper()[:8]
                     draw_line(f"{marker}[{i+1}] {char_name:<8} {src_code} {st_abbr}", member_col)
                     draw_line(
-                        f"    H:{pm.hp:<4} M:{pm.mp:<3} F:{pm.food}",
+                        f" H:{pm.hp} M:{pm.mp} F:{pm.food} E:{pm.exp}",
                         EGA_LIGHT_GRAY if not is_active else EGA_YELLOW,
                     )
 

@@ -367,6 +367,11 @@ def _find_bfs_move_dir(
     """BFS on the 11x11 arena to route around masts/walls/allies to an attack position."""
     queue: deque[tuple[int, int, Direction]] = deque()
     visited: set[tuple[int, int]] = {(px, py)}
+    best_score = min(
+        ((abs(px - mx) + abs(py - my), (px - mx) ** 2 + (py - my) ** 2) for mx, my in visible_positions),
+        default=(9999, 9999),
+    )
+    best_dir: Direction | None = None
     for d in _CARDINAL_DIRS:
         nx, ny = px + d.dx, py + d.dy
         if (nx, ny) not in visited and _is_walkable_unoccupied(arena, member_idx, nx, ny):
@@ -375,8 +380,15 @@ def _find_bfs_move_dir(
 
     while queue:
         cx, cy, first_dir = queue.popleft()
-        if any(abs(cx - mx) + abs(cy - my) == 1 for mx, my in visible_positions):
+        score = min(
+            ((abs(cx - mx) + abs(cy - my), (cx - mx) ** 2 + (cy - my) ** 2) for mx, my in visible_positions),
+            default=(9999, 9999),
+        )
+        if score[0] == 1:
             return first_dir
+        if score < best_score:
+            best_score = score
+            best_dir = first_dir
         if weapon_range > 1 and _find_ranged_attack_dir(
             arena,
             cx,
@@ -402,4 +414,4 @@ def _find_bfs_move_dir(
                 visited.add((nx, ny))
                 queue.append((nx, ny, first_dir))
 
-    return None
+    return best_dir

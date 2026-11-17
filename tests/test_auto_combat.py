@@ -442,3 +442,30 @@ def test_combat_pathing_around_mast_for_auto_combat_and_monsters():
     # Monster AI must also step EAST or WEST around the mast instead of returning None
     m_dir = arena._advance_direction(5, 3, 5, 5)
     assert m_dir in (Direction.EAST, Direction.WEST)
+
+
+def test_sea_monster_advances_to_closest_water_tile_near_ship():
+    """A swimming monster unable to step onto deck/land advances to the closest water tile to the player."""
+    from py_exodus.assets import TileDef
+    from py_exodus.constants import TileAttrib
+
+    arena = _caster_arena(Profession.FIGHTER, mp=0, creature_tile="serpent", monster_count=1)
+    arena.monsters[0].definition.swims = True
+    # Build a small ship deck at x in {4,5,6}, y in {4,5,6} surrounded by water
+    water = TileDef(index=0, name="water", rule="water", attribs=TileAttrib.SWIMMABLE | TileAttrib.UNWALKABLE)
+    deck = TileDef(index=8, name="floor", rule="floors", attribs=TileAttrib.NONE)
+    for y in range(11):
+        for x in range(11):
+            arena.combat_map.set_tile(x, y, deck if 4 <= x <= 6 and 4 <= y <= 6 else water)
+
+    arena.player_positions[0] = (5, 5)  # center of deck, surrounded by non-swimmable deck tiles
+    arena.monsters[0].x = 1
+    arena.monsters[0].y = 1
+    # Place a mast/reef at (2, 1) and (1, 2) or test direct BFS when aligned at (2, 5) -> (3, 5)
+    arena.monsters[0].x = 2
+    arena.monsters[0].y = 5
+    # Greedy toward_mask is EAST (3, 5) — check BFS fallback when (3, 5) is blocked by a reef
+    reef = TileDef(index=99, name="reef", rule="none", attribs=TileAttrib.UNWALKABLE | TileAttrib.CREATUREUNWALKABLE)
+    arena.combat_map.set_tile(3, 5, reef)
+    m_dir = arena._advance_direction(2, 5, 5, 5, monster=arena.monsters[0])
+    assert m_dir in (Direction.NORTH, Direction.SOUTH)
