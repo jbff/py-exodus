@@ -239,6 +239,10 @@ class AutoPlayController:
         return self._emit_key(state_machine, pygame.K_e)
 
     def _step_combat(self, state_machine: StateMachine, screen) -> int | None:
+        if hasattr(screen, "auto_combat_interval"):
+            screen.auto_combat_interval = self.step_interval
+            if getattr(screen, "_auto_combat_timer", 0.0) > self.step_interval:
+                screen._auto_combat_timer = self.step_interval
         if screen.arena.is_finished:
             self._key_queue.clear()
             return self._emit_key(state_machine, pygame.K_RETURN)
@@ -543,9 +547,7 @@ class AutoPlayController:
             target_portal = self._nearest_reachable_portal(
                 gmap, px, py, party.transport, guild_portals, party=party
             )
-            if (px, py) == target_portal:
-                return self._emit_key(state_machine, pygame.K_e)
-            return self._move_toward(state_machine, gmap, party, (px, py), {target_portal})
+            return self._enter_portal_or_wait_dawn(state_machine, screen, gmap, party, px, py, target_portal)
 
         if goal == Goal.OUTFIT_BRITAIN:
             upgrade = best_shop_upgrade(party)
@@ -553,9 +555,7 @@ class AutoPlayController:
                 target_portal = (_SHOP_TOWNS[11][0], _SHOP_TOWNS[11][1])
             else:
                 target_portal = self._nearest_shop_town_portal(gmap, px, py, party.transport, party=party)
-            if (px, py) == target_portal:
-                return self._emit_key(state_machine, pygame.K_e)
-            return self._move_toward(state_machine, gmap, party, (px, py), {target_portal})
+            return self._enter_portal_or_wait_dawn(state_machine, screen, gmap, party, px, py, target_portal)
 
         # GRIND_AND_LEVEL
         if any(self._can_level_at_british(m) for m in living):
@@ -651,6 +651,51 @@ class AutoPlayController:
         if "buy" in prompt or "what" in prompt or "wat'l" in prompt or "choice" in prompt or "(a-" in prompt:
             return self._emit_key(state_machine, _char_to_key(self._shop_item_letter) or pygame.K_b)
         return self._emit_key(state_machine, pygame.K_ESCAPE)
+
+    def _enter_portal_or_wait_dawn(
+        self,
+        state_machine: StateMachine,
+        screen,
+        gmap,
+        party,
+        px: int,
+        py: int,
+        target_portal: tuple[int, int],
+    ) -> int:
+        if (px, py) == target_portal:
+            if target_portal == (37, 53) and not (
+                getattr(screen, "trammel_phase", 0) == 0
+                and getattr(screen, "felucca_phase", 0) == 0
+            ):
+                return self._emit_key(state_machine, pygame.K_SPACE)
+            return self._emit_key(state_machine, pygame.K_e)
+        return self._move_toward(state_machine, gmap, party, (px, py), {target_portal})
+
+    def _step_moongate(
+        self,
+        state_machine: StateMachine,
+        screen,
+        gmap,
+        party,
+        px: int,
+        py: int,
+        src_idx: int,
+        dest_idx: int,
+    ) -> int:
+        """Walk to an adjoining tile of moongate[src_idx], pass turns until aligned, then step in."""
+        gates = getattr(gmap, "moongates", ())
+        if not (0 <= src_idx < len(gates)):
+            return self._emit_key(state_machine, pygame.K_SPACE)
+        gx, gy = gates[src_idx].x, gates[src_idx].y
+        if abs(px - gx) + abs(py - gy) == 1:
+            if getattr(screen, "trammel_phase", 0) == src_idx and getattr(screen, "felucca_phase", 0) == dest_idx:
+                return self._move_toward(state_machine, gmap, party, (px, py), {(gx, gy)})
+            return self._emit_key(state_machine, pygame.K_SPACE)
+        adjacent = {
+            ((gx + dx) % gmap.width, (gy + dy) % gmap.height)
+            for dx, dy in ((0, -1), (1, 0), (0, 1), (-1, 0))
+        }
+        return self._move_toward(state_machine, gmap, party, (px, py), adjacent)
 
     def _move_toward(
         self,

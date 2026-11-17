@@ -770,4 +770,57 @@ def test_stats_panel_party_hud_layout(pygame_setup, monkeypatch):
     assert member_idx < food_idx < keys_idx
 
 
+def test_autoplay_syncs_auto_combat_speed(pygame_setup):
+    """CombatScreen.auto_combat_interval tracks AutoPlayController.step_interval."""
+    from py_exodus.assets import AssetManager
+
+    am = AssetManager("data")
+    am.load_all()
+    party = _make_party(level=1, exp=0, gold=0)
+    cmap = load_conflict_map(37, am)
+    sm = StateMachine(asset_mgr=am, audio=None)
+    cs = CombatScreen(party=party, combat_map=cmap, asset_mgr=am, monster_count=1)
+    sm.set_screen(cs)
+
+    ctrl = AutoPlayController(enabled=True, step_interval=0.01)
+    ctrl.step(sm)
+    assert cs.auto_combat is True
+    assert cs.auto_combat_interval == 0.01
+
+
+def test_dawn_double_new_moon_wait_and_moongate_helper(pygame_setup):
+    """At Dawn (37, 53), passes turns until double new moon before pressing E; moongates wait adjacent."""
+    from py_exodus.assets import AssetManager
+    from py_exodus.screens.overworld import OverworldScreen
+
+    am = AssetManager("data")
+    am.load_all()
+    party = _make_party(
+        level=5, exp=500, marks=[1, 0, 0, 0],
+        weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC,
+        gold=60, transport=Transport.FOOT,
+    )
+    party.x, party.y = 37, 53  # Dawn portal
+    party.moon_phase = 5  # Not double new moon
+    sm = StateMachine(asset_mgr=am, audio=None)
+    ow = OverworldScreen(party=party, asset_mgr=am, random_encounters=False)
+    ow.creatures = []
+    sm.set_screen(ow)
+
+    ctrl = AutoPlayController(enabled=True)
+    # Not double new moon -> passes turn (K_SPACE)
+    assert ctrl.step(sm) == pygame.K_SPACE
+    # Once double new moon (moon_phase=0), presses K_e to enter Dawn
+    party.moon_phase = 0
+    assert ctrl.step(sm) == pygame.K_e
+
+    # Moongate wait-and-step helper: adjacent to gate 0, passes when misaligned, steps in when aligned
+    gmap = ow.game_map
+    gx, gy = gmap.moongates[0].x, gmap.moongates[0].y
+    party.moon_phase = 5
+    assert ctrl._step_moongate(sm, ow, gmap, party, gx + 1, gy, src_idx=0, dest_idx=0) == pygame.K_SPACE
+    party.moon_phase = 0
+    assert ctrl._step_moongate(sm, ow, gmap, party, gx + 1, gy, src_idx=0, dest_idx=0) == pygame.K_LEFT
+
+
 

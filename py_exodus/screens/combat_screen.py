@@ -114,6 +114,7 @@ class CombatScreen(BaseScreen):
         self._pending_action: Action | None = None
         self._pending_res: Any = None
         self.auto_combat: bool = False
+        self.auto_combat_interval: float = 0.12
         self._auto_combat_timer: float = 0.0
 
     @property
@@ -733,13 +734,16 @@ class CombatScreen(BaseScreen):
         self.check_party_death()
 
     def update(self, dt: float) -> None:
-        self.flash_timer = max(0.0, self.flash_timer - dt)
+        fx_dt = dt
+        if self.auto_combat and self.auto_combat_interval < 0.12:
+            fx_dt = dt * (0.12 / max(0.01, self.auto_combat_interval))
+        self.flash_timer = max(0.0, self.flash_timer - fx_dt)
         for fx in list(self.combat_fx):
-            fx["timer"] -= dt
+            fx["timer"] -= fx_dt
             if fx["timer"] <= 0:
                 self.combat_fx.remove(fx)
         for dm in list(self.dying_monsters):
-            dm["timer"] -= dt
+            dm["timer"] -= fx_dt
             if dm["timer"] <= 0:
                 self.dying_monsters.remove(dm)
 
@@ -761,7 +765,7 @@ class CombatScreen(BaseScreen):
         ):
             self._auto_combat_timer -= dt
             if self._auto_combat_timer <= 0:
-                self._auto_combat_timer = 0.12
+                self._auto_combat_timer = self.auto_combat_interval
                 action = choose_auto_combat_action(
                     self.arena, self.arena.active_party_member_idx, self.asset_mgr
                 )
