@@ -148,15 +148,27 @@ def can_use_armor(member: Character, at: ArmorType) -> bool:
     return at in PROFESSION_ARMORS.get(member.profession, _FIGHTER_ARMORS)
 
 
-def best_owned_weapon(member: Character) -> WeaponType | None:
+_RANGED_BOWS: frozenset[WeaponType] = frozenset(
+    {WeaponType.BOW, WeaponType.BOW_P2, WeaponType.BOW_P4}
+)
+
+
+def _weapon_score(wt: WeaponType, prefer_ranged: bool) -> int:
+    rank = WEAPON_RANK.get(wt, 0)
+    if prefer_ranged and wt in _RANGED_BOWS:
+        return rank + 10
+    return rank
+
+
+def best_owned_weapon(member: Character, prefer_ranged: bool = True) -> WeaponType | None:
     """Return the best usable weapon in ``member.weapons`` strictly better than equipped."""
-    cur_rank = WEAPON_RANK.get(member.weapon, 0)
+    cur_rank = _weapon_score(member.weapon, prefer_ranged)
     best: WeaponType | None = None
     best_rank = cur_rank
     for wt, cnt in member.weapons.items():
         if cnt <= 0 or wt == WeaponType.NONE or not can_use_weapon(member, wt):
             continue
-        r = WEAPON_RANK.get(wt, 0)
+        r = _weapon_score(wt, prefer_ranged)
         if r > best_rank:
             best = wt
             best_rank = r

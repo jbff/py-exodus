@@ -280,9 +280,19 @@ def test_evaluate_goal_progression():
     marked_foot = _make_party(level=5, exp=500, marks=[1, 0, 0, 0], transport=Transport.FOOT, gold=0)
     assert evaluate_goal(marked_foot) == Goal.CAPTURE_SHIP
 
-    # Has Mark of Kings, on ship -> SAIL_WHIRLPOOL
+    # Has Mark of Kings, on ship without exotics -> DIG_EXOTICS
+    marked_ship_no_ex = _make_party(level=5, exp=500, marks=[1, 0, 0, 0], transport=Transport.SHIP, gold=0)
+    assert evaluate_goal(marked_ship_no_ex) == Goal.DIG_EXOTICS
+
+    # Has Mark of Kings, on ship with exotics -> SAIL_WHIRLPOOL
     marked_ship = _make_party(level=5, exp=500, marks=[1, 0, 0, 0], transport=Transport.SHIP, gold=0)
+    for m in marked_ship.members:
+        m.weapons[WeaponType.EXOTIC] = 1
+        m.armors[ArmorType.EXOTIC] = 1
     assert evaluate_goal(marked_ship) == Goal.SAIL_WHIRLPOOL
+
+    # OverworldScreen map_id=13 overrides stale party.map_id=0 for Ambrosia
+    assert evaluate_goal(marked_foot, map_id=13) == Goal.AMBROSIA_CARDS_SHRINES
 
     # In Ambrosia without all cards -> AMBROSIA_CARDS_SHRINES
     ambrosia = _make_party(level=5, exp=500, marks=[1, 0, 0, 0], map_id=13, cards=[1, 0, 0, 0])
@@ -1236,6 +1246,11 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
     # Sailing ship fires cannons (K_f) at aligned broadsides serpent and steers around non-aligned serpents
     p_ship = _make_party(level=5, exp=500, gold=0, food=500, marks=[1, 0, 0, 0], transport=Transport.SHIP)
     p_ship.members[0].keys = 4
+    for m in p_ship.members:
+        m.weapon = WeaponType.EXOTIC
+        m.weapons[WeaponType.EXOTIC] = 1
+        m.armor = ArmorType.EXOTIC
+        m.armors[ArmorType.EXOTIC] = 1
     p_ship.x, p_ship.y = 52, 15
     ow_s = OverworldScreen(party=p_ship, asset_mgr=am, random_encounters=False)
     ow_s.heading = Direction.NORTH
@@ -1250,6 +1265,25 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
     p_ship.wind_direction = Direction.EAST
     ow_s.creatures = [{"x": 52, "y": 17, "tile_name": "whirlpool"}]
     assert ctrl.step(sm) == pygame.K_DOWN
+
+    # Ranged bows beat Exotic while prefer_ranged=True; Wizard/Cleric equip Exotic immediately; CONQUER_EXODUS switches to Exotic
+    from py_exodus.autoplay.equipment import best_owned_weapon
+
+    fighter = Character("F", "M", Race.HUMAN, Profession.FIGHTER)
+    fighter.weapon = WeaponType.BOW
+    fighter.weapons[WeaponType.BOW] = 1
+    fighter.weapons[WeaponType.EXOTIC] = 1
+    assert best_owned_weapon(fighter, prefer_ranged=True) is None
+    assert best_owned_weapon(fighter, prefer_ranged=False) == WeaponType.EXOTIC
+
+    wiz = Character("W", "M", Race.FUZZY, Profession.WIZARD)
+    wiz.weapon = WeaponType.DAGGER
+    wiz.weapons[WeaponType.DAGGER] = 1
+    wiz.weapons[WeaponType.EXOTIC] = 1
+    assert best_owned_weapon(wiz, prefer_ranged=True) == WeaponType.EXOTIC
+
+    # Gate 1 (57, 46) picks reachable Gate 3 instead of impossible dest_idx=0
+    assert ctrl._pick_moongate_dest(ow_s.game_map, 1, (45, 18), p_ship) == 3
 
     # Stranded on island for BUY_FOOD uses reachable moongate or frigate instead of passing turns
     p_isl = _make_party(level=5, exp=500, gold=100, food=50)

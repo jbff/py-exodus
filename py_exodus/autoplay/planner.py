@@ -61,7 +61,17 @@ def needs_food(party: Party) -> bool:
     return party.food < 300
 
 
-def evaluate_goal(party: Party) -> Goal:
+def _normalize_map_id(party: Party, map_id: int | str | None) -> int:
+    raw_map = party.map_id if map_id is None else map_id
+    if isinstance(raw_map, str) and raw_map.lower() == "ambrosia":
+        return 13
+    try:
+        return int(raw_map)
+    except (TypeError, ValueError):
+        return party.map_id
+
+
+def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
     """Inspect live Party state and return the active progression milestone."""
     if getattr(party, "exodus_defeated", 0) > 0 or getattr(party, "exodus_cards_status", 0) == 0xF:
         return Goal.DONE
@@ -73,8 +83,10 @@ def evaluate_goal(party: Party) -> Goal:
     if not living:
         return Goal.SETUP_PARTY
 
+    cur_map_id = _normalize_map_id(party, map_id)
+
     if (
-        party.map_id != 13
+        cur_map_id != 13
         and party.transport != Transport.SHIP
         and needs_food(party)
         and sum(m.gold for m in living) >= 30
@@ -82,7 +94,7 @@ def evaluate_goal(party: Party) -> Goal:
         return Goal.BUY_FOOD
 
     if (
-        party.map_id not in (13, 15, 16, 17, 18, 19, 20)
+        cur_map_id not in (13, 15, 16, 17, 18, 19, 20)
         and party.transport != Transport.SHIP
         and any(m.is_dead() for m in party.members)
     ):
@@ -98,7 +110,7 @@ def evaluate_goal(party: Party) -> Goal:
         return Goal.GRIND_AND_LEVEL
 
     if (
-        party.map_id not in (13, 15, 16, 17, 18, 19, 20)
+        cur_map_id not in (13, 15, 16, 17, 18, 19, 20)
         and party.transport != Transport.SHIP
         and any(m.status == Status.POISONED for m in living)
         and party.gold >= 100
@@ -113,8 +125,11 @@ def evaluate_goal(party: Party) -> Goal:
         for m in living
     )
 
+    if cur_map_id == 0 and party.transport == Transport.SHIP and not has_exotics:
+        return Goal.DIG_EXOTICS
+
     if (
-        party.map_id != 13
+        cur_map_id != 13
         and party.transport != Transport.SHIP
         and not (has_all_cards and has_remaining_marks and not has_exotics)
         and (
@@ -129,7 +144,7 @@ def evaluate_goal(party: Party) -> Goal:
 
     if not all(m.marks[0] > 0 for m in party.members):
         if (
-            party.map_id not in (13, 15, 16, 17, 18, 19, 20)
+            cur_map_id not in (13, 15, 16, 17, 18, 19, 20)
             and party.transport != Transport.SHIP
         ):
             if sum(m.gems for m in living) < 2 and sum(m.gold for m in living) >= 75:
@@ -139,7 +154,7 @@ def evaluate_goal(party: Party) -> Goal:
         return Goal.GET_MARK_KINGS
 
     if not has_all_cards:
-        if party.map_id == 13:
+        if cur_map_id == 13:
             return Goal.AMBROSIA_CARDS_SHRINES
         if (
             party.transport != Transport.SHIP
@@ -151,12 +166,12 @@ def evaluate_goal(party: Party) -> Goal:
             return Goal.CAPTURE_SHIP
         return Goal.SAIL_WHIRLPOOL
 
-    if party.map_id == 13:
+    if cur_map_id == 13:
         return Goal.EXIT_AMBROSIA
 
     if not has_remaining_marks:
         if (
-            party.map_id not in (13, 15, 16, 17, 18, 19, 20)
+            cur_map_id not in (13, 15, 16, 17, 18, 19, 20)
             and party.transport != Transport.SHIP
         ):
             if sum(m.gems for m in living) < 8 and sum(m.gold for m in living) >= 75:

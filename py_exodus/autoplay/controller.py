@@ -303,13 +303,25 @@ class AutoPlayController:
             return self._emit_key(state_machine, pygame.K_0)
         return self._emit_key(state_machine, pygame.K_ESCAPE)
 
+    @staticmethod
+    def _screen_map_id(screen, party) -> int:
+        raw_id = getattr(getattr(screen, "game_map", None), "id", None)
+        if raw_id is None:
+            raw_id = getattr(screen, "map_id", getattr(party, "map_id", 0))
+        if isinstance(raw_id, str) and raw_id.lower() == "ambrosia":
+            return 13
+        try:
+            return int(raw_id)
+        except (TypeError, ValueError):
+            return getattr(party, "map_id", 0)
+
     def _step_dungeon(self, state_machine: StateMachine, screen) -> int | None:
         if screen.text_log.is_waiting_for_input:
             return self._emit_key(state_machine, pygame.K_ESCAPE)
 
         party = screen.party
         dmap = getattr(screen, "dungeon_map", None) or getattr(screen, "dmap", None) or screen.state.dmap
-        goal = evaluate_goal(party)
+        goal = evaluate_goal(party, map_id=self._screen_map_id(screen, party))
 
         # Peer a gem once per unseen dungeon level to legitimately map its layout
         level_key = (int(getattr(dmap, "id", 0)), int(screen.state.z))
@@ -390,7 +402,7 @@ class AutoPlayController:
             return self._handle_town_prompt(state_machine, screen)
 
         party = screen.party
-        goal = evaluate_goal(party)
+        goal = evaluate_goal(party, map_id=self._screen_map_id(screen, party))
         if goal == Goal.DONE:
             return None
 
@@ -609,10 +621,11 @@ class AutoPlayController:
 
     def _step_overworld(self, state_machine: StateMachine, screen, party, px: int, py: int, goal: Goal) -> int | None:
         gmap = screen.game_map
+        cur_map_id = self._screen_map_id(screen, party)
         living = [m for m in party.members if not m.is_dead()]
 
         # Loot dropped chests on foot on Sosaria (prefer APPAR_UNEM, else G with member 1)
-        if party.map_id == 0 and party.transport == Transport.FOOT:
+        if cur_map_id == 0 and party.transport == Transport.FOOT:
             chests = {
                 (obj.get("x"), obj.get("y"))
                 for obj in getattr(party, "dynamic_objects", [])
@@ -629,19 +642,47 @@ class AutoPlayController:
                 return self._emit_key(state_machine, pygame.K_g)
             if chests and goal in (Goal.GRIND_AND_LEVEL, Goal.OUTFIT_BRITAIN):
                 return self._move_toward(state_machine, gmap, party, (px, py), chests)
+            has_exotics = all(
+                (m.weapon == WeaponType.EXOTIC or m.weapons.get(WeaponType.EXOTIC, 0) > 0)
+                and (m.armor == ArmorType.EXOTIC or m.armors.get(ArmorType.EXOTIC, 0) > 0)
+                for m in living
+            )
+            on_mainland = (px, py) == (46, 19) or find_2d_step(gmap, (px, py), {(46, 19)}, Transport.FOOT, party=party) is not None
+            if (not has_exotics and goal in (Goal.GRIND_AND_LEVEL, Goal.OUTFIT_BRITAIN, Goal.GET_MARK_KINGS)) or not on_mainland:
+                frigates = {
+                    (obj.get("x"), obj.get("y"))
+                    for obj in getattr(party, "dynamic_objects", ())
+                    if str(obj.get("tile", "")).lower() == "frigate"
+                }
+                if (px, py) in frigates:
+                    return self._emit_key(state_machine, pygame.K_b)
+                reachable_frigates = {
+                    pos for pos in frigates
+                    if find_2d_step(gmap, (px, py), {pos}, Transport.FOOT, party=party) is not None
+                }
+                if reachable_frigates:
+                    return self._move_toward(state_machine, gmap, party, (px, py), reachable_frigates)
 
-        gear_key = self._maybe_manage_gear(state_machine, party)
+        gear_key = self._maybe_manage_gear(
+            state_machine, party, prefer_ranged=(goal != Goal.CONQUER_EXODUS)
+        )
         if gear_key is not None:
             return gear_key
 
         # Low-level parties on foot avoid coastal sea monsters; ships avoid sea monsters & fire broadsides
         avoid_monsters: set[tuple[int, int]] = set()
-        if party.map_id == 0 and party.transport == Transport.SHIP:
+        if cur_map_id in (0, 13) and party.transport == Transport.SHIP:
             heading = getattr(screen, "heading", Direction.EAST)
             broadsides_horiz = heading in (Direction.NORTH, Direction.SOUTH)
+            cannon_targets = {
+                "pirate", "serpent", "squid",
+                "dragon", "devil", "balron", "gargoyle", "daemon",
+                "griffin", "wyvern", "minotaur", "hydra", "lich",
+                "giant", "troll", "pincher", "snatch", "mage", "wizard",
+            }
             for c in getattr(screen, "creatures", []):
                 tname = str(c.get("tile_name") or c.get("tile") or "").lower()
-                if tname not in ("pirate", "serpent", "squid") or "x" not in c or "y" not in c:
+                if tname not in cannon_targets or "x" not in c or "y" not in c:
                     continue
                 cx, cy = c["x"], c["y"]
                 dx_e = (cx - px) % gmap.width
@@ -654,11 +695,11 @@ class AutoPlayController:
                 if not broadsides_horiz and cx == px and (1 <= dy_s <= 3 or 1 <= dy_n <= 3):
                     self._key_queue.append(pygame.K_DOWN if 1 <= dy_s <= 3 else pygame.K_UP)
                     return self._emit_key(state_machine, pygame.K_f)
-                if goal != Goal.CAPTURE_SHIP:
+                if tname in ("pirate", "serpent", "squid") and goal != Goal.CAPTURE_SHIP:
                     avoid_monsters.add((cx, cy))
                     for ox, oy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
                         avoid_monsters.add(((cx + ox) % gmap.width, (cy + oy) % gmap.height))
-        elif party.map_id == 0 and party.transport != Transport.SHIP and living:
+        elif cur_map_id == 0 and party.transport != Transport.SHIP and living:
             avg_max_hp = sum(m.max_hp for m in party.members) // max(1, len(party.members))
             avoid_all_land = (
                 goal in (Goal.RESURRECT_DEAD, Goal.CURE_POISON, Goal.BUY_FOOD)
@@ -677,46 +718,61 @@ class AutoPlayController:
         self._overworld_avoid = avoid_monsters
 
         if goal == Goal.DIG_EXOTICS:
-            # Weapon site (33, 3)
             need_wpn_idx = next(
                 (i + 1 for i, m in enumerate(party.members) if not m.is_dead() and m.weapons.get(WeaponType.EXOTIC, 0) == 0),
                 None,
             )
-            if need_wpn_idx is not None:
-                if (px, py) == (33, 3):
-                    self._queue_text("DIG", enter=True)
-                    self._queue_text(str(need_wpn_idx), enter=False)
-                    return self._emit_key(state_machine, pygame.K_o)
-                return self._move_toward(state_machine, gmap, party, (px, py), {(33, 3)})
-
-            # Armor site (19, 44)
             need_arm_idx = next(
                 (i + 1 for i, m in enumerate(party.members) if not m.is_dead() and m.armors.get(ArmorType.EXOTIC, 0) == 0),
                 None,
             )
-            if need_arm_idx is not None:
-                if (px, py) == (19, 44):
+            dig_target: tuple[int, int, int] | None = None
+            if need_wpn_idx is not None:
+                dig_target = (33, 3, need_wpn_idx)
+            elif need_arm_idx is not None:
+                dig_target = (19, 44, need_arm_idx)
+
+            if dig_target is not None:
+                tx, ty, m_idx = dig_target
+                if (px, py) == (tx, ty):
+                    if party.transport == Transport.SHIP:
+                        return self._emit_key(state_machine, pygame.K_x)
                     self._queue_text("DIG", enter=True)
-                    self._queue_text(str(need_arm_idx), enter=False)
+                    self._queue_text(str(m_idx), enter=False)
                     return self._emit_key(state_machine, pygame.K_o)
-                return self._move_toward(state_machine, gmap, party, (px, py), {(19, 44)})
+                if party.transport == Transport.SHIP:
+                    adj_water = {
+                        ((tx + dx) % gmap.width, (ty + dy) % gmap.height)
+                        for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0))
+                        if str(getattr(gmap.get_tile((tx + dx) % gmap.width, (ty + dy) % gmap.height), "name", "")).lower() == "water"
+                    }
+                    if (px, py) in adj_water:
+                        return self._emit_key(state_machine, pygame.K_x)
+                    return self._move_toward(state_machine, gmap, party, (px, py), adj_water or {(tx, ty)})
+                if find_2d_step(gmap, (px, py), {(tx, ty)}, Transport.FOOT, party=party) is not None:
+                    return self._move_toward(state_machine, gmap, party, (px, py), {(tx, ty)})
+                frigates = {
+                    (obj.get("x"), obj.get("y"))
+                    for obj in getattr(party, "dynamic_objects", ())
+                    if str(obj.get("tile", "")).lower() == "frigate"
+                }
+                if (px, py) in frigates:
+                    return self._emit_key(state_machine, pygame.K_b)
+                reachable_frigates = {
+                    pos for pos in frigates
+                    if find_2d_step(gmap, (px, py), {pos}, Transport.FOOT, party=party) is not None
+                }
+                if reachable_frigates:
+                    return self._move_toward(state_machine, gmap, party, (px, py), reachable_frigates)
+                return self._move_toward(state_machine, gmap, party, (px, py), {(tx, ty)})
 
         if goal == Goal.CONQUER_EXODUS:
             if (px, py) == (10, 53):
                 return self._emit_key(state_machine, pygame.K_e)
             return self._move_toward(state_machine, gmap, party, (px, py), {(10, 53)})
 
-        if goal == Goal.AMBROSIA_CARDS_SHRINES:
-            for tx, ty, card_idx in _AMBROSIA_CARD_SITES:
-                if not any(m.cards[card_idx] > 0 for m in living):
-                    if (px, py) == (tx, ty):
-                        self._queue_text("SEARCH", enter=True)
-                        self._queue_text("1", enter=False)
-                        return self._emit_key(state_machine, pygame.K_o)
-                    return self._move_toward(state_machine, gmap, party, (px, py), {(tx, ty)})
-
-        if goal == Goal.EXIT_AMBROSIA:
-            return self._move_toward(state_machine, gmap, party, (px, py), {(32, 58)})
+        if goal in (Goal.AMBROSIA_CARDS_SHRINES, Goal.EXIT_AMBROSIA):
+            return self._step_ambrosia(state_machine, gmap, party, px, py, goal, living)
 
         if goal == Goal.SAIL_WHIRLPOOL:
             whirlpools = {
@@ -752,7 +808,7 @@ class AutoPlayController:
             return self._move_toward(state_machine, gmap, party, (px, py), {target})
 
         if (
-            party.map_id == 0
+            cur_map_id == 0
             and party.transport != Transport.SHIP
             and party.food >= 100
             and goal not in (Goal.BUY_FOOD, Goal.RESURRECT_DEAD, Goal.CURE_POISON)
@@ -846,6 +902,21 @@ class AutoPlayController:
                 target_portal = self._nearest_shop_town_portal(gmap, px, py, party.transport, party=party)
             return self._enter_portal_or_wait_dawn(state_machine, screen, gmap, party, px, py, target_portal)
 
+        if cur_map_id == 0 and party.transport == Transport.SHIP and goal not in (
+            Goal.SAIL_WHIRLPOOL,
+            Goal.CAPTURE_SHIP,
+            Goal.DIG_EXOTICS,
+        ):
+            from py_exodus.screens.overworld import can_move_to
+
+            for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+                lx, ly = (px + dx) % gmap.width, (py + dy) % gmap.height
+                if can_move_to(gmap, lx, ly, Transport.FOOT, party=party) and (
+                    (lx, ly) == (46, 19) or find_2d_step(gmap, (lx, ly), {(46, 19)}, Transport.FOOT, party=party) is not None
+                ):
+                    return self._emit_key(state_machine, pygame.K_x)
+            return self._move_toward(state_machine, gmap, party, (px, py), {(45, 13), (44, 16)})
+
         # GRIND_AND_LEVEL
         if any(self._can_level_at_british(m) for m in living):
             if (px, py) == (45, 18):
@@ -881,12 +952,17 @@ class AutoPlayController:
             self._patrol_idx += 1
         return self._emit_key(state_machine, pygame.K_SPACE)
 
-    def _maybe_manage_gear(self, state_machine: StateMachine, party) -> int | None:
+    def _maybe_manage_gear(
+        self,
+        state_machine: StateMachine,
+        party,
+        prefer_ranged: bool = True,
+    ) -> int | None:
         """Equip best owned weapon/armor or hand off chest loot to a better-fit member."""
         for i, m in enumerate(party.members):
             if m.is_dead():
                 continue
-            better_w = best_owned_weapon(m)
+            better_w = best_owned_weapon(m, prefer_ranged=prefer_ranged)
             if better_w is not None:
                 self._ready_member_idx = i + 1
                 self._ready_item_letter = chr(ord("a") + list(WeaponType).index(better_w))
@@ -948,6 +1024,197 @@ class AutoPlayController:
             return self._emit_key(state_machine, _char_to_key(self._shop_item_letter) or pygame.K_b)
         return self._emit_key(state_machine, pygame.K_ESCAPE)
 
+    @staticmethod
+    def _pick_moongate_dest(gmap, src_idx: int, target_portal: tuple[int, int], party) -> int:
+        """Pick the first-hop Felucca phase reachable from src_idx toward target_portal."""
+        gates = getattr(gmap, "moongates", ())
+        n = len(gates)
+        if n == 0:
+            return 0
+        goal_gates = {
+            i
+            for i, gate in enumerate(gates)
+            if find_2d_step(gmap, (gate.x, gate.y), {target_portal}, Transport.FOOT, party=party) is not None
+        }
+        q: deque[tuple[int, int | None]] = deque([(src_idx, None)])
+        visited = {src_idx}
+        while q:
+            cur, first_hop = q.popleft()
+            for k in range(3):
+                nxt = (cur * 3 + k) % n
+                hop = nxt if first_hop is None else first_hop
+                if nxt in goal_gates:
+                    return hop
+                if nxt not in visited:
+                    visited.add(nxt)
+                    q.append((nxt, hop))
+        return (src_idx * 3) % n
+
+    def _step_ambrosia(
+        self,
+        state_machine: StateMachine,
+        gmap,
+        party,
+        px: int,
+        py: int,
+        goal: Goal,
+        living: list,
+    ) -> int:
+        """Navigate Ambrosia's land, locked doors, and inland bays for cards and exit."""
+        from py_exodus.screens.overworld import can_move_to
+
+        has_key = any(not m.is_dead() and m.keys > 0 for m in party.members)
+        living_idx = next((i + 1 for i, m in enumerate(party.members) if not m.is_dead()), 1)
+
+        def _is_walkable_land(x: int, y: int) -> bool:
+            if can_move_to(gmap, x, y, Transport.FOOT, party=party):
+                return True
+            if has_key:
+                t = gmap.get_tile(x, y)
+                return t is not None and str(getattr(t, "name", "")).lower() == "locked_door"
+            return False
+
+        def _flood(start: tuple[int, int], pred) -> set[tuple[int, int]]:
+            q = deque([start])
+            vis = {start}
+            while q:
+                cx, cy = q.popleft()
+                for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+                    nx, ny = (cx + dx) % gmap.width, (cy + dy) % gmap.height
+                    if (nx, ny) not in vis and pred(nx, ny):
+                        vis.add((nx, ny))
+                        q.append((nx, ny))
+            return vis
+
+        if goal == Goal.AMBROSIA_CARDS_SHRINES:
+            uncollected = [
+                (tx, ty, card_idx)
+                for tx, ty, card_idx in _AMBROSIA_CARD_SITES
+                if not any(m.cards[card_idx] > 0 for m in living)
+            ]
+            if any((px, py) == (tx, ty) for tx, ty, _ in uncollected):
+                self._queue_text(str(living_idx), enter=False)
+                return self._emit_key(state_machine, pygame.K_s)
+
+            if party.transport == Transport.FOOT:
+                foot_reachable = {
+                    (tx, ty)
+                    for tx, ty, _ in uncollected
+                    if find_2d_step(
+                        gmap, (px, py), {(tx, ty)}, Transport.FOOT, party=party, allow_locked_doors=has_key
+                    ) is not None
+                }
+                if foot_reachable:
+                    return self._move_toward(state_machine, gmap, party, (px, py), foot_reachable)
+
+            tx, ty, _ = uncollected[0]
+            target_island = _flood((tx, ty), _is_walkable_land)
+            target_water = {
+                ((ix + dx) % gmap.width, (iy + dy) % gmap.height)
+                for ix, iy in target_island
+                for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0))
+                if str(getattr(gmap.get_tile((ix + dx) % gmap.width, (iy + dy) % gmap.height), "name", "")).lower() == "water"
+            }
+        else:
+            target_island = {(32, 58)}
+            target_water = {
+                ((32 + dx) % gmap.width, (58 + dy) % gmap.height)
+                for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0))
+            }
+
+        if party.transport == Transport.SHIP:
+            if goal == Goal.EXIT_AMBROSIA:
+                for d, (dx, dy) in (
+                    (Direction.NORTH, (0, -1)),
+                    (Direction.SOUTH, (0, 1)),
+                    (Direction.WEST, (-1, 0)),
+                    (Direction.EAST, (1, 0)),
+                ):
+                    if ((px + dx) % gmap.width, (py + dy) % gmap.height) == (32, 58):
+                        return self._emit_key(state_machine, _DIR_TO_KEY[d])
+            else:
+                if any(
+                    ((px + dx) % gmap.width, (py + dy) % gmap.height) in target_island
+                    for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0))
+                ):
+                    return self._emit_key(state_machine, pygame.K_x)
+            if target_water and find_2d_step(
+                gmap,
+                (px, py),
+                target_water,
+                Transport.SHIP,
+                party=party,
+                wind_direction=getattr(party, "wind_direction", None),
+            ) is not None:
+                return self._move_toward(state_machine, gmap, party, (px, py), target_water)
+            mainland = _flood((32, 54), _is_walkable_land)
+            if any(
+                ((px + dx) % gmap.width, (py + dy) % gmap.height) in mainland
+                for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0))
+            ):
+                return self._emit_key(state_machine, pygame.K_x)
+            mainland_water = {
+                ((mx + dx) % gmap.width, (my + dy) % gmap.height)
+                for mx, my in mainland
+                for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0))
+                if str(getattr(gmap.get_tile((mx + dx) % gmap.width, (my + dy) % gmap.height), "name", "")).lower() == "water"
+            }
+            if mainland_water and find_2d_step(
+                gmap,
+                (px, py),
+                mainland_water,
+                Transport.SHIP,
+                party=party,
+                wind_direction=getattr(party, "wind_direction", None),
+            ) is not None:
+                return self._move_toward(state_machine, gmap, party, (px, py), mainland_water)
+            return self._emit_key(state_machine, pygame.K_x)
+
+        water_comp: set[tuple[int, int]] = set()
+        for w in target_water:
+            if w not in water_comp:
+                water_comp |= _flood(
+                    w,
+                    lambda x, y: str(getattr(gmap.get_tile(x, y), "name", "")).lower() in ("water", "whirlpool"),
+                )
+
+        frigates = {
+            (obj.get("x"), obj.get("y"))
+            for obj in getattr(party, "dynamic_objects", ())
+            if str(obj.get("tile", "")).lower() == "frigate"
+        }
+        if (px, py) in frigates and (px, py) in water_comp:
+            return self._emit_key(state_machine, pygame.K_b)
+        usable_frigates = {
+            pos
+            for pos in frigates
+            if pos in water_comp
+            and find_2d_step(gmap, (px, py), {pos}, Transport.FOOT, party=party, allow_locked_doors=has_key) is not None
+        }
+        if usable_frigates:
+            return self._move_toward(state_machine, gmap, party, (px, py), usable_frigates)
+        reachable_land = _flood((px, py), _is_walkable_land)
+        shore_tiles = {
+            ((wx + dx) % gmap.width, (wy + dy) % gmap.height)
+            for wx, wy in water_comp
+            for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0))
+            if ((wx + dx) % gmap.width, (wy + dy) % gmap.height) in reachable_land
+        }
+        if (px, py) in shore_tiles:
+            return self._emit_key(state_machine, pygame.K_SPACE)
+        if shore_tiles:
+            return self._move_toward(state_machine, gmap, party, (px, py), shore_tiles)
+        if (px, py) in frigates:
+            return self._emit_key(state_machine, pygame.K_b)
+        any_frigates = {
+            pos
+            for pos in frigates
+            if find_2d_step(gmap, (px, py), {pos}, Transport.FOOT, party=party, allow_locked_doors=has_key) is not None
+        }
+        if any_frigates:
+            return self._move_toward(state_machine, gmap, party, (px, py), any_frigates)
+        return self._emit_key(state_machine, pygame.K_SPACE)
+
     def _enter_portal_or_wait_dawn(
         self,
         state_machine: StateMachine,
@@ -966,7 +1233,7 @@ class AutoPlayController:
                 return self._emit_key(state_machine, pygame.K_SPACE)
             return self._emit_key(state_machine, pygame.K_e)
         if (
-            party.map_id == 0
+            self._screen_map_id(screen, party) == 0
             and party.transport == Transport.FOOT
             and find_2d_step(gmap, (px, py), {target_portal}, Transport.FOOT, party=party) is None
         ):
@@ -988,7 +1255,8 @@ class AutoPlayController:
                     abs(px - gate.x) + abs(py - gate.y) <= 1
                     or find_2d_step(gmap, (px, py), {(gate.x, gate.y)}, Transport.FOOT, party=party) is not None
                 ):
-                    return self._step_moongate(state_machine, screen, gmap, party, px, py, src_idx=src_idx, dest_idx=0)
+                    dest_idx = self._pick_moongate_dest(gmap, src_idx, target_portal, party)
+                    return self._step_moongate(state_machine, screen, gmap, party, px, py, src_idx=src_idx, dest_idx=dest_idx)
         return self._move_toward(state_machine, gmap, party, (px, py), {target_portal})
 
     def _step_moongate(
