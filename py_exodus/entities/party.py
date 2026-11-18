@@ -822,6 +822,8 @@ class Party:
 
     def adjust_ship_hull(self, val: int) -> int:
         """Adjust ship hull health between 0 and 50."""
+        if val < 0 and debug.CHEATS.nohurt:
+            return self.ship_hull
         self.ship_hull = max(0, min(50, self.ship_hull + val))
         return self.ship_hull
 
@@ -844,6 +846,8 @@ class Party:
 
     def kill_all(self) -> None:
         """Kill all party members, setting health to 0 and status to DEAD."""
+        if debug.CHEATS.nohurt:
+            return
         for m in self.members:
             m.fled = False
             m.status = Status.DEAD

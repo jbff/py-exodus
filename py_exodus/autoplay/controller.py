@@ -543,7 +543,13 @@ class AutoPlayController:
 
         npc_tiles = {(npc.x, npc.y) for npc in getattr(gmap, "npcs", [])}
 
-        if map_id == 10 and goal == Goal.GRIND_AND_LEVEL and party.gold < 9000:
+        if (
+            map_id == 10
+            and goal in (Goal.GRIND_AND_LEVEL, Goal.CURE_POISON)
+            and party.gold < 9000
+            and party.food >= 40
+            and all(not m.is_dead() and m.hp > 100 for m in party.members)
+        ):
             dg_chests = {
                 (x, y)
                 for y in range(gmap.height)
@@ -567,7 +573,8 @@ class AutoPlayController:
                 )
                 if d is not None:
                     return self._step_or_unlock(state_machine, gmap, party, px, py, d)
-                # Path to chests blocked by a guard: bribe adjacent guard if >= 100g
+                # Path to chests blocked by a guard: only bribe a guard standing in a
+                # chokepoint that separates us from unvisited passable tiles.
                 guards = {
                     (npc.x, npc.y)
                     for npc in getattr(gmap, "npcs", [])
@@ -575,27 +582,67 @@ class AutoPlayController:
                 }
                 living = [(i + 1, m) for i, m in enumerate(party.members) if not m.is_dead()]
                 if guards and living and party.gold >= 100:
-                    briber_idx, briber = max(living, key=lambda im: im[1].gold)
-                    if briber.gold < 100:
-                        self._join_gold_member_idx = briber_idx
-                        return self._emit_key(state_machine, pygame.K_j)
-                    for d_g in (Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST):
-                        if (px + d_g.dx, py + d_g.dy) in guards:
-                            self._queue_text("BRIBE", enter=True)
-                            self._queue_text(f"{briber_idx}{d_g.name[0].lower()}", enter=False)
-                            return self._emit_key(state_machine, pygame.K_o)
-                    adj_guard = {
-                        (gx + dx, gy + dy)
+                    from py_exodus.screens.overworld import can_move_to
+
+                    reachable = {(px, py)}
+                    rq = deque([(px, py)])
+                    while rq:
+                        rx, ry = rq.popleft()
+                        for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+                            nx, ny = rx + dx, ry + dy
+                            if (nx, ny) in reachable or not (0 <= nx < gmap.width and 0 <= ny < gmap.height):
+                                continue
+                            if (nx, ny) in npc_tiles:
+                                continue
+                            t = gmap.get_tile(nx, ny)
+                            tname = str(getattr(t, "name", "")).lower() if t else ""
+                            if can_move_to(gmap, nx, ny, Transport.FOOT, party=party) or (
+                                has_key and tname == "locked_door"
+                            ):
+                                reachable.add((nx, ny))
+                                rq.append((nx, ny))
+
+                    def _tile_open(tx: int, ty: int) -> bool:
+                        if not (0 <= tx < gmap.width and 0 <= ty < gmap.height):
+                            return False
+                        t = gmap.get_tile(tx, ty)
+                        tname = str(getattr(t, "name", "")).lower() if t else ""
+                        if tname in ("wall", "brick", "mountains", "mountain", "water", "whirlpool"):
+                            return False
+                        return True
+
+                    blocking_guards = {
+                        (gx, gy)
                         for gx, gy in guards
-                        for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0))
-                        if 0 <= gx + dx < gmap.width and 0 <= gy + dy < gmap.height
-                    } - npc_tiles
-                    d_adj = find_2d_step(
-                        gmap, (px, py), adj_guard, Transport.FOOT, party=party,
-                        avoid_tiles=npc_tiles, allow_locked_doors=has_key,
-                    )
-                    if d_adj is not None:
-                        return self._step_or_unlock(state_machine, gmap, party, px, py, d_adj)
+                        if any(
+                            _tile_open(gx + dx, gy + dy)
+                            and (gx + dx, gy + dy) not in reachable
+                            and (gx + dx, gy + dy) not in npc_tiles
+                            for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0))
+                        )
+                    }
+                    if blocking_guards:
+                        briber_idx, briber = max(living, key=lambda im: im[1].gold)
+                        if briber.gold < 100:
+                            self._join_gold_member_idx = briber_idx
+                            return self._emit_key(state_machine, pygame.K_j)
+                        for d_g in (Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST):
+                            if (px + d_g.dx, py + d_g.dy) in blocking_guards:
+                                self._queue_text("BRIBE", enter=True)
+                                self._queue_text(f"{briber_idx}{d_g.name[0].lower()}", enter=False)
+                                return self._emit_key(state_machine, pygame.K_o)
+                        adj_guard = {
+                            (gx + dx, gy + dy)
+                            for gx, gy in blocking_guards
+                            for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0))
+                            if 0 <= gx + dx < gmap.width and 0 <= gy + dy < gmap.height
+                        } - npc_tiles
+                        d_adj = find_2d_step(
+                            gmap, (px, py), adj_guard, Transport.FOOT, party=party,
+                            avoid_tiles=npc_tiles, allow_locked_doors=has_key,
+                        )
+                        if d_adj is not None:
+                            return self._step_or_unlock(state_machine, gmap, party, px, py, d_adj)
 
         if map_id == 1:  # Castle of Lord British
             level_idx = next(
