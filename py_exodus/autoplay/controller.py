@@ -828,7 +828,17 @@ class AutoPlayController:
             )
             on_mainland = (px, py) == (46, 19) or find_2d_step(gmap, (px, py), {(46, 19)}, Transport.FOOT, party=party) is not None
             ready_for_sea = all(m.level >= 5 for m in living) and all(m.marks[0] > 0 for m in party.members)
-            if goal not in (
+            has_remaining_marks = all(any(m.marks[i] > 0 for m in living) for i in (1, 2, 3))
+            wants_death_gulch = (
+                goal == Goal.GRIND_AND_LEVEL
+                and not any(self._can_level_at_british(m) for m in living)
+                and has_exotics
+                and has_remaining_marks
+                and len(living) == len(party.members)
+                and 300 <= party.gold < 4500
+                and sum(m.keys for m in living) >= 4
+            )
+            if not wants_death_gulch and goal not in (
                 Goal.DIG_EXOTICS,
                 Goal.AMBROSIA_CARDS_SHRINES,
                 Goal.EXIT_AMBROSIA,
@@ -1242,18 +1252,16 @@ class AutoPlayController:
                 target_portal = self._nearest_shop_town_portal(gmap, px, py, party.transport, party=party)
             return self._enter_portal_or_wait_dawn(state_machine, screen, gmap, party, px, py, target_portal)
 
-        all_exotics = all(
-            (m.weapon == WeaponType.EXOTIC or m.weapons.get(WeaponType.EXOTIC, 0) > 0)
-            and (m.armor == ArmorType.EXOTIC or m.armors.get(ArmorType.EXOTIC, 0) > 0)
-            for m in party.members
-        )
-        has_remaining_marks = all(any(m.marks[i] > 0 for m in living) for i in (1, 2, 3))
         wants_death_gulch = (
             cur_map_id == 0
             and goal == Goal.GRIND_AND_LEVEL
             and not any(self._can_level_at_british(m) for m in living)
-            and all_exotics
-            and has_remaining_marks
+            and all(
+                (m.weapon == WeaponType.EXOTIC or m.weapons.get(WeaponType.EXOTIC, 0) > 0)
+                and (m.armor == ArmorType.EXOTIC or m.armors.get(ArmorType.EXOTIC, 0) > 0)
+                for m in party.members
+            )
+            and all(any(m.marks[i] > 0 for m in living) for i in (1, 2, 3))
             and len(living) == len(party.members)
             and 300 <= party.gold < 4500
             and sum(m.keys for m in living) >= 4
