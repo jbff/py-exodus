@@ -777,42 +777,6 @@ class AutoPlayController:
         # Low-level parties on foot avoid coastal sea monsters; ships avoid sea monsters & fire broadsides
         avoid_monsters: set[tuple[int, int]] = set()
         self._ship_threat_near = False
-        if (
-            cur_map_id == 0
-            and party.transport == Transport.SHIP
-            and self._is_hull_critical(party, screen)
-        ):
-            from py_exodus.screens.overworld import can_move_to
-
-            if any(
-                can_move_to(
-                    gmap,
-                    (px + dx) % gmap.width,
-                    (py + dy) % gmap.height,
-                    Transport.FOOT,
-                    party=party,
-                )
-                for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0))
-            ):
-                return self._emit_key(state_machine, pygame.K_x)
-            shore_water = {
-                (wx, wy)
-                for wy in range(gmap.height)
-                for wx in range(gmap.width)
-                if str(getattr(gmap.get_tile(wx, wy), "name", "")).lower() == "water"
-                and any(
-                    can_move_to(
-                        gmap,
-                        (wx + dx) % gmap.width,
-                        (wy + dy) % gmap.height,
-                        Transport.FOOT,
-                        party=party,
-                    )
-                    for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0))
-                )
-            }
-            if shore_water:
-                return self._move_toward(state_machine, gmap, party, (px, py), shore_water)
         if cur_map_id in (0, 13) and party.transport == Transport.SHIP:
             hull_critical = self._is_hull_critical(party, screen)
             heading = getattr(screen, "heading", Direction.EAST)
@@ -896,12 +860,49 @@ class AutoPlayController:
                 is_sea = tname in ("pirate", "serpent", "squid")
                 if (is_sea and (avg_max_hp < 400 or avoid_all_land)) or (not is_sea and avoid_all_land):
                     cx, cy = c["x"], c["y"]
-                    rad = 2 if (is_sea and avoid_all_land) else 1
+                    rad = 2 if (avoid_all_land and (is_sea or goal in (Goal.BUY_FOOD, Goal.RESURRECT_DEAD, Goal.CURE_POISON))) else 1
                     for ox in range(-rad, rad + 1):
                         for oy in range(-rad, rad + 1):
                             if abs(ox) + abs(oy) <= rad:
                                 avoid_monsters.add(((cx + ox) % gmap.width, (cy + oy) % gmap.height))
         self._overworld_avoid = avoid_monsters
+
+        if (
+            cur_map_id == 0
+            and party.transport == Transport.SHIP
+            and self._is_hull_critical(party, screen)
+        ):
+            from py_exodus.screens.overworld import can_move_to
+
+            if any(
+                can_move_to(
+                    gmap,
+                    (px + dx) % gmap.width,
+                    (py + dy) % gmap.height,
+                    Transport.FOOT,
+                    party=party,
+                )
+                for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0))
+            ):
+                return self._emit_key(state_machine, pygame.K_x)
+            shore_water = {
+                (wx, wy)
+                for wy in range(gmap.height)
+                for wx in range(gmap.width)
+                if str(getattr(gmap.get_tile(wx, wy), "name", "")).lower() == "water"
+                and any(
+                    can_move_to(
+                        gmap,
+                        (wx + dx) % gmap.width,
+                        (wy + dy) % gmap.height,
+                        Transport.FOOT,
+                        party=party,
+                    )
+                    for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0))
+                )
+            }
+            if shore_water:
+                return self._move_toward(state_machine, gmap, party, (px, py), shore_water)
 
         if goal == Goal.DIG_EXOTICS:
             need_wpn_idx = next(
