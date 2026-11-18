@@ -326,6 +326,9 @@ def best_shop_upgrade(party: Party, *, include_wizard_dagger: bool = False) -> S
             or (up.kind == "armor" and m.armor == ArmorType.NONE)
         )
         can_self_pay = 1 if m.gold >= up.price else 0
-        return (1 if is_empty else 0, can_self_pay if needs_starter else 0, up.rank_gain, -up.price)
+        # Armor tiers are coarser (8 ranks vs 16 weapon ranks); weight Chain/Plate+
+        # upgrades so fighters/paladins actually upgrade Leather -> Chain/Plate.
+        effective_gain = up.rank_gain * 4 if (up.kind == "armor" and up.price >= 500) else up.rank_gain
+        return (1 if is_empty else 0, can_self_pay if needs_starter else 0, effective_gain, -up.price)
 
     return max(candidates, key=_priority)

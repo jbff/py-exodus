@@ -869,9 +869,9 @@ def test_bulk_food_buying_strategy(pygame_setup):
     sm.set_screen(ts)
 
     ctrl = AutoPlayController(enabled=True)
-    for _ in range(30):
+    for _ in range(50):
         ctrl.step(sm)
-        if party.food >= 700:
+        if party.food >= 800:
             break
 
     assert party.food >= 700
@@ -883,9 +883,9 @@ def test_bulk_food_buying_strategy(pygame_setup):
         m.food = 50
     ts2 = TownScreen(party=party2, asset_mgr=am, map_id=1, start_x=16, start_y=20)
     sm.set_screen(ts2)
-    for _ in range(30):
+    for _ in range(50):
         ctrl.step(sm)
-        if party2.food >= 700:
+        if party2.food >= 800:
             break
     assert party2.food >= 700
 

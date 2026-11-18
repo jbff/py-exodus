@@ -580,14 +580,15 @@ class AutoPlayController:
             living = [(i + 1, m) for i, m in enumerate(party.members) if not m.is_dead()]
             if living:
                 total_gold = sum(m.gold for _, m in living)
-                buyer_idx, buyer = max(living, key=lambda im: im[1].gold)
-                if buyer.gold < total_gold and buyer.gold < 300:
+                food_price = {1: 20, 3: 25, 4: 20, 6: 30, 11: 25}.get(map_id, 30)
+                target_per_member = 200 if total_gold >= 700 else 150
+                buyer_idx, buyer = min(living, key=lambda im: im[1].food)
+                packs_needed = max(1, (target_per_member - buyer.food + 24) // 25)
+                if buyer.gold < total_gold and buyer.gold < min(packs_needed * food_price, 300):
                     self._join_gold_member_idx = buyer_idx
                     return self._emit_key(state_machine, pygame.K_j)
                 if (px, py) == food_xy:
-                    target_food = 800 if buyer.gold >= 700 else 550
-                    packs_needed = max(1, (target_food - party.food + 24) // 25)
-                    self._food_packs = max(1, min(20, packs_needed, buyer.gold // 30))
+                    self._food_packs = max(1, min(20, packs_needed, buyer.gold // food_price))
                     self._shop_member_idx = buyer_idx
                     self._talk_dir_key = self._direction_to_npc(gmap, px, py)
                     return self._emit_key(state_machine, pygame.K_t)
@@ -949,6 +950,7 @@ class AutoPlayController:
                 and not took_hit_here
                 and party.food >= 100
                 and not any(m.food == 0 for m in living)
+                and any(not m.is_dead() and m.max_hp > 0 and m.hp * 10 < m.max_hp * 7 for m in living)
                 and goal not in (Goal.BUY_FOOD, Goal.RESURRECT_DEAD, Goal.CURE_POISON)
                 and any(
                     not m.is_dead()
@@ -1335,7 +1337,28 @@ class AutoPlayController:
                     key=lambda st: min(abs(st[0] - px_) + abs(st[1] - py_) for px_, py_ in pirates_in_bay),
                 )
                 if (px, py) == best_shore:
-                    return self._emit_key(state_machine, pygame.K_SPACE)
+                    living = [m for m in party.members if not m.is_dead()]
+                    cur_hp_sum = sum(m.hp for m in living)
+                    prev_amb = getattr(self, "_prev_amb_shore_hp", None)
+                    took_hit = (
+                        prev_amb is not None
+                        and prev_amb[0] == px
+                        and prev_amb[1] == py
+                        and cur_hp_sum < prev_amb[2]
+                    )
+                    self._prev_amb_shore_hp = (px, py, cur_hp_sum)
+                    ranged_near = any(
+                        "x" in c and "y" in c and max(
+                            min((c["x"] - px) % gmap.width, (px - c["x"]) % gmap.width),
+                            min((c["y"] - py) % gmap.height, (py - c["y"]) % gmap.height),
+                        ) <= 7
+                        for c in getattr(state_machine.current_screen, "creatures", ())
+                    )
+                    if not took_hit and not ranged_near:
+                        return self._emit_key(state_machine, pygame.K_SPACE)
+                    alt_shores = shore_tiles - {(px, py)}
+                    if alt_shores:
+                        return self._move_toward(state_machine, gmap, party, (px, py), alt_shores)
                 return self._move_toward(state_machine, gmap, party, (px, py), {best_shore})
             vantage_tiles = sorted(
                 {

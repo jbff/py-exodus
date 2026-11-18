@@ -57,8 +57,10 @@ def needs_cure(party: Party) -> bool:
 
 
 def needs_food(party: Party) -> bool:
-    """Return True if party food supply is low enough to warrant a bulk restock."""
-    return party.food < 300
+    """Return True if party food supply or any living member's food is low."""
+    if party.food < 300:
+        return True
+    return any(not m.is_dead() and m.food < 75 for m in party.members)
 
 
 def _normalize_map_id(party: Party, map_id: int | str | None) -> int:
