@@ -268,6 +268,7 @@ def test_dungeon_render_torch_vs_dark(empty_dmap):
     lit_pixels = sum(
         1 for x in range(176) for y in range(176) if surf_lit.get_at((x, y))[:3] != COLOR_BLACK
     )
+    assert dark_pixels == 0
     assert lit_pixels > dark_pixels
 
 

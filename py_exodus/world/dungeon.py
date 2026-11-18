@@ -338,12 +338,11 @@ class DungeonCamera:
         # Fill background with solid black
         surface.fill(COLOR_BLACK)
 
-        # Light / torch visibility check
-        # When dark, view is limited to 1 step ahead
-        # Java truth: DungeonScreen.java:81 `boolean isTorchOn` — the torch is
-        # a plain boolean toggle (lit vs dark); there are no rounds, no dimming
-        # and no expiry. Render light follows the same binary model.
-        max_depth = self.MAX_DEPTH if torch_lit else 1
+        # Pitch black when dark (no active torch or light spell)
+        if not torch_lit:
+            return
+
+        max_depth = self.MAX_DEPTH
 
         fwd, left, right = get_relative_offsets(dir)
 

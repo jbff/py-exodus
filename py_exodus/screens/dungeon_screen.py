@@ -628,7 +628,7 @@ class DungeonScreen(BaseScreen):
         scale = 3 if w >= 640 else 1
         v_size = 176 * scale
 
-        torch_lit = self.state.is_torch_on
+        torch_lit = self.state.is_torch_on or debug.CHEATS.xray
 
         if scale > 1:
             temp_v = pygame.Surface((176, 176))
