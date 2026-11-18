@@ -306,7 +306,7 @@ def test_evaluate_goal_progression():
     assert evaluate_goal(ambrosia) == Goal.AMBROSIA_CARDS_SHRINES
 
     # In Ambrosia with all 4 cards -> EXIT_AMBROSIA
-    ambrosia_done = _make_party(level=5, exp=500, marks=[1, 0, 0, 0], map_id=13, cards=[1, 1, 1, 1])
+    ambrosia_done = _make_party(level=5, exp=500, gold=0, marks=[1, 0, 0, 0], map_id=13, cards=[1, 1, 1, 1])
     assert evaluate_goal(ambrosia_done) == Goal.EXIT_AMBROSIA
 
     # On Sosaria with exotics, missing Fire/Snake/Force -> GET_REMAINING_MARKS
@@ -1571,6 +1571,7 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
         level=8, exp=1500, gold=200, food=500, marks=[1, 1, 1, 1],
         weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC,
     )
+    p_snk.members[0].keys = 4
     p_snk.x, p_snk.y = 57, 46
     ow_snk = OverworldScreen(party=p_snk, asset_mgr=am, random_encounters=False)
     ow_snk.creatures = []
@@ -1683,6 +1684,31 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
     p_exodus.members[0].weapons[WeaponType.BOW] = 1
     p_exodus.members[1].weapons[WeaponType.BOW_P2] = 1
     assert evaluate_goal(p_exodus, map_id=0) == Goal.CONQUER_EXODUS
+
+    # 13. Pre-Ambrosia gold target raises to 4500 when stats below cap; Death Gulch & Shrine stat-leveling
+    p_dg = _make_party(
+        level=10, exp=1000, gold=500, food=500, marks=[1, 1, 1, 1],
+        weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC,
+    )
+    p_dg.members[0].keys = 4
+    assert evaluate_goal(p_dg, map_id=0) == Goal.GRIND_AND_LEVEL
+    ts_dg = TownScreen(party=p_dg, asset_mgr=am, map_id=10, start_x=13, start_y=8)
+    sm.set_screen(ts_dg)
+    ctrl._key_queue.clear()
+    k_dg = ctrl.step(sm)
+    assert k_dg in (pygame.K_c, pygame.K_g)  # opens chest on (13, 8)
+
+    # Ambrosia with 4 cards and 2000g stays in AMBROSIA_CARDS_SHRINES to upgrade stats
+    p_shr = _make_party(
+        level=15, exp=1500, gold=500, food=500, marks=[1, 1, 1, 1], cards=[1, 1, 1, 1],
+        weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC,
+    )
+    assert evaluate_goal(p_shr, map_id=13) == Goal.AMBROSIA_CARDS_SHRINES
+    ow_shr = OverworldScreen(party=p_shr, map_id=13, asset_mgr=am, random_encounters=False)
+    p_shr.x, p_shr.y = 4, 36  # Strength Shrine
+    sm.set_screen(ow_shr)
+    ctrl._key_queue.clear()
+    assert ctrl.step(sm) == pygame.K_e  # enters ShrineScreen
 
 
 

@@ -63,6 +63,22 @@ def needs_food(party: Party) -> bool:
     return any(not m.is_dead() and m.food < 75 for m in party.members)
 
 
+def needs_shrine_stats(party: Party) -> bool:
+    """Return True if party has >= 500g and any living member is below racial stat caps."""
+    if party.gold < 500:
+        return False
+    return any(
+        not m.is_dead()
+        and (
+            m.strength < getattr(m, "max_str", 99)
+            or m.dexterity < getattr(m, "max_dex", 99)
+            or m.intelligence < getattr(m, "max_int", 99)
+            or m.wisdom < getattr(m, "max_wis", 99)
+        )
+        for m in party.members
+    )
+
+
 def _normalize_map_id(party: Party, map_id: int | str | None) -> int:
     raw_map = party.map_id if map_id is None else map_id
     if isinstance(raw_map, str) and raw_map.lower() == "ambrosia":
@@ -158,8 +174,8 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
             or not all(m.marks[0] > 0 for m in party.members)
             or party.food < 150
             or any(m.food < 40 for m in living)
-            or has_all_cards
-            or (needs_key_card and not has_key)
+            or (not has_all_cards and needs_key_card and not has_key)
+            or (has_all_cards and not needs_shrine_stats(party))
         ):
             return Goal.EXIT_AMBROSIA
         return Goal.AMBROSIA_CARDS_SHRINES
@@ -218,14 +234,22 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
     if not has_all_cards:
         if cur_map_id == 13:
             return Goal.AMBROSIA_CARDS_SHRINES
-        if len(living) < len(party.members) or party.gold < 1500:
-            return Goal.GRIND_AND_LEVEL
         if (
             party.transport != Transport.SHIP
             and sum(m.keys for m in living) < 4
             and party.gold >= 50
         ):
             return Goal.BUY_KEYS
+        any_below_cap = any(
+            m.strength < getattr(m, "max_str", 99)
+            or m.dexterity < getattr(m, "max_dex", 99)
+            or m.intelligence < getattr(m, "max_int", 99)
+            or m.wisdom < getattr(m, "max_wis", 99)
+            for m in living
+        )
+        gold_target = 4500 if any_below_cap else 1500
+        if len(living) < len(party.members) or party.gold < gold_target:
+            return Goal.GRIND_AND_LEVEL
         if (
             party.transport != Transport.SHIP
             and has_exotics
@@ -238,6 +262,8 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
         return Goal.SAIL_WHIRLPOOL
 
     if cur_map_id == 13:
+        if needs_shrine_stats(party):
+            return Goal.AMBROSIA_CARDS_SHRINES
         return Goal.EXIT_AMBROSIA
 
     if cur_map_id != 12 and min(m.level for m in living) < 25:

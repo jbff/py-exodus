@@ -298,15 +298,35 @@ class AutoPlayController:
 
     def _step_shrine(self, state_machine: StateMachine, screen) -> int | None:
         if screen.state == screen.STATE_WHO:
-            rich_idx = next(
-                (i + 1 for i, m in enumerate(screen.party.members) if not m.is_dead() and m.gold >= 100),
-                1,
+            stat_attr = getattr(screen, "stat_attr", "strength")
+            cap_attr = getattr(screen, "stat_cap_attr", "max_str")
+            needed_idx = next(
+                (
+                    i + 1
+                    for i, m in enumerate(screen.party.members)
+                    if not m.is_dead()
+                    and m.gold >= 100
+                    and getattr(m, stat_attr, 0) < getattr(m, cap_attr, 99)
+                ),
+                None,
             )
-            return self._emit_key(state_machine, pygame.K_0 + rich_idx)
+            if needed_idx is None:
+                needed_idx = next(
+                    (i + 1 for i, m in enumerate(screen.party.members) if not m.is_dead() and m.gold >= 100),
+                    1,
+                )
+            return self._emit_key(state_machine, pygame.K_0 + needed_idx)
         if screen.state == screen.STATE_DONATE:
             member = screen.party.get_member(screen.selected_member_idx)
             gold = member.gold if member is not None else 0
-            amt = min(9, gold // 100)
+            stat_attr = getattr(screen, "stat_attr", "strength")
+            cap_attr = getattr(screen, "stat_cap_attr", "max_str")
+            room = (
+                max(0, getattr(member, cap_attr, 99) - getattr(member, stat_attr, 0))
+                if member is not None
+                else 9
+            )
+            amt = min(9, gold // 100, max(1, room))
             if amt >= 1:
                 return self._emit_key(state_machine, pygame.K_0 + amt)
             return self._emit_key(state_machine, pygame.K_0)
@@ -522,6 +542,70 @@ class AutoPlayController:
                     return self._emit_key(state_machine, pygame.K_SPACE)
 
         npc_tiles = {(npc.x, npc.y) for npc in getattr(gmap, "npcs", [])}
+
+        if map_id == 10 and goal == Goal.GRIND_AND_LEVEL and party.gold < 9000:
+            dg_chests = {
+                (x, y)
+                for y in range(gmap.height)
+                for x in range(gmap.width)
+                if "chest" in str(getattr(gmap.get_tile(x, y), "name", "")).lower()
+            }
+            if (px, py) in dg_chests:
+                caster = self._find_caster(
+                    party, (Profession.CLERIC, Profession.PALADIN, Profession.DRUID), min_mp=5
+                )
+                if caster is not None:
+                    self._queue_text(f"{caster[0]}b", enter=False)
+                    return self._emit_key(state_machine, pygame.K_c)
+                self._queue_text("1", enter=False)
+                return self._emit_key(state_machine, pygame.K_g)
+            has_key = any(not m.is_dead() and m.keys > 0 for m in party.members)
+            if dg_chests:
+                d = find_2d_step(
+                    gmap, (px, py), dg_chests, Transport.FOOT, party=party,
+                    avoid_tiles=npc_tiles, allow_locked_doors=has_key,
+                )
+                if d is not None:
+                    nx, ny = px + d.dx, py + d.dy
+                    nxt_tile = gmap.get_tile(nx, ny) if 0 <= nx < gmap.width and 0 <= ny < gmap.height else None
+                    if nxt_tile is not None and str(getattr(nxt_tile, "name", "")).lower() == "locked_door":
+                        key_idx = next(
+                            (i + 1 for i, m in enumerate(party.members) if not m.is_dead() and m.keys > 0),
+                            None,
+                        )
+                        if key_idx is not None:
+                            self._queue_text(f"{key_idx}{d.name[0].lower()}", enter=False)
+                            return self._emit_key(state_machine, pygame.K_u)
+                    return self._emit_key(state_machine, _DIR_TO_KEY[d])
+                # Path to chests blocked by a guard: bribe adjacent guard if >= 100g
+                guards = {
+                    (npc.x, npc.y)
+                    for npc in getattr(gmap, "npcs", [])
+                    if "guard" in str(getattr(npc, "tile_name", getattr(npc, "tile", ""))).lower()
+                }
+                living = [(i + 1, m) for i, m in enumerate(party.members) if not m.is_dead()]
+                if guards and living and party.gold >= 100:
+                    briber_idx, briber = max(living, key=lambda im: im[1].gold)
+                    if briber.gold < 100:
+                        self._join_gold_member_idx = briber_idx
+                        return self._emit_key(state_machine, pygame.K_j)
+                    for d_g in (Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST):
+                        if (px + d_g.dx, py + d_g.dy) in guards:
+                            self._queue_text("BRIBE", enter=True)
+                            self._queue_text(f"{briber_idx}{d_g.name[0].lower()}", enter=False)
+                            return self._emit_key(state_machine, pygame.K_o)
+                    adj_guard = {
+                        (gx + dx, gy + dy)
+                        for gx, gy in guards
+                        for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0))
+                        if 0 <= gx + dx < gmap.width and 0 <= gy + dy < gmap.height
+                    } - npc_tiles
+                    d_adj = find_2d_step(
+                        gmap, (px, py), adj_guard, Transport.FOOT, party=party,
+                        avoid_tiles=npc_tiles, allow_locked_doors=has_key,
+                    )
+                    if d_adj is not None:
+                        return self._emit_key(state_machine, _DIR_TO_KEY[d_adj])
 
         if map_id == 1:  # Castle of Lord British
             level_idx = next(
@@ -1172,6 +1256,21 @@ class AutoPlayController:
             return self._enter_portal_or_wait_dawn(state_machine, screen, gmap, party, px, py, (45, 18))
         if any(self._can_level_at_british(m) for m in living):
             return self._enter_portal_or_wait_dawn(state_machine, screen, gmap, party, px, py, (45, 18))
+        all_exotics = all(
+            (m.weapon == WeaponType.EXOTIC or m.weapons.get(WeaponType.EXOTIC, 0) > 0)
+            and (m.armor == ArmorType.EXOTIC or m.armors.get(ArmorType.EXOTIC, 0) > 0)
+            for m in party.members
+        )
+        has_remaining_marks = all(any(m.marks[i] > 0 for m in living) for i in (1, 2, 3))
+        if (
+            cur_map_id == 0
+            and all_exotics
+            and has_remaining_marks
+            and len(living) == len(party.members)
+            and 300 <= party.gold < 4500
+            and sum(m.keys for m in living) >= 4
+        ):
+            return self._enter_portal_or_wait_dawn(state_machine, screen, gmap, party, px, py, (56, 31))
 
         # Actively chase nearby reachable land creatures on Sosaria (skip if hurt,
         # unless broke & starving with no naval threat nearby so we can earn 30g for food!)
@@ -1367,10 +1466,42 @@ class AutoPlayController:
                 self._queue_text(str(living_idx), enter=False)
                 return self._emit_key(state_machine, pygame.K_s)
 
-            if party.transport == Transport.FOOT:
+            shrine_target: tuple[int, int, int] | None = None
+            if not uncollected:
+                shrine_sites = (
+                    (4, 36, "strength", "max_str"),
+                    (45, 52, "dexterity", "max_dex"),
+                    (55, 27, "wisdom", "max_wis"),
+                    (6, 6, "intelligence", "max_int"),
+                )
+                for sx, sy, stat_attr, cap_attr in shrine_sites:
+                    m_need = next(
+                        (
+                            i + 1
+                            for i, m in enumerate(party.members)
+                            if not m.is_dead() and getattr(m, stat_attr, 0) < getattr(m, cap_attr, 99)
+                        ),
+                        None,
+                    )
+                    if m_need is not None:
+                        shrine_target = (sx, sy, m_need)
+                        break
+
+            if shrine_target is not None:
+                sx, sy, m_need = shrine_target
+                if (px, py) == (sx, sy):
+                    if party.members[m_need - 1].gold < 100 and party.gold >= 100:
+                        self._join_gold_member_idx = m_need
+                        return self._emit_key(state_machine, pygame.K_j)
+                    return self._emit_key(state_machine, pygame.K_e)
+                amb_targets = [(sx, sy, -1)]
+            else:
+                amb_targets = uncollected
+
+            if party.transport == Transport.FOOT and amb_targets:
                 foot_reachable = {
                     (tx, ty)
-                    for tx, ty, _ in uncollected
+                    for tx, ty, _ in amb_targets
                     if find_2d_step(
                         gmap, (px, py), {(tx, ty)}, Transport.FOOT, party=party, allow_locked_doors=has_key
                     ) is not None
@@ -1378,7 +1509,7 @@ class AutoPlayController:
                 if foot_reachable:
                     return self._move_toward(state_machine, gmap, party, (px, py), foot_reachable)
 
-            tx, ty, _ = uncollected[0]
+            tx, ty, _ = amb_targets[0]
             target_island = _flood((tx, ty), _is_walkable_land)
             target_water = {
                 ((ix + dx) % gmap.width, (iy + dy) % gmap.height)
