@@ -1227,7 +1227,24 @@ class AutoPlayController:
                 target_portal = self._nearest_shop_town_portal(gmap, px, py, party.transport, party=party)
             return self._enter_portal_or_wait_dawn(state_machine, screen, gmap, party, px, py, target_portal)
 
-        if cur_map_id == 0 and party.transport == Transport.SHIP and goal not in (
+        all_exotics = all(
+            (m.weapon == WeaponType.EXOTIC or m.weapons.get(WeaponType.EXOTIC, 0) > 0)
+            and (m.armor == ArmorType.EXOTIC or m.armors.get(ArmorType.EXOTIC, 0) > 0)
+            for m in party.members
+        )
+        has_remaining_marks = all(any(m.marks[i] > 0 for m in living) for i in (1, 2, 3))
+        wants_death_gulch = (
+            cur_map_id == 0
+            and goal == Goal.GRIND_AND_LEVEL
+            and not any(self._can_level_at_british(m) for m in living)
+            and all_exotics
+            and has_remaining_marks
+            and len(living) == len(party.members)
+            and 300 <= party.gold < 4500
+            and sum(m.keys for m in living) >= 4
+        )
+
+        if cur_map_id == 0 and party.transport == Transport.SHIP and not wants_death_gulch and goal not in (
             Goal.SAIL_WHIRLPOOL,
             Goal.CAPTURE_SHIP,
             Goal.DIG_EXOTICS,
@@ -1256,20 +1273,7 @@ class AutoPlayController:
             return self._enter_portal_or_wait_dawn(state_machine, screen, gmap, party, px, py, (45, 18))
         if any(self._can_level_at_british(m) for m in living):
             return self._enter_portal_or_wait_dawn(state_machine, screen, gmap, party, px, py, (45, 18))
-        all_exotics = all(
-            (m.weapon == WeaponType.EXOTIC or m.weapons.get(WeaponType.EXOTIC, 0) > 0)
-            and (m.armor == ArmorType.EXOTIC or m.armors.get(ArmorType.EXOTIC, 0) > 0)
-            for m in party.members
-        )
-        has_remaining_marks = all(any(m.marks[i] > 0 for m in living) for i in (1, 2, 3))
-        if (
-            cur_map_id == 0
-            and all_exotics
-            and has_remaining_marks
-            and len(living) == len(party.members)
-            and 300 <= party.gold < 4500
-            and sum(m.keys for m in living) >= 4
-        ):
+        if wants_death_gulch:
             return self._enter_portal_or_wait_dawn(state_machine, screen, gmap, party, px, py, (56, 31))
 
         # Actively chase nearby reachable land creatures on Sosaria (skip if hurt,
@@ -1546,7 +1550,7 @@ class AutoPlayController:
                 target_water,
                 Transport.SHIP,
                 party=party,
-                wind_direction=getattr(party, "wind_direction", None),
+                ignore_wind=True,
             ) is not None:
                 return self._move_toward(state_machine, gmap, party, (px, py), target_water)
             mainland = _flood((32, 54), _is_walkable_land)
@@ -1567,7 +1571,7 @@ class AutoPlayController:
                 mainland_water,
                 Transport.SHIP,
                 party=party,
-                wind_direction=getattr(party, "wind_direction", None),
+                ignore_wind=True,
             ) is not None:
                 return self._move_toward(state_machine, gmap, party, (px, py), mainland_water)
             return self._emit_key(state_machine, pygame.K_x)

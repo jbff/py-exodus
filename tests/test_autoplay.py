@@ -1710,6 +1710,24 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
     ctrl._key_queue.clear()
     assert ctrl.step(sm) == pygame.K_e  # enters ShrineScreen
 
+    # Death Gulch sailing from mainland coast (46, 18) must not Board/Xit loop under Wind CALM
+    p_sail = _make_party(
+        level=10, exp=950, gold=110, food=200, marks=[1, 1, 1, 1],
+        weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC,
+    )
+    p_sail.members[0].keys = 5
+    p_sail.x, p_sail.y = 46, 18
+    p_sail.wind_direction = None
+    p_sail.dynamic_objects = [{"tile": "frigate", "x": 46, "y": 18}]
+    ow_sail = OverworldScreen(party=p_sail, map_id=0, asset_mgr=am, random_encounters=False)
+    sm.set_screen(ow_sail)
+    ctrl._key_queue.clear()
+    assert ctrl.step(sm) == pygame.K_b
+    assert p_sail.transport == Transport.SHIP
+    p_sail.wind_direction = None
+    assert ctrl.step(sm) == pygame.K_SPACE
+    assert p_sail.transport == Transport.SHIP
+
 
 
 
