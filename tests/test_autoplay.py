@@ -1728,6 +1728,23 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
     assert ctrl.step(sm) == pygame.K_SPACE
     assert p_sail.transport == Transport.SHIP
 
+    # Disembarking at Death Gulch's shore (54, 31) must walk onto (56, 31), not B/X loop back to Britain
+    p_dg_shore = _make_party(
+        level=10, exp=950, gold=110, food=200, marks=[1, 1, 1, 1],
+        weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC,
+    )
+    p_dg_shore.members[0].keys = 5
+    p_dg_shore.x, p_dg_shore.y = 54, 31
+    p_dg_shore.transport = Transport.SHIP
+    p_dg_shore.dynamic_objects = [{"tile": "frigate", "x": 54, "y": 31}]
+    ow_dg_shore = OverworldScreen(party=p_dg_shore, map_id=0, asset_mgr=am, random_encounters=False)
+    sm.set_screen(ow_dg_shore)
+    ctrl._key_queue.clear()
+    assert ctrl.step(sm) == pygame.K_x
+    assert p_dg_shore.transport == Transport.FOOT
+    assert ctrl.step(sm) == pygame.K_RIGHT
+    assert (p_dg_shore.x, p_dg_shore.y) == (55, 31)
+
 
 
 

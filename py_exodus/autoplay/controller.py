@@ -1284,7 +1284,7 @@ class AutoPlayController:
             )
 
         # GRIND_AND_LEVEL
-        if cur_map_id == 0 and party.transport == Transport.FOOT and not on_mainland:
+        if cur_map_id == 0 and party.transport == Transport.FOOT and not on_mainland and not wants_death_gulch:
             return self._enter_portal_or_wait_dawn(state_machine, screen, gmap, party, px, py, (45, 18))
         if any(self._can_level_at_british(m) for m in living):
             return self._enter_portal_or_wait_dawn(state_machine, screen, gmap, party, px, py, (45, 18))
@@ -1730,11 +1730,14 @@ class AutoPlayController:
                 if reachable_fallback:
                     return self._move_toward(state_machine, gmap, party, (px, py), reachable_fallback)
         if self._screen_map_id(screen, party) == 0 and party.transport == Transport.SHIP:
+            has_fire = any(not m.is_dead() and m.marks[1] > 0 for m in party.members)
+            has_force = any(not m.is_dead() and m.marks[2] > 0 for m in party.members)
             shore_cache = getattr(self, "_portal_shore_cache", None)
             if shore_cache is None:
                 shore_cache = {}
                 self._portal_shore_cache = shore_cache
-            if target_portal not in shore_cache:
+            cache_key = (target_portal, has_fire, has_force)
+            if cache_key not in shore_cache:
                 from py_exodus.screens.overworld import can_move_to
 
                 land = {target_portal}
@@ -1744,6 +1747,12 @@ class AutoPlayController:
                     for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
                         nx, ny = (cx + dx) % gmap.width, (cy + dy) % gmap.height
                         if (nx, ny) not in land and can_move_to(gmap, nx, ny, Transport.FOOT, party=party):
+                            t = gmap.get_tile(nx, ny)
+                            tname = str(getattr(t, "name", "")).lower() if t else ""
+                            if tname in ("lava", "fire") and not has_fire:
+                                continue
+                            if tname in ("energy_field", "force_field") and not has_force:
+                                continue
                             land.add((nx, ny))
                             q.append((nx, ny))
                 shore_water = frozenset(
@@ -1752,8 +1761,8 @@ class AutoPlayController:
                     for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0))
                     if str(getattr(gmap.get_tile((lx + dx) % gmap.width, (ly + dy) % gmap.height), "name", "")).lower() == "water"
                 )
-                shore_cache[target_portal] = shore_water
-            shore_water = shore_cache[target_portal]
+                shore_cache[cache_key] = shore_water
+            shore_water = shore_cache[cache_key]
             if (px, py) in shore_water:
                 return self._emit_key(state_machine, pygame.K_x)
             if shore_water:
