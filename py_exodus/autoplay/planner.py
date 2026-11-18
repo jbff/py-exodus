@@ -250,13 +250,15 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
         gold_target = 4500 if any_below_cap else 1500
         if len(living) < len(party.members) or party.gold < gold_target:
             return Goal.GRIND_AND_LEVEL
-        if (
-            party.transport != Transport.SHIP
-            and has_exotics
-            and sum(m.keys for m in living) == 0
-            and any(not any(m.cards[idx] > 0 for m in living) for idx in (0, 2))
-        ):
+        needed_keys = sum(
+            1 for idx in (0, 2) if not any(m.cards[idx] > 0 for m in living)
+        )
+        if needed_keys > 0 and sum(m.keys for m in living) < needed_keys:
+            if party.gold >= 50:
+                return Goal.BUY_KEYS
             return Goal.GRIND_AND_LEVEL
+        if (party.food < 500 or any(m.food < 120 for m in living)) and party.gold >= 100:
+            return Goal.BUY_FOOD
         if party.transport != Transport.SHIP:
             return Goal.CAPTURE_SHIP
         return Goal.SAIL_WHIRLPOOL

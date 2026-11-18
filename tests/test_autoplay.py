@@ -284,8 +284,9 @@ def test_evaluate_goal_progression():
     marked_ship_no_ex = _make_party(level=5, exp=500, marks=[1, 0, 0, 0], transport=Transport.SHIP, gold=0)
     assert evaluate_goal(marked_ship_no_ex) == Goal.DIG_EXOTICS
 
-    # Has all Marks, Exotics, and >=1500g on ship -> SAIL_WHIRLPOOL
+    # Has all Marks, Exotics, keys, and >=1500g on ship -> SAIL_WHIRLPOOL
     marked_ship = _make_party(level=5, exp=500, marks=[1, 1, 1, 1], transport=Transport.SHIP, gold=1500)
+    marked_ship.members[0].keys = 2
     for m in marked_ship.members:
         m.weapons[WeaponType.EXOTIC] = 1
         m.armors[ArmorType.EXOTIC] = 1
