@@ -240,4 +240,7 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
     if cur_map_id == 13:
         return Goal.EXIT_AMBROSIA
 
+    if cur_map_id != 12 and min(m.level for m in living) < 25:
+        return Goal.GRIND_AND_LEVEL
+
     return Goal.CONQUER_EXODUS

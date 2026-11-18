@@ -320,10 +320,21 @@ def test_evaluate_goal_progression():
     need_exotics = _make_party(level=6, exp=600, marks=[1, 1, 1, 1], map_id=0, cards=[1, 1, 1, 1], transport=Transport.SHIP)
     assert evaluate_goal(need_exotics) == Goal.DIG_EXOTICS
 
-    # All 4 marks + 4 cards + exotic weapon/armor -> CONQUER_EXODUS
+    # All 4 marks + 4 cards + exotic weapon/armor + L25 -> CONQUER_EXODUS (L18 grinds to L25 first)
+    need_l25 = _make_party(
+        level=18,
+        exp=1700,
+        marks=[1, 1, 1, 1],
+        map_id=0,
+        cards=[1, 1, 1, 1],
+        weapon=WeaponType.EXOTIC,
+        armor=ArmorType.EXOTIC,
+    )
+    assert evaluate_goal(need_l25) == Goal.GRIND_AND_LEVEL
+
     ready_exodus = _make_party(
-        level=6,
-        exp=600,
+        level=25,
+        exp=2400,
         marks=[1, 1, 1, 1],
         map_id=0,
         cards=[1, 1, 1, 1],
@@ -639,9 +650,10 @@ def test_equipment_upgrades_hand_and_dawn(pygame_setup):
     assert up.dawn_only is True
     assert up.item_letter == "i"  # Axe +2
 
-    # Equipped Exotics count toward Goal.CONQUER_EXODUS
+    # Equipped Exotics + L25 count toward Goal.CONQUER_EXODUS
     for m in party.members:
-        m.level = 5
+        m.level = 25
+        m.exp = 2400
         m.marks = [1, 1, 1, 1]
         m.cards = [1, 1, 1, 1]
         m.weapon = WeaponType.EXOTIC
@@ -1665,7 +1677,7 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
 
     # 12. CONQUER_EXODUS with EXOTIC equipped and BOW in inventory stays CONQUER_EXODUS (no OUTFIT_BRITAIN flip)
     p_exodus = _make_party(
-        level=15, exp=5000, gold=2000, food=500, marks=[1, 1, 1, 1], cards=[1, 1, 1, 1],
+        level=25, exp=2400, gold=2000, food=500, marks=[1, 1, 1, 1], cards=[1, 1, 1, 1],
         weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC,
     )
     p_exodus.members[0].weapons[WeaponType.BOW] = 1
