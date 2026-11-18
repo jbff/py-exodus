@@ -928,11 +928,25 @@ class AutoPlayController:
                 if best_dir is not None:
                     return self._emit_key(state_machine, _DIR_TO_KEY[best_dir])
             threat_near = any(
-                "x" in c and "y" in c and abs(c["x"] - px) + abs(c["y"] - py) <= 5
+                "x" in c and "y" in c and max(
+                    min((c["x"] - px) % gmap.width, (px - c["x"]) % gmap.width),
+                    min((c["y"] - py) % gmap.height, (py - c["y"]) % gmap.height),
+                ) <= 7
                 for c in getattr(screen, "creatures", [])
             )
+            cur_hp_sum = sum(m.hp for m in living)
+            prev_ow = getattr(self, "_prev_ow_hp_state", None)
+            took_hit_here = (
+                prev_ow is not None
+                and prev_ow[0] == cur_map_id
+                and prev_ow[1] == px
+                and prev_ow[2] == py
+                and cur_hp_sum < prev_ow[3]
+            )
+            self._prev_ow_hp_state = (cur_map_id, px, py, cur_hp_sum)
             if (
                 not threat_near
+                and not took_hit_here
                 and party.food >= 100
                 and not any(m.food == 0 for m in living)
                 and goal not in (Goal.BUY_FOOD, Goal.RESURRECT_DEAD, Goal.CURE_POISON)
