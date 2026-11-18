@@ -106,6 +106,7 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
     if (
         cur_map_id not in (13, 15, 16, 17, 18, 19, 20)
         and party.transport != Transport.SHIP
+        and not (at_exotic_island and not has_exotics and party.food >= 100)
         and any(m.is_dead() for m in party.members)
     ):
         needed_cost = min(
@@ -122,6 +123,7 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
     if (
         cur_map_id not in (13, 15, 16, 17, 18, 19, 20)
         and party.transport != Transport.SHIP
+        and not (at_exotic_island and not has_exotics and party.food >= 100)
         and any(m.status == Status.POISONED for m in living)
         and party.gold >= 100
     ):

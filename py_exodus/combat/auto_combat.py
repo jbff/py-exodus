@@ -293,12 +293,15 @@ def choose_auto_combat_action(
         and _can_cast_spell(member, Spell.MITTAR)
         and getattr(member, "weapon", WeaponType.NONE) not in _NO_MITTAR_WEAPONS
     )
-    if can_cast_mittar:
-        mittar_dir = _find_ranged_attack_dir(
-            arena, px, py, max_range=5, attack_through=False, visible_positions=visible_positions
-        )
-        if mittar_dir is not None:
-            return Action.cast(Spell.MITTAR, direction=mittar_dir)
+    if not negated and getattr(member, "weapon", WeaponType.NONE) not in _NO_MITTAR_WEAPONS:
+        spells = (Spell.FULGAR, Spell.MITTAR) if getattr(arena, "ship_battle", False) else (Spell.MITTAR,)
+        for spell in spells:
+            if _can_cast_spell(member, spell):
+                spell_dir = _find_ranged_attack_dir(
+                    arena, px, py, max_range=5, attack_through=False, visible_positions=visible_positions
+                )
+                if spell_dir is not None:
+                    return Action.cast(spell, direction=spell_dir)
 
     effective_asset_mgr = asset_mgr if asset_mgr is not None else getattr(arena, "asset_mgr", None)
     weapon_range, attack_through = _get_weapon_info(member, effective_asset_mgr)

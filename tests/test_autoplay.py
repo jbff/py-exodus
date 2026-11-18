@@ -1301,6 +1301,11 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
     ctrl._key_queue.clear()
     assert evaluate_goal(p_ex) == Goal.DIG_EXOTICS
     assert ctrl.step(sm) == pygame.K_LEFT
+    # Also stays in DIG_EXOTICS with a dead member & 800g instead of looping RESURRECT_DEAD <-> DIG_EXOTICS
+    p_ex.members[3].status = Status.DEAD
+    p_ex.members[3].hp = 0
+    p_ex.members[0].gold = 800
+    assert evaluate_goal(p_ex) == Goal.DIG_EXOTICS
 
     # Ship in DIG_EXOTICS steers around whirlpool instead of sailing into it
     p_whirl = _make_party(level=3, exp=200, gold=0, food=500, transport=Transport.SHIP)
