@@ -1370,6 +1370,35 @@ class AutoPlayController:
                 ):
                     dest_idx = self._pick_moongate_dest(gmap, src_idx, target_portal, party)
                     return self._step_moongate(state_machine, screen, gmap, party, px, py, src_idx=src_idx, dest_idx=dest_idx)
+        if self._screen_map_id(screen, party) == 0 and party.transport == Transport.SHIP:
+            shore_cache = getattr(self, "_portal_shore_cache", None)
+            if shore_cache is None:
+                shore_cache = {}
+                self._portal_shore_cache = shore_cache
+            if target_portal not in shore_cache:
+                from py_exodus.screens.overworld import can_move_to
+
+                land = {target_portal}
+                q = deque([target_portal])
+                while q:
+                    cx, cy = q.popleft()
+                    for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+                        nx, ny = (cx + dx) % gmap.width, (cy + dy) % gmap.height
+                        if (nx, ny) not in land and can_move_to(gmap, nx, ny, Transport.FOOT, party=party):
+                            land.add((nx, ny))
+                            q.append((nx, ny))
+                shore_water = frozenset(
+                    ((lx + dx) % gmap.width, (ly + dy) % gmap.height)
+                    for lx, ly in land
+                    for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0))
+                    if str(getattr(gmap.get_tile((lx + dx) % gmap.width, (ly + dy) % gmap.height), "name", "")).lower() == "water"
+                )
+                shore_cache[target_portal] = shore_water
+            shore_water = shore_cache[target_portal]
+            if (px, py) in shore_water:
+                return self._emit_key(state_machine, pygame.K_x)
+            if shore_water:
+                return self._move_toward(state_machine, gmap, party, (px, py), shore_water)
         return self._move_toward(state_machine, gmap, party, (px, py), {target_portal})
 
     def _step_moongate(
