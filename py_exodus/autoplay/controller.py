@@ -698,7 +698,14 @@ class AutoPlayController:
                 )
                 or not on_mainland
             ):
-                frigates = self._boardable_frigates(party, include_damaged=(not on_mainland))
+                frigates = self._boardable_frigates(
+                party,
+                include_damaged=(
+                    not on_mainland
+                    and getattr(party, "ship_hull", 50) > 15
+                    and goal != Goal.GET_REMAINING_MARKS
+                ),
+            )
                 if (px, py) in frigates:
                     return self._emit_key(state_machine, pygame.K_b)
                 reachable_frigates = {
@@ -755,6 +762,7 @@ class AutoPlayController:
             if shore_water:
                 return self._move_toward(state_machine, gmap, party, (px, py), shore_water)
         if cur_map_id in (0, 13) and party.transport == Transport.SHIP:
+            ship_hull = getattr(screen, "ship_hull", getattr(party, "ship_hull", 50))
             heading = getattr(screen, "heading", Direction.EAST)
             broadsides_horiz = heading in (Direction.NORTH, Direction.SOUTH)
             cannon_targets = {
@@ -780,7 +788,8 @@ class AutoPlayController:
                 dy_s = cy - py
                 dy_n = py - cy
                 if (
-                    broadsides_horiz
+                    ship_hull > 25
+                    and broadsides_horiz
                     and cy == py
                     and (1 <= dx_e <= 3 or 1 <= dx_w <= 3)
                     and getattr(self, "_last_cannon_state", None) != (px, py, party.moves)
@@ -789,7 +798,8 @@ class AutoPlayController:
                     self._key_queue.append(pygame.K_RIGHT if 1 <= dx_e <= 3 else pygame.K_LEFT)
                     return self._emit_key(state_machine, pygame.K_f)
                 if (
-                    not broadsides_horiz
+                    ship_hull > 25
+                    and not broadsides_horiz
                     and cx == px
                     and (1 <= dy_s <= 3 or 1 <= dy_n <= 3)
                     and getattr(self, "_last_cannon_state", None) != (px, py, party.moves)
@@ -879,7 +889,14 @@ class AutoPlayController:
                     return self._move_toward(state_machine, gmap, party, (px, py), adj_water or {(tx, ty)})
                 if find_2d_step(gmap, (px, py), {(tx, ty)}, Transport.FOOT, party=party) is not None:
                     return self._move_toward(state_machine, gmap, party, (px, py), {(tx, ty)})
-                frigates = self._boardable_frigates(party, include_damaged=(not on_mainland))
+                frigates = self._boardable_frigates(
+                party,
+                include_damaged=(
+                    not on_mainland
+                    and getattr(party, "ship_hull", 50) > 15
+                    and goal != Goal.GET_REMAINING_MARKS
+                ),
+            )
                 if (px, py) in frigates:
                     return self._emit_key(state_machine, pygame.K_b)
                 reachable_frigates = {
