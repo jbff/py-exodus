@@ -1366,6 +1366,17 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
     ctrl._key_queue.clear()
     assert ctrl.step(sm) != pygame.K_f
 
+    # Ship in DIG_EXOTICS avoids pirate broadside lane at distance 3 (steps perpendicular out of lane)
+    p_lane = _make_party(level=5, exp=500, gold=0, food=500, marks=[1, 0, 0, 0], transport=Transport.SHIP)
+    p_lane.x, p_lane.y = 52, 15
+    p_lane.wind_direction = Direction.NORTH
+    ow_pl = OverworldScreen(party=p_lane, asset_mgr=am, random_encounters=False)
+    ow_pl.heading = Direction.EAST
+    ow_pl.creatures = [{"x": 55, "y": 15, "tile_name": "pirate"}]  # 3 tiles East in broadside lane
+    sm.set_screen(ow_pl)
+    ctrl._key_queue.clear()
+    assert ctrl.step(sm) != pygame.K_RIGHT
+
     # Missing Death/Moons card with 0 keys & <50g stays in GRIND_AND_LEVEL instead of looping SAIL_WHIRLPOOL <-> EXIT_AMBROSIA
     p_nokey = _make_party(level=5, exp=500, gold=10, food=500, marks=[1, 0, 0, 0], transport=Transport.FOOT)
     for m in p_nokey.members:

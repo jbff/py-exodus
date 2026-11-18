@@ -733,6 +733,12 @@ class AutoPlayController:
                         for oy in range(-rad, rad + 1):
                             if abs(ox) + abs(oy) <= rad:
                                 avoid_monsters.add(((cx + ox) % gmap.width, (cy + oy) % gmap.height))
+                    if tname == "pirate":
+                        for step_d in range(1, 5):
+                            for dx_p, dy_p in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+                                lx, ly = cx + dx_p * step_d, cy + dy_p * step_d
+                                if 0 <= lx < gmap.width and 0 <= ly < gmap.height:
+                                    avoid_monsters.add((lx, ly))
         elif cur_map_id == 0 and party.transport != Transport.SHIP and living:
             avg_max_hp = sum(m.max_hp for m in party.members) // max(1, len(party.members))
             avoid_all_land = (
