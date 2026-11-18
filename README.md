@@ -85,9 +85,8 @@ The suite currently runs **1,253 tests** covering mechanics, Java/GBC parity, ve
 
 ---
 
-## Documentation & Utilities
+## Utilities
 
-- `docs/superpowers/plans/2026-11-08-java-parity-fixes.md` & `docs/superpowers/plans/2026-11-08-audit-findings.md`: Full Java↔Python parity audit and fix log.
 - `scripts/render_maps.py`: Renders `assets/maps/*.json` to top-down PNGs in `maps_rendered/`.
 
 ---

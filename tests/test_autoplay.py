@@ -1619,6 +1619,24 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
     p_dead_g.members[0].gold = 200
     assert evaluate_goal(p_dead_g, map_id=0) == Goal.BUY_FOOD
 
+    # 9. Ambrosia (35, 9) with pirate in bay waits at best_shore without oscillating, and update() caps steps/frame
+    p_amb_bay = _make_party(
+        level=14, exp=3000, gold=780, food=257, marks=[1, 1, 1, 1], cards=[1, 1, 0, 1],
+        weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC,
+    )
+    p_amb_bay.members[0].keys = 18
+    p_amb_bay.x, p_amb_bay.y = 35, 9
+    ow_bay = OverworldScreen(party=p_amb_bay, map_id=13, asset_mgr=am, random_encounters=False)
+    ow_bay.creatures = [{"x": 34, "y": 10, "tile_name": "pirate"}]
+    sm.set_screen(ow_bay)
+    ctrl._key_queue.clear()
+    assert ctrl.step(sm) == pygame.K_SPACE
+
+    ctrl.step_interval = 0.01
+    ctrl._timer = 0.0
+    ctrl.update(1.0, sm)  # large dt backlog is capped so event loop never freezes
+    assert ctrl._timer < ctrl.step_interval
+
 
 
 

@@ -166,10 +166,15 @@ class AutoPlayController:
             return False
         self._timer += dt
         stepped = False
-        while self._timer >= self.step_interval:
+        steps_this_frame = 0
+        while self._timer >= self.step_interval and steps_this_frame < 4:
             self._timer -= self.step_interval
             self.step(state_machine)
             stepped = True
+            steps_this_frame += 1
+        if self._timer >= self.step_interval:
+            # Cap backlog so slow frames never starve pygame.event.get() (F9 toggle).
+            self._timer = 0.0
         return stepped
 
     def _emit_key(self, state_machine: StateMachine, key: int) -> int:
@@ -1481,14 +1486,8 @@ class AutoPlayController:
                         and cur_hp_sum < prev_amb[2]
                     )
                     self._prev_amb_shore_hp = (px, py, cur_hp_sum)
-                    ranged_near = any(
-                        "x" in c and "y" in c and max(
-                            min((c["x"] - px) % gmap.width, (px - c["x"]) % gmap.width),
-                            min((c["y"] - py) % gmap.height, (py - c["y"]) % gmap.height),
-                        ) <= 7
-                        for c in getattr(state_machine.current_screen, "creatures", ())
-                    )
-                    if not took_hit and not ranged_near:
+                    low_hp = any(m.max_hp > 0 and m.hp * 2 < m.max_hp for m in living)
+                    if not (took_hit and low_hp):
                         return self._emit_key(state_machine, pygame.K_SPACE)
                     alt_shores = shore_tiles - {(px, py)}
                     if alt_shores:
