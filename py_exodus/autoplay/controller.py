@@ -1565,10 +1565,16 @@ class AutoPlayController:
             return dx + dy
 
         ordered = sorted(portals, key=_dist)
+        if (px, py) in portals:
+            return (px, py)
+        best_portal = None
+        best_cost = None
         for portal in ordered:
-            if (px, py) == portal or find_2d_step(game_map, (px, py), {portal}, transport, party=party) is not None:
-                return portal
-        return ordered[0]
+            _, cost = find_2d_step_and_cost(game_map, (px, py), {portal}, transport, party=party)
+            if cost is not None and (best_cost is None or cost < best_cost):
+                best_cost = cost
+                best_portal = portal
+        return best_portal if best_portal is not None else ordered[0]
 
     @classmethod
     def _nearest_shop_town_portal(
