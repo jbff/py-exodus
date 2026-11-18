@@ -1706,7 +1706,7 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
     )
     assert evaluate_goal(p_shr, map_id=13) == Goal.AMBROSIA_CARDS_SHRINES
     ow_shr = OverworldScreen(party=p_shr, map_id=13, asset_mgr=am, random_encounters=False)
-    p_shr.x, p_shr.y = 4, 36  # Strength Shrine
+    p_shr.x, p_shr.y = 55, 27  # Wisdom Shrine (Cleric prioritized first)
     sm.set_screen(ow_shr)
     ctrl._key_queue.clear()
     assert ctrl.step(sm) == pygame.K_e  # enters ShrineScreen

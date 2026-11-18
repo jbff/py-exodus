@@ -14,7 +14,13 @@ from py_exodus.autoplay.equipment import (
     best_shop_upgrade,
 )
 from py_exodus.autoplay.nav import find_2d_step, find_2d_step_and_cost, find_dungeon_step
-from py_exodus.autoplay.planner import Goal, evaluate_goal, needs_heal, prefer_ranged_weapons
+from py_exodus.autoplay.planner import (
+    Goal,
+    evaluate_goal,
+    member_needs_shrine_stat,
+    needs_heal,
+    prefer_ranged_weapons,
+)
 from py_exodus.constants import ArmorType, Direction, Profession, Status, Transport, WeaponType
 from py_exodus.world.map import DungeonTile
 
@@ -304,9 +310,7 @@ class AutoPlayController:
                 (
                     i + 1
                     for i, m in enumerate(screen.party.members)
-                    if not m.is_dead()
-                    and m.gold >= 100
-                    and getattr(m, stat_attr, 0) < getattr(m, cap_attr, 99)
+                    if m.gold >= 100 and member_needs_shrine_stat(m, stat_attr, cap_attr)
                 ),
                 None,
             )
@@ -1580,24 +1584,39 @@ class AutoPlayController:
 
             shrine_target: tuple[int, int, int] | None = None
             if not uncollected:
-                shrine_sites = (
-                    (4, 36, "strength", "max_str"),
-                    (45, 52, "dexterity", "max_dex"),
-                    (55, 27, "wisdom", "max_wis"),
-                    (6, 6, "intelligence", "max_int"),
-                )
-                for sx, sy, stat_attr, cap_attr in shrine_sites:
+                primary_shrines: list[tuple[int, int, str, str, tuple[Profession, ...]]] = [
+                    (55, 27, "wisdom", "max_wis", (Profession.CLERIC, Profession.DRUID)),
+                    (6, 6, "intelligence", "max_int", (Profession.WIZARD, Profession.ALCHEMIST, Profession.ILLUSIONIST)),
+                    (4, 36, "strength", "max_str", (Profession.FIGHTER, Profession.PALADIN, Profession.RANGER, Profession.BARBARIAN)),
+                    (45, 52, "dexterity", "max_dex", (Profession.THIEF, Profession.LARK)),
+                ]
+                for sx, sy, stat_attr, cap_attr, profs in primary_shrines:
                     m_need = next(
                         (
                             i + 1
                             for i, m in enumerate(party.members)
-                            if not m.is_dead() and getattr(m, stat_attr, 0) < getattr(m, cap_attr, 99)
+                            if not m.is_dead()
+                            and m.profession in profs
+                            and getattr(m, stat_attr, 0) < getattr(m, cap_attr, 99)
                         ),
                         None,
                     )
                     if m_need is not None:
                         shrine_target = (sx, sy, m_need)
                         break
+                if shrine_target is None:
+                    for sx, sy, stat_attr, cap_attr, _ in primary_shrines:
+                        m_need = next(
+                            (
+                                i + 1
+                                for i, m in enumerate(party.members)
+                                if member_needs_shrine_stat(m, stat_attr, cap_attr)
+                            ),
+                            None,
+                        )
+                        if m_need is not None:
+                            shrine_target = (sx, sy, m_need)
+                            break
 
             if shrine_target is not None:
                 sx, sy, m_need = shrine_target

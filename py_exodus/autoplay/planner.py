@@ -9,7 +9,7 @@ from py_exodus.autoplay.equipment import (
     best_owned_weapon,
     best_shop_upgrade,
 )
-from py_exodus.constants import ArmorType, Status, Transport, WeaponType
+from py_exodus.constants import ArmorType, Profession, Status, Transport, WeaponType
 
 if TYPE_CHECKING:
     from py_exodus.entities.party import Party
@@ -63,19 +63,41 @@ def needs_food(party: Party) -> bool:
     return any(not m.is_dead() and m.food < 75 for m in party.members)
 
 
+_CLERIC_CASTERS = (Profession.CLERIC, Profession.DRUID, Profession.PALADIN, Profession.RANGER)
+_WIZARD_CASTERS = (
+    Profession.WIZARD,
+    Profession.DRUID,
+    Profession.ALCHEMIST,
+    Profession.ILLUSIONIST,
+    Profession.LARK,
+)
+
+
+def member_needs_shrine_stat(member, stat_attr: str, cap_attr: str) -> bool:
+    """Return True if this living member should raise ``stat_attr`` at an Ambrosia Shrine."""
+    if member.is_dead():
+        return False
+    prof = getattr(member, "profession", None)
+    if stat_attr == "wisdom" and prof not in _CLERIC_CASTERS:
+        return False
+    if stat_attr == "intelligence" and prof not in _WIZARD_CASTERS:
+        return False
+    return getattr(member, stat_attr, 0) < getattr(member, cap_attr, 99)
+
+
 def needs_shrine_stats(party: Party) -> bool:
-    """Return True if party has >= 500g and any living member is below racial stat caps."""
+    """Return True if party has >= 500g and any living member still needs a relevant Shrine stat."""
     if party.gold < 500:
         return False
     return any(
-        not m.is_dead()
-        and (
-            m.strength < getattr(m, "max_str", 99)
-            or m.dexterity < getattr(m, "max_dex", 99)
-            or m.intelligence < getattr(m, "max_int", 99)
-            or m.wisdom < getattr(m, "max_wis", 99)
-        )
+        member_needs_shrine_stat(m, stat_attr, cap_attr)
         for m in party.members
+        for stat_attr, cap_attr in (
+            ("strength", "max_str"),
+            ("dexterity", "max_dex"),
+            ("wisdom", "max_wis"),
+            ("intelligence", "max_int"),
+        )
     )
 
 
@@ -256,11 +278,14 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
         ):
             return Goal.BUY_KEYS
         any_below_cap = any(
-            m.strength < getattr(m, "max_str", 99)
-            or m.dexterity < getattr(m, "max_dex", 99)
-            or m.intelligence < getattr(m, "max_int", 99)
-            or m.wisdom < getattr(m, "max_wis", 99)
+            member_needs_shrine_stat(m, stat_attr, cap_attr)
             for m in living
+            for stat_attr, cap_attr in (
+                ("strength", "max_str"),
+                ("dexterity", "max_dex"),
+                ("wisdom", "max_wis"),
+                ("intelligence", "max_int"),
+            )
         )
         gold_target = 4500 if any_below_cap else 1500
         if len(living) < len(party.members) or party.gold < gold_target:
