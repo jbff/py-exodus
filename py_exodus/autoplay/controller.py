@@ -566,17 +566,7 @@ class AutoPlayController:
                     avoid_tiles=npc_tiles, allow_locked_doors=has_key,
                 )
                 if d is not None:
-                    nx, ny = px + d.dx, py + d.dy
-                    nxt_tile = gmap.get_tile(nx, ny) if 0 <= nx < gmap.width and 0 <= ny < gmap.height else None
-                    if nxt_tile is not None and str(getattr(nxt_tile, "name", "")).lower() == "locked_door":
-                        key_idx = next(
-                            (i + 1 for i, m in enumerate(party.members) if not m.is_dead() and m.keys > 0),
-                            None,
-                        )
-                        if key_idx is not None:
-                            self._queue_text(f"{key_idx}{d.name[0].lower()}", enter=False)
-                            return self._emit_key(state_machine, pygame.K_u)
-                    return self._emit_key(state_machine, _DIR_TO_KEY[d])
+                    return self._step_or_unlock(state_machine, gmap, party, px, py, d)
                 # Path to chests blocked by a guard: bribe adjacent guard if >= 100g
                 guards = {
                     (npc.x, npc.y)
@@ -605,7 +595,7 @@ class AutoPlayController:
                         avoid_tiles=npc_tiles, allow_locked_doors=has_key,
                     )
                     if d_adj is not None:
-                        return self._emit_key(state_machine, _DIR_TO_KEY[d_adj])
+                        return self._step_or_unlock(state_machine, gmap, party, px, py, d_adj)
 
         if map_id == 1:  # Castle of Lord British
             level_idx = next(
@@ -771,13 +761,32 @@ class AutoPlayController:
             | {(0, y) for y in range(gmap.height)}
             | {(gmap.width - 1, y) for y in range(gmap.height)}
         )
+        has_key = any(not m.is_dead() and m.keys > 0 for m in party.members)
         d = find_2d_step(
             gmap, (px, py), exits, Transport.FOOT, party=party,
-            avoid_tiles=npc_tiles, prefer_paths=True,
+            avoid_tiles=npc_tiles, prefer_paths=True, allow_locked_doors=has_key,
         )
+        if d is None and npc_tiles:
+            d = find_2d_step(
+                gmap, (px, py), exits, Transport.FOOT, party=party,
+                prefer_paths=True, allow_locked_doors=has_key,
+            )
         if d is not None:
-            return self._emit_key(state_machine, _DIR_TO_KEY[d])
-        return self._emit_key(state_machine, pygame.K_DOWN)
+            return self._step_or_unlock(state_machine, gmap, party, px, py, d)
+        return self._emit_key(state_machine, pygame.K_SPACE)
+
+    def _step_or_unlock(self, state_machine: StateMachine, gmap, party, px: int, py: int, d: Direction) -> int:
+        nx, ny = px + d.dx, py + d.dy
+        nxt_tile = gmap.get_tile(nx, ny) if 0 <= nx < gmap.width and 0 <= ny < gmap.height else None
+        if nxt_tile is not None and str(getattr(nxt_tile, "name", "")).lower() == "locked_door":
+            key_idx = next(
+                (i + 1 for i, m in enumerate(party.members) if not m.is_dead() and m.keys > 0),
+                None,
+            )
+            if key_idx is not None:
+                self._queue_text(f"{key_idx}{d.name[0].lower()}", enter=False)
+                return self._emit_key(state_machine, pygame.K_u)
+        return self._emit_key(state_machine, _DIR_TO_KEY[d])
 
     def _step_overworld(self, state_machine: StateMachine, screen, party, px: int, py: int, goal: Goal) -> int | None:
         gmap = screen.game_map
@@ -1101,6 +1110,12 @@ class AutoPlayController:
                     coast,
                     key=lambda pt: min(abs(pt[0] - px_) + abs(pt[1] - py_) for px_, py_ in pirates),
                 )
+                pirate_near_target = any(
+                    abs(target[0] - px_) + abs(target[1] - py_) <= 6 for px_, py_ in pirates
+                )
+                if (px, py) == target and not pirate_near_target:
+                    self._patrol_idx += 1
+                    target = coast[self._patrol_idx % len(coast)]
             else:
                 target = coast[self._patrol_idx % len(coast)]
                 if (px, py) == target:
