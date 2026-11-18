@@ -185,6 +185,7 @@ def find_2d_step(
     wind_direction: Direction | None = None,
     prefer_paths: bool = False,
     allow_locked_doors: bool = False,
+    ignore_wind: bool = False,
 ) -> Direction | None:
     """Return the first cardinal Direction toward the nearest reachable goal on a 2D map."""
     return find_2d_step_and_cost(
@@ -197,6 +198,7 @@ def find_2d_step(
         wind_direction=wind_direction,
         prefer_paths=prefer_paths,
         allow_locked_doors=allow_locked_doors,
+        ignore_wind=ignore_wind,
     )[0]
 
 
