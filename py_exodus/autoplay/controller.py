@@ -700,14 +700,26 @@ class AutoPlayController:
                     continue
                 if tname not in cannon_targets:
                     continue
-                dx_e = (cx - px) % gmap.width
-                dx_w = (px - cx) % gmap.width
-                dy_s = (cy - py) % gmap.height
-                dy_n = (py - cy) % gmap.height
-                if broadsides_horiz and cy == py and (1 <= dx_e <= 3 or 1 <= dx_w <= 3):
+                dx_e = cx - px
+                dx_w = px - cx
+                dy_s = cy - py
+                dy_n = py - cy
+                if (
+                    broadsides_horiz
+                    and cy == py
+                    and (1 <= dx_e <= 3 or 1 <= dx_w <= 3)
+                    and getattr(self, "_last_cannon_state", None) != (px, py, party.moves)
+                ):
+                    self._last_cannon_state = (px, py, party.moves)
                     self._key_queue.append(pygame.K_RIGHT if 1 <= dx_e <= 3 else pygame.K_LEFT)
                     return self._emit_key(state_machine, pygame.K_f)
-                if not broadsides_horiz and cx == px and (1 <= dy_s <= 3 or 1 <= dy_n <= 3):
+                if (
+                    not broadsides_horiz
+                    and cx == px
+                    and (1 <= dy_s <= 3 or 1 <= dy_n <= 3)
+                    and getattr(self, "_last_cannon_state", None) != (px, py, party.moves)
+                ):
+                    self._last_cannon_state = (px, py, party.moves)
                     self._key_queue.append(pygame.K_DOWN if 1 <= dy_s <= 3 else pygame.K_UP)
                     return self._emit_key(state_machine, pygame.K_f)
                 if tname in ("pirate", "serpent", "squid") and goal != Goal.CAPTURE_SHIP:

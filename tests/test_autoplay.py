@@ -1351,6 +1351,21 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
     assert evaluate_goal(p_cap2) == Goal.CAPTURE_SHIP
     assert ctrl.step(sm) == pygame.K_DOWN
 
+    # Broadsides do not fire across non-wrapping map borders (e.g. x=1 -> x=63)
+    p_edge = _make_party(level=5, exp=500, gold=0, food=500, marks=[1, 0, 0, 0], transport=Transport.SHIP)
+    for m in p_edge.members:
+        m.weapon = WeaponType.EXOTIC
+        m.weapons[WeaponType.EXOTIC] = 1
+        m.armor = ArmorType.EXOTIC
+        m.armors[ArmorType.EXOTIC] = 1
+    p_edge.x, p_edge.y = 1, 37
+    ow_ed = OverworldScreen(party=p_edge, asset_mgr=am, random_encounters=False)
+    ow_ed.heading = Direction.NORTH
+    ow_ed.creatures = [{"x": 63, "y": 37, "tile_name": "serpent"}]
+    sm.set_screen(ow_ed)
+    ctrl._key_queue.clear()
+    assert ctrl.step(sm) != pygame.K_f
+
     # Stranded on island for BUY_FOOD uses reachable moongate or frigate instead of passing turns
     p_isl = _make_party(level=5, exp=500, gold=100, food=50)
     p_isl.food = 50
