@@ -485,9 +485,26 @@ class AutoPlayController:
                 self._queue_text(f"{caster[0]}h{poison_idx}", enter=False)
                 return self._emit_key(state_machine, pygame.K_c)
 
-        # Heal detour if hurt (skip during BUY_FOOD or starvation so we don't loop healing)
+        # Heal detour if hurt (skip during BUY_FOOD/starvation, and save Cleric/Druid MP for ALCORT when poisoned)
         if needs_heal(party) and goal != Goal.BUY_FOOD and party.food > 0:
-            caster = self._find_caster(party, (Profession.CLERIC, Profession.PALADIN, Profession.DRUID), min_mp=10)
+            saving_for_alcort = poison_idx is not None and all(
+                m.hp > 50 for m in party.members if not m.is_dead()
+            )
+            caster = next(
+                (
+                    (i + 1, m.profession)
+                    for i, m in enumerate(party.members)
+                    if not m.is_dead()
+                    and m.profession in (Profession.CLERIC, Profession.PALADIN, Profession.DRUID)
+                    and m.mp >= 10
+                    and not (
+                        saving_for_alcort
+                        and m.profession in (Profession.CLERIC, Profession.DRUID)
+                        and m.max_mp >= 35
+                    )
+                ),
+                None,
+            )
             if caster is not None:
                 hurt_candidates = [
                     (i + 1, m) for i, m in enumerate(party.members) if not m.is_dead() and m.hp < m.max_hp
@@ -544,9 +561,13 @@ class AutoPlayController:
 
         npc_tiles = {(npc.x, npc.y) for npc in getattr(gmap, "npcs", [])}
 
+        can_alcort = any(
+            not m.is_dead() and m.profession in (Profession.CLERIC, Profession.DRUID) and m.max_mp >= 35
+            for m in party.members
+        )
         if (
             map_id == 10
-            and goal in (Goal.GRIND_AND_LEVEL, Goal.CURE_POISON)
+            and (goal == Goal.GRIND_AND_LEVEL or (goal == Goal.CURE_POISON and can_alcort))
             and party.gold < 9000
             and party.food >= 40
             and all(not m.is_dead() and m.hp > 100 for m in party.members)

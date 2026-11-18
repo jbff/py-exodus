@@ -1745,6 +1745,21 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
     assert ctrl.step(sm) == pygame.K_RIGHT
     assert (p_dg_shore.x, p_dg_shore.y) == (55, 32)
 
+    # Poisoned member + Cleric with 15/50 MP in Death Gulch must NOT spam SANCTU (saves MP for ALCORT)
+    p_pois = _make_party(
+        level=10, exp=950, gold=500, food=200, marks=[1, 1, 1, 1],
+        weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC,
+    )
+    p_pois.members[0].status = Status.POISONED
+    p_pois.members[0].hp = 400
+    p_pois.members[2].mp = 15
+    p_pois.members[2].wisdom = 50
+    ts_pois = TownScreen(party=p_pois, asset_mgr=am, map_id=10, start_x=33, start_y=60)
+    sm.set_screen(ts_pois)
+    ctrl._key_queue.clear()
+    k_pois = ctrl.step(sm)
+    assert k_pois != pygame.K_c  # did not cast SANCTU at 15 MP while poisoned
+
 
 
 
