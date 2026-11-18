@@ -841,9 +841,7 @@ class AutoPlayController:
                 return self._move_toward(state_machine, gmap, party, (px, py), {(tx, ty)})
 
         if goal == Goal.CONQUER_EXODUS:
-            if (px, py) == (10, 53):
-                return self._emit_key(state_machine, pygame.K_e)
-            return self._move_toward(state_machine, gmap, party, (px, py), {(10, 53)})
+            return self._enter_portal_or_wait_dawn(state_machine, screen, gmap, party, px, py, (10, 53))
 
         if goal in (Goal.AMBROSIA_CARDS_SHRINES, Goal.EXIT_AMBROSIA):
             return self._step_ambrosia(state_machine, gmap, party, px, py, goal, living)
@@ -941,18 +939,12 @@ class AutoPlayController:
                 return self._emit_key(state_machine, pygame.K_SPACE)
 
         if goal == Goal.GET_MARK_KINGS:
-            if (px, py) == (46, 7):
-                return self._emit_key(state_machine, pygame.K_e)
-            return self._move_toward(state_machine, gmap, party, (px, py), {(46, 7)})
+            return self._enter_portal_or_wait_dawn(state_machine, screen, gmap, party, px, py, (46, 7))
 
         if goal == Goal.GET_REMAINING_MARKS:
             if not all(m.marks[1] > 0 and m.marks[3] > 0 for m in living):
-                if (px, py) == (49, 34):
-                    return self._emit_key(state_machine, pygame.K_e)
-                return self._move_toward(state_machine, gmap, party, (px, py), {(49, 34)})
-            if (px, py) == (58, 44):
-                return self._emit_key(state_machine, pygame.K_e)
-            return self._move_toward(state_machine, gmap, party, (px, py), {(58, 44)})
+                return self._enter_portal_or_wait_dawn(state_machine, screen, gmap, party, px, py, (49, 34))
+            return self._enter_portal_or_wait_dawn(state_machine, screen, gmap, party, px, py, (58, 44))
 
         if goal == Goal.BUY_FOOD:
             dawn_open = (
