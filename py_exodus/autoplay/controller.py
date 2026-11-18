@@ -781,7 +781,6 @@ class AutoPlayController:
             cur_map_id == 0
             and party.transport == Transport.SHIP
             and self._is_hull_critical(party, screen)
-            and goal != Goal.SAIL_WHIRLPOOL
         ):
             from py_exodus.screens.overworld import can_move_to
 
