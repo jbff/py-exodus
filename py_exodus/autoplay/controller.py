@@ -759,11 +759,13 @@ class AutoPlayController:
                 if "x" not in c or "y" not in c or tname == "whirlpool":
                     continue
                 is_sea = tname in ("pirate", "serpent", "squid")
-                if (is_sea and avg_max_hp < 400) or (not is_sea and avoid_all_land):
+                if (is_sea and (avg_max_hp < 400 or avoid_all_land)) or (not is_sea and avoid_all_land):
                     cx, cy = c["x"], c["y"]
-                    avoid_monsters.add((cx, cy))
-                    for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
-                        avoid_monsters.add(((cx + dx) % gmap.width, (cy + dy) % gmap.height))
+                    rad = 2 if (is_sea and avoid_all_land) else 1
+                    for ox in range(-rad, rad + 1):
+                        for oy in range(-rad, rad + 1):
+                            if abs(ox) + abs(oy) <= rad:
+                                avoid_monsters.add(((cx + ox) % gmap.width, (cy + oy) % gmap.height))
         self._overworld_avoid = avoid_monsters
 
         if goal == Goal.DIG_EXOTICS:
@@ -881,11 +883,12 @@ class AutoPlayController:
             return self._move_toward(state_machine, gmap, party, (px, py), {target})
 
         if cur_map_id == 0 and needs_heal(party):
-            # Evade nearby monsters while hurt on Sosaria (including on healer/food runs)
+            # Emergency step away only when a monster is within 1 tile (radius 2-3 is routed around via _overworld_avoid)
+            evade_rad = 3 if party.transport == Transport.SHIP else 1
             nearby = [
                 (c["x"], c["y"])
                 for c in getattr(screen, "creatures", [])
-                if "x" in c and "y" in c and abs(c["x"] - px) + abs(c["y"] - py) <= 3
+                if "x" in c and "y" in c and abs(c["x"] - px) + abs(c["y"] - py) <= evade_rad
             ]
             if nearby:
                 from py_exodus.screens.overworld import can_move_to
