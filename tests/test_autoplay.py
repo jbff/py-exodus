@@ -1650,6 +1650,19 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
     p_ex_ship.x, p_ex_ship.y = 19, 44
     assert evaluate_goal(p_ex_ship, map_id=0) == Goal.DIG_EXOTICS
 
+    # 11. GRIND_AND_LEVEL on SHIP at non-mainland (18, 42) sails to mainland instead of K_SPACE stalling
+    p_1842 = _make_party(level=6, exp=600, gold=100, food=500, marks=[1, 0, 0, 0], transport=Transport.SHIP)
+    p_1842.members[3].status = Status.DEAD
+    p_1842.members[3].hp = 0
+    p_1842.x, p_1842.y = 18, 42
+    p_1842.wind_direction = Direction.EAST
+    ow_1842 = OverworldScreen(party=p_1842, asset_mgr=am, random_encounters=False)
+    ow_1842.creatures = []
+    sm.set_screen(ow_1842)
+    ctrl._key_queue.clear()
+    assert evaluate_goal(p_1842, map_id=0) == Goal.GRIND_AND_LEVEL
+    assert ctrl.step(sm) != pygame.K_SPACE
+
 
 
 

@@ -1162,7 +1162,7 @@ class AutoPlayController:
                 (px, py),
                 {
                     (46, 12), (46, 13), (46, 14), (45, 15), (45, 16),
-                    (17, 42), (18, 42), (19, 42), (20, 42), (21, 42), (14, 43), (15, 43),
+                    (48, 22), (48, 23), (49, 24), (24, 42), (25, 42),
                 },
             )
 
@@ -1567,6 +1567,17 @@ class AutoPlayController:
                 ):
                     dest_idx = self._pick_moongate_dest(gmap, src_idx, target_portal, party)
                     return self._step_moongate(state_machine, screen, gmap, party, px, py, src_idx=src_idx, dest_idx=dest_idx)
+            hull_val = getattr(screen, "ship_hull", getattr(party, "ship_hull", 50))
+            if hull_val > 5:
+                fallback_frigates = self._boardable_frigates(party, include_damaged=True, screen=screen)
+                if (px, py) in fallback_frigates:
+                    return self._emit_key(state_machine, pygame.K_b)
+                reachable_fallback = {
+                    pos for pos in fallback_frigates
+                    if find_2d_step(gmap, (px, py), {pos}, Transport.FOOT, party=party) is not None
+                }
+                if reachable_fallback:
+                    return self._move_toward(state_machine, gmap, party, (px, py), reachable_fallback)
         if self._screen_map_id(screen, party) == 0 and party.transport == Transport.SHIP:
             shore_cache = getattr(self, "_portal_shore_cache", None)
             if shore_cache is None:
