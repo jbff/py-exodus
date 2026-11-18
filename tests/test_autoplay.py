@@ -1610,6 +1610,15 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
     assert min(m.food for m in p_eq.members) >= 400
     assert max(m.food for m in p_eq.members) == 615
 
+    # 8. Dead member holding gold still counts toward party.gold for BUY_FOOD (poolable via J)
+    p_dead_g = _make_party(level=5, exp=500, gold=0, food=0)
+    for m in p_dead_g.members:
+        m.food = 0
+    p_dead_g.members[0].status = Status.DEAD
+    p_dead_g.members[0].hp = 0
+    p_dead_g.members[0].gold = 200
+    assert evaluate_goal(p_dead_g, map_id=0) == Goal.BUY_FOOD
+
 
 
 

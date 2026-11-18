@@ -589,7 +589,7 @@ class AutoPlayController:
             _, _, food_xy = _FOOD_TOWNS[map_id]
             living = [(i + 1, m) for i, m in enumerate(party.members) if not m.is_dead()]
             if living:
-                total_gold = sum(m.gold for _, m in living)
+                total_gold = party.gold
                 food_price = {1: 20, 3: 25, 4: 20, 6: 30, 11: 25}.get(map_id, 30)
                 if goal == Goal.BUY_FOOD and getattr(self, "_food_shop_target", None) is None:
                     if total_gold >= 1500:
@@ -872,7 +872,7 @@ class AutoPlayController:
         elif cur_map_id == 0 and party.transport != Transport.SHIP and living:
             avg_max_hp = sum(m.max_hp for m in party.members) // max(1, len(party.members))
             broke_and_starving_nav = (
-                sum(m.gold for m in living) < 30
+                party.gold < 30
                 and any(m.food == 0 for m in living)
                 and all(m.hp * 10 >= m.max_hp * 3 for m in living)
             )
@@ -1168,7 +1168,7 @@ class AutoPlayController:
         )
         broke_and_starving = (
             not naval_threat_near
-            and sum(m.gold for m in living) < 30
+            and party.gold < 30
             and any(m.food == 0 for m in living)
             and all(m.hp * 10 >= m.max_hp * 3 for m in living)
         )

@@ -253,7 +253,7 @@ def best_shop_upgrade(party: Party, *, include_wizard_dagger: bool = False) -> S
     living = [(i + 1, m) for i, m in enumerate(party.members) if not m.is_dead()]
     if not living:
         return None
-    total_gold = sum(m.gold for _, m in living)
+    total_gold = party.gold
 
     needs_starter = any(
         (m.weapon == WeaponType.NONE and m.profession not in (Profession.WIZARD, Profession.ALCHEMIST) and total_gold >= 5)

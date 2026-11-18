@@ -113,7 +113,7 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
         )
         and needs_food(party)
         and not (at_exotic_island and not living_has_exotics and party.food >= 100)
-        and sum(m.gold for m in living) >= 30
+        and party.gold >= 30
     ):
         return Goal.BUY_FOOD
 
@@ -182,12 +182,11 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
             cur_map_id not in (13, 15, 16, 17, 18, 19, 20)
             and party.transport != Transport.SHIP
         ):
-            living_gold = sum(m.gold for m in living)
             gems = sum(m.gems for m in living)
             torches = sum(m.torches for m in living)
-            if gems < 2 and living_gold >= (125 if gems == 0 else 200):
+            if gems < 2 and party.gold >= (125 if gems == 0 else 200):
                 return Goal.BUY_GEMS
-            if torches < 4 and living_gold >= (80 if torches == 0 else 150):
+            if torches < 4 and party.gold >= (80 if torches == 0 else 150):
                 return Goal.BUY_TORCHES
         return Goal.GET_MARK_KINGS
 
@@ -201,24 +200,23 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
             cur_map_id not in (13, 15, 16, 17, 18, 19, 20)
             and party.transport != Transport.SHIP
         ):
-            living_gold = sum(m.gold for m in living)
             gems = sum(m.gems for m in living)
             torches = sum(m.torches for m in living)
-            if gems < 8 and living_gold >= (125 if gems == 0 else 225):
+            if gems < 8 and party.gold >= (125 if gems == 0 else 225):
                 return Goal.BUY_GEMS
-            if torches < 4 and living_gold >= (80 if torches == 0 else 150):
+            if torches < 4 and party.gold >= (80 if torches == 0 else 150):
                 return Goal.BUY_TORCHES
         return Goal.GET_REMAINING_MARKS
 
     if not has_all_cards:
         if cur_map_id == 13:
             return Goal.AMBROSIA_CARDS_SHRINES
-        if len(living) < len(party.members) or sum(m.gold for m in living) < 1500:
+        if len(living) < len(party.members) or party.gold < 1500:
             return Goal.GRIND_AND_LEVEL
         if (
             party.transport != Transport.SHIP
             and sum(m.keys for m in living) < 4
-            and sum(m.gold for m in living) >= 50
+            and party.gold >= 50
         ):
             return Goal.BUY_KEYS
         if (
