@@ -33,6 +33,16 @@ Pressing **`F9`** (with **`[`** / **`]`** to adjust step speed) hands the entire
 
 ---
 
+## Controls & Hotkeys
+
+- **Movement / Navigation**: **Arrow keys** or **Numpad** (ships must first face the heading; in dungeons `DOWN` steps backward). **Enter** / **Space** confirm menus and advance pages; **Esc** cancels prompts or exits subscreens.
+- **`F1` — Book of Lore, Spell Books & Command Reference**: Opens/closes the full in-game documentation from any screen (also accessible from the **Main Menu**), covering all A–Z Ultima III commands, race max stats, profession tables, and the complete Wizard & Cleric spell books.
+- **`TAB` (or `F2`) — Auto-Combat**: Toggles tactical Auto-Combat on/off during battle.
+- **`F9` — Full Autoplay / Watch Mode**: Toggles autonomous autoplay on/off (**`[`** slower, **`]`** faster).
+- **`F10`** *(with `--debug`)*: Debug tools.
+
+---
+
 ## Installation & Running
 
 Managed with [uv](https://docs.astral.sh/uv/) and a committed `uv.lock` (Python 3.10+, tested through 3.14):
@@ -67,7 +77,7 @@ The suite currently runs **1,253 tests** covering mechanics, Java/GBC parity, ve
 4. **Quality-of-life & save rulings**: No quick-start party (create in party formation); `Q` save is Sosaria-overworld only (disabled in dungeons); `APPAR_UNEM` casts without a direction prompt to open the chest underfoot; saves/rosters are JSON-only (legacy binary `.ult` loader removed).
 
 ### Known Open Items
-1. **Audio**: `Sound.POISON_EFFECT` and `Sound.FIREFIELD` cues are not yet wired to field-effect triggers.
+1. **Audio**: `Sound.POISON_EFFECT` and `Sound.FIREFIELD` cues are not yet wired to poison/fire field triggers.
 2. **Input**: Keyboard only (no gamepad mapping yet).
 3. **`H` (Hand Equipment)**: Transfers unequipped weapons and armor only (per Java `HandDialog.java`), not food—autoplay compensates by equalizing food at purchase time.
 4. **Combat regen**: Passive MP (`tick_regen`) and meal-crossing `+1 HP` do not tick during combat rounds (only healing spells restore HP mid-battle).

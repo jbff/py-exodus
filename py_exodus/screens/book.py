@@ -215,7 +215,7 @@ class BookScreen(BaseScreen):
         if event.type != pygame.KEYDOWN:
             return
 
-        if event.key in (pygame.K_ESCAPE, pygame.K_q):
+        if event.key in (pygame.K_ESCAPE, pygame.K_q, pygame.K_F1):
             self.exit_screen()
         elif event.key in (pygame.K_SPACE, pygame.K_RETURN, pygame.K_RIGHT, pygame.K_DOWN, pygame.K_PAGEDOWN):
             self.turn_forward()

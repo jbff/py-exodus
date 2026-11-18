@@ -353,3 +353,13 @@ class TestReachability:
         assert sm.current_screen.page_index == 1
         sm.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_ESCAPE))
         assert isinstance(sm.current_screen, OverworldScreen)
+
+    def test_in_game_docs_include_hotkeys_navigation_and_f1_closes(self, asset_mgr, pygame_setup):
+        """Book of Lore includes navigation, F1/TAB/F9/[/] hotkeys, races, professions, and F1 closes it."""
+        scr = BookScreen(asset_mgr=asset_mgr)
+        full = _full_text(scr)
+        for token in ("Arrow Keys", "F1)", "Tab / F2)", "F9)", "[ / ])", "TABLE 1", "TABLE 2", "WIZARD SORCERIES", "CLERICAL PRAYERS"):
+            assert token in full
+
+        scr.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_F1))
+        assert scr.is_finished is True

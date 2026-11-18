@@ -8,7 +8,7 @@ E) Enter: Enter a town, castle, dungeon or other landmark.
 F) Fire: Discharge a ship's cannons (after boarding) in direction indicated.
 G) Get Chest: Open chest. Must be followed by the number of the player who will search for traps, open the chest and acquire its contents.
 H) Hand Equipment: Trades equipment between two players. Followed by prompts to determine what is to be exchanged.
-1) Ignite a Torch: Lights a given player's torch.
+I) Ignite a Torch: Lights a given player's torch.
 J) Join gold: Gives all gold in party to player indicated.
 K) Klimb: Climb up a ladder in a dungeon.
 L) Open a door.
@@ -22,11 +22,22 @@ S) Search: search and look in the area for anything.
 T) Transact: Use to talk to townspeople or trade with merchants.
 U) Unlock: Open doors if you have the key. Must be followed by direction to door and the player whose key is to be used. One use per key.
 V) Volume: Toggles sound effects on and off.
-W) Wear Armor: Outfits player with specified an-nor if owned.
+W) Wear Armor: Outfits player with specified armor if owned.
 X) X-it: Leave behind or dismount your current transport and travel on foot.
 Y) Yell: Allows player to yell any word desired.
 Z) Ztats: Displays your vital statistics, possessions, and spells.
 Spacebar) Pass one game turn without taking any action. Food is consumed.
+
+PY-EXODUS NAVIGATION & HOTKEYS
+
+Arrow Keys / Numpad) Move party (ships must first turn to face the heading; in dungeons DOWN steps backward).
+Enter / Space) Confirm menu choices or advance pages.
+Esc) Cancel a prompt or exit the Book of Lore / subscreen.
+F1) Open or close this Book of Lore, Spell Books, and Command Reference from any screen.
+Tab / F2) Toggle tactical Auto-Combat on or off during battle.
+F9) Toggle autonomous Full Autoplay (Watch Mode) on or off.
+[ / ]) Decrease ([) or increase (]) Autoplay step speed while Autoplay is active.
+F10) Debug tools (only active when launched with --debug).
 
 Ultima III Exodus
 The Third Age of Darkness
