@@ -308,6 +308,18 @@ class AutoPlayController:
         return self._emit_key(state_machine, pygame.K_ESCAPE)
 
     @staticmethod
+    def _boardable_frigates(party, include_damaged: bool = False) -> set[tuple[int, int]]:
+        """Return frigate coordinates, skipping a critically damaged last_ship (hull <= 20)."""
+        last_ship = getattr(party, "last_ship", None)
+        low_hull = getattr(party, "ship_hull", 50) <= 20
+        return {
+            (obj.get("x"), obj.get("y"))
+            for obj in getattr(party, "dynamic_objects", ())
+            if str(obj.get("tile", "")).lower() == "frigate"
+            and (include_damaged or not (low_hull and obj is last_ship))
+        }
+
+    @staticmethod
     def _screen_map_id(screen, party) -> int:
         raw_id = getattr(getattr(screen, "game_map", None), "id", None)
         if raw_id is None:
@@ -680,11 +692,7 @@ class AutoPlayController:
                 )
                 or not on_mainland
             ):
-                frigates = {
-                    (obj.get("x"), obj.get("y"))
-                    for obj in getattr(party, "dynamic_objects", ())
-                    if str(obj.get("tile", "")).lower() == "frigate"
-                }
+                frigates = self._boardable_frigates(party, include_damaged=(not on_mainland))
                 if (px, py) in frigates:
                     return self._emit_key(state_machine, pygame.K_b)
                 reachable_frigates = {
@@ -825,11 +833,7 @@ class AutoPlayController:
                     return self._move_toward(state_machine, gmap, party, (px, py), adj_water or {(tx, ty)})
                 if find_2d_step(gmap, (px, py), {(tx, ty)}, Transport.FOOT, party=party) is not None:
                     return self._move_toward(state_machine, gmap, party, (px, py), {(tx, ty)})
-                frigates = {
-                    (obj.get("x"), obj.get("y"))
-                    for obj in getattr(party, "dynamic_objects", ())
-                    if str(obj.get("tile", "")).lower() == "frigate"
-                }
+                frigates = self._boardable_frigates(party, include_damaged=(not on_mainland))
                 if (px, py) in frigates:
                     return self._emit_key(state_machine, pygame.K_b)
                 reachable_frigates = {
@@ -858,11 +862,7 @@ class AutoPlayController:
             )
 
         if goal == Goal.CAPTURE_SHIP:
-            frigates = {
-                (obj.get("x"), obj.get("y"))
-                for obj in getattr(party, "dynamic_objects", [])
-                if str(obj.get("tile", "")).lower() == "frigate"
-            }
+            frigates = self._boardable_frigates(party, include_damaged=False)
             if (px, py) in frigates:
                 return self._emit_key(state_machine, pygame.K_b)
             reachable_frigates = {
