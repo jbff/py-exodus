@@ -713,6 +713,25 @@ class AutoPlayController:
         # Low-level parties on foot avoid coastal sea monsters; ships avoid sea monsters & fire broadsides
         avoid_monsters: set[tuple[int, int]] = set()
         self._ship_threat_near = False
+        if (
+            cur_map_id == 0
+            and party.transport == Transport.SHIP
+            and getattr(screen, "ship_hull", getattr(party, "ship_hull", 50)) <= 15
+            and goal != Goal.SAIL_WHIRLPOOL
+        ):
+            from py_exodus.screens.overworld import can_move_to
+
+            if any(
+                can_move_to(
+                    gmap,
+                    (px + dx) % gmap.width,
+                    (py + dy) % gmap.height,
+                    Transport.FOOT,
+                    party=party,
+                )
+                for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0))
+            ):
+                return self._emit_key(state_machine, pygame.K_x)
         if cur_map_id in (0, 13) and party.transport == Transport.SHIP:
             heading = getattr(screen, "heading", Direction.EAST)
             broadsides_horiz = heading in (Direction.NORTH, Direction.SOUTH)
@@ -1044,8 +1063,14 @@ class AutoPlayController:
                 return self._emit_key(state_machine, pygame.K_e)
             return self._move_toward(state_machine, gmap, party, (px, py), {(45, 18)})
 
-        # Actively chase nearby reachable land creatures on Sosaria (skip if hurt!)
-        if not needs_heal(party):
+        # Actively chase nearby reachable land creatures on Sosaria (skip if hurt,
+        # unless broke & starving so we can earn 30g for food!)
+        broke_and_starving = (
+            sum(m.gold for m in living) < 30
+            and any(m.food == 0 for m in living)
+            and all(m.hp * 10 >= m.max_hp * 3 for m in living)
+        )
+        if not needs_heal(party) or broke_and_starving:
             land_targets: set[tuple[int, int]] = set()
             for c in getattr(screen, "creatures", []):
                 tname = str(c.get("tile_name") or c.get("tile") or "").lower()

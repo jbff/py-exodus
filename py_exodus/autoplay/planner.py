@@ -177,9 +177,12 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
             cur_map_id not in (13, 15, 16, 17, 18, 19, 20)
             and party.transport != Transport.SHIP
         ):
-            if sum(m.gems for m in living) < 2 and sum(m.gold for m in living) >= 75:
+            living_gold = sum(m.gold for m in living)
+            gems = sum(m.gems for m in living)
+            torches = sum(m.torches for m in living)
+            if gems < 2 and living_gold >= (125 if gems == 0 else 200):
                 return Goal.BUY_GEMS
-            if sum(m.torches for m in living) < 4 and sum(m.gold for m in living) >= 30:
+            if torches < 4 and living_gold >= (80 if torches == 0 else 150):
                 return Goal.BUY_TORCHES
         return Goal.GET_MARK_KINGS
 
@@ -193,9 +196,12 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
             cur_map_id not in (13, 15, 16, 17, 18, 19, 20)
             and party.transport != Transport.SHIP
         ):
-            if sum(m.gems for m in living) < 8 and sum(m.gold for m in living) >= 75:
+            living_gold = sum(m.gold for m in living)
+            gems = sum(m.gems for m in living)
+            torches = sum(m.torches for m in living)
+            if gems < 8 and living_gold >= (125 if gems == 0 else 225):
                 return Goal.BUY_GEMS
-            if sum(m.torches for m in living) < 4 and sum(m.gold for m in living) >= 30:
+            if torches < 4 and living_gold >= (80 if torches == 0 else 150):
                 return Goal.BUY_TORCHES
         return Goal.GET_REMAINING_MARKS
 
