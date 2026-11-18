@@ -117,6 +117,8 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
         and not (at_exotic_island and not living_has_exotics and party.food >= 100)
         and any(m.is_dead() for m in party.members)
     ):
+        if any(m.status == Status.POISONED and m.hp <= 25 for m in living) and party.gold >= 100:
+            return Goal.CURE_POISON
         needed_cost = min(
             (900 if m.status == Status.ASH else 500)
             for m in party.members
