@@ -22,7 +22,7 @@ _LADDER_DOWN_TILES = frozenset({DungeonTile.LADDER_DOWN, DungeonTile.LADDER_UP_D
 _LADDER_UP_TILES = frozenset({DungeonTile.LADDER_UP, DungeonTile.LADDER_UP_DOWN})
 
 
-def find_2d_step(
+def find_2d_step_and_cost(
     game_map: GameMap,
     start: tuple[int, int],
     goals: set[tuple[int, int]] | tuple[int, int],
@@ -32,20 +32,21 @@ def find_2d_step(
     wind_direction: Direction | None = None,
     prefer_paths: bool = False,
     allow_locked_doors: bool = False,
-) -> Direction | None:
-    """Return the first cardinal Direction toward the nearest reachable goal on a 2D map."""
+    ignore_wind: bool = False,
+) -> tuple[Direction | None, int | None]:
+    """Return ``(first_direction, path_cost)`` toward the nearest reachable goal."""
     goal_set: set[tuple[int, int]] = (
         {goals} if isinstance(goals, tuple) and len(goals) == 2 and isinstance(goals[0], int) else set(goals)
     )
     if not goal_set or start in goal_set:
-        return None
+        return (None, None)
 
-    if transport == Transport.SHIP and wind_direction is None:
-        return None
+    if transport == Transport.SHIP and wind_direction is None and not ignore_wind:
+        return (None, None)
 
     blocked_dir = (
         wind_direction.reverse()
-        if transport == Transport.SHIP and wind_direction is not None
+        if transport == Transport.SHIP and wind_direction is not None and not ignore_wind
         else None
     )
 
@@ -89,7 +90,7 @@ def find_2d_step(
             if cost > best_cost.get((cx, cy), float("inf")):
                 continue
             if (cx, cy) in goal_set and first_dir is not None:
-                return first_dir
+                return (first_dir, cost)
             for d in _CARDINALS:
                 if blocked_dir is not None and d == blocked_dir:
                     continue
@@ -118,13 +119,13 @@ def find_2d_step(
                     best_cost[nxt] = ncost
                     tie += 1
                     heapq.heappush(pq, (ncost, tie, nxt, step_dir))
-        return None
+        return (None, None)
 
-    queue: deque[tuple[tuple[int, int], Direction | None]] = deque([(start, None)])
+    queue: deque[tuple[tuple[int, int], Direction | None, int]] = deque([(start, None, 0)])
     visited: set[tuple[int, int]] = {start}
 
     while queue:
-        (cx, cy), first_dir = queue.popleft()
+        (cx, cy), first_dir, dist = queue.popleft()
         for d in _CARDINALS:
             if blocked_dir is not None and d == blocked_dir:
                 continue
@@ -152,7 +153,7 @@ def find_2d_step(
                     or tile_name == "whirlpool"
                 )
                 if is_special_goal or _passable(nx, ny):
-                    return step_dir
+                    return (step_dir, dist + 1)
                 continue
 
             if nxt in avoid:
@@ -161,9 +162,34 @@ def find_2d_step(
                 continue
 
             visited.add(nxt)
-            queue.append((nxt, step_dir))
+            queue.append((nxt, step_dir, dist + 1))
 
-    return None
+    return (None, None)
+
+
+def find_2d_step(
+    game_map: GameMap,
+    start: tuple[int, int],
+    goals: set[tuple[int, int]] | tuple[int, int],
+    transport: Transport = Transport.FOOT,
+    party: Party | None = None,
+    avoid_tiles: set[tuple[int, int]] | None = None,
+    wind_direction: Direction | None = None,
+    prefer_paths: bool = False,
+    allow_locked_doors: bool = False,
+) -> Direction | None:
+    """Return the first cardinal Direction toward the nearest reachable goal on a 2D map."""
+    return find_2d_step_and_cost(
+        game_map=game_map,
+        start=start,
+        goals=goals,
+        transport=transport,
+        party=party,
+        avoid_tiles=avoid_tiles,
+        wind_direction=wind_direction,
+        prefer_paths=prefer_paths,
+        allow_locked_doors=allow_locked_doors,
+    )[0]
 
 
 def find_dungeon_step(

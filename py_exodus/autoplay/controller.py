@@ -13,7 +13,7 @@ from py_exodus.autoplay.equipment import (
     best_owned_weapon,
     best_shop_upgrade,
 )
-from py_exodus.autoplay.nav import find_2d_step, find_dungeon_step
+from py_exodus.autoplay.nav import find_2d_step, find_2d_step_and_cost, find_dungeon_step
 from py_exodus.autoplay.planner import Goal, evaluate_goal, needs_heal
 from py_exodus.constants import ArmorType, Direction, Profession, Status, Transport, WeaponType
 from py_exodus.world.map import DungeonTile
@@ -1409,16 +1409,31 @@ class AutoPlayController:
     ) -> int:
         has_key = any(not m.is_dead() and m.keys > 0 for m in party.members)
         avoid = getattr(self, "_overworld_avoid", None) or None
-        d = find_2d_step(
+        wind = getattr(party, "wind_direction", None)
+        d, wind_cost = find_2d_step_and_cost(
             game_map,
             start=start,
             goals=goals,
             transport=party.transport,
             party=party,
-            wind_direction=getattr(party, "wind_direction", None),
+            wind_direction=wind,
             avoid_tiles=avoid,
             allow_locked_doors=(has_key and party.transport == Transport.FOOT),
         )
+        if party.transport == Transport.SHIP and wind is not None and party.food >= 100 and start not in (avoid or ()):
+            free_d, free_cost = find_2d_step_and_cost(
+                game_map,
+                start=start,
+                goals=goals,
+                transport=party.transport,
+                party=party,
+                avoid_tiles=avoid,
+                ignore_wind=True,
+            )
+            if free_d is not None and free_cost is not None and (
+                d is None or (wind_cost is not None and wind_cost * 2 > free_cost * 3)
+            ):
+                return self._emit_key(state_machine, pygame.K_SPACE)
         if d is None and avoid:
             d = find_2d_step(
                 game_map,
@@ -1426,7 +1441,7 @@ class AutoPlayController:
                 goals=goals,
                 transport=party.transport,
                 party=party,
-                wind_direction=getattr(party, "wind_direction", None),
+                wind_direction=wind,
                 allow_locked_doors=(has_key and party.transport == Transport.FOOT),
             )
         if d is not None:

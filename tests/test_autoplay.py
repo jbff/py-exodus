@@ -276,9 +276,9 @@ def test_evaluate_goal_progression():
     lvl5 = _make_party(level=5, exp=500, marks=[0, 0, 0, 0], gold=0)
     assert evaluate_goal(lvl5) == Goal.GET_MARK_KINGS
 
-    # Has Mark of Kings, on foot without remaining marks -> GET_REMAINING_MARKS
+    # Has Mark of Kings, on foot without exotics -> CAPTURE_SHIP
     marked_foot = _make_party(level=5, exp=500, marks=[1, 0, 0, 0], transport=Transport.FOOT, gold=0)
-    assert evaluate_goal(marked_foot) == Goal.GET_REMAINING_MARKS
+    assert evaluate_goal(marked_foot) == Goal.CAPTURE_SHIP
 
     # Has Mark of Kings, on ship without exotics -> DIG_EXOTICS
     marked_ship_no_ex = _make_party(level=5, exp=500, marks=[1, 0, 0, 0], transport=Transport.SHIP, gold=0)
@@ -309,12 +309,15 @@ def test_evaluate_goal_progression():
     ambrosia_done = _make_party(level=5, exp=500, marks=[1, 0, 0, 0], map_id=13, cards=[1, 1, 1, 1])
     assert evaluate_goal(ambrosia_done) == Goal.EXIT_AMBROSIA
 
-    # Back on Sosaria with all 4 cards, missing Fire/Snake/Force -> GET_REMAINING_MARKS
-    need_marks = _make_party(level=6, exp=600, marks=[1, 0, 0, 0], map_id=0, cards=[1, 1, 1, 1], gold=0)
+    # On Sosaria with exotics, missing Fire/Snake/Force -> GET_REMAINING_MARKS
+    need_marks = _make_party(
+        level=6, exp=600, marks=[1, 0, 0, 0], map_id=0, cards=[1, 1, 1, 1],
+        weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC, gold=0,
+    )
     assert evaluate_goal(need_marks) == Goal.GET_REMAINING_MARKS
 
-    # All 4 marks + 4 cards, no exotics -> DIG_EXOTICS
-    need_exotics = _make_party(level=6, exp=600, marks=[1, 1, 1, 1], map_id=0, cards=[1, 1, 1, 1])
+    # All 4 marks + 4 cards on ship, no exotics -> DIG_EXOTICS
+    need_exotics = _make_party(level=6, exp=600, marks=[1, 1, 1, 1], map_id=0, cards=[1, 1, 1, 1], transport=Transport.SHIP)
     assert evaluate_goal(need_exotics) == Goal.DIG_EXOTICS
 
     # All 4 marks + 4 cards + exotic weapon/armor -> CONQUER_EXODUS

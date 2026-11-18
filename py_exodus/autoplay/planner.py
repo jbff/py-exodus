@@ -179,8 +179,10 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
                 return Goal.BUY_TORCHES
         return Goal.GET_MARK_KINGS
 
-    if cur_map_id == 0 and not has_exotics and (party.transport == Transport.SHIP or at_exotic_island):
-        return Goal.DIG_EXOTICS
+    if not has_exotics:
+        if party.transport == Transport.SHIP or at_exotic_island:
+            return Goal.DIG_EXOTICS
+        return Goal.CAPTURE_SHIP
 
     if not has_remaining_marks:
         if (
@@ -192,9 +194,6 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
             if sum(m.torches for m in living) < 4 and sum(m.gold for m in living) >= 30:
                 return Goal.BUY_TORCHES
         return Goal.GET_REMAINING_MARKS
-
-    if not has_exotics:
-        return Goal.DIG_EXOTICS
 
     if not has_all_cards:
         if cur_map_id == 13:
