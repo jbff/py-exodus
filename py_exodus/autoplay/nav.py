@@ -73,12 +73,20 @@ def find_2d_step_and_cost(
         tname = str(getattr(t, "name", "")).lower() if t else ""
         return 1 if tname in ("floor", "bridge", "path") else 4
 
+    has_fire = party is not None and any(not m.is_dead() and m.marks[1] > 0 for m in party.members)
+    has_force = party is not None and any(not m.is_dead() and m.marks[2] > 0 for m in party.members)
+
     def _passable(nx: int, ny: int) -> bool:
+        t = game_map.get_tile(nx, ny)
+        tname = str(getattr(t, "name", "")).lower() if t else ""
+        if tname in ("lava", "fire") and not has_fire:
+            return False
+        if tname in ("energy_field", "force_field") and not has_force:
+            return False
         if can_move_to(game_map, nx, ny, transport=transport, party=party):
             return True
         if allow_locked_doors and transport == Transport.FOOT:
-            t = game_map.get_tile(nx, ny)
-            return t is not None and str(getattr(t, "name", "")).lower() == "locked_door"
+            return t is not None and tname == "locked_door"
         return False
 
     if prefer_paths:
