@@ -478,6 +478,7 @@ class AutoPlayController:
             map_id != 2
             and needs_heal(party)
             and party.food >= 100
+            and not any(not m.is_dead() and m.food == 0 for m in party.members)
             and goal not in (Goal.BUY_FOOD, Goal.RESURRECT_DEAD, Goal.CURE_POISON)
             and not any(not m.is_dead() and m.status == Status.POISONED and m.hp <= 25 for m in party.members)
             and any(
@@ -933,6 +934,7 @@ class AutoPlayController:
             if (
                 not threat_near
                 and party.food >= 100
+                and not any(m.food == 0 for m in living)
                 and goal not in (Goal.BUY_FOOD, Goal.RESURRECT_DEAD, Goal.CURE_POISON)
                 and any(
                     not m.is_dead()
