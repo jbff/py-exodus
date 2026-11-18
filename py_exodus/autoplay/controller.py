@@ -1261,6 +1261,35 @@ class AutoPlayController:
             for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0))
             if ((wx + dx) % gmap.width, (wy + dy) % gmap.height) in reachable_land
         }
+        pirates_in_bay = [
+            (c["x"], c["y"])
+            for c in getattr(state_machine.current_screen, "creatures", ())
+            if str(c.get("tile_name") or c.get("tile") or "").lower() == "pirate"
+            and (c.get("x"), c.get("y")) in water_comp
+        ]
+        if pirates_in_bay and shore_tiles:
+            best_shore = min(
+                shore_tiles,
+                key=lambda st: min(abs(st[0] - px_) + abs(st[1] - py_) for px_, py_ in pirates_in_bay),
+            )
+            if (px, py) == best_shore:
+                return self._emit_key(state_machine, pygame.K_SPACE)
+            return self._move_toward(state_machine, gmap, party, (px, py), {best_shore})
+        vantage_tiles = sorted(
+            {
+                ((wx + dx) % gmap.width, (wy + dy) % gmap.height)
+                for wx, wy in water_comp
+                for dx in (-10, 10)
+                for dy in (-10, 10)
+                if ((wx + dx) % gmap.width, (wy + dy) % gmap.height) in reachable_land
+            }
+        )
+        if vantage_tiles:
+            target = vantage_tiles[self._patrol_idx % len(vantage_tiles)]
+            if (px, py) == target or self._patrol_idx == 0:
+                self._patrol_idx = (self._patrol_idx + 1) % len(vantage_tiles)
+                target = vantage_tiles[self._patrol_idx]
+            return self._move_toward(state_machine, gmap, party, (px, py), {target})
         if (px, py) in shore_tiles:
             return self._emit_key(state_machine, pygame.K_SPACE)
         if shore_tiles:
