@@ -1130,10 +1130,14 @@ def test_mark_kings_triggers_on_first_level5_and_resurrection_reserve():
     """First member hitting L5 triggers GET_MARK_KINGS, and L5+ keeps 500g resurrection reserve."""
     from py_exodus.autoplay.equipment import best_shop_upgrade
 
-    # Mixed levels: only member 0 is L5, others L2-L4 -> still triggers GET_MARK_KINGS
+    # Mixed levels: only member 0 is L5, others L3 -> stays in GRIND_AND_LEVEL until all living are L5+
     party = _make_party(level=3, exp=200, gold=0, food=500, marks=[0, 0, 0, 0])
     party.members[0].level = 5
     party.members[0].exp = 450
+    assert evaluate_goal(party) == Goal.GRIND_AND_LEVEL
+    for m in party.members:
+        m.level = 5
+        m.exp = 450
     assert evaluate_goal(party) == Goal.GET_MARK_KINGS
 
     # At L5+ with mid gear, 600g pooled reserves 500g so 400g Dawn Axe+2 is not bought yet

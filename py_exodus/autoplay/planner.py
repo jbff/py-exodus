@@ -144,12 +144,10 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
             return Goal.EXIT_AMBROSIA
         return Goal.AMBROSIA_CARDS_SHRINES
 
-    if cur_map_id == 0 and not has_exotics and (party.transport == Transport.SHIP or at_exotic_island):
-        return Goal.DIG_EXOTICS
-
     if (
         cur_map_id != 13
         and party.transport != Transport.SHIP
+        and not (at_exotic_island and not has_exotics)
         and not (has_all_cards and has_remaining_marks and not has_exotics)
         and (
             best_shop_upgrade(party) is not None
@@ -158,7 +156,7 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
     ):
         return Goal.OUTFIT_BRITAIN
 
-    if max(m.level for m in living) < 5:
+    if min(m.level for m in living) < 5:
         return Goal.GRIND_AND_LEVEL
 
     if not all(m.marks[0] > 0 for m in party.members):
@@ -171,6 +169,9 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
             if sum(m.torches for m in living) < 4 and sum(m.gold for m in living) >= 30:
                 return Goal.BUY_TORCHES
         return Goal.GET_MARK_KINGS
+
+    if cur_map_id == 0 and not has_exotics and (party.transport == Transport.SHIP or at_exotic_island):
+        return Goal.DIG_EXOTICS
 
     if not has_all_cards:
         if cur_map_id == 13:
