@@ -181,6 +181,13 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
             and sum(m.gold for m in living) >= 50
         ):
             return Goal.BUY_KEYS
+        if (
+            party.transport != Transport.SHIP
+            and has_exotics
+            and sum(m.keys for m in living) == 0
+            and any(not any(m.cards[idx] > 0 for m in living) for idx in (0, 2))
+        ):
+            return Goal.GRIND_AND_LEVEL
         if party.transport != Transport.SHIP:
             return Goal.CAPTURE_SHIP
         return Goal.SAIL_WHIRLPOOL

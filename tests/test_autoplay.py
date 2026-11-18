@@ -1366,6 +1366,16 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
     ctrl._key_queue.clear()
     assert ctrl.step(sm) != pygame.K_f
 
+    # Missing Death/Moons card with 0 keys & <50g stays in GRIND_AND_LEVEL instead of looping SAIL_WHIRLPOOL <-> EXIT_AMBROSIA
+    p_nokey = _make_party(level=5, exp=500, gold=10, food=500, marks=[1, 0, 0, 0], transport=Transport.FOOT)
+    for m in p_nokey.members:
+        m.weapon = WeaponType.EXOTIC
+        m.weapons[WeaponType.EXOTIC] = 1
+        m.armor = ArmorType.EXOTIC
+        m.armors[ArmorType.EXOTIC] = 1
+        m.keys = 0
+    assert evaluate_goal(p_nokey) == Goal.GRIND_AND_LEVEL
+
     # Stranded on island for BUY_FOOD uses reachable moongate or frigate instead of passing turns
     p_isl = _make_party(level=5, exp=500, gold=100, food=50)
     p_isl.food = 50
