@@ -466,6 +466,21 @@ class TestMarkGate:
         assert marked.meet_lord_british() is True
         assert marked.level == 6
 
+    def test_crossed_500_exp_before_visiting_lb_clamps_to_level_5(self):
+        """Crossing >=500 EXP while below level 5 must still allow advancing to level 5."""
+        c = Character(name="Fighter", profession=Profession.FIGHTER, level=4, exp=1307)
+        c.marks = [0, 0, 0, 0]
+        assert c.meet_lord_british() is True
+        assert c.level == 5
+        assert c.max_hp == 550
+        # Further advancement beyond level 5 still requires the Mark of Kings
+        assert c.meet_lord_british() is False
+        assert c.level == 5
+        # Once Mark of Kings is obtained, full eligible level is granted
+        c.marks[0] = 1
+        assert c.meet_lord_british() is True
+        assert c.level == 14
+
 
 # --------------------------------------------------------------------------- #
 # (f) max_mp is recomputed on load, never deserialized

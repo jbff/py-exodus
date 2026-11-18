@@ -318,7 +318,7 @@ class StatsPanel:
                         w_lbl = w_names.get(w_key, "None")
                         a_lbl = a_names.get(a_key, "None")
                         draw_line(
-                            f" G:{pm.gold:<4} {w_lbl}/{a_lbl}",
+                            f" S:{pm.str:<2} D:{pm.dex:<2} I:{pm.int:<2} W:{pm.wis:<2} G:{pm.gold:<4} {w_lbl}/{a_lbl}",
                             EGA_LIGHT_GRAY if not is_active else EGA_YELLOW,
                         )
 

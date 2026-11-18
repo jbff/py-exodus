@@ -546,7 +546,7 @@ class RosterScreen(BaseScreen):
                 prof_name = getattr(m.profession, "name", str(m.profession))[:5]
                 col = EGA_YELLOW if is_sel else EGA_WHITE
                 surface.blit(f_small.render(f"{marker}[{slot+1}] {p_name} ({prof_name})", False, col), (10 * scale, slot_y))
-                surface.blit(f_small.render(f"    HP:{m.hp} MP:{m.mp} FOOD:{m.food}", False, EGA_LIGHT_GRAY), (10 * scale, slot_y + 11 * scale))
+                surface.blit(f_small.render(f"    H:{m.hp} M:{m.mp} S:{m.str:<2} D:{m.dex:<2} I:{m.int:<2} W:{m.wis:<2}", False, EGA_LIGHT_GRAY), (10 * scale, slot_y + 11 * scale))
             else:
                 col = EGA_YELLOW if is_sel else EGA_DARK_GRAY
                 surface.blit(f_small.render(f"{marker}[{slot+1}] <EMPTY SLOT>", False, col), (10 * scale, slot_y + 4 * scale))
@@ -576,7 +576,7 @@ class RosterScreen(BaseScreen):
             prof = getattr(rec.profession, "name", str(rec.profession))[:4]
             race = getattr(rec.race, "name", str(rec.race))[:3]
             surface.blit(f_small.render(f"{marker}{actual_idx+1}:{name:<8} {prof} {race}", False, col), (158 * scale, row_y))
-            surface.blit(f_small.render(f"   H:{rec.hp:<3} S:{rec.str:<2} D:{rec.dex:<2} I:{rec.int:<2}", False, EGA_LIGHT_GRAY), (158 * scale, row_y + 9 * scale))
+            surface.blit(f_small.render(f"   H:{rec.hp:<3} S:{rec.str:<2} D:{rec.dex:<2} I:{rec.int:<2} W:{rec.wis:<2}", False, EGA_LIGHT_GRAY), (158 * scale, row_y + 9 * scale))
 
         if not self.roster:
             surface.blit(f_small.render("No recruits in roster.", False, EGA_DARK_GRAY), (162 * scale, 50 * scale))

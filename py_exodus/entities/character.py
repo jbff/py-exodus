@@ -335,15 +335,13 @@ class Character(metaclass=CharacterMeta):
             return False
 
         eligible_level = self.exp // 100 + 1
+        # Mark of Kings gate (Java truth: objects/SaveGame.java:406): advancing
+        # past level 5 requires the Mark of Kings. Without it, a character who
+        # accumulated >= 500 EXP while still below level 5 can still advance up
+        # to level 5 instead of soft-locking below level 5.
+        if not self.marks or self.marks[0] == 0:
+            eligible_level = min(eligible_level, 5)
         if eligible_level <= self.level:
-            return False
-
-        # Mark of Kings gate (Java truth: objects/SaveGame.java:406). The
-        # check runs against expLvl = exp / 100 — the *index* below the level
-        # about to be reached (getLevel() == lordBritishLevel + 1). The mark
-        # is therefore required only when advancing to level 6+; reaching
-        # level 5 (expLvl == 4) needs no mark.
-        if self.exp // 100 >= 5 and (not self.marks or self.marks[0] == 0):
             return False
 
         self.level = eligible_level

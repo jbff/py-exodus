@@ -1895,11 +1895,9 @@ class AutoPlayController:
         if member.is_dead() or member.level >= 25:
             return False
         eligible_level = member.exp // 100 + 1
-        if eligible_level <= member.level:
-            return False
-        if member.exp // 100 >= 5 and (not member.marks or member.marks[0] == 0):
-            return False
-        return True
+        if not member.marks or member.marks[0] == 0:
+            eligible_level = min(eligible_level, 5)
+        return eligible_level > member.level
 
     @staticmethod
     def _find_caster(

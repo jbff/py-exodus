@@ -712,7 +712,7 @@ def test_lord_british_levels_all_eligible_members_and_exits(pygame_setup):
     party = _make_party(level=1, exp=0, gold=0)
     party.members[0].level, party.members[0].exp = 2, 120   # already L2, needs 200 for L3
     party.members[1].level, party.members[1].exp = 1, 250   # eligible for L3
-    party.members[2].level, party.members[2].exp = 1, 520   # gated by missing Mark of Kings
+    party.members[2].level, party.members[2].exp = 5, 520   # gated at L5 by missing Mark of Kings
     party.members[3].level, party.members[3].exp = 1, 110   # eligible for L2
 
     sm = StateMachine(asset_mgr=am, audio=None)
@@ -725,7 +725,7 @@ def test_lord_british_levels_all_eligible_members_and_exits(pygame_setup):
 
     assert party.members[0].level == 2
     assert party.members[1].level == 3
-    assert party.members[2].level == 1
+    assert party.members[2].level == 5
     assert party.members[3].level == 2
     # Should have left (32, 15) heading toward the exit rather than looping T 1 N
     assert (ts.avatar_x, ts.avatar_y) != (32, 15)
