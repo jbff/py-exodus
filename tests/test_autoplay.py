@@ -1663,6 +1663,15 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
     assert evaluate_goal(p_1842, map_id=0) == Goal.GRIND_AND_LEVEL
     assert ctrl.step(sm) != pygame.K_SPACE
 
+    # 12. CONQUER_EXODUS with EXOTIC equipped and BOW in inventory stays CONQUER_EXODUS (no OUTFIT_BRITAIN flip)
+    p_exodus = _make_party(
+        level=15, exp=5000, gold=2000, food=500, marks=[1, 1, 1, 1], cards=[1, 1, 1, 1],
+        weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC,
+    )
+    p_exodus.members[0].weapons[WeaponType.BOW] = 1
+    p_exodus.members[1].weapons[WeaponType.BOW_P2] = 1
+    assert evaluate_goal(p_exodus, map_id=0) == Goal.CONQUER_EXODUS
+
 
 
 

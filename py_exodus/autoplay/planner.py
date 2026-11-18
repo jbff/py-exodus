@@ -164,6 +164,7 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
             return Goal.EXIT_AMBROSIA
         return Goal.AMBROSIA_CARDS_SHRINES
 
+    prefer_ranged = not (has_all_cards and has_remaining_marks and has_exotics)
     if (
         cur_map_id != 13
         and party.transport != Transport.SHIP
@@ -171,7 +172,11 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
         and not (has_all_cards and has_remaining_marks and not has_exotics)
         and (
             best_shop_upgrade(party) is not None
-            or any(best_owned_weapon(m) is not None or best_owned_armor(m) is not None for m in living)
+            or any(
+                best_owned_weapon(m, prefer_ranged=prefer_ranged) is not None
+                or best_owned_armor(m) is not None
+                for m in living
+            )
         )
     ):
         return Goal.OUTFIT_BRITAIN
