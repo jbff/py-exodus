@@ -737,6 +737,15 @@ class TestFrigateNoStacking:
         ]
         assert len(frigates_at_tile) == 1
 
+    def test_disembark_requires_shoreline(self, overworld):
+        overworld.party.x, overworld.party.y = 50, 10  # Open ocean (no adjacent land)
+        overworld.party.transport = Transport.SHIP
+
+        overworld._exit_transport()
+
+        assert overworld.party.transport == Transport.SHIP
+        assert any("shoreline" in msg.lower() for msg in overworld.text_log.lines)
+
     def test_disembark_does_not_stack_frigate(self, overworld):
         overworld.party.x, overworld.party.y = 46, 18
         overworld.party.transport = Transport.SHIP
@@ -749,6 +758,15 @@ class TestFrigateNoStacking:
             if o.get("tile") == "frigate" and o.get("x") == 46 and o.get("y") == 18
         ]
         assert len(frigates_at_tile) == 1
+
+    def test_disembark_requires_shoreline(self, overworld):
+        overworld.party.x, overworld.party.y = 50, 10  # Open ocean (no adjacent land)
+        overworld.party.transport = Transport.SHIP
+
+        overworld._exit_transport()
+
+        assert overworld.party.transport == Transport.SHIP
+        assert any("shoreline" in msg.lower() for msg in overworld.text_log.lines)
 
 
 class TestOverworldCannonFX:

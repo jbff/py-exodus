@@ -640,7 +640,7 @@ class AutoPlayController:
                     return self._emit_key(state_machine, pygame.K_c)
                 self._queue_text("1", enter=False)
                 return self._emit_key(state_machine, pygame.K_g)
-            if chests and goal in (Goal.GRIND_AND_LEVEL, Goal.OUTFIT_BRITAIN):
+            if chests and goal in (Goal.GRIND_AND_LEVEL, Goal.OUTFIT_BRITAIN, Goal.CAPTURE_SHIP):
                 return self._move_toward(state_machine, gmap, party, (px, py), chests)
             has_exotics = all(
                 (m.weapon == WeaponType.EXOTIC or m.weapons.get(WeaponType.EXOTIC, 0) > 0)
@@ -706,9 +706,15 @@ class AutoPlayController:
                     self._key_queue.append(pygame.K_DOWN if 1 <= dy_s <= 3 else pygame.K_UP)
                     return self._emit_key(state_machine, pygame.K_f)
                 if tname in ("pirate", "serpent", "squid") and goal != Goal.CAPTURE_SHIP:
-                    for ox in range(-2, 3):
-                        for oy in range(-2, 3):
-                            if abs(ox) + abs(oy) <= 2:
+                    avg_max_hp = (
+                        sum(m.max_hp for m in living) // max(1, len(living))
+                        if living
+                        else 0
+                    )
+                    rad = 3 if (tname in ("serpent", "squid") and avg_max_hp < 600) else 2
+                    for ox in range(-rad, rad + 1):
+                        for oy in range(-rad, rad + 1):
+                            if abs(ox) + abs(oy) <= rad:
                                 avoid_monsters.add(((cx + ox) % gmap.width, (cy + oy) % gmap.height))
         elif cur_map_id == 0 and party.transport != Transport.SHIP and living:
             avg_max_hp = sum(m.max_hp for m in party.members) // max(1, len(party.members))
@@ -811,11 +817,26 @@ class AutoPlayController:
             }
             if reachable_frigates:
                 return self._move_toward(state_machine, gmap, party, (px, py), reachable_frigates)
-            coast = [(45, 12), (45, 14), (44, 16), (44, 14)]
-            target = coast[self._patrol_idx % len(coast)]
-            if (px, py) == target:
-                self._patrol_idx += 1
+            coast = [
+                (45, 12), (47, 20), (43, 37), (30, 43), (19, 41), (8, 45),
+                (19, 41), (30, 43), (43, 37), (47, 20), (44, 16),
+            ]
+            pirates = [
+                (c["x"], c["y"])
+                for c in getattr(screen, "creatures", ())
+                if str(c.get("tile_name") or c.get("tile") or "").lower() == "pirate"
+                and "x" in c and "y" in c
+            ]
+            if pirates:
+                target = min(
+                    coast,
+                    key=lambda pt: min(abs(pt[0] - px_) + abs(pt[1] - py_) for px_, py_ in pirates),
+                )
+            else:
                 target = coast[self._patrol_idx % len(coast)]
+                if (px, py) == target:
+                    self._patrol_idx += 1
+                    target = coast[self._patrol_idx % len(coast)]
             return self._move_toward(state_machine, gmap, party, (px, py), {target})
 
         if (

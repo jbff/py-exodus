@@ -211,6 +211,13 @@ def _try_pre_attack_spell(
             return Action.cast(Spell.UNSPEAKABLE)
         if threat > 80 and _can_cast_spell(member, Spell.ZXKUQYB):
             return Action.cast(Spell.ZXKUQYB)
+        if len(visible_monsters) >= 3 and threat >= 45:
+            if _can_cast_spell(member, Spell.NOXUM):
+                return Action.cast(Spell.NOXUM)
+            if _can_cast_spell(member, Spell.DAG_MENTAR):
+                return Action.cast(Spell.DAG_MENTAR)
+            if _can_cast_spell(member, Spell.NECORP):
+                return Action.cast(Spell.NECORP)
 
     lowest_member = _find_lowest_hp_heal_target(arena.party)
     if lowest_member is not None:

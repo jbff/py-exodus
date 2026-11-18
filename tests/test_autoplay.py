@@ -1335,6 +1335,17 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
     p_ret.members[2].max_mp = 50
     assert ctrl.step(sm) == pygame.K_SPACE
 
+    # CAPTURE_SHIP loots dropped chests instead of ignoring them
+    p_cap2 = _make_party(level=5, exp=500, gold=0, food=500, marks=[1, 0, 0, 0], transport=Transport.FOOT)
+    p_cap2.members[0].keys = 4
+    p_cap2.x, p_cap2.y = 44, 15
+    p_cap2.dynamic_objects.append({"tile": "chest", "x": 44, "y": 16})
+    ow_c2 = OverworldScreen(party=p_cap2, asset_mgr=am, random_encounters=False)
+    sm.set_screen(ow_c2)
+    ctrl._key_queue.clear()
+    assert evaluate_goal(p_cap2) == Goal.CAPTURE_SHIP
+    assert ctrl.step(sm) == pygame.K_DOWN
+
     # Stranded on island for BUY_FOOD uses reachable moongate or frigate instead of passing turns
     p_isl = _make_party(level=5, exp=500, gold=100, food=50)
     p_isl.food = 50
