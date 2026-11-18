@@ -880,13 +880,8 @@ class AutoPlayController:
                     target = coast[self._patrol_idx % len(coast)]
             return self._move_toward(state_machine, gmap, party, (px, py), {target})
 
-        if (
-            cur_map_id == 0
-            and party.food >= 100
-            and goal not in (Goal.BUY_FOOD, Goal.RESURRECT_DEAD, Goal.CURE_POISON)
-            and needs_heal(party)
-        ):
-            # Evade nearby monsters while hurt on Sosaria (on foot or on ship)
+        if cur_map_id == 0 and needs_heal(party):
+            # Evade nearby monsters while hurt on Sosaria (including on healer/food runs)
             nearby = [
                 (c["x"], c["y"])
                 for c in getattr(screen, "creatures", [])
@@ -911,11 +906,15 @@ class AutoPlayController:
                         best_dir = d
                 if best_dir is not None:
                     return self._emit_key(state_machine, _DIR_TO_KEY[best_dir])
-            if any(
-                not m.is_dead()
-                and m.profession in (Profession.CLERIC, Profession.PALADIN, Profession.DRUID)
-                and m.max_mp >= 10
-                for m in party.members
+            if (
+                party.food >= 100
+                and goal not in (Goal.BUY_FOOD, Goal.RESURRECT_DEAD, Goal.CURE_POISON)
+                and any(
+                    not m.is_dead()
+                    and m.profession in (Profession.CLERIC, Profession.PALADIN, Profession.DRUID)
+                    and m.max_mp >= 10
+                    for m in party.members
+                )
             ):
                 return self._emit_key(state_machine, pygame.K_SPACE)
 
