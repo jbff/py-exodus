@@ -462,6 +462,20 @@ class AutoPlayController:
     def _step_town(self, state_machine: StateMachine, screen, party, px: int, py: int, goal: Goal) -> int | None:
         gmap = screen.game_map
         map_id = getattr(gmap, "id", getattr(screen, "map_id", party.map_id))
+        if (
+            map_id != 2
+            and needs_heal(party)
+            and party.food >= 100
+            and goal not in (Goal.BUY_FOOD, Goal.RESURRECT_DEAD, Goal.CURE_POISON)
+            and not any(not m.is_dead() and m.status == Status.POISONED and m.hp <= 25 for m in party.members)
+            and any(
+                not m.is_dead()
+                and m.profession in (Profession.CLERIC, Profession.PALADIN, Profession.DRUID)
+                and m.max_mp >= 10
+                for m in party.members
+            )
+        ):
+            return self._emit_key(state_machine, pygame.K_SPACE)
         if map_id == 2:  # EXODUS (Castle of Death)
             status = getattr(party, "exodus_cards_status", 0)
             for tx, ty, bit, letter, card_idx in _EXODUS_PANELS:
@@ -1015,30 +1029,33 @@ class AutoPlayController:
                 return self._emit_key(state_machine, pygame.K_e)
             return self._move_toward(state_machine, gmap, party, (px, py), {(45, 18)})
 
-        # Actively chase nearby reachable land creatures on Sosaria
-        land_targets: set[tuple[int, int]] = set()
-        for c in getattr(screen, "creatures", []):
-            tname = str(c.get("tile_name") or c.get("tile") or "").lower()
-            if tname in ("whirlpool", "pirate", "serpent", "squid"):
-                continue
-            cx, cy = c.get("x"), c.get("y")
-            if cx is None or cy is None:
-                continue
-            dx = min((cx - px) % gmap.width, (px - cx) % gmap.width)
-            dy = min((cy - py) % gmap.height, (py - cy) % gmap.height)
-            if dx + dy <= 12:
-                land_targets.add((cx, cy))
-        if land_targets:
-            d = find_2d_step(gmap, (px, py), land_targets, party.transport, party=party)
-            if d is not None:
-                return self._emit_key(state_machine, _DIR_TO_KEY[d])
+        # Actively chase nearby reachable land creatures on Sosaria (skip if hurt!)
+        if not needs_heal(party):
+            land_targets: set[tuple[int, int]] = set()
+            for c in getattr(screen, "creatures", []):
+                tname = str(c.get("tile_name") or c.get("tile") or "").lower()
+                if tname in ("whirlpool", "pirate", "serpent", "squid"):
+                    continue
+                cx, cy = c.get("x"), c.get("y")
+                if cx is None or cy is None:
+                    continue
+                dx = min((cx - px) % gmap.width, (px - cx) % gmap.width)
+                dy = min((cy - py) % gmap.height, (py - cy) % gmap.height)
+                if dx + dy <= 12:
+                    land_targets.add((cx, cy))
+            if land_targets:
+                d = find_2d_step(gmap, (px, py), land_targets, party.transport, party=party, avoid_tiles=self._overworld_avoid)
+                if d is not None:
+                    return self._emit_key(state_machine, _DIR_TO_KEY[d])
 
-        for _ in range(len(_SOSARIA_PATROL)):
-            target = _SOSARIA_PATROL[self._patrol_idx % len(_SOSARIA_PATROL)]
+        early_patrol = ((42, 18), (38, 17), (35, 17), (40, 22), (45, 22), (46, 20))
+        patrol = early_patrol if (living and min(m.level for m in living) < 3) else _SOSARIA_PATROL
+        for _ in range(len(patrol)):
+            target = patrol[self._patrol_idx % len(patrol)]
             if (px, py) == target:
                 self._patrol_idx += 1
                 continue
-            d = find_2d_step(gmap, (px, py), {target}, party.transport, party=party)
+            d = find_2d_step(gmap, (px, py), {target}, party.transport, party=party, avoid_tiles=self._overworld_avoid)
             if d is not None:
                 return self._emit_key(state_machine, _DIR_TO_KEY[d])
             self._patrol_idx += 1
