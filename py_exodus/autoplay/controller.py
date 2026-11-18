@@ -822,6 +822,48 @@ class AutoPlayController:
             return self._step_or_unlock(state_machine, gmap, party, px, py, d)
         return self._emit_key(state_machine, pygame.K_SPACE)
 
+    def _hunt_starving_prey_or_patrol(
+        self, state_machine: StateMachine, screen, gmap, party, px: int, py: int, living
+    ) -> int:
+        if any(m.food == 0 for m in living) and party.gold < 30:
+            land_prey = {
+                (c["x"], c["y"])
+                for c in getattr(screen, "creatures", ())
+                if str(c.get("tile_name") or c.get("tile") or "").lower()
+                not in ("pirate", "serpent", "squid", "manowar", "whirlpool")
+                and "x" in c and "y" in c
+                and find_2d_step(gmap, (px, py), {(c["x"], c["y"])}, Transport.FOOT, party=party) is not None
+            }
+            if land_prey:
+                return self._move_toward(state_machine, gmap, party, (px, py), land_prey)
+        coast = [
+            (45, 12), (47, 20), (43, 37), (30, 43), (19, 41), (8, 45),
+            (19, 41), (30, 43), (43, 37), (47, 20), (44, 16),
+        ]
+        pirates = [
+            (c["x"], c["y"])
+            for c in getattr(screen, "creatures", ())
+            if str(c.get("tile_name") or c.get("tile") or "").lower() == "pirate"
+            and "x" in c and "y" in c
+        ]
+        if pirates:
+            target = min(
+                coast,
+                key=lambda pt: min(abs(pt[0] - px_) + abs(pt[1] - py_) for px_, py_ in pirates),
+            )
+            pirate_near_target = any(
+                abs(target[0] - px_) + abs(target[1] - py_) <= 6 for px_, py_ in pirates
+            )
+            if (px, py) == target and not pirate_near_target:
+                self._patrol_idx += 1
+                target = coast[self._patrol_idx % len(coast)]
+        else:
+            target = coast[self._patrol_idx % len(coast)]
+            if (px, py) == target:
+                self._patrol_idx += 1
+                target = coast[self._patrol_idx % len(coast)]
+        return self._move_toward(state_machine, gmap, party, (px, py), {target})
+
     def _step_or_unlock(self, state_machine: StateMachine, gmap, party, px: int, py: int, d: Direction) -> int:
         nx, ny = px + d.dx, py + d.dy
         nxt_tile = gmap.get_tile(nx, ny) if 0 <= nx < gmap.width and 0 <= ny < gmap.height else None
@@ -1122,7 +1164,7 @@ class AutoPlayController:
                 }
                 if reachable_frigates:
                     return self._move_toward(state_machine, gmap, party, (px, py), reachable_frigates)
-                return self._move_toward(state_machine, gmap, party, (px, py), {(tx, ty)})
+                return self._hunt_starving_prey_or_patrol(state_machine, screen, gmap, party, px, py, living)
 
         if goal == Goal.CONQUER_EXODUS:
             return self._enter_portal_or_wait_dawn(state_machine, screen, gmap, party, px, py, (10, 53))
@@ -1152,33 +1194,7 @@ class AutoPlayController:
             }
             if reachable_frigates:
                 return self._move_toward(state_machine, gmap, party, (px, py), reachable_frigates)
-            coast = [
-                (45, 12), (47, 20), (43, 37), (30, 43), (19, 41), (8, 45),
-                (19, 41), (30, 43), (43, 37), (47, 20), (44, 16),
-            ]
-            pirates = [
-                (c["x"], c["y"])
-                for c in getattr(screen, "creatures", ())
-                if str(c.get("tile_name") or c.get("tile") or "").lower() == "pirate"
-                and "x" in c and "y" in c
-            ]
-            if pirates:
-                target = min(
-                    coast,
-                    key=lambda pt: min(abs(pt[0] - px_) + abs(pt[1] - py_) for px_, py_ in pirates),
-                )
-                pirate_near_target = any(
-                    abs(target[0] - px_) + abs(target[1] - py_) <= 6 for px_, py_ in pirates
-                )
-                if (px, py) == target and not pirate_near_target:
-                    self._patrol_idx += 1
-                    target = coast[self._patrol_idx % len(coast)]
-            else:
-                target = coast[self._patrol_idx % len(coast)]
-                if (px, py) == target:
-                    self._patrol_idx += 1
-                    target = coast[self._patrol_idx % len(coast)]
-            return self._move_toward(state_machine, gmap, party, (px, py), {target})
+            return self._hunt_starving_prey_or_patrol(state_machine, screen, gmap, party, px, py, living)
 
         if cur_map_id == 0 and needs_heal(party):
             # Emergency step away only when a monster is within 1 tile (radius 2-3 is routed around via _overworld_avoid)
