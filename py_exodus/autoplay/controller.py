@@ -909,8 +909,13 @@ class AutoPlayController:
                         best_dir = d
                 if best_dir is not None:
                     return self._emit_key(state_machine, _DIR_TO_KEY[best_dir])
+            threat_near = any(
+                "x" in c and "y" in c and abs(c["x"] - px) + abs(c["y"] - py) <= 5
+                for c in getattr(screen, "creatures", [])
+            )
             if (
-                party.food >= 100
+                not threat_near
+                and party.food >= 100
                 and goal not in (Goal.BUY_FOOD, Goal.RESURRECT_DEAD, Goal.CURE_POISON)
                 and any(
                     not m.is_dead()
