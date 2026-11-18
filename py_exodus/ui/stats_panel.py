@@ -427,3 +427,22 @@ class StatsPanel:
 
                     draw_line(f"GOAL: {evaluate_goal(party).value}", EGA_YELLOW)
                 draw_line(f"TURN: {party.moves}", EGA_WHITE)
+                from py_exodus import debug as _dbg
+
+                active_cheats = [
+                    (idx + 1, label.replace(" ", ""))
+                    for idx, (label, _, attr) in enumerate(_dbg._MENU_ITEMS)
+                    if getattr(_dbg.CHEATS, attr, False)
+                ]
+                if (_dbg.DEBUG_MODE or active_cheats) and curr_y + line_h <= target_rect.bottom:
+                    dbg_surf = f_text.render("DEBUG", False, EGA_BRIGHT_RED)
+                    surface.blit(dbg_surf, (x_left, curr_y))
+                    if active_cheats:
+                        flags_txt = (
+                            " " + " ".join(f"{num}:{lbl}" for num, lbl in active_cheats)
+                            if is_large
+                            else " " + "".join(str(num) for num, _ in active_cheats)
+                        )
+                        flags_surf = f_text.render(flags_txt, False, EGA_YELLOW)
+                        surface.blit(flags_surf, (x_left + dbg_surf.get_width(), curr_y))
+                    curr_y += f_text.get_linesize() + (2 if is_large else 1)
