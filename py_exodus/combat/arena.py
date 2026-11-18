@@ -1113,26 +1113,6 @@ class CombatArena:
         """
         living_members = self._get_living_party_members()
 
-        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): a ship-battle monster
-        # shot is cannonfire — party-wide damage, no bolt trace
-        # (GBC battle3.c:507-536)
-        if self.ship_battle:
-            attack_res = resolve_monster_ranged_attack(
-                monster=monster,
-                target_player=self.party.members[target_idx],
-                context_map_id=self.context_map_id,
-                ship_battle=True,
-                members=living_members,
-            )
-            return MonsterTurnResult(
-                monster_name=monster.name,
-                action_type="ranged",
-                from_pos=from_pos,
-                to_pos=self.player_positions[target_idx],
-                attack_res=attack_res,
-                message=attack_res.message,
-            )
-
         # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): a magic creature with
         # no adjacent living member may blast a random one directly — no LOS,
         # no bolt (GBC battle3.c:856-866)

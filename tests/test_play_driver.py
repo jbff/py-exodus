@@ -767,10 +767,8 @@ class TestMonsterHitAffordance:
         assert any("[msg] Fiery Hit!" in line for line in added), added
         assert any("Dragon hits Serana (-54)." in line for line in added), added
 
-    def test_ship_cannonfire_logs_per_member_hit_lines(self, asset_mgr, monkeypatch):
-        """The GBC cannonfire deviation (ship battles) reports each member's
-        blow through the same affordance voice; the existing "Cannonball
-        barrage!" line stays."""
+    def test_ship_serpent_ranged_uses_projectile_not_cannonfire(self, asset_mgr, monkeypatch):
+        """Ship battles use single-target LoS projectiles instead of party-wide cannonfire."""
         import py_exodus.combat.resolver as resolver
         from py_exodus.constants import Transport
 
@@ -784,8 +782,9 @@ class TestMonsterHitAffordance:
         arena = session.screen.arena
         assert arena.ship_battle
 
-        # serpent: ranged monster (randrange(100) -> 0 picks the ranged
-        # action); each barrage blow rolls randrange(78) -> 12.
+        arena.monsters[0].x, arena.monsters[0].y = 5, 2
+        px, py = arena.player_positions[0]
+        arena.monsters[0].x = px
         monkeypatch.setattr(random, "randrange", lambda n: 0 if n == 100 else 12)
         monkeypatch.setattr(resolver, "roll_hit", lambda *a, **k: True)
         before = session.transcript
@@ -793,11 +792,4 @@ class TestMonsterHitAffordance:
         session.press("SPACE")
 
         added = session.transcript[len(before):]
-        assert any("[msg] Cannonball barrage!" in line for line in added), added
-        # the line wraps in the text log (and each wrapped history line gets
-        # its own "[msg] " tag): strip the tags, then match on the joined text
-        stripped = " ".join(
-            l.replace("[msg] ", "").replace("[prompt] ", "") for l in added
-        )
-        joined = " ".join(stripped.split())
-        assert "Serpent cannonfire hits Serana (-12)." in joined, added
+        assert not any("Cannonball barrage!" in line for line in added), added

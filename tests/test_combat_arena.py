@@ -586,51 +586,28 @@ def test_monster_hp_explicit_definition_override_kept():
 # --- GBC ship-battle cannonfire + no-LOS magic poke (2026-11-14) ---------------
 
 
-def test_ship_party_monster_ranged_is_cannonfire(asset_mgr, conflict_map, monkeypatch):
-    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): with the party's battle
-    transport a SHIP, the monster ranged branch is GBC cannonfire — every
-    living member takes one randrange(78) blow, no bolt trace
-    (GBC battle3.c:507-536)."""
-    real_randrange = random.randrange
-    rolls: list[int] = []
-
-    def fake(n):
-        value = real_randrange(n)
-        if n == 78:
-            rolls.append(value)
-        return 0 if n == 100 else value  # force the RANGED action
-
-    monkeypatch.setattr(arena_mod.random, "randrange", fake)
+def test_ship_party_monster_ranged_is_single_target_projectile(asset_mgr, conflict_map, monkeypatch):
+    """Ship-battle monsters use single-target LoS projectiles (GBC dragonbreathbattle),
+    not party-wide cannonfire — only the lined-up target on the projectile path is hit."""
+    monkeypatch.setattr(arena_mod.random, "randrange", lambda n: 0 if n == 100 else 12)
     party = Party(transport=Transport.SHIP)
     for i in range(2):
         party.add_member(Character(f"Hero{i}", "M", hp=60, max_hp=60))
     arena = CombatArena(party, conflict_map, asset_mgr=asset_mgr, monster_count=1)
     arena.monsters[0].ranged = True
     arena.monsters[0].ranged_hit_tile = "fire"
-    arena.player_positions[0] = (5, 5)
+    arena.player_positions[0] = (3, 5)
     arena.player_positions[1] = (6, 5)
-    arena.monsters[0].x, arena.monsters[0].y = 5, 1
-    party.members[0].x, party.members[0].y = 5, 5
+    arena.monsters[0].x, arena.monsters[0].y = 3, 1
+    party.members[0].x, party.members[0].y = 3, 5
     party.members[1].x, party.members[1].y = 6, 5
 
     res = arena._execute_single_monster_ai(arena.monsters[0])
     assert res is not None
     assert res.action_type == "ranged"
-    assert res.message.split("\n")[0] == "Cannonball barrage!"
-    # Playtest-1 item 4 affordance: each member whose blow dealt damage gains
-    # a cannonfire hit line under the barrage line (a 0 roll stays silent),
-    # and a killing blow adds the member's death line.
-    hit_lines = [l for l in res.message.split("\n") if "cannonfire hits " in l]
-    assert len(hit_lines) == sum(1 for roll in rolls if roll > 0)
-    for line in hit_lines:
-        assert line.startswith("Orc cannonfire hits ") and line.endswith(").")
-    deaths = sum(
-        1 for member, roll in zip(party.members, rolls) if roll > 0 and member.hp <= 0
-    )
-    assert sum(1 for l in res.message.split("\n") if l.endswith(" falls!")) == deaths
-    assert len(rolls) == 2  # one roll per living member
-    for member, roll in zip(party.members, rolls):
-        assert member.hp == max(60 - roll, 0)
+    assert not res.message.startswith("Cannonball barrage!")
+    assert party.members[0].hp < 60
+    assert party.members[1].hp == 60
 
 
 def test_wizard_with_distant_party_magic_blasts(asset_mgr, conflict_map, monkeypatch):
