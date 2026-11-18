@@ -591,7 +591,12 @@ class AutoPlayController:
             if living:
                 total_gold = sum(m.gold for _, m in living)
                 food_price = {1: 20, 3: 25, 4: 20, 6: 30, 11: 25}.get(map_id, 30)
-                target_per_member = 200 if total_gold >= 700 else 150
+                if total_gold >= 1500:
+                    target_per_member = 400
+                elif total_gold >= 700:
+                    target_per_member = 200
+                else:
+                    target_per_member = 150
                 buyer_idx, buyer = min(living, key=lambda im: im[1].food)
                 packs_needed = max(1, (target_per_member - buyer.food + 24) // 25)
                 low_food_count = sum(1 for _, m in living if m.food < 75)
