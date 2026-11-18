@@ -14,7 +14,7 @@ from py_exodus.autoplay.equipment import (
     best_shop_upgrade,
 )
 from py_exodus.autoplay.nav import find_2d_step, find_2d_step_and_cost, find_dungeon_step
-from py_exodus.autoplay.planner import Goal, evaluate_goal, needs_heal
+from py_exodus.autoplay.planner import Goal, evaluate_goal, needs_heal, prefer_ranged_weapons
 from py_exodus.constants import ArmorType, Direction, Profession, Status, Transport, WeaponType
 from py_exodus.world.map import DungeonTile
 
@@ -682,7 +682,7 @@ class AutoPlayController:
                 if d is not None:
                     return self._emit_key(state_machine, _DIR_TO_KEY[d])
 
-        gear_key = self._maybe_manage_gear(state_machine, party)
+        gear_key = self._maybe_manage_gear(state_machine, party, prefer_ranged=prefer_ranged_weapons(party))
         if gear_key is not None:
             return gear_key
 
@@ -983,7 +983,7 @@ class AutoPlayController:
                     return self._move_toward(state_machine, gmap, party, (px, py), reachable_frigates)
 
         gear_key = self._maybe_manage_gear(
-            state_machine, party, prefer_ranged=(goal != Goal.CONQUER_EXODUS)
+            state_machine, party, prefer_ranged=prefer_ranged_weapons(party)
         )
         if gear_key is not None:
             return gear_key

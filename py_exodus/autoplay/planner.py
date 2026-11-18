@@ -89,6 +89,21 @@ def _normalize_map_id(party: Party, map_id: int | str | None) -> int:
         return party.map_id
 
 
+def prefer_ranged_weapons(party: Party) -> bool:
+    """Return True until the party has all 4 cards, remaining marks, and exotics."""
+    living = [m for m in party.members if not m.is_dead()]
+    if not living:
+        return True
+    has_all_cards = all(any(m.cards[i] > 0 for m in living) for i in range(4))
+    has_remaining_marks = all(any(m.marks[i] > 0 for m in living) for i in (1, 2, 3))
+    has_exotics = all(
+        (m.weapon == WeaponType.EXOTIC or m.weapons.get(WeaponType.EXOTIC, 0) > 0)
+        and (m.armor == ArmorType.EXOTIC or m.armors.get(ArmorType.EXOTIC, 0) > 0)
+        for m in party.members
+    )
+    return not (has_all_cards and has_remaining_marks and has_exotics)
+
+
 def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
     """Inspect live Party state and return the active progression milestone."""
     if getattr(party, "exodus_defeated", 0) > 0 or getattr(party, "exodus_cards_status", 0) == 0xF:
