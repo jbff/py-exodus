@@ -711,10 +711,15 @@ class AutoPlayController:
                     return self._emit_key(state_machine, pygame.K_c)
                 self._queue_text("1", enter=False)
                 return self._emit_key(state_machine, pygame.K_g)
-            if chests and goal in (Goal.GRIND_AND_LEVEL, Goal.OUTFIT_BRITAIN, Goal.CAPTURE_SHIP, Goal.AMBROSIA_CARDS_SHRINES):
+            if chests and (
+                goal in (Goal.GRIND_AND_LEVEL, Goal.OUTFIT_BRITAIN, Goal.CAPTURE_SHIP, Goal.AMBROSIA_CARDS_SHRINES)
+                or (goal not in (Goal.BUY_FOOD, Goal.RESURRECT_DEAD, Goal.CURE_POISON) and not needs_heal(party))
+            ):
+                max_chest_dist = None if goal in (Goal.GRIND_AND_LEVEL, Goal.OUTFIT_BRITAIN, Goal.CAPTURE_SHIP, Goal.AMBROSIA_CARDS_SHRINES) else 4
                 reachable_chests = {
                     pos for pos in chests
-                    if find_2d_step(gmap, (px, py), {pos}, Transport.FOOT, party=party) is not None
+                    if (max_chest_dist is None or abs(pos[0] - px) + abs(pos[1] - py) <= max_chest_dist)
+                    and find_2d_step(gmap, (px, py), {pos}, Transport.FOOT, party=party) is not None
                 }
                 if reachable_chests:
                     return self._move_toward(state_machine, gmap, party, (px, py), reachable_chests)
