@@ -87,8 +87,10 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
 
     cur_map_id = _normalize_map_id(party, map_id)
 
-    at_exotic_island = cur_map_id == 0 and any(
-        abs(party.x - tx) + abs(party.y - ty) <= 2 for tx, ty in ((33, 3), (19, 44))
+    at_exotic_island = (
+        cur_map_id == 0
+        and party.transport == Transport.FOOT
+        and any(abs(party.x - tx) + abs(party.y - ty) <= 4 for tx, ty in ((33, 3), (19, 44)))
     )
     has_exotics = all(
         (m.weapon == WeaponType.EXOTIC or m.weapons.get(WeaponType.EXOTIC, 0) > 0)

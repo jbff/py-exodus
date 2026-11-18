@@ -906,11 +906,19 @@ class AutoPlayController:
 
         if goal == Goal.DIG_EXOTICS:
             need_wpn_idx = next(
-                (i + 1 for i, m in enumerate(party.members) if not m.is_dead() and m.weapons.get(WeaponType.EXOTIC, 0) == 0),
+                (
+                    i + 1
+                    for i, m in enumerate(party.members)
+                    if not m.is_dead() and m.weapon != WeaponType.EXOTIC and m.weapons.get(WeaponType.EXOTIC, 0) == 0
+                ),
                 None,
             )
             need_arm_idx = next(
-                (i + 1 for i, m in enumerate(party.members) if not m.is_dead() and m.armors.get(ArmorType.EXOTIC, 0) == 0),
+                (
+                    i + 1
+                    for i, m in enumerate(party.members)
+                    if not m.is_dead() and m.armor != ArmorType.EXOTIC and m.armors.get(ArmorType.EXOTIC, 0) == 0
+                ),
                 None,
             )
             dig_target: tuple[int, int, int] | None = None

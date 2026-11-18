@@ -403,7 +403,10 @@ def test_autoplay_controller_overworld_dig_exotics(pygame_setup, asset_mgr):
         if all(m.weapons.get(WeaponType.EXOTIC, 0) > 0 for m in party.members):
             break
 
-    assert any(m.weapons.get(WeaponType.EXOTIC, 0) > 0 for m in party.members)
+    assert any(
+        m.weapon == WeaponType.EXOTIC or m.weapons.get(WeaponType.EXOTIC, 0) > 0
+        for m in party.members
+    )
 
 
 def test_autoplay_controller_exodus_insert_to_final_screen(pygame_setup, asset_mgr):
@@ -1636,6 +1639,16 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
     ctrl._timer = 0.0
     ctrl.update(1.0, sm)  # large dt backlog is capped so event loop never freezes
     assert ctrl._timer < ctrl.step_interval
+
+    # 10. at_exotic_island only suppresses dead-member grind while on FOOT, not when sailing past on SHIP
+    p_ex_ship = _make_party(level=13, exp=3000, gold=100, food=500, marks=[1, 0, 0, 0], transport=Transport.SHIP)
+    p_ex_ship.members[3].status = Status.DEAD
+    p_ex_ship.members[3].hp = 0
+    p_ex_ship.x, p_ex_ship.y = 20, 44
+    assert evaluate_goal(p_ex_ship, map_id=0) == Goal.GRIND_AND_LEVEL
+    p_ex_ship.transport = Transport.FOOT
+    p_ex_ship.x, p_ex_ship.y = 19, 44
+    assert evaluate_goal(p_ex_ship, map_id=0) == Goal.DIG_EXOTICS
 
 
 
