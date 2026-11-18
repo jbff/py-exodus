@@ -732,6 +732,24 @@ class AutoPlayController:
                 for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0))
             ):
                 return self._emit_key(state_machine, pygame.K_x)
+            shore_water = {
+                (wx, wy)
+                for wy in range(gmap.height)
+                for wx in range(gmap.width)
+                if str(getattr(gmap.get_tile(wx, wy), "name", "")).lower() == "water"
+                and any(
+                    can_move_to(
+                        gmap,
+                        (wx + dx) % gmap.width,
+                        (wy + dy) % gmap.height,
+                        Transport.FOOT,
+                        party=party,
+                    )
+                    for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0))
+                )
+            }
+            if shore_water:
+                return self._move_toward(state_machine, gmap, party, (px, py), shore_water)
         if cur_map_id in (0, 13) and party.transport == Transport.SHIP:
             heading = getattr(screen, "heading", Direction.EAST)
             broadsides_horiz = heading in (Direction.NORTH, Direction.SOUTH)
@@ -1436,11 +1454,7 @@ class AutoPlayController:
             and party.transport == Transport.FOOT
             and find_2d_step(gmap, (px, py), {target_portal}, Transport.FOOT, party=party) is None
         ):
-            frigates = {
-                (obj.get("x"), obj.get("y"))
-                for obj in getattr(party, "dynamic_objects", ())
-                if str(obj.get("tile", "")).lower() == "frigate"
-            }
+            frigates = self._boardable_frigates(party)
             if (px, py) in frigates:
                 return self._emit_key(state_machine, pygame.K_b)
             reachable_frigates = {
