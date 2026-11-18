@@ -1596,6 +1596,20 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
     assert evaluate_goal(p_ship_food, map_id=0) == Goal.BUY_FOOD
     assert evaluate_goal(p_ship_food, map_id=13) == Goal.EXIT_AMBROSIA
 
+    # 7. Uneven food [65, 615, 51, 91] equalizes all <400 members strictly lowest-first to >=400, leaving 615 untouched
+    p_eq = _make_party(level=10, exp=3000, gold=1000, food=500)
+    for m, f_val in zip(p_eq.members, (65, 615, 51, 91)):
+        m.food = f_val
+    ts_eq = TownScreen(party=p_eq, asset_mgr=am, map_id=3, start_x=48, start_y=49)
+    sm.set_screen(ts_eq)
+    ctrl._key_queue.clear()
+    for _ in range(100):
+        ctrl.step(sm)
+        if sm.current_screen is not ts_eq:
+            break
+    assert min(m.food for m in p_eq.members) >= 400
+    assert max(m.food for m in p_eq.members) == 615
+
 
 
 

@@ -538,7 +538,7 @@ class AutoPlayController:
         if gear_key is not None:
             return gear_key
 
-        if map_id in _SHOP_TOWNS and goal == Goal.OUTFIT_BRITAIN:
+        if map_id in _SHOP_TOWNS and goal == Goal.OUTFIT_BRITAIN and getattr(self, "_food_shop_target", None) is None:
             _, _, wep_xy, arm_xy = _SHOP_TOWNS[map_id]
             upgrade = best_shop_upgrade(party, include_wizard_dagger=True)
             if upgrade is not None and (not upgrade.dawn_only or map_id == 11):
@@ -585,38 +585,47 @@ class AutoPlayController:
                 if d is not None:
                     return self._emit_key(state_machine, _DIR_TO_KEY[d])
 
-        if map_id in _FOOD_TOWNS and goal == Goal.BUY_FOOD:
+        if map_id in _FOOD_TOWNS and goal not in (Goal.CURE_POISON, Goal.RESURRECT_DEAD):
             _, _, food_xy = _FOOD_TOWNS[map_id]
             living = [(i + 1, m) for i, m in enumerate(party.members) if not m.is_dead()]
             if living:
                 total_gold = sum(m.gold for _, m in living)
                 food_price = {1: 20, 3: 25, 4: 20, 6: 30, 11: 25}.get(map_id, 30)
-                if total_gold >= 1500:
-                    target_per_member = 400
-                elif total_gold >= 700:
-                    target_per_member = 200
+                if goal == Goal.BUY_FOOD and getattr(self, "_food_shop_target", None) is None:
+                    if total_gold >= 1500:
+                        self._food_shop_target = 400
+                    elif total_gold >= 700:
+                        self._food_shop_target = 200
+                    else:
+                        self._food_shop_target = 150
+                shop_target = getattr(self, "_food_shop_target", None)
+                if (
+                    shop_target is not None
+                    and total_gold >= food_price
+                    and any(m.food < shop_target for _, m in living)
+                ):
+                    buyer_idx, buyer = min(living, key=lambda im: im[1].food)
+                    packs_needed = max(1, (shop_target - buyer.food + 24) // 25)
+                    low_food_count = sum(1 for _, m in living if m.food < shop_target)
+                    if low_food_count > 1:
+                        fair_packs = max(1, (total_gold // food_price) // low_food_count)
+                        packs_needed = min(packs_needed, fair_packs)
+                    if buyer.gold < total_gold and buyer.gold < min(packs_needed * food_price, 500):
+                        self._join_gold_member_idx = buyer_idx
+                        return self._emit_key(state_machine, pygame.K_j)
+                    if (px, py) == food_xy:
+                        self._food_packs = max(1, min(20, packs_needed, buyer.gold // food_price))
+                        self._shop_member_idx = buyer_idx
+                        self._talk_dir_key = self._direction_to_npc(gmap, px, py)
+                        return self._emit_key(state_machine, pygame.K_t)
+                    d = find_2d_step(
+                        gmap, (px, py), food_xy, Transport.FOOT, party=party,
+                        avoid_tiles=npc_tiles, prefer_paths=True,
+                    )
+                    if d is not None:
+                        return self._emit_key(state_machine, _DIR_TO_KEY[d])
                 else:
-                    target_per_member = 150
-                buyer_idx, buyer = min(living, key=lambda im: im[1].food)
-                packs_needed = max(1, (target_per_member - buyer.food + 24) // 25)
-                low_food_count = sum(1 for _, m in living if m.food < 75)
-                if low_food_count > 1:
-                    fair_packs = max(1, (total_gold // food_price) // low_food_count)
-                    packs_needed = min(packs_needed, fair_packs)
-                if buyer.gold < total_gold and buyer.gold < min(packs_needed * food_price, 300):
-                    self._join_gold_member_idx = buyer_idx
-                    return self._emit_key(state_machine, pygame.K_j)
-                if (px, py) == food_xy:
-                    self._food_packs = max(1, min(20, packs_needed, buyer.gold // food_price))
-                    self._shop_member_idx = buyer_idx
-                    self._talk_dir_key = self._direction_to_npc(gmap, px, py)
-                    return self._emit_key(state_machine, pygame.K_t)
-                d = find_2d_step(
-                    gmap, (px, py), food_xy, Transport.FOOT, party=party,
-                    avoid_tiles=npc_tiles, prefer_paths=True,
-                )
-                if d is not None:
-                    return self._emit_key(state_machine, _DIR_TO_KEY[d])
+                    self._food_shop_target = None
 
         if map_id in _HEALER_TOWNS and goal in (Goal.RESURRECT_DEAD, Goal.CURE_POISON):
             _, _, healer_xy = _HEALER_TOWNS[map_id]
@@ -1252,7 +1261,9 @@ class AutoPlayController:
             return self._emit_key(state_machine, self._talk_dir_key)
         if "buy" in prompt and "sell" in prompt:
             return self._emit_key(state_machine, pygame.K_b)
-        if "anything else" in prompt or "give blood" in prompt or "more help" in prompt:
+        lines = getattr(screen.text_log, "lines", None) or ()
+        last_msg = str(lines[-1]).lower() if lines else ""
+        if "anything else" in prompt or "anything else" in last_msg or "give blood" in prompt or "more help" in prompt:
             return self._emit_key(state_machine, pygame.K_n)
         if "(y or n)" in prompt or "take it" in prompt or "deal" in prompt:
             return self._emit_key(state_machine, pygame.K_y)
