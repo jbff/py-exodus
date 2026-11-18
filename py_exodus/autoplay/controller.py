@@ -710,6 +710,7 @@ class AutoPlayController:
 
         # Low-level parties on foot avoid coastal sea monsters; ships avoid sea monsters & fire broadsides
         avoid_monsters: set[tuple[int, int]] = set()
+        self._ship_threat_near = False
         if cur_map_id in (0, 13) and party.transport == Transport.SHIP:
             heading = getattr(screen, "heading", Direction.EAST)
             broadsides_horiz = heading in (Direction.NORTH, Direction.SOUTH)
@@ -754,6 +755,8 @@ class AutoPlayController:
                     self._key_queue.append(pygame.K_DOWN if 1 <= dy_s <= 3 else pygame.K_UP)
                     return self._emit_key(state_machine, pygame.K_f)
                 if tname in ("pirate", "serpent", "squid") and goal != Goal.CAPTURE_SHIP:
+                    if abs(cx - px) + abs(cy - py) <= 5:
+                        self._ship_threat_near = True
                     avg_max_hp = (
                         sum(m.max_hp for m in living) // max(1, len(living))
                         if living
@@ -1467,7 +1470,13 @@ class AutoPlayController:
             avoid_tiles=avoid,
             allow_locked_doors=(has_key and party.transport == Transport.FOOT),
         )
-        if party.transport == Transport.SHIP and wind is not None and party.food >= 100 and start not in (avoid or ()):
+        if (
+            party.transport == Transport.SHIP
+            and wind is not None
+            and party.food >= 100
+            and start not in (avoid or ())
+            and not getattr(self, "_ship_threat_near", False)
+        ):
             free_d, free_cost = find_2d_step_and_cost(
                 game_map,
                 start=start,
