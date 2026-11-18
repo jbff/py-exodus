@@ -903,9 +903,11 @@ class AutoPlayController:
                 if "x" in c and "y" in c and abs(c["x"] - px) + abs(c["y"] - py) <= evade_rad
             ]
             if nearby:
+                wind = getattr(party, "wind_direction", None)
+                if party.transport == Transport.SHIP and wind is None:
+                    return self._emit_key(state_machine, pygame.K_SPACE)
                 from py_exodus.screens.overworld import can_move_to
 
-                wind = getattr(party, "wind_direction", None)
                 blocked_dir = wind.reverse() if (party.transport == Transport.SHIP and wind is not None) else None
                 best_dir = None
                 best_dist = -1
