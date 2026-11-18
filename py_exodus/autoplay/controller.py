@@ -866,6 +866,33 @@ class AutoPlayController:
             (45, 12), (47, 20), (43, 37), (30, 43), (19, 41), (8, 45),
             (19, 41), (30, 43), (43, 37), (47, 20), (44, 16),
         ]
+        reachable_coast = [
+            pt for pt in coast
+            if pt == (px, py) or find_2d_step(gmap, (px, py), {pt}, Transport.FOOT, party=party) is not None
+        ]
+        if not reachable_coast:
+            from collections import deque
+            from py_exodus.screens.overworld import can_move_to
+
+            island = {(px, py)}
+            iq = deque([(px, py)])
+            while iq:
+                cx, cy = iq.popleft()
+                for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+                    nx, ny = (cx + dx) % gmap.width, (cy + dy) % gmap.height
+                    if (nx, ny) not in island and can_move_to(gmap, nx, ny, Transport.FOOT, party=party):
+                        island.add((nx, ny))
+                        iq.append((nx, ny))
+            reachable_coast = sorted(
+                {
+                    (ix, iy)
+                    for ix, iy in island
+                    if any(
+                        str(getattr(gmap.get_tile((ix + dx) % gmap.width, (iy + dy) % gmap.height), "name", "")).lower() == "water"
+                        for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0))
+                    )
+                }
+            ) or coast
         pirates = [
             (c["x"], c["y"])
             for c in getattr(screen, "creatures", ())
@@ -874,7 +901,7 @@ class AutoPlayController:
         ]
         if pirates:
             target = min(
-                coast,
+                reachable_coast,
                 key=lambda pt: min(abs(pt[0] - px_) + abs(pt[1] - py_) for px_, py_ in pirates),
             )
             pirate_near_target = any(
@@ -882,12 +909,12 @@ class AutoPlayController:
             )
             if (px, py) == target and not pirate_near_target:
                 self._patrol_idx += 1
-                target = coast[self._patrol_idx % len(coast)]
+                target = reachable_coast[self._patrol_idx % len(reachable_coast)]
         else:
-            target = coast[self._patrol_idx % len(coast)]
+            target = reachable_coast[self._patrol_idx % len(reachable_coast)]
             if (px, py) == target:
                 self._patrol_idx += 1
-                target = coast[self._patrol_idx % len(coast)]
+                target = reachable_coast[self._patrol_idx % len(reachable_coast)]
         return self._move_toward(state_machine, gmap, party, (px, py), {target})
 
     def _step_or_unlock(self, state_machine: StateMachine, gmap, party, px: int, py: int, d: Direction) -> int:
@@ -968,11 +995,12 @@ class AutoPlayController:
                 )
                 or not on_mainland
             ):
+                hull_val = getattr(screen, "ship_hull", getattr(party, "ship_hull", 50))
                 frigates = self._boardable_frigates(
                     party,
                     include_damaged=(
                         not on_mainland
-                        and not self._is_hull_critical(party, screen)
+                        and hull_val > 5
                         and goal != Goal.GET_REMAINING_MARKS
                     ),
                     screen=screen,
@@ -1173,11 +1201,12 @@ class AutoPlayController:
                     return self._move_toward(state_machine, gmap, party, (px, py), adj_water or {(tx, ty)})
                 if find_2d_step(gmap, (px, py), {(tx, ty)}, Transport.FOOT, party=party) is not None:
                     return self._move_toward(state_machine, gmap, party, (px, py), {(tx, ty)})
+                hull_val = getattr(screen, "ship_hull", getattr(party, "ship_hull", 50))
                 frigates = self._boardable_frigates(
                     party,
                     include_damaged=(
                         not on_mainland
-                        and not self._is_hull_critical(party, screen)
+                        and hull_val > 5
                         and goal != Goal.GET_REMAINING_MARKS
                     ),
                     screen=screen,
