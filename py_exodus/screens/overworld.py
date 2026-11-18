@@ -106,6 +106,9 @@ def get_combat_map_id(
             combat_map_id = 39  # CONFLICT_SHIP
         else:
             combat_map_id = 40  # CONFLICT_SHIP_BOTTOM
+    elif swims and combat_map_id == 41:
+        # Sea swimmers (serpent/squid) never fight ship-to-ship.
+        combat_map_id = 38  # CONFLICT_SHORE
 
     return combat_map_id
 

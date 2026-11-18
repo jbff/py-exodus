@@ -767,10 +767,19 @@ class AutoPlayController:
                 None,
             )
             dig_target: tuple[int, int, int] | None = None
-            if need_wpn_idx is not None:
-                dig_target = (33, 3, need_wpn_idx)
+            if need_wpn_idx is not None and need_arm_idx is not None:
+                def _wrap_dist(tx: int, ty: int) -> int:
+                    dx = abs(tx - px)
+                    dy = abs(ty - py)
+                    return min(dx, gmap.width - dx) + min(dy, gmap.height - dy)
+                if _wrap_dist(19, 44) <= _wrap_dist(33, 3):
+                    dig_target = (19, 44, need_arm_idx)
+                else:
+                    dig_target = (33, 3, need_wpn_idx)
             elif need_arm_idx is not None:
                 dig_target = (19, 44, need_arm_idx)
+            elif need_wpn_idx is not None:
+                dig_target = (33, 3, need_wpn_idx)
 
             if dig_target is not None:
                 tx, ty, m_idx = dig_target

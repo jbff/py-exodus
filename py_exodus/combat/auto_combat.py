@@ -180,7 +180,7 @@ def _find_lowest_hp_heal_target(party: Any) -> Any | None:
         m
         for m in getattr(party, "members", ())
         if not _is_member_dead(m)
-        and m.hp * 3 < m.max_hp * 2
+        and m.hp * 4 < m.max_hp * 3
         and m.hp < m.max_hp
     ]
     if not candidates:
