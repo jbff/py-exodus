@@ -311,7 +311,7 @@ class AutoPlayController:
     def _boardable_frigates(party, include_damaged: bool = False) -> set[tuple[int, int]]:
         """Return frigate coordinates, skipping a critically damaged last_ship (hull <= 20)."""
         last_ship = getattr(party, "last_ship", None)
-        low_hull = getattr(party, "ship_hull", 50) <= 20
+        low_hull = getattr(party, "ship_hull", 50) <= 25
         return {
             (obj.get("x"), obj.get("y"))
             for obj in getattr(party, "dynamic_objects", ())
@@ -584,6 +584,10 @@ class AutoPlayController:
                 target_per_member = 200 if total_gold >= 700 else 150
                 buyer_idx, buyer = min(living, key=lambda im: im[1].food)
                 packs_needed = max(1, (target_per_member - buyer.food + 24) // 25)
+                low_food_count = sum(1 for _, m in living if m.food < 75)
+                if low_food_count > 1:
+                    fair_packs = max(1, (total_gold // food_price) // low_food_count)
+                    packs_needed = min(packs_needed, fair_packs)
                 if buyer.gold < total_gold and buyer.gold < min(packs_needed * food_price, 300):
                     self._join_gold_member_idx = buyer_idx
                     return self._emit_key(state_machine, pygame.K_j)
@@ -716,7 +720,7 @@ class AutoPlayController:
         if (
             cur_map_id == 0
             and party.transport == Transport.SHIP
-            and getattr(screen, "ship_hull", getattr(party, "ship_hull", 50)) <= 15
+            and getattr(screen, "ship_hull", getattr(party, "ship_hull", 50)) <= 25
             and goal != Goal.SAIL_WHIRLPOOL
         ):
             from py_exodus.screens.overworld import can_move_to
