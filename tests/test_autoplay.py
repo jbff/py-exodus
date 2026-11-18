@@ -1571,6 +1571,21 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
     sm.set_screen(ts_br)
     assert ctrl.step(sm) == pygame.K_RIGHT
 
+    # 5. Disembarking in GET_REMAINING_MARKS onto Snake Island shore walks toward dungeon instead of B/X looping
+    p_rem = _make_party(
+        level=9, exp=2000, gold=500, food=500, marks=[1, 1, 0, 1],
+        weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC, transport=Transport.FOOT,
+    )
+    p_rem.members[0].gems = 8
+    p_rem.members[0].torches = 4
+    p_rem.x, p_rem.y = 60, 46  # shore water tile east of Snake Island (58, 44)
+    p_rem.dynamic_objects.append({"tile": "frigate", "x": 60, "y": 46})
+    ow_rem = OverworldScreen(party=p_rem, asset_mgr=am, random_encounters=False)
+    ow_rem.creatures = []
+    sm.set_screen(ow_rem)
+    assert evaluate_goal(p_rem) == Goal.GET_REMAINING_MARKS
+    assert ctrl.step(sm) != pygame.K_b  # walks west onto grass toward (58, 44) instead of re-boarding
+
 
 
 

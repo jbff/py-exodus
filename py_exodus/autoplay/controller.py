@@ -318,15 +318,15 @@ class AutoPlayController:
         return hull <= cls._CRITICAL_HULL_THRESHOLD
 
     @classmethod
-    def _boardable_frigates(cls, party, include_damaged: bool = False) -> set[tuple[int, int]]:
+    def _boardable_frigates(cls, party, include_damaged: bool = False, screen=None) -> set[tuple[int, int]]:
         """Return frigate coordinates, skipping a critically damaged last_ship."""
         last_ship = getattr(party, "last_ship", None)
-        low_hull = cls._is_hull_critical(party)
+        low_hull = cls._is_hull_critical(party, screen)
         return {
             (obj.get("x"), obj.get("y"))
             for obj in getattr(party, "dynamic_objects", ())
             if str(obj.get("tile", "")).lower() == "frigate"
-            and (include_damaged or not (low_hull and obj is last_ship))
+            and (include_damaged or not (low_hull and (obj is last_ship or last_ship is None)))
         }
 
     @staticmethod
@@ -711,7 +711,14 @@ class AutoPlayController:
             )
             on_mainland = (px, py) == (46, 19) or find_2d_step(gmap, (px, py), {(46, 19)}, Transport.FOOT, party=party) is not None
             ready_for_sea = all(m.level >= 5 for m in living) and all(m.marks[0] > 0 for m in party.members)
-            if goal not in (Goal.DIG_EXOTICS, Goal.AMBROSIA_CARDS_SHRINES, Goal.EXIT_AMBROSIA) and (
+            if goal not in (
+                Goal.DIG_EXOTICS,
+                Goal.AMBROSIA_CARDS_SHRINES,
+                Goal.EXIT_AMBROSIA,
+                Goal.GET_MARK_KINGS,
+                Goal.GET_REMAINING_MARKS,
+                Goal.CONQUER_EXODUS,
+            ) and (
                 (
                     not has_exotics
                     and ready_for_sea
@@ -720,13 +727,14 @@ class AutoPlayController:
                 or not on_mainland
             ):
                 frigates = self._boardable_frigates(
-                party,
-                include_damaged=(
-                    not on_mainland
-                    and not self._is_hull_critical(party, screen)
-                    and goal != Goal.GET_REMAINING_MARKS
-                ),
-            )
+                    party,
+                    include_damaged=(
+                        not on_mainland
+                        and not self._is_hull_critical(party, screen)
+                        and goal != Goal.GET_REMAINING_MARKS
+                    ),
+                    screen=screen,
+                )
                 if (px, py) in frigates:
                     return self._emit_key(state_machine, pygame.K_b)
                 reachable_frigates = {
@@ -916,13 +924,14 @@ class AutoPlayController:
                 if find_2d_step(gmap, (px, py), {(tx, ty)}, Transport.FOOT, party=party) is not None:
                     return self._move_toward(state_machine, gmap, party, (px, py), {(tx, ty)})
                 frigates = self._boardable_frigates(
-                party,
-                include_damaged=(
-                    not on_mainland
-                    and not self._is_hull_critical(party, screen)
-                    and goal != Goal.GET_REMAINING_MARKS
-                ),
-            )
+                    party,
+                    include_damaged=(
+                        not on_mainland
+                        and not self._is_hull_critical(party, screen)
+                        and goal != Goal.GET_REMAINING_MARKS
+                    ),
+                    screen=screen,
+                )
                 if (px, py) in frigates:
                     return self._emit_key(state_machine, pygame.K_b)
                 reachable_frigates = {
@@ -1515,7 +1524,7 @@ class AutoPlayController:
             and party.transport == Transport.FOOT
             and find_2d_step(gmap, (px, py), {target_portal}, Transport.FOOT, party=party) is None
         ):
-            frigates = self._boardable_frigates(party)
+            frigates = self._boardable_frigates(party, screen=screen)
             if (px, py) in frigates:
                 return self._emit_key(state_machine, pygame.K_b)
             reachable_frigates = {
