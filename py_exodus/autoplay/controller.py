@@ -326,7 +326,8 @@ class AutoPlayController:
                 if member is not None
                 else 9
             )
-            amt = min(9, gold // 100, max(1, room))
+            spendable = max(0, screen.party.gold - 150)
+            amt = min(9, gold // 100, spendable // 100, max(1, room))
             if amt >= 1:
                 return self._emit_key(state_machine, pygame.K_0 + amt)
             return self._emit_key(state_machine, pygame.K_0)
