@@ -1,143 +1,87 @@
 # py-exodus
 
-A faithful Python 3 / Pygame-CE reimplementation of *Ultima III: Exodus*, ported from the LibGDX Java reference implementation [gdx-exodus](https://github.com/pantinor/gdx-exodus).
+A Python 3 / Pygame-CE reimplementation of *Ultima III: Exodus*, featuring **Auto-Combat** (`TAB`) and an experimental autonomous **Full Autoplay / Watch Mode** (`F9`).
 
 ---
 
-## Provenance & Attribution
+## Reference Implementations & Assets
 
-- **Original Game**: [*Ultima III: Exodus*](https://wiki.ultimacodex.com/wiki/Ultima_III:_Exodus) (1983) by Richard Garriott / Origin Systems (Codexpedia page linked).
-- **Java LibGDX Reference**: Created by [Paul Antinori](https://github.com/pantinor) ([pantinor/gdx-exodus](https://github.com/pantinor/gdx-exodus)).
-- **Python Port**: A complete, self-contained Python reimplementation built on top of [Pygame-CE](https://pyga.me/) (Python 3.10+; developed and tested through 3.14).
-
-This project uses the original asset definitions, tile atlases, sound effects, JSON world maps and character roster (converted from the binary `.ult` originals), and XML data (`maps.xml`, `vendor.xml`, `creatures.xml`) from the Java LibGDX implementation, translating all game logic, formulas, tactical combat, and dungeon mechanics into modern Python. Game behavior is maintained at parity with the Java implementation: formulas, dice, thresholds, message strings, and even a few of the Java version's own quirks are ported as-is.
-
----
-
-## Game Overview
-
-Explore Sosaria (and Ambrosia) on foot, horseback, or by frigate; visit towns and castles to trade with vendors, gather rumors, and receive Lord British's advancement; find marks and cards hidden on dungeon floors and in map labels; descend the dungeon and destroy Exodus, the manifestation of Mondain and Minax — by inserting the four Cards of Love, Sol, Moons, and Death into the Exodus machine.
-
-### World Exploration
-- Full Sosaria overland, Ambrosia, towns, and castles; moongates cycle with the dual moon phases (Trammel/Felucca), and the City of Dawn appears only during the double new moon conjunction.
-- Whirlpools engulf ships carrying the party to Ambrosia; step-in and portal-entry routes match the reference implementation.
-- Naval travel with facing and broadside cannons (`'F'`); frigates take cannonball damage and can sink; defeating pirates leaves a boardable frigate.
-- Terrain matters: poison and fire fields, lava, and gremlin tiles apply their effects every turn; energy fields require the Mark of Force to pass.
-
-### Tactical 11×11 Combat Arena
-- Turn-based tactical combat on the original combat maps with Java-equivalent creature dice (26% teleport, 34% ranged, double-damage fire/energy breath).
-- Creature AI with randomized movement and Java's occupancy rules (members — including fallen ones — block movement).
-- Experience is awarded for every kill you cause (capped at 9999) and victory chests drop where the creature fell.
-
-### Dungeons
-- 8-level wireframe dungeons (first-person projection), full command surface (climb/descend, search, chests, ready/wear).
-- Wandering monsters approach your party level by level; battles can start mid-move, and the vanquished leave a chest.
-- Fountains, wind and pit traps, gremlins, and the four Marks of Kings, Fire, Snake, and Force.
-
-### Vendors
-- Per-town weapon, armor, food, guild, healer, tavern, oracle, and horse-stable services with the reference implementation's dialog flows — buy and sell, multi-pack purchases, tavern rumors and ale tipping, oracle prophecies, healer cures/resurrections/recalls (charged only when the service can actually help), and blood donation.
-
-### Characters & Magic
-- Create characters from 5 races × 11 professions with a personal 50-point stat allocation; per-member food, gold, keys, gems, and quest marks/cards are tracked individually.
-- 16 cleric and 16 wizard spells with Java-faithful dice; casting needs only MP — the original Ultima III has no reagent system — and runs in combat, towns, dungeons, and the overworld, with the aura system (quickness/negate) gating spells and monster actions.
+- **Original Game**: [*Ultima III: Exodus*](https://wiki.ultimacodex.com/wiki/Ultima_III:_Exodus) (1983) by Richard Garriott / Origin Systems.
+- **Primary Logic, Maps & Audio/Graphics Source — [pantinor/gdx-exodus](https://github.com/pantinor/gdx-exodus)**:
+  `py-exodus` was ported from Paul Antinori's LibGDX Java implementation, which also supplied the tile atlases, sound effects, `.ogg` soundtrack (transcoded from MIDI), XML definitions (`maps.xml`, `vendor.xml`, `creatures.xml`, `weapons.xml`, `armors.xml`), and JSON world maps/rosters.
+- **Classic Port References (GBC / LairWare / NES)**:
+  Where the Java port invented rules or differed from classic releases, several mechanics were intentionally aligned with:
+  - **Game Boy Color (`u3gbc`: `funcs5.c`, `battle3.c`, `menucmd2.c`)**: dual-moon slow/fast moongate routing, ship-battle party-wide cannonfire barrage, meal-crossing starvation (`-5 HP`) and fed HP regen (`+1 HP`), `QUICKNESS` stop-time aura gating, underground meal cadence, and 9999 pooled gold cap.
+  - **LairWare Mac port (`UltimaMisc.c`, `UltimaMain.c`)**: inspiration for **Auto-Combat**, plus cross-checking starvation/regen, moon cadence, and spell/combat edge cases.
+  - **NES (`MoonGateTbl`)**: cross-reference for the 8-site slow/fast moongate table.
 
 ---
 
-## Installation
+## What Makes `py-exodus` Special
 
-The project is managed by [uv](https://docs.astral.sh/uv/) with a committed `uv.lock`:
+### Auto-Combat (`TAB`)
+Borrowed in concept from the LairWare Mac port, pressing **`TAB`** during any battle toggles tactical **Auto-Combat** on or off. Each living party member automatically selects healing/cure spells when needed, offensive magic or ranged/melee attacks, and chest-safe positioning—letting you breeze through routine encounters or step back into manual control at any moment.
+
+### Full Autoplay / Watch Mode (`F9`)
+Pressing **`F9`** (with **`[`** / **`]`** to adjust step speed) hands the entire game over to `AutoPlayController`, which drives real keyboard inputs through the live UI (`StateMachine`, `OverworldScreen`, `TownScreen`, `DungeonScreen`, `CombatScreen`, `ShrineScreen`) from party creation all the way toward Exodus:
+- **Party setup & outfitting**: creates a balanced 4-member party (Thief / Fighter / Cleric / Wizard), buys starter gear and `Chain`/`Plate` armor upgrades in Britain/Dawn, and keeps per-member food and gold reserves balanced.
+- **Progression & navigation**: levels to 5+ for the Mark of Kings, captures a frigate, uses wind-hold / BFS sea-monster-avoiding sailing to dig Exotic Weapons & Armor, clears remaining dungeon Marks (`Fire`, `Force`, `Snake`), farms gold (`>= 1500g`), sails Whirlpools into Ambrosia for Cards and Shrines, and targets Castle Exodus.
+
+> **Status**: Full autoplay strategy is **still in active refinement and optimization**.
+> - **Farthest runs observed so far**: Parties have reached **level 20 with all 4 Marks, all 4 Exotic Weapons & Armors, and all 4 Cards** in Ambrosia, and survive 40,000-step headless sweeps across multiple seeds.
+> - **Currently working on / next up**: Surviving Ambrosia's pirate cannon fire while farming shrine stat upgrades, completing the Castle Exodus endgame (`INSERT`ing all 4 Cards), tightening early-game L1–L3 survival, and eliminating edge-case sea/food/dungeon loops.
+
+---
+
+## Installation & Running
+
+Managed with [uv](https://docs.astral.sh/uv/) and a committed `uv.lock` (Python 3.10+, tested through 3.14):
 
 ```bash
-# Clone the repository
 git clone https://github.com/jbff/py-exodus.git
 cd py-exodus
-
-# Create .venv and install the locked dependencies
 uv sync
-
-# Launch
-uv run exodus          # (or: uv run py-exodus)
+uv run exodus          # or: uv run py-exodus
 ```
 
-Alternative without uv (Python 3.10+; developed through 3.14):
+Without `uv`:
 ```bash
 pip install pygame-ce sounddevice soundfile
 python3 -m py_exodus
 ```
-Dependencies: [Pygame-CE](https://pyga.me/) >= 2.5.0 (rendering/audio), plus `sounddevice`/`soundfile` for music streaming.
 
----
-
-## How to Play
-
-### Controls
-
-All 26 letter commands match the reference implementation, including per-context behavior (the same letter can mean different things in a dungeon, in a town, on a ship, or in combat).
-
-| Key | Command | Description |
-|---|---|---|
-| **Arrow Keys / Keypad** | Move | Move party (ships must first face the heading; dungeon DOWN steps backward) |
-| **A** | Attack | Attack in a direction (combat, towns, or any creature tile) |
-| **B** | Board | Board the frigate or horse standing on your tile ("Board What?" otherwise) |
-| **C** | Cast | Cast cleric or wizard spells (member selection, then spell letter) |
-| **D** | Descend | Descend a ladder (dungeons) |
-| **E** | Enter | Enter a city, dungeon, shrine, castle, or whirlpool portal |
-| **F** | Fire | Fire frigate broadside cannons (broadside only; 4-trace line) |
-| **G** | Get | Open the treasure chest beneath the party |
-| **H** | Hand | Hand a weapon or armor piece to another member |
-| **I** | Ignite | Toggle a torch (dungeons; lights or extinguishes) |
-| **J** | Join | Pool all members' gold into a chosen member (1–4) |
-| **K** | Klimb | Climb a ladder upward (dungeons) |
-| **L** | Open | Open an unlocked door in a direction |
-| **M** | Modify | Reorder party members |
-| **N** | Negate | Burn silver powder for a quickness aura (stops creatures for 6 turns) |
-| **O** | Other | Type a special command (PRAY, BRIBE, STEAL, DIG, KISS, INSERT) |
-| **P** | Peer | Use a gem to view a map of your surroundings |
-| **Q** | Save | Save the game (Sosaria surface only — dungeons refuse by 2026-11-10 user ruling) |
-| **R** | Ready | Ready a weapon (member, then A–P) |
-| **S** | Search | Search the party's tile (labels, fountains, chests, portals) |
-| **T** | Transact | Talk or trade with NPCs and vendors (across signs) |
-| **U** | Unlock | Unlock a door in a direction (uses a key) |
-| **V** | Volume | Toggle audio and music |
-| **W** | Wear | Wear armor (member, then A–H) |
-| **X** | eXit | Dismount the horse, disembark the ship (foot only) |
-| **Y** | Yell | Shout a word (EVOCARE — with the Mark of Snake — banishes the serpent) |
-| **Z** | Ztats | Inspect stats, inventory, marks, and cards |
-| **Space** | Pass | Pass a turn |
-| **F1** | Book | Open the Book of Lore (any screen) |
-
----
-
-## Running the Test Suite
-
-The project has an extensive test suite covering asset loading, celestial routing, combat arena and parity dice, command semantics, chests, death flow, dungeon mechanics and specials, the endgame, magic, party/save state, tile effects, the turn tick, vendors, ships, and rendering:
-
+### Test Suite
 ```bash
-uv run python -m pytest        # (or: pytest, from any env that has the deps)
+uv run python -m pytest
 ```
-All tests should pass; the count is printed at the end of the run (778 as of 2026-11-13, including the asset load-graph guard).
+The suite currently runs **1,253 tests** covering mechanics, Java/GBC parity, vendors, dungeons, combat, rendering, and autoplay regressions.
 
 ---
 
-## Documentation
+## Known Bugs, Open Items & Deliberate Deviations
 
-`docs/superpowers/plans/2026-11-08-java-parity-fixes.md` documents a full Java↔Python parity audit (findings in `docs/superpowers/plans/2026-11-08-audit-findings.md`) and the fix plan that brought the port to parity.
+### Deliberate Deviations
+1. **Wireframe dungeon renderer**: Classic 1st-person software wireframe projection instead of Java LibGDX's 3D pipeline (mechanics match).
+2. **Fixed spell letters (A–P)**: Spell menus always keep the full original A–P slot indices instead of compacting letters by mana/context; invalid attempts refuse with `"Not Here!"` or the canonical MP message.
+3. **Classic GBC/LW mechanic rulings**: Slow/fast moon moongate table (`trammel` visible site -> `felucca` destination), ship-battle party-wide `"Cannonball barrage!"`, meal-crossing `-5 HP` starvation / `+1 HP` regen, and `QUICKNESS` stop-time gating.
+4. **Quality-of-life & save rulings**: No quick-start party (create in party formation); `Q` save is Sosaria-overworld only (disabled in dungeons); `APPAR_UNEM` casts without a direction prompt to open the chest underfoot; saves/rosters are JSON-only (legacy binary `.ult` loader removed).
 
-`scripts/render_maps.py` renders the JSON maps (`assets/maps/*.json`) to the committed top-down PNGs in `maps_rendered/` — lands/, castles/, towns/ (with NPC dots), and dungeons/<map>/per-level PNGs; shrine and combat arenas are skipped (`--all` includes them): `python -I scripts/render_maps.py [--outdir DIR] [--scale N]` (not part of the test suite).
+### Known Open Items
+1. **Audio**: `Sound.POISON_EFFECT` and `Sound.FIREFIELD` cues are not yet wired to field-effect triggers.
+2. **Input**: Keyboard only (no gamepad mapping yet).
+3. **`H` (Hand Equipment)**: Transfers unequipped weapons and armor only (per Java `HandDialog.java`), not food—autoplay compensates by equalizing food at purchase time.
+4. **Combat regen**: Passive MP (`tick_regen`) and meal-crossing `+1 HP` do not tick during combat rounds (only healing spells restore HP mid-battle).
+5. **Autoplay**: End-to-end Exodus victory and Ambrosia shrine stat-maxing remain under active tuning.
 
 ---
 
-## Known Open Items & Differences from Original LibGDX
+## Documentation & Utilities
 
-1. **Wireframe dungeon rendering**: the Java implementation uses LibGDX's 3D pipeline; `py-exodus` uses a software wireframe renderer in the classic Ultima III style. Presentation only — mechanics match.
-2. **Audio parity**: SFX/music play via Pygame-CE's mixer; only the poison/fire field sound cues (Java's `Sound.POISON_EFFECT`/`Sound.FIREFIELD` on field effect application) remain unwired to their triggers.
-3. **Controller/gamepad support**: keyboard only today; gamepad mapping is planned.
-4. **Deliberate divergences from the Java port** (kept for playability): prompt-engine conveniences (ESC cancels, arrow keys commit); text instead of artwork for a few reference visualizations. The starter/quick-start party was removed (2026-11-09 user ruling) — new players create characters in the party-formation screen, as in Java. Q-save is disabled in dungeons (2026-11-10 user ruling) — Java's dungeon screen offers it, Sosaria overland only here. APPAR_UNEM casts with no direction prompt (2026-11-11 user ruling) — Java asks "Direction?" and then ignores the answer (SpellInputProcessor.java:52-61), so the port asks nothing and opens the chest on the caster's own tile. FIXED SPELL LETTERS (2026-11-15 user ruling): spell menus always list the discipline's full original-game A–P set — letters never move with mana or context (supersedes Java's getCastables letter compaction, Constants.java:751-762) — and unavailability refuses AT THE ATTEMPT: "Not Here!" for context-refused spells, the canonical MP line right after the letter and before any target/direction prompt.
-5. **Not yet at parity**: combat-round move counting/hull repair during ship combat, and a small set of message-priority strings where the reference is silent — tracked for a future pass. Saves and rosters are JSON-only (the legacy binary roster import was removed along with all binary asset loading).
-6. **Post asset-conversion follow-ups (2026-11-13)**: `scripts/transcode_music.py` is inert by design (no `.mid` inputs — kept as the provenance record for regenerating the `.ogg` soundtrack); `tests/test_asset_load_graph.py` could pin the fonts, `demon.png`, `splash_border.png`, and `roster.json` directly (today their absence degrades silently); `assets/xml/sound.xml` is a Java-parity def the port does not read.
+- `docs/superpowers/plans/2026-11-08-java-parity-fixes.md` & `docs/superpowers/plans/2026-11-08-audit-findings.md`: Full Java↔Python parity audit and fix log.
+- `scripts/render_maps.py`: Renders `assets/maps/*.json` to top-down PNGs in `maps_rendered/`.
 
 ---
 
 ## License
 
-This reimplementation is intended for educational, preservation, and non-commercial archival purposes. Original game content, design, and assets remain copyright © their respective owners and Richard Garriott / Origin Systems.
+Educational, preservation, and non-commercial archival use. Original *Ultima III: Exodus* content, design, and assets remain copyright © their respective owners and Richard Garriott / Origin Systems.
