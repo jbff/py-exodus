@@ -276,16 +276,16 @@ def test_evaluate_goal_progression():
     lvl5 = _make_party(level=5, exp=500, marks=[0, 0, 0, 0], gold=0)
     assert evaluate_goal(lvl5) == Goal.GET_MARK_KINGS
 
-    # Has Mark of Kings, on foot -> CAPTURE_SHIP
+    # Has Mark of Kings, on foot without remaining marks -> GET_REMAINING_MARKS
     marked_foot = _make_party(level=5, exp=500, marks=[1, 0, 0, 0], transport=Transport.FOOT, gold=0)
-    assert evaluate_goal(marked_foot) == Goal.CAPTURE_SHIP
+    assert evaluate_goal(marked_foot) == Goal.GET_REMAINING_MARKS
 
     # Has Mark of Kings, on ship without exotics -> DIG_EXOTICS
     marked_ship_no_ex = _make_party(level=5, exp=500, marks=[1, 0, 0, 0], transport=Transport.SHIP, gold=0)
     assert evaluate_goal(marked_ship_no_ex) == Goal.DIG_EXOTICS
 
-    # Has Mark of Kings, on ship with exotics -> SAIL_WHIRLPOOL
-    marked_ship = _make_party(level=5, exp=500, marks=[1, 0, 0, 0], transport=Transport.SHIP, gold=0)
+    # Has all Marks, Exotics, and >=1500g on ship -> SAIL_WHIRLPOOL
+    marked_ship = _make_party(level=5, exp=500, marks=[1, 1, 1, 1], transport=Transport.SHIP, gold=1500)
     for m in marked_ship.members:
         m.weapons[WeaponType.EXOTIC] = 1
         m.armors[ArmorType.EXOTIC] = 1
@@ -730,9 +730,9 @@ def test_buy_keys_before_ambrosia_and_unlock_locked_door(pygame_setup):
         assert find_2d_step(tmap, (32, 63), guild_xy, Transport.FOOT) is not None
 
     party = _make_party(
-        level=5, exp=500, marks=[1, 0, 0, 0],
+        level=5, exp=500, marks=[1, 1, 1, 1],
         weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC,
-        gold=60, transport=Transport.FOOT,
+        gold=1500, transport=Transport.FOOT,
     )
     assert evaluate_goal(party) == Goal.BUY_KEYS
 
@@ -1255,7 +1255,7 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
     assert p_heal.members[0].hp == 540
 
     # Sailing ship fires cannons (K_f) at aligned broadsides serpent and steers around non-aligned serpents
-    p_ship = _make_party(level=5, exp=500, gold=0, food=500, marks=[1, 0, 0, 0], transport=Transport.SHIP)
+    p_ship = _make_party(level=5, exp=500, gold=1500, food=500, marks=[1, 1, 1, 1], transport=Transport.SHIP)
     p_ship.members[0].keys = 4
     for m in p_ship.members:
         m.weapon = WeaponType.EXOTIC
@@ -1355,7 +1355,7 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
     assert ctrl.step(sm) == pygame.K_SPACE
 
     # CAPTURE_SHIP loots dropped chests instead of ignoring them
-    p_cap2 = _make_party(level=5, exp=500, gold=0, food=500, marks=[1, 0, 0, 0], transport=Transport.FOOT)
+    p_cap2 = _make_party(level=5, exp=500, gold=1500, food=500, marks=[1, 1, 1, 1], weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC, transport=Transport.FOOT)
     p_cap2.members[0].keys = 4
     p_cap2.x, p_cap2.y = 44, 15
     p_cap2.dynamic_objects.append({"tile": "chest", "x": 44, "y": 16})
@@ -1402,7 +1402,7 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
     assert step_amb in (pygame.K_DOWN, pygame.K_LEFT)
 
     # Missing Death/Moons card with 0 keys & <50g stays in GRIND_AND_LEVEL instead of looping SAIL_WHIRLPOOL <-> EXIT_AMBROSIA
-    p_nokey = _make_party(level=5, exp=500, gold=10, food=500, marks=[1, 0, 0, 0], transport=Transport.FOOT)
+    p_nokey = _make_party(level=5, exp=500, gold=10, food=500, marks=[1, 1, 1, 1], transport=Transport.FOOT)
     for m in p_nokey.members:
         m.weapon = WeaponType.EXOTIC
         m.weapons[WeaponType.EXOTIC] = 1
@@ -1433,7 +1433,7 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
     assert ctrl.step(sm) == pygame.K_RIGHT  # toward Yew (34, 16)
 
     # CAPTURE_SHIP ignores unreachable open-ocean frigates and keeps patrolling coast
-    p_cap = _make_party(level=5, exp=500, gold=0, food=500, marks=[1, 0, 0, 0])
+    p_cap = _make_party(level=5, exp=500, gold=1500, food=500, marks=[1, 1, 1, 1], weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC)
     p_cap.members[0].keys = 4
     p_cap.x, p_cap.y = 45, 12
     p_cap.dynamic_objects.append({"tile": "frigate", "x": 55, "y": 12})  # unreachable in deep water

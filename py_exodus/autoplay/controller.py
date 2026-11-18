@@ -293,7 +293,11 @@ class AutoPlayController:
 
     def _step_shrine(self, state_machine: StateMachine, screen) -> int | None:
         if screen.state == screen.STATE_WHO:
-            return self._emit_key(state_machine, pygame.K_1)
+            rich_idx = next(
+                (i + 1 for i, m in enumerate(screen.party.members) if not m.is_dead() and m.gold >= 100),
+                1,
+            )
+            return self._emit_key(state_machine, pygame.K_0 + rich_idx)
         if screen.state == screen.STATE_DONATE:
             member = screen.party.get_member(screen.selected_member_idx)
             gold = member.gold if member is not None else 0
