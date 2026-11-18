@@ -242,7 +242,7 @@ class WorldRenderer:
 
         # 2. Render dynamic map objects (ships, horses, chests)
         dynamic_objs: list[Any] = []
-        if party is not None and hasattr(party, "dynamic_objects"):
+        if party is not None and hasattr(party, "dynamic_objects") and getattr(game_map, "id", 0) in (0, 13):
             dynamic_objs.extend(party.dynamic_objects)
         if kwargs.get("dynamic_objects"):
             dynamic_objs.extend(kwargs["dynamic_objects"])
