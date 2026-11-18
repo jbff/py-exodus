@@ -1317,6 +1317,16 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
     ctrl._key_queue.clear()
     assert ctrl.step(sm) != pygame.K_RIGHT
 
+    # On SOL island (45, 52) in EXIT_AMBROSIA, heads toward parked frigate (43, 58) instead of vantage_tiles
+    p_amb = _make_party(level=5, exp=500, gold=100, food=500, marks=[1, 0, 0, 0], cards=[1, 1, 1, 1])
+    p_amb.x, p_amb.y = 45, 52
+    p_amb.dynamic_objects.append({"tile": "frigate", "x": 43, "y": 58})
+    ow_amb = OverworldScreen(party=p_amb, asset_mgr=am, random_encounters=False, map_id=13)
+    sm.set_screen(ow_amb)
+    ctrl._key_queue.clear()
+    step_amb = ctrl.step(sm)
+    assert step_amb in (pygame.K_DOWN, pygame.K_LEFT)
+
     # Ship returning to mainland in GRIND_AND_LEVEL targets water tiles adjacent to mainland, not land
     p_ret = _make_party(level=3, exp=200, gold=0, food=500, transport=Transport.SHIP)
     for m in p_ret.members:
@@ -1376,6 +1386,16 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
     sm.set_screen(ow_pl)
     ctrl._key_queue.clear()
     assert ctrl.step(sm) != pygame.K_RIGHT
+
+    # On SOL island (45, 52) in EXIT_AMBROSIA, heads toward parked frigate (43, 58) instead of vantage_tiles
+    p_amb = _make_party(level=5, exp=500, gold=100, food=500, marks=[1, 0, 0, 0], cards=[1, 1, 1, 1])
+    p_amb.x, p_amb.y = 45, 52
+    p_amb.dynamic_objects.append({"tile": "frigate", "x": 43, "y": 58})
+    ow_amb = OverworldScreen(party=p_amb, asset_mgr=am, random_encounters=False, map_id=13)
+    sm.set_screen(ow_amb)
+    ctrl._key_queue.clear()
+    step_amb = ctrl.step(sm)
+    assert step_amb in (pygame.K_DOWN, pygame.K_LEFT)
 
     # Missing Death/Moons card with 0 keys & <50g stays in GRIND_AND_LEVEL instead of looping SAIL_WHIRLPOOL <-> EXIT_AMBROSIA
     p_nokey = _make_party(level=5, exp=500, gold=10, food=500, marks=[1, 0, 0, 0], transport=Transport.FOOT)
