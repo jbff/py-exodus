@@ -1551,6 +1551,27 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
     ow_bs.creatures.append({"x": 40, "y": 23, "tile_name": "pirate"})
     assert ctrl.step(sm) != pygame.K_UP
 
+    # 3. Stranded on Snake Island (57, 46) in GRIND_AND_LEVEL uses moongate/frigate instead of K_SPACE stall
+    p_snk = _make_party(
+        level=8, exp=1500, gold=200, food=500, marks=[1, 1, 1, 1],
+        weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC,
+    )
+    p_snk.x, p_snk.y = 57, 46
+    ow_snk = OverworldScreen(party=p_snk, asset_mgr=am, random_encounters=False)
+    ow_snk.creatures = []
+    sm.set_screen(ow_snk)
+    assert evaluate_goal(p_snk) == Goal.GRIND_AND_LEVEL
+    assert ctrl.step(sm) != pygame.K_SPACE
+
+    # 4. Town exit in Britain uses nearest border (east gate) instead of walking south along the east edge
+    from py_exodus.screens.town import TownScreen
+
+    p_br = _make_party(level=1, exp=0, gold=0, food=500)
+    ts_br = TownScreen(party=p_br, asset_mgr=am, map_id=3, start_x=63, start_y=32)
+    sm.set_screen(ts_br)
+    assert ctrl.step(sm) == pygame.K_RIGHT
+
+
 
 
 

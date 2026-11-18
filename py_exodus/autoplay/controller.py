@@ -653,10 +653,21 @@ class AutoPlayController:
                 if d is not None:
                     return self._emit_key(state_machine, _DIR_TO_KEY[d])
 
-        # Default in town: walk to exit border (south edge)
-        exits = {(x, gmap.height - 1) for x in range(gmap.width)}
+        # Default in town: walk to nearest exit border (e.g. Britain's east gate)
         if py == gmap.height - 1:
             return self._emit_key(state_machine, pygame.K_DOWN)
+        if py == 0:
+            return self._emit_key(state_machine, pygame.K_UP)
+        if px == gmap.width - 1:
+            return self._emit_key(state_machine, pygame.K_RIGHT)
+        if px == 0:
+            return self._emit_key(state_machine, pygame.K_LEFT)
+        exits = (
+            {(x, 0) for x in range(gmap.width)}
+            | {(x, gmap.height - 1) for x in range(gmap.width)}
+            | {(0, y) for y in range(gmap.height)}
+            | {(gmap.width - 1, y) for y in range(gmap.height)}
+        )
         d = find_2d_step(
             gmap, (px, py), exits, Transport.FOOT, party=party,
             avoid_tiles=npc_tiles, prefer_paths=True,
@@ -1116,10 +1127,10 @@ class AutoPlayController:
             )
 
         # GRIND_AND_LEVEL
+        if cur_map_id == 0 and party.transport == Transport.FOOT and not on_mainland:
+            return self._enter_portal_or_wait_dawn(state_machine, screen, gmap, party, px, py, (45, 18))
         if any(self._can_level_at_british(m) for m in living):
-            if (px, py) == (45, 18):
-                return self._emit_key(state_machine, pygame.K_e)
-            return self._move_toward(state_machine, gmap, party, (px, py), {(45, 18)})
+            return self._enter_portal_or_wait_dawn(state_machine, screen, gmap, party, px, py, (45, 18))
 
         # Actively chase nearby reachable land creatures on Sosaria (skip if hurt,
         # unless broke & starving with no naval threat nearby so we can earn 30g for food!)
