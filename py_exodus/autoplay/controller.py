@@ -307,11 +307,21 @@ class AutoPlayController:
             return self._emit_key(state_machine, pygame.K_0)
         return self._emit_key(state_machine, pygame.K_ESCAPE)
 
-    @staticmethod
-    def _boardable_frigates(party, include_damaged: bool = False) -> set[tuple[int, int]]:
-        """Return frigate coordinates, skipping a critically damaged last_ship (hull <= 20)."""
+    _CRITICAL_HULL_THRESHOLD = 25
+
+    @classmethod
+    def _is_hull_critical(cls, party, screen=None) -> bool:
+        """Return True when the active ship hull is at or below the critical threshold (<= 25)."""
+        hull = getattr(screen, "ship_hull", None) if screen is not None else None
+        if hull is None:
+            hull = getattr(party, "ship_hull", 50)
+        return hull <= cls._CRITICAL_HULL_THRESHOLD
+
+    @classmethod
+    def _boardable_frigates(cls, party, include_damaged: bool = False) -> set[tuple[int, int]]:
+        """Return frigate coordinates, skipping a critically damaged last_ship."""
         last_ship = getattr(party, "last_ship", None)
-        low_hull = getattr(party, "ship_hull", 50) <= 25
+        low_hull = cls._is_hull_critical(party)
         return {
             (obj.get("x"), obj.get("y"))
             for obj in getattr(party, "dynamic_objects", ())
@@ -702,7 +712,7 @@ class AutoPlayController:
                 party,
                 include_damaged=(
                     not on_mainland
-                    and getattr(party, "ship_hull", 50) > 15
+                    and not self._is_hull_critical(party, screen)
                     and goal != Goal.GET_REMAINING_MARKS
                 ),
             )
@@ -727,7 +737,7 @@ class AutoPlayController:
         if (
             cur_map_id == 0
             and party.transport == Transport.SHIP
-            and getattr(screen, "ship_hull", getattr(party, "ship_hull", 50)) <= 25
+            and self._is_hull_critical(party, screen)
             and goal != Goal.SAIL_WHIRLPOOL
         ):
             from py_exodus.screens.overworld import can_move_to
@@ -762,7 +772,7 @@ class AutoPlayController:
             if shore_water:
                 return self._move_toward(state_machine, gmap, party, (px, py), shore_water)
         if cur_map_id in (0, 13) and party.transport == Transport.SHIP:
-            ship_hull = getattr(screen, "ship_hull", getattr(party, "ship_hull", 50))
+            hull_critical = self._is_hull_critical(party, screen)
             heading = getattr(screen, "heading", Direction.EAST)
             broadsides_horiz = heading in (Direction.NORTH, Direction.SOUTH)
             cannon_targets = {
@@ -788,7 +798,7 @@ class AutoPlayController:
                 dy_s = cy - py
                 dy_n = py - cy
                 if (
-                    ship_hull > 25
+                    not hull_critical
                     and broadsides_horiz
                     and cy == py
                     and (1 <= dx_e <= 3 or 1 <= dx_w <= 3)
@@ -798,7 +808,7 @@ class AutoPlayController:
                     self._key_queue.append(pygame.K_RIGHT if 1 <= dx_e <= 3 else pygame.K_LEFT)
                     return self._emit_key(state_machine, pygame.K_f)
                 if (
-                    ship_hull > 25
+                    not hull_critical
                     and not broadsides_horiz
                     and cx == px
                     and (1 <= dy_s <= 3 or 1 <= dy_n <= 3)
@@ -828,9 +838,14 @@ class AutoPlayController:
                                     avoid_monsters.add((lx, ly))
         elif cur_map_id == 0 and party.transport != Transport.SHIP and living:
             avg_max_hp = sum(m.max_hp for m in party.members) // max(1, len(party.members))
+            broke_and_starving_nav = (
+                sum(m.gold for m in living) < 30
+                and any(m.food == 0 for m in living)
+                and all(m.hp * 10 >= m.max_hp * 3 for m in living)
+            )
             avoid_all_land = (
                 goal in (Goal.RESURRECT_DEAD, Goal.CURE_POISON, Goal.BUY_FOOD)
-                or needs_heal(party)
+                or (needs_heal(party) and not broke_and_starving_nav)
             )
             for c in getattr(screen, "creatures", []):
                 tname = str(c.get("tile_name") or c.get("tile") or "").lower()
@@ -893,7 +908,7 @@ class AutoPlayController:
                 party,
                 include_damaged=(
                     not on_mainland
-                    and getattr(party, "ship_hull", 50) > 15
+                    and not self._is_hull_critical(party, screen)
                     and goal != Goal.GET_REMAINING_MARKS
                 ),
             )
@@ -1003,6 +1018,10 @@ class AutoPlayController:
                 and cur_hp_sum < prev_ow[3]
             )
             self._prev_ow_hp_state = (cur_map_id, px, py, cur_hp_sum)
+            # Rest-guard stack (precedence):
+            # 1. Evade nearby creatures (<=5) before resting (handled above).
+            # 2. Never pass turns on SHIP, when threat_near (<=7), or after taking damage on this tile.
+            # 3. Never pass turns while starving (food == 0 / <100) or in town/urgent goals, or above 70% HP.
             if (
                 not threat_near
                 and not took_hit_here
@@ -1103,9 +1122,19 @@ class AutoPlayController:
             return self._move_toward(state_machine, gmap, party, (px, py), {(45, 18)})
 
         # Actively chase nearby reachable land creatures on Sosaria (skip if hurt,
-        # unless broke & starving so we can earn 30g for food!)
+        # unless broke & starving with no naval threat nearby so we can earn 30g for food!)
+        naval_threat_near = any(
+            str(c.get("tile_name") or c.get("tile") or "").lower() in ("pirate", "serpent", "squid")
+            and "x" in c and "y" in c
+            and max(
+                min((c["x"] - px) % gmap.width, (px - c["x"]) % gmap.width),
+                min((c["y"] - py) % gmap.height, (py - c["y"]) % gmap.height),
+            ) <= 7
+            for c in getattr(screen, "creatures", [])
+        )
         broke_and_starving = (
-            sum(m.gold for m in living) < 30
+            not naval_threat_near
+            and sum(m.gold for m in living) < 30
             and any(m.food == 0 for m in living)
             and all(m.hp * 10 >= m.max_hp * 3 for m in living)
         )
@@ -1588,7 +1617,11 @@ class AutoPlayController:
             if free_d is not None and free_cost is not None and (
                 d is None or (wind_cost is not None and wind_cost * 2 > free_cost * 3)
             ):
-                return self._emit_key(state_machine, pygame.K_SPACE)
+                if free_d == wind.reverse():
+                    return self._emit_key(state_machine, pygame.K_SPACE)
+                # Advance along the wind-free shortest route while its next heading is allowed,
+                # holding only when reaching the pinch/turn where wind actually blocks free_d.
+                d = free_d
         if d is None and avoid:
             d = find_2d_step(
                 game_map,

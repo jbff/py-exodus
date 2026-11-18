@@ -1447,6 +1447,112 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
     assert ctrl.step(sm) != pygame.K_SPACE
 
 
+def test_wind_hold_four_heading_progress_and_hull_triage_policy(pygame_setup):
+    """4-heading sea legs advance along allowed wind-free steps and hold only at blocked turns; hull <= 25 shares one policy."""
+    from py_exodus.assets import AssetManager
+    from py_exodus.screens.overworld import OverworldScreen
+
+    am = AssetManager("data")
+    am.load_all()
+    ctrl = AutoPlayController(enabled=True)
+    sm = StateMachine(asset_mgr=am, audio=None)
+
+    # 1. Wind-hold 4-heading leg: ship near (32, 58) heading to armor island berth (34, 3).
+    # Even when wind blocks a later heading (e.g. SOUTH blocks NORTH), ship advances when free_d != wind.reverse()
+    # instead of holding forever until food < 100, and holds (K_SPACE) when free_d IS blocked.
+    p = _make_party(level=5, exp=500, gold=500, food=500, marks=[1, 0, 0, 0], transport=Transport.SHIP)
+    p.x, p.y = 32, 59
+    p.wind_direction = Direction.SOUTH  # blocks NORTH, allows SOUTH/WEST/EAST
+    ow = OverworldScreen(party=p, asset_mgr=am, random_encounters=False)
+    ow.creatures = []
+    sm.set_screen(ow)
+
+    steps_moved = 0
+    for _ in range(25):
+        key = ctrl.step(sm)
+        if key != pygame.K_SPACE:
+            steps_moved += 1
+        if (p.x, p.y) == (34, 3):
+            break
+    assert steps_moved > 0  # made forward progress while food >= 100
+
+    # When wind directly opposes free_d (SOUTH from (34, 59) toward (34, 3)) and forces >1.5x detour, holds with K_SPACE
+    ctrl._key_queue.clear()
+    p2 = _make_party(level=5, exp=500, gold=500, food=500, marks=[1, 0, 0, 0], transport=Transport.SHIP)
+    p2.x, p2.y = 34, 59
+    p2.wind_direction = Direction.NORTH  # blocks SOUTH (direct wrapped route to (34, 3))
+    ow2 = OverworldScreen(party=p2, asset_mgr=am, random_encounters=False)
+    ow2.creatures = []
+    sm.set_screen(ow2)
+    assert ctrl.step(sm) == pygame.K_SPACE
+
+    # 2. Unified hull triage policy (<= 25): skips broadsides, disembarks adjacent to land, skips last_ship
+    p_hull = _make_party(level=5, exp=500, gold=500, food=500, marks=[1, 0, 0, 0], transport=Transport.SHIP)
+    p_hull.ship_hull = 25
+    p_hull.x, p_hull.y = 34, 3  # adjacent to (33, 3) land
+    ow_h = OverworldScreen(party=p_hull, asset_mgr=am, random_encounters=False)
+    ow_h.creatures = [{"x": 34, "y": 5, "tile_name": "pirate"}]  # in broadside range
+    sm.set_screen(ow_h)
+    assert ctrl._is_hull_critical(p_hull, ow_h) is True
+    assert ctrl.step(sm) == pygame.K_x  # disembarks instead of firing broadsides
+
+    last = {"tile": "frigate", "x": 34, "y": 3}
+    p_hull.ship_hull = 25
+    p_hull.last_ship = last
+    p_hull.dynamic_objects = [last]
+    assert (34, 3) not in ctrl._boardable_frigates(p_hull)
+
+
+def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
+    """Rest-guard stack aborts without oscillation; broke_and_starving fights land foes only when no naval threat is near."""
+    from py_exodus.assets import AssetManager
+    from py_exodus.screens.overworld import OverworldScreen
+
+    am = AssetManager("data")
+    am.load_all()
+    ctrl = AutoPlayController(enabled=True)
+    sm = StateMachine(asset_mgr=am, audio=None)
+
+    # 1. Rest-guard stack: taking damage on a tile aborts K_SPACE rest and avoids oscillating back
+    p = _make_party(level=5, exp=500, gold=500, food=500, marks=[1, 0, 0, 0])
+    p.members[0].hp = 50
+    p.members[0].max_hp = 450
+    p.members[2].mp = 0
+    p.members[2].max_mp = 50
+    p.x, p.y = 40, 20
+    ow = OverworldScreen(party=p, asset_mgr=am, random_encounters=False)
+    ow.creatures = []
+    sm.set_screen(ow)
+
+    # First rest establishes _prev_ow_hp_state
+    assert ctrl.step(sm) == pygame.K_SPACE
+    # Simulate taking ranged/ambient damage while resting at (40, 20)
+    p.members[0].hp = 35
+    assert ctrl.step(sm) != pygame.K_SPACE  # took_hit_here aborts rest
+
+    # Starving (food == 0) also skips K_SPACE rest
+    p.members[0].food = 0
+    ctrl._prev_ow_hp_state = None
+    assert ctrl.step(sm) != pygame.K_SPACE
+
+    # 2. broke_and_starving: gold < 30, food == 0, HP >= 30% chases nearby land creature...
+    p_bs = _make_party(level=5, exp=500, gold=0, food=0, marks=[1, 0, 0, 0])
+    for m in p_bs.members:
+        m.food = 0
+        m.mp = 0  # prevent Sanctu cast before movement check
+        m.hp = int(m.max_hp * 0.6)  # hurt (<85% needs_heal), but >= 30%
+    p_bs.x, p_bs.y = 40, 20
+    ow_bs = OverworldScreen(party=p_bs, asset_mgr=am, random_encounters=False)
+    ow_bs.creatures = [{"x": 40, "y": 19, "tile_name": "orc"}]
+    sm.set_screen(ow_bs)
+    assert ctrl.step(sm) == pygame.K_UP  # chases orc to earn 30g for food
+
+    # ...but never while a pirate or sea serpent is near (<= 7 tiles)
+    ow_bs.creatures.append({"x": 40, "y": 23, "tile_name": "pirate"})
+    assert ctrl.step(sm) != pygame.K_UP
+
+
+
 
 
 
