@@ -1586,6 +1586,16 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
     assert evaluate_goal(p_rem) == Goal.GET_REMAINING_MARKS
     assert ctrl.step(sm) != pygame.K_b  # walks west onto grass toward (58, 44) instead of re-boarding
 
+    # 6. Single low-food member triggers BUY_FOOD on SHIP and EXIT_AMBROSIA in Ambrosia even if party.food >= 250
+    p_ship_food = _make_party(
+        level=10, exp=3000, gold=1500, food=500, marks=[1, 1, 1, 1],
+        weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC, transport=Transport.SHIP,
+    )
+    p_ship_food.members[0].food = 35
+    p_ship_food.members[1].food = 900
+    assert evaluate_goal(p_ship_food, map_id=0) == Goal.BUY_FOOD
+    assert evaluate_goal(p_ship_food, map_id=13) == Goal.EXIT_AMBROSIA
+
 
 
 
