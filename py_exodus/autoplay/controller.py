@@ -624,8 +624,8 @@ class AutoPlayController:
         cur_map_id = self._screen_map_id(screen, party)
         living = [m for m in party.members if not m.is_dead()]
 
-        # Loot dropped chests on foot on Sosaria (prefer APPAR_UNEM, else G with member 1)
-        if cur_map_id == 0 and party.transport == Transport.FOOT:
+        # Loot dropped chests on foot on Sosaria or Ambrosia (prefer APPAR_UNEM, else G with member 1)
+        if cur_map_id in (0, 13) and party.transport == Transport.FOOT:
             chests = {
                 (obj.get("x"), obj.get("y"))
                 for obj in getattr(party, "dynamic_objects", [])
@@ -640,8 +640,13 @@ class AutoPlayController:
                     return self._emit_key(state_machine, pygame.K_c)
                 self._queue_text("1", enter=False)
                 return self._emit_key(state_machine, pygame.K_g)
-            if chests and goal in (Goal.GRIND_AND_LEVEL, Goal.OUTFIT_BRITAIN, Goal.CAPTURE_SHIP):
-                return self._move_toward(state_machine, gmap, party, (px, py), chests)
+            if chests and goal in (Goal.GRIND_AND_LEVEL, Goal.OUTFIT_BRITAIN, Goal.CAPTURE_SHIP, Goal.AMBROSIA_CARDS_SHRINES):
+                reachable_chests = {
+                    pos for pos in chests
+                    if find_2d_step(gmap, (px, py), {pos}, Transport.FOOT, party=party) is not None
+                }
+                if reachable_chests:
+                    return self._move_toward(state_machine, gmap, party, (px, py), reachable_chests)
             has_exotics = all(
                 (m.weapon == WeaponType.EXOTIC or m.weapons.get(WeaponType.EXOTIC, 0) > 0)
                 and (m.armor == ArmorType.EXOTIC or m.armors.get(ArmorType.EXOTIC, 0) > 0)
@@ -1199,7 +1204,7 @@ class AutoPlayController:
             }
 
         if party.transport == Transport.SHIP:
-            if goal == Goal.EXIT_AMBROSIA:
+            if goal in (Goal.EXIT_AMBROSIA, Goal.BUY_FOOD):
                 for d, (dx, dy) in (
                     (Direction.NORTH, (0, -1)),
                     (Direction.SOUTH, (0, 1)),

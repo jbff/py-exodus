@@ -95,8 +95,11 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
     )
 
     if (
-        cur_map_id != 13
-        and party.transport != Transport.SHIP
+        cur_map_id not in (13, 15, 16, 17, 18, 19, 20)
+        and (
+            party.transport != Transport.SHIP
+            or (cur_map_id == 0 and party.food < 250 and not (at_exotic_island and not has_exotics))
+        )
         and needs_food(party)
         and not (at_exotic_island and not has_exotics and party.food >= 100)
         and sum(m.gold for m in living) >= 30
@@ -138,6 +141,7 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
         if (
             max(m.level for m in living) < 5
             or not all(m.marks[0] > 0 for m in party.members)
+            or party.food < 150
             or has_all_cards
             or (needs_key_card and not has_key)
         ):
