@@ -497,7 +497,7 @@ class DungeonScreen(BaseScreen):
 
             loader = MapLoader(self.asset_mgr)
             # Brick floor combat map (map ID 35)
-            c_map = loader.load_conflict_map("cnflct_b.json")
+            c_map = loader.load_conflict_map("cnflct_c.json")
             combat_scr = CombatScreen(
                 party=self.party,
                 combat_map=c_map,
