@@ -337,11 +337,11 @@ class AutoPlayController:
             return self._emit_key(state_machine, pygame.K_0)
         return self._emit_key(state_machine, pygame.K_ESCAPE)
 
-    _CRITICAL_HULL_THRESHOLD = 25
+    _CRITICAL_HULL_THRESHOLD = 30
 
     @classmethod
     def _is_hull_critical(cls, party, screen=None) -> bool:
-        """Return True when the active ship hull is at or below the critical threshold (<= 25)."""
+        """Return True when the active ship hull is at or below the critical threshold (<= 30)."""
         hull = getattr(screen, "ship_hull", None) if screen is not None else None
         if hull is None:
             hull = getattr(party, "ship_hull", 50)
@@ -1062,7 +1062,6 @@ class AutoPlayController:
         avoid_monsters: set[tuple[int, int]] = set()
         self._ship_threat_near = False
         if cur_map_id in (0, 13) and party.transport == Transport.SHIP:
-            hull_critical = self._is_hull_critical(party, screen)
             heading = getattr(screen, "heading", Direction.EAST)
             broadsides_horiz = heading in (Direction.NORTH, Direction.SOUTH)
             cannon_targets = {
@@ -1088,8 +1087,7 @@ class AutoPlayController:
                 dy_s = cy - py
                 dy_n = py - cy
                 if (
-                    not hull_critical
-                    and broadsides_horiz
+                    broadsides_horiz
                     and cy == py
                     and (1 <= dx_e <= 3 or 1 <= dx_w <= 3)
                     and getattr(self, "_last_cannon_state", None) != (px, py, party.moves)
@@ -1098,8 +1096,7 @@ class AutoPlayController:
                     self._key_queue.append(pygame.K_RIGHT if 1 <= dx_e <= 3 else pygame.K_LEFT)
                     return self._emit_key(state_machine, pygame.K_f)
                 if (
-                    not hull_critical
-                    and not broadsides_horiz
+                    not broadsides_horiz
                     and cx == px
                     and (1 <= dy_s <= 3 or 1 <= dy_n <= 3)
                     and getattr(self, "_last_cannon_state", None) != (px, py, party.moves)
@@ -1844,27 +1841,21 @@ class AutoPlayController:
                 and (c.get("x"), c.get("y")) in water_comp
             ]
             if pirates_in_bay:
-                best_shore = min(
-                    shore_tiles,
-                    key=lambda st: min(abs(st[0] - px_) + abs(st[1] - py_) for px_, py_ in pirates_in_bay),
+                low_or_hurt = needs_heal(party) or any(
+                    m.max_hp > 0 and m.hp * 2 < m.max_hp for m in living
                 )
-                if (px, py) == best_shore:
-                    living = [m for m in party.members if not m.is_dead()]
-                    cur_hp_sum = sum(m.hp for m in living)
-                    prev_amb = getattr(self, "_prev_amb_shore_hp", None)
-                    took_hit = (
-                        prev_amb is not None
-                        and prev_amb[0] == px
-                        and prev_amb[1] == py
-                        and cur_hp_sum < prev_amb[2]
+                if low_or_hurt and len(shore_tiles) > 1:
+                    best_shore = max(
+                        shore_tiles,
+                        key=lambda st: min(abs(st[0] - px_) + abs(st[1] - py_) for px_, py_ in pirates_in_bay),
                     )
-                    self._prev_amb_shore_hp = (px, py, cur_hp_sum)
-                    low_hp = any(m.max_hp > 0 and m.hp * 2 < m.max_hp for m in living)
-                    if not (took_hit and low_hp):
-                        return self._emit_key(state_machine, pygame.K_SPACE)
-                    alt_shores = shore_tiles - {(px, py)}
-                    if alt_shores:
-                        return self._move_toward(state_machine, gmap, party, (px, py), alt_shores)
+                else:
+                    best_shore = min(
+                        shore_tiles,
+                        key=lambda st: min(abs(st[0] - px_) + abs(st[1] - py_) for px_, py_ in pirates_in_bay),
+                    )
+                if (px, py) == best_shore:
+                    return self._emit_key(state_machine, pygame.K_SPACE)
                 return self._move_toward(state_machine, gmap, party, (px, py), {best_shore})
             vantage_tiles = sorted(
                 {
@@ -2022,8 +2013,7 @@ class AutoPlayController:
     ) -> int:
         has_key = any(not m.is_dead() and m.keys > 0 for m in party.members)
         starving_buy_food = (
-            party.transport == Transport.FOOT
-            and any(not m.is_dead() and m.food == 0 for m in party.members)
+            any(not m.is_dead() and m.food == 0 for m in party.members)
             and evaluate_goal(party, getattr(game_map, "id", getattr(party, "map_id", 0))) == Goal.BUY_FOOD
         )
         avoid = None if starving_buy_food else (getattr(self, "_overworld_avoid", None) or None)
