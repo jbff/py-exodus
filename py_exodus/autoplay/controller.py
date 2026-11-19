@@ -1801,6 +1801,30 @@ class AutoPlayController:
                 ignore_wind=True,
             ) is not None:
                 return self._move_toward(state_machine, gmap, party, (px, py), mainland_water)
+            if any(
+                can_move_to(gmap, (px + dx) % gmap.width, (py + dy) % gmap.height, Transport.FOOT, party=party)
+                for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0))
+            ):
+                return self._emit_key(state_machine, pygame.K_x)
+            any_shore_water = {
+                (wx, wy)
+                for wy in range(gmap.height)
+                for wx in range(gmap.width)
+                if str(getattr(gmap.get_tile(wx, wy), "name", "")).lower() == "water"
+                and any(
+                    can_move_to(gmap, (wx + dx) % gmap.width, (wy + dy) % gmap.height, Transport.FOOT, party=party)
+                    for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0))
+                )
+            }
+            if any_shore_water and find_2d_step(
+                gmap,
+                (px, py),
+                any_shore_water,
+                Transport.SHIP,
+                party=party,
+                ignore_wind=True,
+            ) is not None:
+                return self._move_toward(state_machine, gmap, party, (px, py), any_shore_water)
             return self._emit_key(state_machine, pygame.K_x)
 
         water_comp: set[tuple[int, int]] = set()
@@ -1844,16 +1868,29 @@ class AutoPlayController:
                 low_or_hurt = needs_heal(party) or any(
                     m.max_hp > 0 and m.hp * 2 < m.max_hp for m in living
                 )
-                if low_or_hurt and len(shore_tiles) > 1:
-                    best_shore = max(
-                        shore_tiles,
-                        key=lambda st: min(abs(st[0] - px_) + abs(st[1] - py_) for px_, py_ in pirates_in_bay),
-                    )
-                else:
-                    best_shore = min(
-                        shore_tiles,
-                        key=lambda st: min(abs(st[0] - px_) + abs(st[1] - py_) for px_, py_ in pirates_in_bay),
-                    )
+                if low_or_hurt:
+                    all_pirates = [
+                        (c["x"], c["y"])
+                        for c in getattr(state_machine.current_screen, "creatures", ())
+                        if str(c.get("tile_name") or c.get("tile") or "").lower() == "pirate"
+                        and "x" in c and "y" in c
+                    ]
+                    safe_land = {
+                        (lx, ly)
+                        for lx, ly in reachable_land
+                        if all(
+                            (lx != px_ and ly != py_) or abs(lx - px_) + abs(ly - py_) > 4
+                            for px_, py_ in all_pirates
+                        )
+                    }
+                    if safe_land:
+                        if (px, py) in safe_land:
+                            return self._emit_key(state_machine, pygame.K_SPACE)
+                        return self._move_toward(state_machine, gmap, party, (px, py), safe_land)
+                best_shore = min(
+                    shore_tiles,
+                    key=lambda st: min(abs(st[0] - px_) + abs(st[1] - py_) for px_, py_ in pirates_in_bay),
+                )
                 if (px, py) == best_shore:
                     return self._emit_key(state_machine, pygame.K_SPACE)
                 return self._move_toward(state_machine, gmap, party, (px, py), {best_shore})
