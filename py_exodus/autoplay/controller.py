@@ -1315,6 +1315,10 @@ class AutoPlayController:
                 if "x" in c and "y" in c and abs(c["x"] - px) + abs(c["y"] - py) <= evade_rad
             ]
             if nearby:
+                if party.transport == Transport.FOOT and not on_mainland:
+                    hull_val = getattr(screen, "ship_hull", getattr(party, "ship_hull", 50))
+                    if (px, py) in self._boardable_frigates(party, include_damaged=(hull_val > 5), screen=screen):
+                        return self._emit_key(state_machine, pygame.K_b)
                 wind = getattr(party, "wind_direction", None)
                 if party.transport == Transport.SHIP and wind is None:
                     return self._emit_key(state_machine, pygame.K_SPACE)
@@ -2011,7 +2015,12 @@ class AutoPlayController:
         goals: set[tuple[int, int]],
     ) -> int:
         has_key = any(not m.is_dead() and m.keys > 0 for m in party.members)
-        avoid = getattr(self, "_overworld_avoid", None) or None
+        starving_buy_food = (
+            party.transport == Transport.FOOT
+            and any(not m.is_dead() and m.food == 0 for m in party.members)
+            and evaluate_goal(party, getattr(game_map, "id", getattr(party, "map_id", 0))) == Goal.BUY_FOOD
+        )
+        avoid = None if starving_buy_food else (getattr(self, "_overworld_avoid", None) or None)
         wind = getattr(party, "wind_direction", None)
         d, wind_cost = find_2d_step_and_cost(
             game_map,
