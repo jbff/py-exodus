@@ -86,6 +86,7 @@ class TownScreen(BaseScreen):
         # Town-local creature objects (e.g. horses spawned by the horse
         # vendor); Java keeps map creatures on the map object, not the save.
         self.creatures: list[dict[str, Any]] = []
+        self._combat_npc: Any = None
 
         # Playtest-1 fix (item 3): Java logs "Entering " + Maps.getLabel()
         # + "!" (GameScreen.java:334) from the enum label table
@@ -356,6 +357,21 @@ class TownScreen(BaseScreen):
 
         start_tile = self.game_map.get_tile(self.avatar_x, self.avatar_y)
 
+        if self.map_id == 2:
+            hostile = next(
+                (
+                    npc
+                    for npc in self.game_map.npcs
+                    if npc.x == nx
+                    and npc.y == ny
+                    and getattr(npc, "movement", None) == "ATTACK_AVATAR"
+                ),
+                None,
+            )
+            if hostile is not None:
+                self._start_exodus_combat(hostile)
+                return
+
         if can_move_to(self.game_map, nx, ny, transport=Transport.FOOT, party=self.party):
             # Java exploration movement is never slowed (slowedByTile's only
             # caller is CombatScreen.java:937) — no speed roll on town moves.
@@ -382,6 +398,43 @@ class TownScreen(BaseScreen):
             self.check_party_death()
             if self.audio is not None:
                 self.audio.play_sfx("blocked")
+
+    def _start_exodus_combat(self, npc: Any) -> None:
+        """Initiate CombatScreen against a hostile ATTACK_AVATAR NPC in Exodus Castle."""
+        if self.asset_mgr is None:
+            return
+        from py_exodus.screens.combat_screen import CombatScreen
+        from py_exodus.world.loader import MapLoader
+
+        self._combat_npc = npc
+        cname = str(getattr(npc, "tile_name", getattr(npc, "tile", "orc")) or "orc").lower()
+        c_map = MapLoader(self.asset_mgr).load_conflict_map("cnflct_c.json")
+        combat_scr = CombatScreen(
+            party=self.party,
+            combat_map=c_map,
+            creature_tile=cname,
+            asset_mgr=self.asset_mgr,
+            audio=self.audio,
+            return_screen=self,
+            manager=self.manager,
+            context_map_id=2,
+        )
+        if self.manager is not None:
+            self.manager.push_screen(combat_scr)
+        else:
+            self.next_screen = combat_scr
+            self.is_finished = True
+
+    def end_combat(self, is_won: bool) -> None:
+        """Remove defeated Exodus Castle NPC when returning from CombatScreen."""
+        if (
+            is_won
+            and self._combat_npc is not None
+            and self.game_map is not None
+            and self._combat_npc in self.game_map.npcs
+        ):
+            self.game_map.npcs.remove(self._combat_npc)
+        self._combat_npc = None
 
     def _finish_turn(self, effect_tile=None) -> None:
         """End the town movement turn: submorsel tick, regen tick, aura tick,

@@ -561,6 +561,38 @@ class AutoPlayController:
                     d = find_2d_step(gmap, (px, py), (tx, ty), Transport.FOOT, party=party)
                     if d is not None:
                         return self._emit_key(state_machine, _DIR_TO_KEY[d])
+                    # Path blocked by Exodus ATTACK_AVATAR NPCs (e.g. animated floor traps):
+                    # route treating hostile NPCs as passable so bumping them clears the way.
+                    hostile_coords = {
+                        (npc.x, npc.y)
+                        for npc in getattr(gmap, "npcs", ())
+                        if getattr(npc, "movement", None) == "ATTACK_AVATAR"
+                    }
+                    if hostile_coords:
+                        from py_exodus.screens.overworld import can_move_to
+
+                        has_fire = any(not m.is_dead() and m.marks[1] > 0 for m in party.members)
+                        has_force = any(not m.is_dead() and m.marks[2] > 0 for m in party.members)
+                        q_ex: deque[tuple[int, int, Direction | None]] = deque([(px, py, None)])
+                        vis_ex = {(px, py)}
+                        while q_ex:
+                            cx, cy, first_d = q_ex.popleft()
+                            for cand in (Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST):
+                                nx, ny = cx + cand.dx, cy + cand.dy
+                                if (nx, ny) in vis_ex or not (0 <= nx < gmap.width and 0 <= ny < gmap.height):
+                                    continue
+                                t = gmap.get_tile(nx, ny)
+                                tname = str(getattr(t, "name", "")).lower() if t else ""
+                                if tname in ("lava", "fire") and not has_fire:
+                                    continue
+                                if tname in ("energy_field", "force_field") and not has_force:
+                                    continue
+                                if (nx, ny) in hostile_coords or can_move_to(gmap, nx, ny, Transport.FOOT, party=party):
+                                    step_d = first_d or cand
+                                    if (nx, ny) == (tx, ty):
+                                        return self._emit_key(state_machine, _DIR_TO_KEY[step_d])
+                                    vis_ex.add((nx, ny))
+                                    q_ex.append((nx, ny, step_d))
                     return self._emit_key(state_machine, pygame.K_SPACE)
 
         npc_tiles = {(npc.x, npc.y) for npc in getattr(gmap, "npcs", [])}
@@ -1685,7 +1717,13 @@ class AutoPlayController:
             }
 
         if party.transport == Transport.SHIP:
-            if goal in (Goal.EXIT_AMBROSIA, Goal.BUY_FOOD):
+            if goal in (
+                Goal.EXIT_AMBROSIA,
+                Goal.BUY_FOOD,
+                Goal.BUY_KEYS,
+                Goal.RESURRECT_DEAD,
+                Goal.CURE_POISON,
+            ):
                 for d, (dx, dy) in (
                     (Direction.NORTH, (0, -1)),
                     (Direction.SOUTH, (0, 1)),
@@ -1693,6 +1731,9 @@ class AutoPlayController:
                     (Direction.EAST, (1, 0)),
                 ):
                     if ((px + dx) % gmap.width, (py + dy) % gmap.height) == (32, 58):
+                        wind = getattr(party, "wind_direction", None)
+                        if wind is None or wind == d.reverse():
+                            return self._emit_key(state_machine, pygame.K_SPACE)
                         return self._emit_key(state_machine, _DIR_TO_KEY[d])
             else:
                 if any(

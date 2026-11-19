@@ -1761,6 +1761,31 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
     k_pois = ctrl.step(sm)
     assert k_pois != pygame.K_c  # did not cast SANCTU at 15 MP while poisoned
 
+    # Exodus Castle (map_id=2) from entrance (32, 62) fights through ATTACK_AVATAR guards/floor traps and wins
+    p_exo = _make_party(
+        level=25, exp=2400, gold=100, food=500, marks=[1, 1, 1, 1], cards=[1, 1, 1, 1],
+        weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC, map_id=2,
+    )
+    p_exo.members[0].strength = 50
+    p_exo.members[1].strength = 50
+    sm_exo = StateMachine(asset_mgr=am, audio=None)
+    ts_exo = TownScreen(party=p_exo, asset_mgr=am, map_id=2, start_x=32, start_y=62)
+    sm_exo.push_screen(ts_exo)
+    ctrl_exo = AutoPlayController(enabled=True)
+    from py_exodus import debug as _dbg
+    prev_nohurt = _dbg.CHEATS.nohurt
+    _dbg.CHEATS.nohurt = True
+    try:
+        for _ in range(1500):
+            if getattr(p_exo, "exodus_defeated", 0) > 0:
+                break
+            ctrl_exo.step(sm_exo)
+            sm_exo.update(0.05)
+    finally:
+        _dbg.CHEATS.nohurt = prev_nohurt
+    assert p_exo.exodus_cards_status == 0xF
+    assert getattr(p_exo, "exodus_defeated", 0) > 0
+
 
 
 
