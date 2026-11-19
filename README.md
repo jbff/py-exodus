@@ -27,8 +27,10 @@ Pressing **`F9`** (with **`[`** / **`]`** to adjust step speed) hands the entire
 - **Party setup & outfitting**: creates a balanced 4-member party (Thief / Fighter / Cleric / Wizard), buys starter gear and `Chain`/`Plate` armor upgrades in Britain/Dawn, and keeps per-member food and gold reserves balanced.
 - **Progression & navigation**: levels to 5+ for the Mark of Kings, captures a frigate, uses wind-hold / sea-monster-avoiding BFS sailing to dig Exotic Weapons & Armor, clears remaining dungeon Marks (`Fire`, `Force`, `Snake`), raids Death Gulch for gold (`>= 4500g` target via locked doors & chokepoint guard bribing), sails Whirlpools into Ambrosia for all 4 Cards and Shrine stat upgrades (prioritizing Cleric `Wis`, Wizard `Int`, Fighter `Str`, Thief `Dex`), levels to 25+, yells `EVOCARE` to pass the Great Earth Serpent, clears Exodus Castle defenders, and inserts all 4 Cards to win.
 
-> **Status**: Full autoplay has achieved **end-to-end A-to-Z victory from a fresh game under `--debug` `NOHURT`** (`seed=418` in `114,926` steps, `seed=417` in `142,845` steps, both reaching L25–32 with all 4 Marks, Exotics, `Wis=99`, and `GOAL: done`).
-> - **Currently working on / next up**: Running 160,000-step **non-`nohurt`** sweeps to diagnose and eliminate remaining death spirals (early-game L1–L3, Death Gulch traps/poison, and Ambrosia/Exodus survival without cheats) toward an unassisted A-to-Z victory.
+> **Status**: Full autoplay has achieved **end-to-end A-to-Z victory from a fresh game both with and without cheats**:
+> - **Unassisted (no cheat flags)**: `seed=437` won in `112,074` steps (`lvls=[43, 41, 26, 32]`, all 4 Marks & Exotics, `Wis=99`, `Int=89`, `goal=DONE`).
+> - **Under `--debug` `NOHURT`**: `seed=418` (`114,926` steps) and `seed=417` (`142,845` steps) also won end-to-end (`L25–32`, `Wis=99`, `Int=35–52`).
+> - **Currently working on / next up**: Improving non-`nohurt` win rate across seeds by reducing early-game L1–L3 wipes, ship-loss/pirate-cannon strandings on Death Gulch and Exotic islands, and starvation stalls during `BUY_FOOD`.
 
 ---
 
@@ -80,7 +82,7 @@ The suite currently runs **1,255 tests** covering mechanics, Java/GBC parity, ve
 2. **Input**: Keyboard only (no gamepad mapping yet).
 3. **`H` (Hand Equipment)**: Transfers unequipped weapons and armor only (per Java `HandDialog.java`), not food—autoplay compensates by equalizing food at purchase time.
 4. **Combat regen**: Passive MP (`tick_regen`) and meal-crossing `+1 HP` do not tick during combat rounds (only healing spells restore HP mid-battle).
-5. **Autoplay (non-cheat)**: End-to-end A-to-Z victory is verified under `NOHURT`; unassisted (non-`nohurt`) death-spiral tuning and survival through Death Gulch/Ambrosia/Exodus remain under active refinement.
+5. **Autoplay (unassisted win rate)**: End-to-end A-to-Z victory is verified both under `NOHURT` and unassisted (`seed=437`), though non-`nohurt` runs still occasionally wipe to early-game L1–L3 combat, ship-loss pirate cannon fire on islands, or `BUY_FOOD` starvation loops.
 
 ---
 
