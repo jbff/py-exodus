@@ -932,16 +932,22 @@ class AutoPlayController:
             and "x" in c and "y" in c
         ]
         if pirates:
-            target = min(
-                reachable_coast,
-                key=lambda pt: min(abs(pt[0] - px_) + abs(pt[1] - py_) for px_, py_ in pirates),
-            )
-            pirate_near_target = any(
-                abs(target[0] - px_) + abs(target[1] - py_) <= 6 for px_, py_ in pirates
-            )
-            if (px, py) == target and not pirate_near_target:
-                self._patrol_idx += 1
-                target = reachable_coast[self._patrol_idx % len(reachable_coast)]
+            if needs_heal(party) and len(reachable_coast) > 1:
+                target = max(
+                    reachable_coast,
+                    key=lambda pt: min(abs(pt[0] - px_) + abs(pt[1] - py_) for px_, py_ in pirates),
+                )
+            else:
+                target = min(
+                    reachable_coast,
+                    key=lambda pt: min(abs(pt[0] - px_) + abs(pt[1] - py_) for px_, py_ in pirates),
+                )
+                pirate_near_target = any(
+                    abs(target[0] - px_) + abs(target[1] - py_) <= 6 for px_, py_ in pirates
+                )
+                if (px, py) == target and not pirate_near_target:
+                    self._patrol_idx += 1
+                    target = reachable_coast[self._patrol_idx % len(reachable_coast)]
         else:
             target = reachable_coast[self._patrol_idx % len(reachable_coast)]
             if (px, py) == target:
