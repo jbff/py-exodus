@@ -1934,6 +1934,8 @@ class AutoPlayController:
                 }
                 if reachable_fallback:
                     return self._move_toward(state_machine, gmap, party, (px, py), reachable_fallback)
+            living = [m for m in party.members if not m.is_dead()]
+            return self._hunt_starving_prey_or_patrol(state_machine, screen, gmap, party, px, py, living)
         if self._screen_map_id(screen, party) == 0 and party.transport == Transport.SHIP:
             has_fire = any(not m.is_dead() and m.marks[1] > 0 for m in party.members)
             has_force = any(not m.is_dead() and m.marks[2] > 0 for m in party.members)
