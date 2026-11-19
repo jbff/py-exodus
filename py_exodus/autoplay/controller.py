@@ -1254,6 +1254,29 @@ class AutoPlayController:
                 return self._hunt_starving_prey_or_patrol(state_machine, screen, gmap, party, px, py, living)
 
         if goal == Goal.CONQUER_EXODUS:
+            snake_tile = gmap.get_tile(10, 58)
+            snake_active = snake_tile is not None and str(getattr(snake_tile, "name", "")).startswith("snake")
+            if snake_active and cur_map_id == 0:
+                if (px, py) == (10, 59) and party.transport == Transport.SHIP:
+                    snake_idx = next(
+                        (i + 1 for i, m in enumerate(party.members) if not m.is_dead() and m.marks[2] > 0),
+                        1,
+                    )
+                    self._queue_text(str(snake_idx), enter=False)
+                    self._queue_text("EVOCARE", enter=True)
+                    return self._emit_key(state_machine, pygame.K_y)
+                if party.transport == Transport.SHIP:
+                    return self._move_toward(state_machine, gmap, party, (px, py), {(10, 59)})
+                frigates = self._boardable_frigates(party, screen=screen)
+                if (px, py) in frigates:
+                    return self._emit_key(state_machine, pygame.K_b)
+                reachable_frigates = {
+                    pos for pos in frigates
+                    if find_2d_step(gmap, (px, py), {pos}, Transport.FOOT, party=party) is not None
+                }
+                if reachable_frigates:
+                    return self._move_toward(state_machine, gmap, party, (px, py), reachable_frigates)
+                return self._hunt_starving_prey_or_patrol(state_machine, screen, gmap, party, px, py, living)
             return self._enter_portal_or_wait_dawn(state_machine, screen, gmap, party, px, py, (10, 53))
 
         if goal in (Goal.AMBROSIA_CARDS_SHRINES, Goal.EXIT_AMBROSIA):

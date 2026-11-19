@@ -1786,6 +1786,23 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
     assert p_exo.exodus_cards_status == 0xF
     assert getattr(p_exo, "exodus_defeated", 0) > 0
 
+    # CONQUER_EXODUS at (10, 59) on ship yells EVOCARE to clear the Great Earth Serpent at (10, 57..58)
+    p_evo = _make_party(
+        level=25, exp=2400, gold=100, food=500, marks=[1, 1, 1, 1], cards=[1, 1, 1, 1],
+        weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC, transport=Transport.SHIP,
+    )
+    p_evo.x, p_evo.y = 10, 59
+    ow_evo = OverworldScreen(party=p_evo, map_id=0, asset_mgr=am, random_encounters=False)
+    sm_evo = StateMachine(asset_mgr=am, audio=None)
+    sm_evo.set_screen(ow_evo)
+    ctrl_evo = AutoPlayController(enabled=True)
+    for _ in range(12):
+        ctrl_evo.step(sm_evo)
+        if str(getattr(ow_evo.game_map.get_tile(10, 58), "name", "")).lower() == "water":
+            break
+    assert str(getattr(ow_evo.game_map.get_tile(10, 58), "name", "")).lower() == "water"
+    assert str(getattr(ow_evo.game_map.get_tile(10, 57), "name", "")).lower() == "water"
+
 
 
 
