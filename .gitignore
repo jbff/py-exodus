@@ -25,3 +25,4 @@ py_exodus/nn/checkpoints/combat_dataset_fullspace.json
 py_exodus/nn/checkpoints/combat_bc_fullspace.pt
 py_exodus/nn/checkpoints/combat_ppo_fullspace.pt
 py_exodus/nn/checkpoints/combat_fullspace_eval_report.json
+py_exodus/nn/data/
