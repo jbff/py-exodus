@@ -886,6 +886,25 @@ class AutoPlayController:
                 return self._emit_key(state_machine, pygame.K_c)
 
         # Heal detour if hurt (skip during BUY_FOOD/starvation, and skip/save MP during CURE_POISON unless <= 25 HP)
+        # Doorstep rule (2026-11-20 live report): standing ON a healer/food
+        # town entry tile with the matching goal = enter immediately; nothing
+        # (heal-detours, spot-casts) may preempt the E.
+        _gmap_early = getattr(screen, "game_map", None)
+        if (
+            _gmap_early is not None
+            and goal in (Goal.CURE_POISON, Goal.RESURRECT_DEAD, Goal.BUY_FOOD)
+            and party.transport == Transport.FOOT
+        ):
+            _px0, _py0 = (
+                (screen.avatar_x, screen.avatar_y)
+                if hasattr(screen, "avatar_x") else (party.x, party.y)
+            )
+            _towns = (
+                _HEALER_TOWNS if goal in (Goal.CURE_POISON, Goal.RESURRECT_DEAD)
+                else _FOOD_TOWNS
+            )
+            if any((_t[0], _t[1]) == (_px0, _py0) for _t in _towns.values()):
+                return self._emit_key(state_machine, pygame.K_e)
         needs_heal_now = needs_heal(party)
         # Vendor-over-heals rule (2026-11-20 live report): during cure/food/
         # resurrect goals, do NOT burn turns SANCTU-healing when the relevant
