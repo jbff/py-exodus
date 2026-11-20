@@ -38,7 +38,8 @@ Pressing **`F9`** (with **`[`** / **`]`** to adjust step speed) hands the entire
 >   - **Force-field pathfinder parity**: A* now mirrors the movement validator (passage needs the Mark of Force on EVERY living member — the old check looked at the Snake mark on any member).
 >   - **Monster restoration** (USER-DIRECTED DEVIATION restoring original spawn coverage): Squid at sea (was dropped with Pirate/Serpent), Pincher in the >700 HP land tier, Dragon mountain habitats for strong parties, Balron alongside on Ambrosia/Exodus terrain — GBC `SpawnMonster` carried all 13 types; Java's exclusive-bound indexing bug dropped them, and the converted maps lack their glyph tiles, so habitats are terrain-based. Low-health parties still never spawn Giants (that classic bug stays fixed).
 >   - Symbolic auto-combat now cures poison (ALCORT) between attacks.
->   - The phased EV/PyTorch hybrid continues on the `neural-net` branch; its combat net already wins ~95% of holdout encounters.
+>   - **Resource-doctrine fixes from live-run debugging (2026-11-20 evening)**: poison-precedence (ALCORT on the spot if a caster has 35 MP, otherwise the HEALER vendor - never SANCTU-heals while poisoned, they can't outpace the ticks; vendor cures win when a town entry is a short walk away), voyage heal-detours (ships and sub-50%-HP parties heal BEFORE sailing - the 100-seed atlas showed 63 of 82 wipes were wounded supply journeys: 74% of deaths happened during cure/food/resurrect travel), BUY_FOOD-at-sea dock prelude (ship-aware portal costs + sail-to-dock-water + gated disembark instead of wind-blocked circles), and stranded-frigate abandonment (dock artifacts on non-sailable terrain no longer jam the ship-goal flows).
+>   - The phased EV/PyTorch hybrid continues on the `neural-net` branch; its shipped combat net measures 96.1% holdout overall with the free-spell openings restored, and the branch recorded its first full autoplay win.
 
 ---
 

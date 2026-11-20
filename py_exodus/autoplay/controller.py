@@ -8,8 +8,6 @@ from typing import TYPE_CHECKING
 
 import pygame
 
-from py_exodus.autoplay.economy_runtime import EconomyRuntime
-from py_exodus.autoplay.hazard_runtime import HazardRuntime
 from py_exodus.autoplay.equipment import (
     best_hand_transfer,
     best_owned_armor,
@@ -170,11 +168,6 @@ class AutoPlayController:
         self._mapped_dungeon_levels: set[tuple[int, int]] = set()
         # Loop-breaker state (memory layer): emitted-key history + optional
         # transport lock. See the loop-breaker block near _emit_key.
-        # NN strategy layer: hazard critic risk maps -> A* edge costs;
-        # economy critic -> yield-scored prey selection. Both inert unless
-        # trained checkpoints exist AND their env flags are set.
-        self._hazard = HazardRuntime()
-        self._economy = EconomyRuntime()
         self._step_history: deque[tuple] = deque(maxlen=self._HISTORY_MAX)
         self._transport_locked: str | None = None
         self._lock_no_cycle_ticks: int = 0
@@ -349,18 +342,26 @@ class AutoPlayController:
                 and (m.armor == ArmorType.EXOTIC or m.armors.get(ArmorType.EXOTIC, 0) > 0)
                 for m in party.members
             )
-            return "SHIP" if ready_for_sea and not has_exotics else "FOOT"
+            if not has_exotics:
+                # Sea intent: board and sail to the dig grounds.
+                return "SHIP" if ready_for_sea else "FOOT"
+            # WITH exotics a GRIND party's next move happens on LAND: level
+            # at Lord British, shop, or prep the DG raid. 2026-11-20 live
+            # log: a docked exotics party at a Britain landing tile sat
+            # forever because the sail intent gated its own disembark.
+            return "FOOT"
         return "FOOT"
 
     def _engage_transport_lock(self, desired: str, reason: str = "") -> None:
         self._transport_locked = desired
         self._lock_no_cycle_ticks = 0
         self._lock_age_ticks = 0
-        self._lock_sm = None
+        screen = None
         # Anchor: the lock is sticky until the party actually MOVES off this
         # spot (or the hard age cap). A quiet-ticks release re-creates the
         # cycle at the same dock when ship movement is blocked (e.g. calm
-        # wind at Britain, 2026-11-20 live log).
+        # wind at Britain, 2026-11-20 live log) - the party X/B/SPACEs in
+        # place and re-locks forever without making progress.
         try:
             sm_screen = self._lock_sm.current_screen if self._lock_sm else None
         except Exception:
@@ -412,13 +413,6 @@ class AutoPlayController:
                 and moved
             ) or self._lock_age_ticks >= self._LOCK_MAX_TICKS:
                 self._release_transport_lock()
-            elif self._lock_age_ticks % 50 == 0:
-                screen = state_machine.current_screen
-                party_x = getattr(getattr(party, "x", None), "x", None) or getattr(party, "x", "?")
-                logger.error(
-                    "AUTOPLAY STALLED while locked (%s): pos=(%s) transport=%s",
-                    self._transport_locked, getattr(party, "x", "?"), getattr(party, "transport", "?"),
-                )
             elif self._lock_age_ticks % 50 == 0:
                 # Self-reporting ticket: the lock stopped an oscillation but
                 # no other branch claimed this state - a missing goal handler
@@ -875,31 +869,86 @@ class AutoPlayController:
                 return self._emit_key(state_machine, pygame.K_c)
 
         # Heal detour if hurt (skip during BUY_FOOD/starvation, and skip/save MP during CURE_POISON unless <= 25 HP)
+        needs_heal_now = needs_heal(party)
+        # Vendor-over-heals rule (2026-11-20 live report): during cure/food/
+        # resurrect goals, do NOT burn turns SANCTU-healing when the relevant
+        # town entry is within a short walk - the vendor cures instantly for
+        # 100g while heal-casting grinds the percentage up one tick at a
+        # time.
+        gmap_now = getattr(screen, "game_map", None)
+        if needs_heal_now and goal in (
+            Goal.CURE_POISON, Goal.RESURRECT_DEAD, Goal.BUY_FOOD
+        ) and gmap_now is not None:
+            town_type = {
+                Goal.CURE_POISON: _HEALER_TOWNS,
+                Goal.RESURRECT_DEAD: _HEALER_TOWNS,
+                Goal.BUY_FOOD: _FOOD_TOWNS,
+            }[goal]
+            px_here, py_here = (
+                (screen.avatar_x, screen.avatar_y)
+                if hasattr(screen, "avatar_x") else (party.x, party.y)
+            )
+            for entry in ((t[0], t[1]) for t in town_type.values()):
+                _, cost = find_2d_step_and_cost(
+                    gmap_now, (px_here, py_here), {entry}, Transport.FOOT, party=party
+                )
+                if cost is not None and cost <= 8:
+                    needs_heal_now = False
+                    break
+        # 100-seed atlas (2026-11-20): 63/82 deaths died with min-HP < 35% -
+        # parties walked CURE_POISON/BUY_FOOD/RESURRECT voyages while hurt
+        # because the heal-detour was deliberately skipped for those goals
+        # (a starvation-era gold-crunch rule). Voyage deaths dwarfed the
+        # savings, so: heal-detours now apply on ANY voyage when aboard a
+        # ship (sea fights are lethal to wounded parties) or at deep HP
+        # (< 50%), regardless of goal.
+        min_hp_frac_now = min(
+            (
+                m.hp / max(1, m.max_hp)
+                for m in party.members
+                if not m.is_dead()
+            ),
+            default=1.0,
+        )
+        voyage_or_deep_wound = party.transport == Transport.SHIP or min_hp_frac_now < 0.5
         if (
-            needs_heal(party)
-            and goal != Goal.BUY_FOOD
+            needs_heal_now
             and party.food > 0
             and (
-                goal != Goal.CURE_POISON
+                voyage_or_deep_wound
+                or goal != Goal.BUY_FOOD
+            )
+            and (
+                voyage_or_deep_wound
+                or goal != Goal.CURE_POISON
                 or any(not m.is_dead() and m.hp <= 25 for m in party.members)
             )
         ):
             saving_for_alcort = poison_idx is not None and all(
                 m.hp > 25 for m in party.members if not m.is_dead()
             )
-            caster = next(
-                (
-                    (i + 1, m.profession)
-                    for i, m in enumerate(party.members)
-                    if not m.is_dead()
-                    and m.profession in (Profession.CLERIC, Profession.PALADIN, Profession.DRUID)
-                    and m.mp >= 10
-                    and not (
-                        saving_for_alcort
-                        and m.profession in (Profession.CLERIC, Profession.DRUID)
-                        and m.max_mp >= 35
-                    )
-                ),
+            # Poison-precedence user ruling (2026-11-20): poison ticks eat
+            # heals faster than pass-mp regen can fund them - while anyone
+            # is poisoned, heals only fire for a dying member (<= 25 HP);
+            # otherwise save the MP for cures/vendor trips.
+            if poison_idx is not None and not any(
+                not m.is_dead() and m.hp <= 25 for m in party.members
+            ):
+                caster = None  # heal-cast refused outright (poison precedence)
+            else:
+                caster = next(
+                    (
+                        (i + 1, m.profession)
+                        for i, m in enumerate(party.members)
+                        if not m.is_dead()
+                        and m.profession in (Profession.CLERIC, Profession.PALADIN, Profession.DRUID)
+                        and m.mp >= 10
+                        and not (
+                            saving_for_alcort
+                            and m.profession in (Profession.CLERIC, Profession.DRUID)
+                            and m.max_mp >= 35
+                        )
+                    ),
                 None,
             )
             if caster is not None:
@@ -1773,16 +1822,6 @@ class AutoPlayController:
                 return self._move_toward(state_machine, gmap, party, (px, py), reachable_frigates)
             return self._hunt_starving_prey_or_patrol(state_machine, screen, gmap, party, px, py, living)
 
-
-            reachable_frigates = {
-                pos
-                for pos in frigates
-                if find_2d_step(gmap, (px, py), {pos}, Transport.FOOT, party=party) is not None
-            }
-            if reachable_frigates:
-                return self._move_toward(state_machine, gmap, party, (px, py), reachable_frigates)
-            return self._hunt_starving_prey_or_patrol(state_machine, screen, gmap, party, px, py, living)
-
         starving_on_food_route = (
             goal == Goal.BUY_FOOD
             and any(not m.is_dead() and m.food == 0 for m in living)
@@ -2039,13 +2078,7 @@ class AutoPlayController:
                 dy = min((cy - py) % gmap.height, (py - cy) % gmap.height)
                 if dx + dy <= 12:
                     candidate_prey.append((tname, cx, cy))
-            # Economy critic (inert by default): prefer prey that actually
-            # pays gold at the party's power level.
-            land_targets = self._economy.select_prey(
-                party, state_machine.current_screen, candidate_prey
-            )
-            if land_targets is None:
-                land_targets = {(x, y) for _t, x, y in candidate_prey}
+            land_targets = {(x, y) for _t, x, y in candidate_prey}
             if land_targets:
                 d = find_2d_step(gmap, (px, py), land_targets, party.transport, party=party, avoid_tiles=self._overworld_avoid)
                 if d is not None:
@@ -2445,14 +2478,58 @@ class AutoPlayController:
             ):
                 return self._emit_key(state_machine, pygame.K_SPACE)
             return self._emit_key(state_machine, pygame.K_e)
+        # Ship prelude (2026-11-20 BUY_FOOD-at-sea circles): a boarding party
+        # must dock at the town's shore before the foot machinery applies.
+        if self._screen_map_id(screen, party) == 0 and party.transport == Transport.SHIP:
+            dock_waters = set()
+            for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+                nx, ny = (target_portal[0] + dx) % gmap.width, (target_portal[1] + dy) % gmap.height
+                nt = gmap.get_tile(nx, ny)
+                if nt is not None and getattr(nt, "swimmable", False):
+                    dock_waters.add((nx, ny))
+            if dock_waters:
+                d = find_2d_step(gmap, (px, py), dock_waters, Transport.SHIP, party=party)
+                if d is not None:
+                    return self._emit_key(state_machine, _DIR_TO_KEY[d])
+            # Adjacent to the dock: X to disembark — always through the
+            # transport gate (BUY_FOOD/cure goals want FOOT, which the gate
+            # permits).
+            from py_exodus.screens.overworld import can_move_to
+
+            if self._transport_emit_allowed(state_machine, pygame.K_x):
+                for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+                    nx, ny = (px + dx) % gmap.width, (py + dy) % gmap.height
+                    if can_move_to(gmap, nx, ny, Transport.FOOT, party=party) or (
+                        (nx, ny) == target_portal
+                    ):
+                        return self._emit_key(state_machine, pygame.K_x)
         if (
             self._screen_map_id(screen, party) == 0
             and party.transport == Transport.FOOT
             and find_2d_step(gmap, (px, py), {target_portal}, Transport.FOOT, party=party) is None
         ):
-            frigates = self._boardable_frigates(party, screen=screen)
+            # Adjacent-portal walk (2026-11-20 live trace: the foot path to
+            # the entry tile can fail while the entry tile is ONE STEP away -
+            # boarding the frigate under your feet instead of walking in is
+            # what created the B/X dock alternation).
+            import py_exodus.constants as _c
+            for d in _c.Direction:
+                if (px + d.dx) % gmap.width == target_portal[0] and (
+                    (py + d.dy) % gmap.height == target_portal[1]
+                ):
+                    key = _DIR_TO_KEY.get(d)
+                    if key is not None:
+                        return self._emit_key(state_machine, key)
+            frigates = {
+                xy for xy in self._boardable_frigates(party, screen=screen)
+                if not self._frigate_is_stranded(gmap, xy)
+            }
             if (px, py) in frigates:
-                return self._emit_key(state_machine, pygame.K_b)
+                if self._transport_emit_allowed(state_machine, pygame.K_b):
+                    return self._emit_key(state_machine, pygame.K_b)
+                # Gate-blocked boarding: fall through to the moongate/hunt
+                # strategies below instead of stalling (movement breaks the
+                # lock anchor naturally).
             reachable_frigates = {
                 pos for pos in frigates
                 if find_2d_step(gmap, (px, py), {pos}, Transport.FOOT, party=party) is not None
@@ -2470,7 +2547,11 @@ class AutoPlayController:
             if hull_val > 5:
                 fallback_frigates = self._boardable_frigates(party, include_damaged=True, screen=screen)
                 if (px, py) in fallback_frigates:
-                    return self._emit_key(state_machine, pygame.K_b)
+                    # Gated like every other board site: desired-FOOT goals
+                    # must not board out from under the walk.
+                    if self._transport_emit_allowed(state_machine, pygame.K_b):
+                        return self._emit_key(state_machine, pygame.K_b)
+                    return None  # loop-breaker: boarding locked out this cycle
                 reachable_fallback = {
                     pos for pos in fallback_frigates
                     if find_2d_step(gmap, (px, py), {pos}, Transport.FOOT, party=party) is not None
@@ -2545,20 +2626,6 @@ class AutoPlayController:
         }
         return self._move_toward(state_machine, gmap, party, (px, py), adjacent)
 
-    def _hazard_hazard_costs(self, state_machine: StateMachine, party):
-        """Scaled hazard costs for the current position (None when inert)."""
-        runtime = getattr(self, "_hazard", None)
-        if runtime is None or not runtime.active:
-            return None
-        screen = state_machine.current_screen
-        if screen is None or getattr(screen, "game_map", None) is None:
-            return None
-        try:
-            return runtime.hazard_costs(party, screen)
-        except Exception as exc:  # strategy layer must never break the run
-            logger.warning("hazard critic error: %s", exc)
-            return None
-
     def _move_toward(
         self,
         state_machine: StateMachine,
@@ -2574,8 +2641,6 @@ class AutoPlayController:
         )
         avoid = getattr(self, "_overworld_avoid", None) or None
         wind = getattr(party, "wind_direction", None)
-        hz_costs = self._hazard_hazard_costs(state_machine, party)
-        hz_alpha = self._hazard.alpha if self._hazard.active else 0.0
         d, wind_cost = find_2d_step_and_cost(
             game_map,
             start=start,
@@ -2585,8 +2650,6 @@ class AutoPlayController:
             wind_direction=wind,
             avoid_tiles=avoid,
             allow_locked_doors=(has_key and party.transport == Transport.FOOT),
-            hazard_costs=hz_costs,
-            hazard_alpha=hz_alpha,
         )
         if (
             starving_buy_food
@@ -2680,10 +2743,24 @@ class AutoPlayController:
         portals: list[tuple[int, int]],
         party=None,
     ) -> tuple[int, int]:
+        def _portal_dock_waters(tx: int, ty: int) -> set:
+            waters = set()
+            for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+                nx, ny = (tx + dx) % game_map.width, (ty + dy) % game_map.height
+                nt = game_map.get_tile(nx, ny)
+                if nt is not None and getattr(nt, "swimmable", False):
+                    waters.add((nx, ny))
+            return waters
+
         def _dist(tx_ty: tuple[int, int]) -> int:
-            tx, ty = tx_ty
-            dx = min((tx - px) % game_map.width, (px - tx) % game_map.width)
-            dy = min((ty - py) % game_map.height, (py - ty) % game_map.height)
+            # 2026-11-20 live bug (BUY_FOOD at sea sailed circles): a SHIP
+            # party reaches a town via its adjacent docking water, and the
+            # bare probe with no wind bails out in the pathfinder - every
+            # portal scored unreachable -> manhattan fallback drifted the
+            # ship toward routes the wind blocked. Score by true water
+            # route (wind-agnostic: wind re-rolls within ~20 moves).
+            dx = min((tx_ty[0] - px) % game_map.width, (px - tx_ty[0]) % game_map.width)
+            dy = min((tx_ty[1] - py) % game_map.height, (py - tx_ty[1]) % game_map.height)
             return dx + dy
 
         ordered = sorted(portals, key=_dist)
@@ -2692,7 +2769,15 @@ class AutoPlayController:
         best_portal = None
         best_cost = None
         for portal in ordered:
-            _, cost = find_2d_step_and_cost(game_map, (px, py), {portal}, transport, party=party)
+            if transport == Transport.SHIP:
+                waters = _portal_dock_waters(*portal)
+                if not waters:
+                    continue
+                _, cost = find_2d_step_and_cost(
+                    game_map, (px, py), waters, transport, party=party, ignore_wind=True
+                )
+            else:
+                _, cost = find_2d_step_and_cost(game_map, (px, py), {portal}, transport, party=party)
             if cost is not None and (best_cost is None or cost < best_cost):
                 best_cost = cost
                 best_portal = portal

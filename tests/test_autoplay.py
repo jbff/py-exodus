@@ -445,6 +445,48 @@ def test_canonical_party_engages(pygame_setup, asset_mgr):
     assert ctrl.enabled is True
 
 
+def test_poisoned_party_does_not_cast_heals(pygame_setup):
+    """Poison-precedence (user ruling 2026-11-20): while members are
+    poisoned, heal-casting is pointless (poison ticks outpace heals) - the
+    party must not stand around casting; cure flows own the turn."""
+    import pygame as pg
+
+    from py_exodus.assets import AssetManager
+    from py_exodus.constants import Status
+    from py_exodus.screens.overworld import OverworldScreen
+    from py_exodus.state_machine import StateMachine
+
+    party = _make_party(level=12, gold=800, map_id=0, x=38, y=30)
+    for m in party.members:
+        m.status = Status.POISONED
+    # Pre-ALCORT cleric (max_mp < 35): no heal-casting while poisoned and
+    # nobody dying - the cure/vendor flows own the turn (poison ticks eat
+    # heals faster than passes fund MP).
+    party.members[2].mp = party.members[2].max_mp = 20
+    for m in party.members:
+        m.hp = int(m.max_hp * 0.6)
+    sm = StateMachine(asset_mgr=am() if callable(globals().get("am")) else AssetManager("data"))
+    s = sm
+    from py_exodus.world.loader import load_map
+    amx = AssetManager("data"); amx.load_all()
+    sm2 = StateMachine(asset_mgr=amx, audio=None)
+    sm2.push_screen(OverworldScreen(party=party, map_id=0, asset_mgr=amx, random_encounters_enabled=False))
+    ctrl = AutoPlayController(enabled=True)
+    keys = [ctrl.step(sm2) for _ in range(6)]
+    assert pygame.K_c not in keys, keys  # no cast attempts
+    # Deep-wound voyage variant (the hole a 20-MP fixture missed): aboard a
+    # ship (voyage deep-wound path) the poisoned non-dying party must still
+    # refuse heal-casts.
+    party.transport = Transport.SHIP
+    amx2 = AssetManager("data"); amx2.load_all()
+    from py_exodus.world.loader import load_map
+    party.x, party.y = 46, 13  # Britain river water
+    sm3 = StateMachine(asset_mgr=amx2, audio=None)
+    sm3.push_screen(OverworldScreen(party=party, map_id=0, asset_mgr=amx2, random_encounters_enabled=False))
+    ctrl2 = AutoPlayController(enabled=True)
+    keys2 = [ctrl2.step(sm3) for _ in range(6)]
+    assert pygame.K_c not in keys2, keys2
+
 def test_party_member_deaths_do_not_trip_composition_guard(pygame_setup, asset_mgr):
     """Wipes must disable autoplay through the death path, not composition."""
     party = _make_party(level=5)
@@ -1820,18 +1862,29 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
     # at this coast must never settle into an alternating B/X pattern.
     p_sail.members[2].max_mp = p_sail.members[2].mp = 50  # alcort-ready
     keys_out = []
-    for _ in range(6):
+    for _ in range(8):
         keys_out.append(ctrl.step(sm))
         sm.update(0.05)
-    alternating_bx = any(
-        {keys_out[i], keys_out[i + 1]} == {pygame.K_b, pygame.K_x}
-        for i in range(len(keys_out) - 1)
-    )
-    assert not alternating_bx, keys_out
-    assert p_sail.transport == Transport.SHIP
+    # Anti-loop contract (sticky lock): an opening B/X run is bounded - the
+    # loop-breaker engages and the party RESUMES MOVEMENT (direction keys),
+    # it must not settle into an unbounded dock alternation.
+    assert pygame.K_b not in keys_out[-3:] and pygame.K_x not in keys_out[-3:], keys_out
+    assert any(
+        k in (pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame.K_RIGHT)
+        for k in keys_out[-3:]
+    ), keys_out
+    # Doctrine (2026-11-20): an exotics GRIND party's next move happens on
+    # land (level/shop/raid prep) - it disembarked instead of staying aboard.
+    assert p_sail.transport == Transport.FOOT
     p_sail.wind_direction = None
-    assert ctrl.step(sm) == pygame.K_SPACE
-    assert p_sail.transport == Transport.SHIP
+    # On foot beside the portal it can level at, the controller walks IN
+    # (K_UP toward the (45, 18) entry) rather than resting or reboarding.
+    assert ctrl.step(sm) in (
+        pygame.K_UP,
+        pygame.K_LEFT,
+        pygame.K_RIGHT,
+    )
+    assert p_sail.transport == Transport.FOOT
 
     # Disembarking at Death Gulch's shore (54, 32) must walk onto (55, 32), not B/X loop back to Britain
     p_dg_shore = _make_party(
