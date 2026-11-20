@@ -199,8 +199,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> None:
     """CLI execution entrypoint."""
     args = parse_args(argv)
-    if args.seed is not None:
-        random.seed(args.seed)
+    if args.seed is None:
+        # Every run gets a printable, rerunnable seed: capture the fresh
+        # entropy explicitly so "what seed was that run?" always has an
+        # answer (2026-11-20 user request for seed-pinned reproduction).
+        args.seed = __import__("secrets").randrange(10_000_000, 99_999_999)
+    random.seed(args.seed)
+    print(f"[py-exodus] effective seed: {args.seed} (rerun with --seed {args.seed})")
     debug.set_debug(args.debug)
     nn_combat = args.nn_combat if args.nn_combat is not None else args.autoplay
     app = GameApp(autoplay=args.autoplay, nn_combat=nn_combat, nn_device=args.nn_device)

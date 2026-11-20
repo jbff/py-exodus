@@ -1832,6 +1832,27 @@ class AutoPlayController:
             )
 
         if goal == Goal.CAPTURE_SHIP:
+            # Pirate-approach (2026-11-20 live: party parked 2 tiles from a
+            # pirate at cannon range - broadsides are range 2-3, engagement
+            # is distance <=1 - and the standoff-avoid block deliberately
+            # excludes CAPTURE, so nothing moved it in). A live pirate's
+            # ship is a CREATURE, not a parked frigate object: sail INTO the
+            # pirate tile to force the engagement and win its hull.
+            nearby_pirates = [
+                (c["x"], c["y"])
+                for c in getattr(screen, "creatures", ())
+                if str(c.get("tile_name") or c.get("tile") or "").lower() == "pirate"
+                and "x" in c and "y" in c
+                and min((c["x"] - px) % gmap.width, (px - c["x"]) % gmap.width)
+                + min((c["y"] - py) % gmap.height, (py - c["y"]) % gmap.height) <= 3
+            ]
+            if nearby_pirates and party.transport == Transport.SHIP:
+                d = find_2d_step(
+                    gmap, (px, py), set(nearby_pirates), Transport.SHIP,
+                    party=party, wind_direction=getattr(party, "wind_direction", None),
+                )
+                if d is not None:
+                    return self._emit_key(state_machine, _DIR_TO_KEY[d])
             frigates = {
                 xy for xy in self._boardable_frigates(party, include_damaged=False)
                 if not self._frigate_is_stranded(gmap, xy)
