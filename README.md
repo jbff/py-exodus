@@ -29,9 +29,11 @@ Pressing **`F9`** (with **`[`** / **`]`** to adjust step speed) hands the entire
 
 > **Status (`neural-net` branch)**:
 > - **Pre-NN Symbolic Baseline (`master` / `pre-nn` tag)**: End-to-end A-to-Z victory from a fresh game both under `--debug` `NOHURT` (`seed=417 WON@142,845`, `seed=418 WON@114,926`) and **unassisted (no cheat flags)** (`seed=437 WON@112,074`, `seed=471 WON@149,406`, `seed=472 WON@134,745`, `seed=522 WON@112,667`, `seed=525 WON@102,913`, `seed=543 WON@132,678`).
+> - **FIRST FULL AUTOPLAY WIN on this branch (2026-11-20, live, unassisted)**: NN combat + the symbolic strategy doctrine (early Ambrosia -> cleric Wis 99 + all 4 cards + ALCORT self-sufficiency -> Death Gulch bribe raids -> Ambrosia stat-max returns -> Exodus castle). Combat was the neural net; strategy was the symbolic ladder. All symbolic doctrine now also merged to `master` (af2ece1).
 > - **`neural-net` Hybrid Policy**:
 >   - **Phase 0**: Shared 35-feature macro extractor (`py_exodus/autoplay/features.py`) + EV/utility `score_goals` (`py_exodus/autoplay/planner.py`); `900–909` holdout baseline `1 / 10` (`seed=908 WON@111,905`).
 >   - **Phases 1–2 (Combat) — v3 full-battlefield net, wired into live autoplay**: `CombatPolicyNet` (`868k` params, v3 encoder: member level, armed weapon, monster types; combat-irrelevant moon/wind/hull dropped) trained via BC + PPO over the FULL reachable encounter space — 13 battle creatures x every reachable conflict map (incl. ship maps 39/40/41, shore 38, boarding 33) x party transports x monster counts 1–8 x levels 3–25, with diverse parties (MP pools up to 75+, wounded squads, level-shaped gear). Holdout (`900–999`, 3,168 episodes): NN `95.2%` overall / `99.2%` ship battles vs symbolic `96.1%` / `98.7%` — ship-vs-serpent looping (the v1 OOD failure) fixed. The v3 action space lets the net choose every combat-castable spell individually.
+>   - **NN Strategy Layer (built, measured, dormant until proven)**: a hazard critic (P(near-death soon) per position/context, A* edge-cost injection; holdout A/B showed no measurable change - pathing deaths aren't the failure mode) and an economy critic (gold-yield per creature mix): three attribution attempts converged on NO learnable yield signal in symbolic rollout data - combat gold is sparse noise at 24-seed scale, and the symbolic pirate-priority hunt already encodes the main finding. Verdict (2026-11-20): strategy NNs are frozen pending either much larger recorded corpora or a fresh strategy need; the symbolic ladder is the strategy of record.
 >   - **Phase 3 (Macro Critic + Overworld Policy — offline evaluation only, not wired into autoplay)**: `MacroCriticNet` BC achieves `99%+` val accuracy, but on full-game `900–909` holdout runs no NN configuration beat the symbolic baseline (`1/10`): macro-BC residual-EV ties it (`1/10`, `seed=905 WON@84,535`), while macro-PPO (`macro_rl.pt`, `macro_rl_res.pt`) and the 3-net overworld variants (`overworld_ppo*.pt`) all scored `0 / 10` (reward-hacking loitering, early wipes on foot near Britain, economy stalls). Full-game PPO remains gated; see the handoff report for diagnosed failure modes and next steps.
 
 ### NN Combat Policy (`neural-net` branch)
@@ -80,7 +82,7 @@ python3 -m py_exodus
 ```bash
 uv run python -m pytest
 ```
-The suite currently runs **1,391 tests** covering mechanics, Java/GBC parity, vendors, dungeons, combat, rendering, autoplay regressions, and the `neural-net` hybrid modules.
+The suite currently runs **1,420 tests** covering mechanics, Java/GBC parity, vendors, dungeons, combat, rendering, autoplay regressions, and the `neural-net` hybrid modules.
 
 ---
 
