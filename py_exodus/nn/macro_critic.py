@@ -38,11 +38,13 @@ class MacroCriticNet(nn.Module):
             nn.Linear(hidden_dim, hidden_dim),
             nn.LayerNorm(hidden_dim),
             nn.SiLU(),
+            nn.Dropout(0.1),
         )
         self.block2 = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim),
             nn.LayerNorm(hidden_dim),
             nn.SiLU(),
+            nn.Dropout(0.1),
         )
         self.policy_head = nn.Linear(hidden_dim, num_goals)
         self.value_head = nn.Linear(hidden_dim, 1)
@@ -169,7 +171,7 @@ def train_macro_bc(
         batch_size=min(batch_size, max(1, n_train)),
         shuffle=True,
     )
-    opt = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
+    opt = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-2)
     ce_loss = nn.CrossEntropyLoss()
 
     model.train()
