@@ -27,10 +27,10 @@ Pressing **`F9`** (with **`[`** / **`]`** to adjust step speed) hands the entire
 - **Party setup & outfitting**: creates a balanced 4-member party (Thief / Fighter / Cleric / Wizard), buys starter gear and `Chain`/`Plate` armor upgrades in Britain/Dawn, and keeps per-member food and gold reserves balanced.
 - **Progression & navigation**: levels to 5+ for the Mark of Kings, captures a frigate, uses wind-hold / sea-monster-avoiding BFS sailing to dig Exotic Weapons & Armor, clears remaining dungeon Marks (`Fire`, `Force`, `Snake`), raids Death Gulch for gold (`>= 4500g` target via locked doors & chokepoint guard bribing), sails Whirlpools into Ambrosia for all 4 Cards and Shrine stat upgrades (prioritizing Cleric `Wis`, Wizard `Int`, Fighter `Str`, Thief `Dex`), levels to 25+, yells `EVOCARE` to pass the Great Earth Serpent, clears Exodus Castle defenders, and inserts all 4 Cards to win.
 
-> **Status**: Full autoplay has achieved **end-to-end A-to-Z victory from a fresh game both with and without cheats**:
-> - **Unassisted (no cheat flags)**: `seed=437` won in `112,074` steps (`lvls=[43, 41, 26, 32]`, all 4 Marks & Exotics, `Wis=99`, `Int=89`, `goal=DONE`).
+> **Status (`master` / `pre-nn` baseline)**: Full autoplay has achieved **end-to-end A-to-Z victory from a fresh game both with and without cheats**:
+> - **Unassisted (no cheat flags, 6 verified seeds)**: `seed=437 WON@112,074`, `seed=471 WON@149,406`, `seed=472 WON@134,745`, `seed=522 WON@112,667`, `seed=525 WON@102,913`, and `seed=543 WON@132,678`.
 > - **Under `--debug` `NOHURT`**: `seed=418` (`114,926` steps) and `seed=417` (`142,845` steps) also won end-to-end (`L25–32`, `Wis=99`, `Int=35–52`).
-> - **Currently working on / next up**: Improving non-`nohurt` win rate across seeds by reducing early-game L1–L3 wipes, ship-loss/pirate-cannon strandings on Death Gulch and Exotic islands, and starvation stalls during `BUY_FOOD`.
+> - **Next up (on `neural-net` branch)**: Implementing the phased EV + compact PyTorch hybrid policy (`docs/superpowers/plans/2026-11-19-nn-hybrid-policy.md`) while keeping `master` at the `pre-nn` symbolic baseline.
 
 ---
 
@@ -65,7 +65,7 @@ python3 -m py_exodus
 ```bash
 uv run python -m pytest
 ```
-The suite currently runs **1,263 tests** covering mechanics, Java/GBC parity, vendors, dungeons, combat, rendering, and autoplay regressions.
+The suite currently runs **1,264 tests** covering mechanics, Java/GBC parity, vendors, dungeons, combat, rendering, and autoplay regressions.
 
 ---
 
