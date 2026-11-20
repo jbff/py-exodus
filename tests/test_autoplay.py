@@ -1985,6 +1985,14 @@ def test_no_resting_on_unsafe_town_maps(pygame_setup):
     assert ctrl.step(sm) != pygame.K_SPACE
 
 
+def test_cli_seed_flag():
+    """CLI parse_args accepts --seed as an int (default None)."""
+    from py_exodus.__main__ import parse_args
+
+    assert parse_args(["--autoplay", "--seed", "437"]).seed == 437
+    assert parse_args([]).seed is None
+
+
 
 
 

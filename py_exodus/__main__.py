@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import random
 import sys
 from pathlib import Path
 from typing import Any
@@ -161,12 +162,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Start in Full Autoplay (Watch Mode); F9 toggles at runtime.",
     )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Seed Python's RNG for reproducible runs.",
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> None:
     """CLI execution entrypoint."""
     args = parse_args(argv)
+    if args.seed is not None:
+        random.seed(args.seed)
     debug.set_debug(args.debug)
     app = GameApp(autoplay=args.autoplay)
     try:
