@@ -30,7 +30,15 @@ Pressing **`F9`** (with **`[`** / **`]`** to adjust step speed) hands the entire
 > **Status (`master` / `pre-nn` baseline)**: Full autoplay has achieved **end-to-end A-to-Z victory from a fresh game both with and without cheats**:
 > - **Unassisted (no cheat flags, 6 verified seeds)**: `seed=437 WON@112,074`, `seed=471 WON@149,406`, `seed=472 WON@134,745`, `seed=522 WON@112,667`, `seed=525 WON@102,913`, and `seed=543 WON@132,678`.
 > - **Under `--debug` `NOHURT`**: `seed=418` (`114,926` steps) and `seed=417` (`142,845` steps) also won end-to-end (`L25–32`, `Wis=99`, `Int=35–52`).
-> - **Next up (on `neural-net` branch)**: Implementing the phased EV + compact PyTorch hybrid policy (`docs/superpowers/plans/2026-11-19-nn-hybrid-policy.md`) while keeping `master` at the `pre-nn` symbolic baseline.
+> - **2026-11-20 strategy overhaul (merged from `neural-net`, proven in a first-ever full autoplay WIN that run)**:
+>   - **Early-Ambrosia doctrine**: after Marks + Exotics, the FIRST Ambrosia trip happens at ~1,500g pooled (10 x 100g cleric-Wis shrine points = ALCORT self-sufficiency at 35 MP), not after a 4,500g stat-max grind. Death Gulch raids only start once the cleric can cast ALCORT; return Ambrosia trips (>= 2,000g + stats below cap) form the stat-max loop ahead of Castle Fire. Broke-in-Ambrosia exits when only paid work remains.
+>   - **Loop-breaker memory layer**: emitted-key history detects repeating board/disembark cycles and locks the goal-wrong transport out (with STALL self-reporting when nothing handles a state) — kills the B/X oscillation class that starved parties at Britain/Death Gulch.
+>   - **cure-poison overworld traversal** (walk to a healer town; ship disembarks at any coast) — previously the goal existed only inside towns.
+>   - **Death Gulch bribe law**: any adjacent guard is bribed (100g, permanent removal); guards are excluded from hunt targets entirely (attacks make them hostile; guards deal 0 damage).
+>   - **Force-field pathfinder parity**: A* now mirrors the movement validator (passage needs the Mark of Force on EVERY living member — the old check looked at the Snake mark on any member).
+>   - **Monster restoration** (USER-DIRECTED DEVIATION restoring original spawn coverage): Squid at sea (was dropped with Pirate/Serpent), Pincher in the >700 HP land tier, Dragon mountain habitats for strong parties, Balron alongside on Ambrosia/Exodus terrain — GBC `SpawnMonster` carried all 13 types; Java's exclusive-bound indexing bug dropped them, and the converted maps lack their glyph tiles, so habitats are terrain-based. Low-health parties still never spawn Giants (that classic bug stays fixed).
+>   - Symbolic auto-combat now cures poison (ALCORT) between attacks.
+>   - The phased EV/PyTorch hybrid continues on the `neural-net` branch; its combat net already wins ~95% of holdout encounters.
 
 ---
 
