@@ -127,6 +127,15 @@ class CombatNNPolicy:
         arena = screen.arena
         if arena.is_finished:
             return pygame.K_RETURN
+        # Mirror the screen's own symbolic auto-combat gate
+        # (CombatScreen.update): never act while an animation stage is in
+        # flight or the text log is waiting for a prompt answer, so each
+        # NN action's FX plays out and the travelogue stays readable.
+        if getattr(screen, "_anim_stage", None) is not None:
+            return None
+        text_log = getattr(screen, "text_log", None)
+        if text_log is not None and text_log.is_waiting_for_input:
+            return None
         m_idx = arena.active_party_member_idx
         from py_exodus.nn.combat_env import (
             encode_combat_state,
@@ -150,5 +159,17 @@ class CombatNNPolicy:
                 m_idx,
                 asset_mgr=asset_mgr,
             )
-        arena.execute_turn(action)
+        # Execute through the screen pipeline, not arena.execute_turn:
+        # _execute_action stages the hit/projectile/cast FX and its
+        # completion flushes arena.log_messages into the travelogue and
+        # runs the monster turns — exactly the path the symbolic
+        # auto-combat uses (CombatScreen.update). A party death mid-action
+        # raises PartyDeathException; handle it the same way the screen
+        # does.
+        from py_exodus.entities.party import PartyDeathException
+
+        try:
+            screen._execute_action(action)
+        except PartyDeathException:
+            screen.check_party_death()
         return None

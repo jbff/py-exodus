@@ -142,8 +142,79 @@ def test_real_policy_executes_turns_without_crash(pygame_setup, asset_mgr):
     ctrl = AutoPlayController(enabled=True, step_interval=0.05, nn_combat=True)
     if not ctrl.nn_combat_policy.available:  # torch or checkpoint missing
         pytest.skip("combat checkpoint/torch unavailable")
-    for _ in range(12):
+    for _ in range(240):
         ctrl.step(sm)
+        sm.update(0.05)  # progress FX so animations complete and logs flush
         if combat.arena.is_finished:
             break
     assert combat.arena.log_messages, "NN policy should have executed combat actions"
+
+
+def test_real_policy_drives_screen_pipeline(pygame_setup, asset_mgr):
+    """NN turns must go through the screen so FX plays and the travelogue logs.
+
+    Regression: driving arena.execute_turn directly bypassed
+    CombatScreen._execute_action, leaving zero animations and an empty
+    travelogue during NN autoplay.
+    """
+    sm = StateMachine(asset_mgr=asset_mgr)
+    combat = _combat_screen(asset_mgr)
+    sm.push_screen(combat)
+
+    ctrl = AutoPlayController(enabled=True, step_interval=0.05, nn_combat=True)
+    if not ctrl.nn_combat_policy.available:
+        pytest.skip("combat checkpoint/torch unavailable")
+    initial = list(combat.text_log.lines)  # e.g. "SHADOW's turn." from init
+    for _ in range(240):
+        ctrl.step(sm)
+        sm.update(0.05)  # progress FX so animations complete and logs flush
+        if combat.arena.is_finished:
+            break
+    new_lines = [
+        line
+        for line in combat.text_log.lines[len(initial):]
+        if not line.endswith("turn.")  # ignore per-turn markers
+    ]
+    assert new_lines, (
+        "travelogue should log NN combat actions beyond turn markers"
+    )
+
+
+def test_policy_waits_for_in_flight_animation(pygame_setup, asset_mgr):
+    """While the screen animates, the policy must not execute another turn."""
+    sm = StateMachine(asset_mgr=asset_mgr)
+    combat = _combat_screen(asset_mgr)
+    sm.push_screen(combat)
+
+    policy = CombatNNPolicy(device="cpu")
+    if not policy.available:
+        pytest.skip("combat checkpoint/torch unavailable")
+
+    combat._anim_stage = "projectile"
+    before = len(combat.arena.log_messages)
+    policy.step_combat(sm, combat)
+    assert len(combat.arena.log_messages) == before, "should not act mid-animation"
+    assert combat._anim_stage == "projectile"  # untouched
+
+
+def test_policy_handles_party_death_exception(pygame_setup, asset_mgr, monkeypatch):
+    """A wipe mid-NN-action routes through the screen's death check."""
+    from py_exodus.entities.party import PartyDeathException
+
+    sm = StateMachine(asset_mgr=asset_mgr)
+    combat = _combat_screen(asset_mgr)
+    sm.push_screen(combat)
+
+    policy = CombatNNPolicy(device="cpu")
+    if not policy.available:
+        pytest.skip("combat checkpoint/torch unavailable")
+
+    called = []
+    monkeypatch.setattr(
+        combat, "_execute_action", lambda action: (_ for _ in ()).throw(
+            PartyDeathException("wipe")
+        )
+    )
+    monkeypatch.setattr(combat, "check_party_death", lambda: called.append(True))
+    policy.step_combat(sm, combat)
+    assert called == [True]
