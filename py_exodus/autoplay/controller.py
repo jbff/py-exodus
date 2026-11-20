@@ -951,20 +951,21 @@ class AutoPlayController:
             if poison_idx is not None and not any(
                 not m.is_dead() and m.hp <= 25 for m in party.members
             ):
-                caster = None
-            caster = next(
-                (
-                    (i + 1, m.profession)
-                    for i, m in enumerate(party.members)
-                    if not m.is_dead()
-                    and m.profession in (Profession.CLERIC, Profession.PALADIN, Profession.DRUID)
-                    and m.mp >= 10
-                    and not (
-                        saving_for_alcort
-                        and m.profession in (Profession.CLERIC, Profession.DRUID)
-                        and m.max_mp >= 35
-                    )
-                ),
+                caster = None  # heal-cast refused outright (poison precedence)
+            else:
+                caster = next(
+                    (
+                        (i + 1, m.profession)
+                        for i, m in enumerate(party.members)
+                        if not m.is_dead()
+                        and m.profession in (Profession.CLERIC, Profession.PALADIN, Profession.DRUID)
+                        and m.mp >= 10
+                        and not (
+                            saving_for_alcort
+                            and m.profession in (Profession.CLERIC, Profession.DRUID)
+                            and m.max_mp >= 35
+                        )
+                    ),
                 None,
             )
             if caster is not None:

@@ -445,6 +445,48 @@ def test_canonical_party_engages(pygame_setup, asset_mgr):
     assert ctrl.enabled is True
 
 
+def test_poisoned_party_does_not_cast_heals(pygame_setup):
+    """Poison-precedence (user ruling 2026-11-20): while members are
+    poisoned, heal-casting is pointless (poison ticks outpace heals) - the
+    party must not stand around casting; cure flows own the turn."""
+    import pygame as pg
+
+    from py_exodus.assets import AssetManager
+    from py_exodus.constants import Status
+    from py_exodus.screens.overworld import OverworldScreen
+    from py_exodus.state_machine import StateMachine
+
+    party = _make_party(level=12, gold=800, map_id=0, x=38, y=30)
+    for m in party.members:
+        m.status = Status.POISONED
+    # Pre-ALCORT cleric (max_mp < 35): no heal-casting while poisoned and
+    # nobody dying - the cure/vendor flows own the turn (poison ticks eat
+    # heals faster than passes fund MP).
+    party.members[2].mp = party.members[2].max_mp = 20
+    for m in party.members:
+        m.hp = int(m.max_hp * 0.6)
+    sm = StateMachine(asset_mgr=am() if callable(globals().get("am")) else AssetManager("data"))
+    s = sm
+    from py_exodus.world.loader import load_map
+    amx = AssetManager("data"); amx.load_all()
+    sm2 = StateMachine(asset_mgr=amx, audio=None)
+    sm2.push_screen(OverworldScreen(party=party, map_id=0, asset_mgr=amx, random_encounters_enabled=False))
+    ctrl = AutoPlayController(enabled=True)
+    keys = [ctrl.step(sm2) for _ in range(6)]
+    assert pygame.K_c not in keys, keys  # no cast attempts
+    # Deep-wound voyage variant (the hole a 20-MP fixture missed): aboard a
+    # ship (voyage deep-wound path) the poisoned non-dying party must still
+    # refuse heal-casts.
+    party.transport = Transport.SHIP
+    amx2 = AssetManager("data"); amx2.load_all()
+    from py_exodus.world.loader import load_map
+    party.x, party.y = 46, 13  # Britain river water
+    sm3 = StateMachine(asset_mgr=amx2, audio=None)
+    sm3.push_screen(OverworldScreen(party=party, map_id=0, asset_mgr=amx2, random_encounters_enabled=False))
+    ctrl2 = AutoPlayController(enabled=True)
+    keys2 = [ctrl2.step(sm3) for _ in range(6)]
+    assert pygame.K_c not in keys2, keys2
+
 def test_party_member_deaths_do_not_trip_composition_guard(pygame_setup, asset_mgr):
     """Wipes must disable autoplay through the death path, not composition."""
     party = _make_party(level=5)
