@@ -18,3 +18,4 @@ __pycache__/
 
 refs/
 .worktrees/
+resume.sh
