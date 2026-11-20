@@ -8,8 +8,6 @@ from typing import TYPE_CHECKING
 
 import pygame
 
-from py_exodus.autoplay.economy_runtime import EconomyRuntime
-from py_exodus.autoplay.hazard_runtime import HazardRuntime
 from py_exodus.autoplay.equipment import (
     best_hand_transfer,
     best_owned_armor,
@@ -173,11 +171,6 @@ class AutoPlayController:
         self._mapped_dungeon_levels: set[tuple[int, int]] = set()
         # Loop-breaker state (memory layer): emitted-key history + optional
         # transport lock. See the loop-breaker block near _emit_key.
-        # NN strategy layer: hazard critic risk maps -> A* edge costs;
-        # economy critic -> yield-scored prey selection. Both inert unless
-        # trained checkpoints exist AND their env flags are set.
-        self._hazard = HazardRuntime()
-        self._economy = EconomyRuntime()
         self._step_history: deque[tuple] = deque(maxlen=self._HISTORY_MAX)
         self._transport_locked: str | None = None
         self._lock_no_cycle_ticks: int = 0
@@ -364,6 +357,18 @@ class AutoPlayController:
         self._transport_locked = desired
         self._lock_no_cycle_ticks = 0
         self._lock_age_ticks = 0
+        screen = None
+        # Anchor: the lock is sticky until the party actually MOVES off this
+        # spot (or the hard age cap). A quiet-ticks release re-creates the
+        # cycle at the same dock when ship movement is blocked (e.g. calm
+        # wind at Britain, 2026-11-20 live log) - the party X/B/SPACEs in
+        # place and re-locks forever without making progress.
+        try:
+            sm_screen = self._lock_sm.current_screen if self._lock_sm else None
+        except Exception:
+            sm_screen = None
+        _party = getattr(sm_screen, "party", None)
+        self._lock_anchor_pos = (_party.x, _party.y) if _party is not None else None
         logger.warning(
             "Autoplay loop-breaker: transport lock engaged (%s, desired=%s) "
             "after repeating %s cycle; history tail: %s",
@@ -378,6 +383,7 @@ class AutoPlayController:
         self._lock_no_cycle_ticks = 0
 
     def _tick_loop_breaker(self, state_machine: StateMachine) -> None:
+        self._lock_sm = state_machine
         if self._detect_transport_oscillation():
             self._lock_no_cycle_ticks = 0
             if self._transport_locked is None:
@@ -395,10 +401,18 @@ class AutoPlayController:
         elif self._transport_locked is not None:
             self._lock_no_cycle_ticks += 1
             self._lock_age_ticks += 1
+            self._lock_sm = state_machine
+            anchor = getattr(self, "_lock_anchor_pos", None)
+            party = getattr(state_machine.current_screen, "party", None)
+            moved = (
+                party is not None
+                and anchor is not None
+                and (party.x, party.y) != anchor
+            )
             if (
                 self._lock_no_cycle_ticks >= self._LOCK_RELEASE_TICKS
-                or self._lock_age_ticks >= self._LOCK_MAX_TICKS
-            ):
+                and moved
+            ) or self._lock_age_ticks >= self._LOCK_MAX_TICKS:
                 self._release_transport_lock()
             elif self._lock_age_ticks % 50 == 0:
                 # Self-reporting ticket: the lock stopped an oscillation but
@@ -1946,13 +1960,7 @@ class AutoPlayController:
                 dy = min((cy - py) % gmap.height, (py - cy) % gmap.height)
                 if dx + dy <= 12:
                     candidate_prey.append((tname, cx, cy))
-            # Economy critic (inert by default): prefer prey that actually
-            # pays gold at the party's power level.
-            land_targets = self._economy.select_prey(
-                party, state_machine.current_screen, candidate_prey
-            )
-            if land_targets is None:
-                land_targets = {(x, y) for _t, x, y in candidate_prey}
+            land_targets = {(x, y) for _t, x, y in candidate_prey}
             if land_targets:
                 d = find_2d_step(gmap, (px, py), land_targets, party.transport, party=party, avoid_tiles=self._overworld_avoid)
                 if d is not None:
@@ -2452,20 +2460,6 @@ class AutoPlayController:
         }
         return self._move_toward(state_machine, gmap, party, (px, py), adjacent)
 
-    def _hazard_hazard_costs(self, state_machine: StateMachine, party):
-        """Scaled hazard costs for the current position (None when inert)."""
-        runtime = getattr(self, "_hazard", None)
-        if runtime is None or not runtime.active:
-            return None
-        screen = state_machine.current_screen
-        if screen is None or getattr(screen, "game_map", None) is None:
-            return None
-        try:
-            return runtime.hazard_costs(party, screen)
-        except Exception as exc:  # strategy layer must never break the run
-            logger.warning("hazard critic error: %s", exc)
-            return None
-
     def _move_toward(
         self,
         state_machine: StateMachine,
@@ -2481,8 +2475,6 @@ class AutoPlayController:
         )
         avoid = getattr(self, "_overworld_avoid", None) or None
         wind = getattr(party, "wind_direction", None)
-        hz_costs = self._hazard_hazard_costs(state_machine, party)
-        hz_alpha = self._hazard.alpha if self._hazard.active else 0.0
         d, wind_cost = find_2d_step_and_cost(
             game_map,
             start=start,
@@ -2492,8 +2484,6 @@ class AutoPlayController:
             wind_direction=wind,
             avoid_tiles=avoid,
             allow_locked_doors=(has_key and party.transport == Transport.FOOT),
-            hazard_costs=hz_costs,
-            hazard_alpha=hz_alpha,
         )
         if (
             starving_buy_food
