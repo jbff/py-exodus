@@ -221,6 +221,11 @@ def score_goals(
     if cur_map_id == 13:
         has_key = feats["total_keys"] > 0.0
         needs_key_card = any(not any(m.cards[idx] > 0 for m in living) for idx in (0, 2))
+        # Cards 1/3 are collectable WITHOUT keys: free work a broke party
+        # should still do before exiting.
+        free_card_remains = any(
+            not any(m.cards[idx] > 0 for m in living) for idx in (1, 3)
+        )
         if (
             max(m.level for m in living) < 5
             or not all(m.marks[0] > 0 for m in party.members)
@@ -228,7 +233,14 @@ def score_goals(
             or feats["min_member_food"] < 40.0
             or (not has_all_cards and needs_key_card and not has_key)
             or (has_all_cards and not needs_shrine_stats(party))
-            or feats["party_gold"] < 100.0  # broke: shrine donations unpayable
+            # Broke and nothing free remains: exit rather than stall at an
+            # unpayable shrine or key vendor. Free card sites stay open.
+            or (
+                feats["party_gold"] < 100.0
+                and not (
+                    (not has_all_cards and free_card_remains)
+                )
+            )
         ):
             scores[Goal.EXIT_AMBROSIA] = 760.0
         else:
