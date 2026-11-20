@@ -27,10 +27,12 @@ Pressing **`F9`** (with **`[`** / **`]`** to adjust step speed) hands the entire
 - **Party setup & outfitting**: creates a balanced 4-member party (Thief / Fighter / Cleric / Wizard), buys starter gear and `Chain`/`Plate` armor upgrades in Britain/Dawn, and keeps per-member food and gold reserves balanced.
 - **Progression & navigation**: levels to 5+ for the Mark of Kings, captures a frigate, uses wind-hold / sea-monster-avoiding BFS sailing to dig Exotic Weapons & Armor, clears remaining dungeon Marks (`Fire`, `Force`, `Snake`), raids Death Gulch for gold (`>= 4500g` target via locked doors & chokepoint guard bribing), sails Whirlpools into Ambrosia for all 4 Cards and Shrine stat upgrades (prioritizing Cleric `Wis`, Wizard `Int`, Fighter `Str`, Thief `Dex`), levels to 25+, yells `EVOCARE` to pass the Great Earth Serpent, clears Exodus Castle defenders, and inserts all 4 Cards to win.
 
-> **Status**: Full autoplay has achieved **end-to-end A-to-Z victory from a fresh game both with and without cheats**:
-> - **Unassisted (no cheat flags)**: `seed=437` won in `112,074` steps (`lvls=[43, 41, 26, 32]`, all 4 Marks & Exotics, `Wis=99`, `Int=89`, `goal=DONE`).
-> - **Under `--debug` `NOHURT`**: `seed=418` (`114,926` steps) and `seed=417` (`142,845` steps) also won end-to-end (`L25–32`, `Wis=99`, `Int=35–52`).
-> - **Currently working on / next up**: Improving non-`nohurt` win rate across seeds by reducing early-game L1–L3 wipes, ship-loss/pirate-cannon strandings on Death Gulch and Exotic islands, and starvation stalls during `BUY_FOOD`.
+> **Status (`neural-net` branch)**:
+> - **Pre-NN Symbolic Baseline (`master` / `pre-nn` tag)**: End-to-end A-to-Z victory from a fresh game both under `--debug` `NOHURT` (`seed=417 WON@142,845`, `seed=418 WON@114,926`) and **unassisted (no cheat flags)** (`seed=437 WON@112,074`, `seed=471 WON@149,406`, `seed=472 WON@134,745`, `seed=522 WON@112,667`, `seed=525 WON@102,913`, `seed=543 WON@132,678`).
+> - **`neural-net` Hybrid Policy**:
+>   - **Phase 0**: Shared 35-feature macro extractor (`py_exodus/autoplay/features.py`) + EV/utility `score_goals` (`py_exodus/autoplay/planner.py`); `900–909` holdout baseline `1 / 10` (`seed=908 WON@111,905`).
+>   - **Phases 1–2 (Combat)**: `CombatPolicyNet` (`1.74M` params, `76.18 MB` peak VRAM) trained via outcome-filtered BC (`94.87%` val accuracy, `193/200 = 96.5%` on `900–999` holdout) and PPO (`194/200 = 97.0%`, `0` ally deaths vs symbolic `auto_combat` `190/200 = 95.0%`).
+>   - **Phase 3 (Macro Critic — gated)**: `MacroCriticNet` (`1.23M` params, `32.87 MB` peak VRAM, `98.25%` val accuracy on `seed=554`) + `DisagreementLogger`; `900–909` hybrid holdout gate scored `0 / 10` WON (`4` survived), so full-game PPO remains gated until trained on a broader set of `0–899` winning trajectories.
 
 ---
 
@@ -65,7 +67,7 @@ python3 -m py_exodus
 ```bash
 uv run python -m pytest
 ```
-The suite currently runs **1,263 tests** covering mechanics, Java/GBC parity, vendors, dungeons, combat, rendering, and autoplay regressions.
+The suite currently runs **1,293 tests** covering mechanics, Java/GBC parity, vendors, dungeons, combat, rendering, autoplay regressions, and the `neural-net` hybrid modules.
 
 ---
 
@@ -82,7 +84,10 @@ The suite currently runs **1,263 tests** covering mechanics, Java/GBC parity, ve
 2. **Input**: Keyboard only (no gamepad mapping yet).
 3. **`H` (Hand Equipment)**: Transfers unequipped weapons and armor only (per Java `HandDialog.java`), not food—autoplay compensates by equalizing food at purchase time.
 4. **Combat regen**: Passive MP (`tick_regen`) and meal-crossing `+1 HP` do not tick during combat rounds (only healing spells restore HP mid-battle).
-5. **Autoplay (unassisted win rate & NN roadmap)**: End-to-end A-to-Z victory is verified both under `NOHURT` (`seed=417 WON@142845`, `seed=418 WON@114926`) and unassisted (`nohurt=False`: `seed=437 WON@112074`, `seed=471 WON@149406`, `seed=472 WON@134745`, `seed=522 WON@112667`, `seed=525 WON@102913`, `seed=543 WON@132678`). Recent 10-seed 160k non-`nohurt` sweeps: `435–444` (1 win `437`, 1 survived `441`, 8 wipes: `436/440/443` Death Gulch shore cannon, `435/439/444` `BUY_FOOD`/starvation, `438/442` mid-game combat/poison), `465–474` (2 wins `471/472`, 1 survived `473`, 7 wipes), `485–494` (3 survived, 7 wipes), `505–514` (1 survived, 9 wipes), `515–524` (1 win `522`, 9 wipes), `525–534` (1 win `525`, 9 wipes), and `535–544` (1 win `543`, 9 wipes). Next step: a phased hybrid EV + compact PyTorch NN policy (`<= 5M` params / `< 500 MB` VRAM on RTX 3050; see `docs/superpowers/plans/2026-11-19-nn-hybrid-policy.md`) on the `neural-net` branch — Phase 0 EV/utility goal scorer + shared feature extractor, Phase 1–2 outcome-filtered `CombatScreen` BC + PPO, and Phase 3 macro critic gated against held-out seeds `900–999`.
+5. **Autoplay & `neural-net` Hybrid Branch**: End-to-end A-to-Z victory on the `pre-nn` symbolic baseline (`master` tag `pre-nn`) is verified both under `NOHURT` (`seed=417 WON@142845`, `seed=418 WON@114926`) and unassisted (`nohurt=False`: `seed=437 WON@112074`, `seed=471 WON@149406`, `seed=472 WON@134745`, `seed=522 WON@112667`, `seed=525 WON@102913`, `seed=543 WON@132678`). On this `neural-net` branch (implementing `docs/superpowers/plans/2026-11-19-nn-hybrid-policy.md`, `<= 5M` params / `< 500 MB` VRAM on RTX 3050):
+   - **Phase 0**: Shared 35-feature macro extractor (`py_exodus/autoplay/features.py`) and EV/utility `score_goals` (`py_exodus/autoplay/planner.py`); `900–909` holdout baseline `1 / 10` (`seed=908 WON@111905`).
+   - **Phases 1–2 (Combat)**: `CombatPolicyNet` (`1.74M` params, `76.18 MB` peak VRAM) trained via outcome-filtered BC (`94.87%` val accuracy, `193/200 = 96.5%` on `900–999` holdout encounters) and PPO (`194/200 = 97.0%`, `0` ally deaths vs symbolic `auto_combat` `190/200 = 95.0%`).
+   - **Phase 3 (Macro Critic — evaluating)**: `MacroCriticNet` (`1.23M` params, `32.87 MB` peak VRAM, `98.25%` val accuracy) + `DisagreementLogger`, gating full-game holdout performance on `900–999` before any full-game PPO fine-tuning.
 
 ---
 
