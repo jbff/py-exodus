@@ -228,6 +228,7 @@ def score_goals(
             or feats["min_member_food"] < 40.0
             or (not has_all_cards and needs_key_card and not has_key)
             or (has_all_cards and not needs_shrine_stats(party))
+            or feats["party_gold"] < 100.0  # broke: shrine donations unpayable
         ):
             scores[Goal.EXIT_AMBROSIA] = 760.0
         else:
@@ -313,6 +314,19 @@ def score_goals(
         if not on_ship:
             scores[Goal.CAPTURE_SHIP] = max(scores[Goal.CAPTURE_SHIP], 501.0)
         scores[Goal.SAIL_WHIRLPOOL] = 500.0 - cannon_risk
+
+    # Return Ambrosia trips (user doctrine, 2026-11-20): after the cards are
+    # done, members below shrine cap go BACK for stats once gold supports a
+    # visit (~100g/point + margin) - the first trip collected the cards; the
+    # return trips are the stat-max loop. Broke-in-Ambrosia exits instead of
+    # stalling at an unpayable shrine.
+    if (
+        has_all_cards
+        and has_remaining_marks
+        and feats["any_below_shrine_cap"] > 0.0
+        and feats["party_gold"] >= 2000.0
+    ):
+        scores[Goal.SAIL_WHIRLPOOL] = max(scores[Goal.SAIL_WHIRLPOOL], 470.0)
 
     if cur_map_id != 12 and feats["min_level"] < 25.0:
         scores[Goal.GRIND_AND_LEVEL] = max(scores[Goal.GRIND_AND_LEVEL], 450.0)

@@ -112,6 +112,35 @@ def train_combat_bc(
     train_idx = perm[:n_train]
     val_idx = perm[n_train:] if n_val > 0 else perm[:n_train]
 
+    # Oversample rare action classes (stronger than weights alone: the
+    # weighted retrain still missed adjacent-orc REPOND openings, user
+    # probe 2026-11-20). Classes below 1% of the train set are duplicated
+    # up to a floor of ~3000 effective samples (capped copies).
+    rare_floor = max(1.0, 0.01 * len(train_idx))
+    counts = torch.bincount(actions[train_idx], minlength=NUM_COMBAT_ACTIONS).float()
+    dup_tensors = []
+    for cls in range(NUM_COMBAT_ACTIONS):
+        if cls == NUM_COMBAT_ACTIONS - 1:
+            continue  # PASS stays at parity
+        n_cls = int(counts[cls])
+        if n_cls == 0:
+            continue
+        factor = min(30, max(1, int(round(min(rare_floor, 3000.0) / n_cls))))
+        if factor > 1:
+            cls_positions = train_idx[(actions[train_idx] == cls).nonzero(as_tuple=True)[0]]
+            for _ in range(factor - 1):
+                dup_tensors.append(cls_positions)
+            logger.info(
+                "oversampling class %s: %s x %s", cls, n_cls, factor
+            )
+    if dup_tensors:
+        train_idx = torch.cat(
+            [train_idx] + [d for d in dup_tensors]
+        )
+        train_idx = train_idx[
+            torch.randperm(len(train_idx), generator=torch.Generator().manual_seed(43))
+        ]
+
     train_loader = DataLoader(
         TensorDataset(grids[train_idx], contexts[train_idx], masks[train_idx], actions[train_idx]),
         batch_size=min(batch_size, max(1, n_train)),
@@ -124,7 +153,16 @@ def train_combat_bc(
         raise RuntimeError(f"CombatPolicyNet exceeds {MAX_COMBAT_PARAMS} params: {param_count}")
 
     opt = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
-    criterion = nn.CrossEntropyLoss()
+    # Class-weighted CE (2026-11-20, user observation): free combat spells
+    # (REPOND/PONTORI ~0.2% of samples) were buried by the ~41% move/attack
+    # majority, so the trained net never opened fights with them - clerics
+    # lost the free level-2 kill experience. Weight per class by inverse
+    # frequency (capped) so rare-but-correct spells are learnable.
+    class_counts = torch.bincount(actions[train_idx], minlength=NUM_COMBAT_ACTIONS).float()
+    class_counts[class_counts == 0] = 1.0
+    cw = (class_counts.max() / class_counts).clamp(min=1.0, max=50.0)
+    cw[NUM_COMBAT_ACTIONS - 1] = 1.0  # PASS stays at parity weight
+    criterion = nn.CrossEntropyLoss(weight=cw.to(device))
 
     model.train()
     for _ in range(epochs):

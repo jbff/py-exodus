@@ -342,6 +342,11 @@ def test_evaluate_goal_progression():
         weapon=WeaponType.EXOTIC,
         armor=ArmorType.EXOTIC,
     )
+    # Return-trip doctrine (2026-11-20): stats below cap + gold would send a
+    # L25 party on a last stat-max Ambrosia visit before Castle Fire; stats
+    # at racial caps isolate the pure Exodus endgame state.
+    for m in ready_exodus.members:
+        m.strength = m.dexterity = m.wisdom = m.intelligence = 99
     assert evaluate_goal(ready_exodus) == Goal.CONQUER_EXODUS
 
     # Exodus defeated -> DONE
@@ -1782,6 +1787,11 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
     )
     p_exodus.members[0].weapons[WeaponType.BOW] = 1
     p_exodus.members[1].weapons[WeaponType.BOW_P2] = 1
+    # Return-trip doctrine (2026-11-20): with stats below cap and >= 2000g
+    # the ladder prefers a stat-max Ambrosia visit before Castle Fire.
+    # Everyone at cap isolates the pure Exodus endgame state here.
+    for m in p_exodus.members:
+        m.strength = m.dexterity = m.wisdom = m.intelligence = 99
     assert evaluate_goal(p_exodus, map_id=0) == Goal.CONQUER_EXODUS
 
     # 13. Early-Ambrosia ruling (2026-11-20): before the cleric can cast

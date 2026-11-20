@@ -1878,22 +1878,42 @@ class OverworldScreen(BaseScreen):
         if bool(getattr(tile, "attribs", 0) & TileAttrib.CREATUREUNWALKABLE):
             return None
 
+        # USER-DIRECTED DEVIATION (2026-11-20, user ruling "definitely
+        # restore the monsters", route 1: habitats by terrain): the original
+        # game (GBC SpawnMonster, UltimaMisc.c $7A0C) also spawned Squid at
+        # sea and Dragon/Balron on land. The Java edition's exclusive-bound
+        # indexing bug dropped them, and the converted maps carry no glyph
+        # tiles for those creatures - so their habitats are reconstructed:
+        #   * sea (swimmable): Pirate / Serpent / Squid (squid restored)
+        #   * mountains: Dragon once the party is strong enough
+        #   * Ambrosia/Exodus terrain: Balron joins the Dragon tier
+        #   * pincher only in dungeons (dungeon spawn pool unchanged)
+        # Dungeon encounters were already faithful (world/dungeon.py picks
+        # by creature level; the user confirmed seeing Pincher there).
         if tile.swimmable:
-            cid = random.randint(20, 21)  # Java getRandomBetween(20, 22)
+            cid = random.randint(20, 22)  # squid restored alongside pirate/serpent
         else:
             avg_max_hp = sum(
                 member.max_hp for member in self.party.members
             ) // len(self.party.members)  # Java Party.getAverageMaxHealth (Party.java:99-104)
-            if avg_max_hp > 700:
-                cid = random.randint(10, 16)  # getRandomBetween(10, 17)
+            tname = str(getattr(tile, "name", "")).lower()
+            map_id = getattr(self.game_map, "id", 0)
+            mountain_tile = tname in ("mountain", "mountains")
+            exodus_terrain = map_id in (2, 13)  # Exodus castle / Ambrosia
+            if mountain_tile and avg_max_hp > 700:
+                # Dragons roam mountains for strong parties; on Ambrosia and
+                # around the Exodus castle the Balron joins them.
+                cid = random.choice((18, 19) if exodus_terrain else (18,))
+            elif avg_max_hp > 700:
+                cid = random.randint(10, 17)  # pincher restored (Java dropped 17)
             elif avg_max_hp > 500:
-                cid = random.randint(10, 15)  # getRandomBetween(10, 16)
+                cid = random.randint(10, 15)
             elif avg_max_hp > 400:
-                cid = random.randint(10, 14)  # getRandomBetween(10, 15)
+                cid = random.randint(10, 14)
             elif avg_max_hp > 300:
-                cid = random.randint(10, 13)  # getRandomBetween(10, 14)
+                cid = random.randint(10, 13)
             else:
-                cid = random.randint(10, 12)  # getRandomBetween(10, 13)
+                cid = random.randint(10, 12)  # NEVER a Giant at low health
 
         # Id -> def lookup (Java: Exodus.creatures.getInstance(id)); the port
         # keys creatures by tile/name, so scan the def set once per call.
