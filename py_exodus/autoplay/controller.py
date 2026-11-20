@@ -540,7 +540,7 @@ class AutoPlayController:
         gmap = screen.game_map
         map_id = getattr(gmap, "id", getattr(screen, "map_id", party.map_id))
         if (
-            map_id != 2
+            map_id not in (2, 10)
             and needs_heal(party)
             and party.food >= 100
             and not any(not m.is_dead() and m.food == 0 for m in party.members)
@@ -1160,7 +1160,7 @@ class AutoPlayController:
         self._overworld_avoid = avoid_monsters
 
         if (
-            cur_map_id == 0
+            cur_map_id in (0, 13)
             and party.transport == Transport.SHIP
             and self._is_hull_critical(party, screen)
         ):
