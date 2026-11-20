@@ -350,7 +350,14 @@ class AutoPlayController:
                 and (m.armor == ArmorType.EXOTIC or m.armors.get(ArmorType.EXOTIC, 0) > 0)
                 for m in party.members
             )
-            return "SHIP" if ready_for_sea and not has_exotics else "FOOT"
+            if not has_exotics:
+                # Sea intent: board and sail to the dig grounds.
+                return "SHIP" if ready_for_sea else "FOOT"
+            # WITH exotics a GRIND party's next move happens on LAND: level
+            # at Lord British, shop, or prep the DG raid. 2026-11-20 live
+            # log: a docked exotics party at a Britain landing tile sat
+            # forever because the sail intent gated its own disembark.
+            return "FOOT"
         return "FOOT"
 
     def _engage_transport_lock(self, desired: str, reason: str = "") -> None:
@@ -1343,6 +1350,33 @@ class AutoPlayController:
         cur_map_id = self._screen_map_id(screen, party)
         living = [m for m in party.members if not m.is_dead()]
 
+        # GRIND + SHIP + no Exotics: sail toward the dig-adjacency waters
+        # (2026-11-20 dock-stall at Britain landing tiles under calm-wind
+        # waiting). Once adjacent, evaluate_goal organically flips to
+        # DIG_EXOTICS and the DIG flow takes over.
+        if (
+            goal == Goal.GRIND_AND_LEVEL
+            and cur_map_id == 0
+            and party.transport == Transport.SHIP
+            and not all(
+                (m.weapon == WeaponType.EXOTIC or m.weapons.get(WeaponType.EXOTIC, 0) > 0)
+                and (m.armor == ArmorType.EXOTIC or m.armors.get(ArmorType.EXOTIC, 0) > 0)
+                for m in party.members
+            )
+        ):
+            for dig_xy in ((33, 3), (19, 44)):
+                adj_water = {
+                    ((dig_xy[0] + dx) % gmap.width, (dig_xy[1] + dy) % gmap.height)
+                    for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0))
+                    if str(
+                        getattr(gmap.get_tile((dig_xy[0] + dx) % gmap.width, (dig_xy[1] + dy) % gmap.height), "name", "")
+                    ).lower() == "water"
+                }
+                if (px, py) in adj_water:
+                    continue  # at the dig grounds: let DIG take over
+                d = find_2d_step(gmap, (px, py), adj_water, Transport.SHIP, party=party)
+                if d is not None:
+                    return self._emit_key(state_machine, _DIR_TO_KEY[d])
         # CURE_POISON on the overworld: with no on-the-spot ALCORT caster
         # (2026-11-20 live-run stall at the Death Gulch portal — the goal
         # previously only had an in-town handler), walk to the nearest
