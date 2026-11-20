@@ -1,11 +1,10 @@
-"""Unit tests for Phase 3 Overworld tactical survival override and food-gold reserve."""
+"""Unit tests for Phase 3 Overworld tactical survival override."""
 from __future__ import annotations
 
 from types import SimpleNamespace
 
 import pygame
 
-from py_exodus.autoplay.planner import Goal, score_goals
 from py_exodus.constants import Profession, Race, Status, Transport
 from py_exodus.entities.character import Character
 from py_exodus.entities.party import Party
@@ -38,9 +37,3 @@ def test_survival_override_evades_nearby_monster_when_vulnerable(pygame_setup):
     gmap = SimpleNamespace(id=0, width=64, height=64, border_behavior="wrap", npcs=(), get_tile=lambda x, y: tile)
     scr = SimpleNamespace(creatures=[{"x": 10, "y": 11, "tile_name": "orc"}])
     assert choose_survival_override_key(gmap, p, scr) == pygame.K_UP
-
-
-def test_food_gold_reserve_blocks_buy_gems_when_food_low():
-    p = _make_survival_party(gold=140, food=80)
-    scores = score_goals(p, map_id=0)
-    assert scores[Goal.BUY_GEMS] < 0

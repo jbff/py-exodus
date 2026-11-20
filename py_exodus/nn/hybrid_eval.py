@@ -18,7 +18,6 @@ from py_exodus.nn.combat_bc import load_combat_checkpoint
 from py_exodus.nn.combat_env import encode_combat_state, index_to_action, legal_action_mask
 from py_exodus.nn.macro_critic import DisagreementLogger, load_macro_checkpoint
 from py_exodus.nn.macro_dataset import INDEX_TO_GOAL, legal_goal_mask
-from py_exodus.nn.overworld_survival import choose_survival_override_key
 from py_exodus.screens.overworld import OverworldScreen
 from py_exodus.state_machine import StateMachine
 
@@ -114,15 +113,6 @@ def _eval_one_seed(args: tuple[int, str | None, str | None, int, float]) -> dict
                         logits, _ = combat_net(g_t, c_t, m_t)
                         a_idx = int(logits.argmax(dim=-1).item())
                     arena.execute_turn(index_to_action(a_idx, arena, m_idx, asset_mgr=am))
-            elif (
-                type(scr).__name__ == "OverworldScreen"
-                and not getattr(getattr(scr, "text_log", None), "is_waiting_for_input", False)
-            ):
-                surv_key = choose_survival_override_key(getattr(scr, "game_map", None), party, scr)
-                if surv_key is not None:
-                    sm.handle_event(pygame.event.Event(pygame.KEYDOWN, key=surv_key, unicode=""))
-                else:
-                    ctrl.step(sm)
             else:
                 ctrl.step(sm)
             sm.update(0.05)
