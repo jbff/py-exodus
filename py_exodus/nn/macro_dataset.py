@@ -112,20 +112,23 @@ def collect_winning_macro_trajectories(
 
         ep_rows: list[tuple[list[float], list[bool], int, float]] = []
         prev_mscore = compute_milestone_score(party)
+        prev_g_idx: int | None = None
         won = False
 
         for s in range(max_steps):
             scr = sm.current_screen
             cur_map_id = getattr(getattr(scr, "game_map", None), "id", getattr(party, "map_id", 0))
-            if s % sample_stride == 0 and type(scr).__name__ in ("OverworldScreen", "TownScreen"):
-                feats = extract_macro_features(party, map_id=cur_map_id, screen=scr)
-                vec = macro_feature_vector(feats)
-                mask = legal_goal_mask(party, map_id=cur_map_id, screen=scr)
+            if type(scr).__name__ in ("OverworldScreen", "TownScreen"):
                 g_idx = GOAL_TO_INDEX[evaluate_goal(party, cur_map_id)]
-                cur_mscore = compute_milestone_score(party)
-                delta_r = (cur_mscore - prev_mscore) + _STEP_PENALTY * sample_stride
-                prev_mscore = cur_mscore
-                ep_rows.append((vec, mask, g_idx, delta_r))
+                if s % sample_stride == 0 or g_idx != prev_g_idx:
+                    feats = extract_macro_features(party, map_id=cur_map_id, screen=scr)
+                    vec = macro_feature_vector(feats)
+                    mask = legal_goal_mask(party, map_id=cur_map_id, screen=scr)
+                    cur_mscore = compute_milestone_score(party)
+                    delta_r = (cur_mscore - prev_mscore) + _STEP_PENALTY * sample_stride
+                    prev_mscore = cur_mscore
+                    ep_rows.append((vec, mask, g_idx, delta_r))
+                prev_g_idx = g_idx
 
             ctrl.step(sm)
             sm.update(0.05)

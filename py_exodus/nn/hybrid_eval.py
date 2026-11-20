@@ -22,7 +22,7 @@ from py_exodus.screens.overworld import OverworldScreen
 from py_exodus.state_machine import StateMachine
 
 
-def _eval_one_seed(args: tuple[int, str, str | None, int]) -> dict[str, Any]:
+def _eval_one_seed(args: tuple[int, str | None, str | None, int]) -> dict[str, Any]:
     seed, macro_ckpt, combat_ckpt, max_steps = args
     import pygame
     pygame.init()
@@ -30,7 +30,7 @@ def _eval_one_seed(args: tuple[int, str, str | None, int]) -> dict[str, Any]:
 
     am = AssetManager("data")
     am.load_all()
-    macro_net, _ = load_macro_checkpoint(macro_ckpt, device="cpu")
+    macro_net = load_macro_checkpoint(macro_ckpt, device="cpu")[0] if macro_ckpt else None
     combat_net = load_combat_checkpoint(combat_ckpt, device="cpu")[0] if combat_ckpt else None
 
     random.seed(seed)
@@ -80,7 +80,8 @@ def _eval_one_seed(args: tuple[int, str, str | None, int]) -> dict[str, Any]:
         return nn_goal
 
     import py_exodus.autoplay.controller as ctrl_mod
-    ctrl_mod.evaluate_goal = _nn_goal
+    if macro_net is not None:
+        ctrl_mod.evaluate_goal = _nn_goal
 
     outcome = "SURVIVED"
     final_goal = "UNKNOWN"
@@ -137,7 +138,7 @@ def _eval_one_seed(args: tuple[int, str, str | None, int]) -> dict[str, Any]:
 
 def evaluate_hybrid_on_holdout(
     seeds: list[int] | tuple[int, ...],
-    macro_ckpt: str,
+    macro_ckpt: str | None = None,
     combat_ckpt: str | None = None,
     *,
     max_steps: int = 160_000,
