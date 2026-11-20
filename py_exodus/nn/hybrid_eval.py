@@ -18,12 +18,19 @@ from py_exodus.nn.combat_bc import load_combat_checkpoint
 from py_exodus.nn.combat_env import encode_combat_state, index_to_action, legal_action_mask
 from py_exodus.nn.macro_critic import DisagreementLogger, load_macro_checkpoint
 from py_exodus.nn.macro_dataset import INDEX_TO_GOAL, legal_goal_mask
+from py_exodus.nn.overworld_policy import (
+    _ACTION_TO_KEY,
+    _KEY_TO_ACTION,
+    encode_overworld_state,
+    legal_overworld_mask,
+    load_overworld_checkpoint,
+)
 from py_exodus.screens.overworld import OverworldScreen
 from py_exodus.state_machine import StateMachine
 
 
-def _eval_one_seed(args: tuple[int, str | None, str | None, int, float]) -> dict[str, Any]:
-    seed, macro_ckpt, combat_ckpt, max_steps, residual_alpha = args
+def _eval_one_seed(args: tuple[int, str | None, str | None, str | None, int, float]) -> dict[str, Any]:
+    seed, macro_ckpt, combat_ckpt, overworld_ckpt, max_steps, residual_alpha = args
     import pygame
     pygame.init()
     torch.set_num_threads(1)
@@ -32,6 +39,7 @@ def _eval_one_seed(args: tuple[int, str | None, str | None, int, float]) -> dict
     am.load_all()
     macro_net = load_macro_checkpoint(macro_ckpt, device="cpu")[0] if macro_ckpt else None
     combat_net = load_combat_checkpoint(combat_ckpt, device="cpu")[0] if combat_ckpt else None
+    ow_net = load_overworld_checkpoint(overworld_ckpt, device="cpu")[0] if overworld_ckpt else None
 
     random.seed(seed)
     party = Party()
@@ -113,6 +121,27 @@ def _eval_one_seed(args: tuple[int, str | None, str | None, int, float]) -> dict
                         logits, _ = combat_net(g_t, c_t, m_t)
                         a_idx = int(logits.argmax(dim=-1).item())
                     arena.execute_turn(index_to_action(a_idx, arena, m_idx, asset_mgr=am))
+            elif (
+                ow_net is not None
+                and type(scr).__name__ == "OverworldScreen"
+                and getattr(getattr(scr, "game_map", None), "id", 0) == 0
+                and not getattr(getattr(scr, "text_log", None), "is_waiting_for_input", False)
+            ):
+                gmap = scr.game_map
+                old_x, old_y = party.x, party.y
+                sym_key = ctrl.step(sm)
+                if sym_key in _KEY_TO_ACTION:
+                    party.x, party.y = old_x, old_y
+                    grid, ctx = encode_overworld_state(gmap, party, scr, sym_key=sym_key)
+                    mask = legal_overworld_mask(gmap, party)
+                    with torch.no_grad():
+                        logits, _ = ow_net(
+                            torch.tensor([grid], dtype=torch.float32),
+                            torch.tensor([ctx], dtype=torch.float32),
+                            torch.tensor([mask], dtype=torch.bool),
+                        )
+                        a_idx = int(logits.argmax(dim=-1).item())
+                    sm.handle_event(pygame.event.Event(pygame.KEYDOWN, key=_ACTION_TO_KEY[a_idx], unicode=""))
             else:
                 ctrl.step(sm)
             sm.update(0.05)
@@ -151,11 +180,12 @@ def evaluate_hybrid_on_holdout(
     macro_ckpt: str | None = None,
     combat_ckpt: str | None = None,
     *,
+    overworld_ckpt: str | None = None,
     max_steps: int = 160_000,
     workers: int = 10,
     residual_alpha: float = 15.0,
 ) -> list[dict[str, Any]]:
-    """Evaluate MacroCriticNet (+ optional CombatPolicyNet) across holdout seeds in parallel."""
-    tasks = [(s, macro_ckpt, combat_ckpt, max_steps, residual_alpha) for s in seeds]
+    """Evaluate MacroCriticNet (+ optional CombatPolicyNet / OverworldPolicyNet) across holdout seeds."""
+    tasks = [(s, macro_ckpt, combat_ckpt, overworld_ckpt, max_steps, residual_alpha) for s in seeds]
     with mp.get_context("fork").Pool(min(workers, len(tasks))) as pool:
         return pool.map(_eval_one_seed, tasks)
