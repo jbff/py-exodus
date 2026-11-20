@@ -1012,13 +1012,23 @@ class AutoPlayController:
                             for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0))
                         )
                     }
-                    if blocking_guards:
+                    # User ruling (2026-11-20): bribe liberally inside Death
+                    # Gulch. A 100g bribe PERMANENTLY removes the guard
+                    # (special_commands.do_bribe) and clears the corridor, so
+                    # the raid stays deterministic - fighting costs food and
+                    # turns for 0-damage guards, and any blocked path risks
+                    # another idle loop.
+                    adj_or_blocking = blocking_guards | {
+                        (px + dx, py + dy)
+                        for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0))
+                    } & guards
+                    if adj_or_blocking:
                         briber_idx, briber = max(living, key=lambda im: im[1].gold)
                         if briber.gold < 100:
                             self._join_gold_member_idx = briber_idx
                             return self._emit_key(state_machine, pygame.K_j)
                         for d_g in (Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST):
-                            if (px + d_g.dx, py + d_g.dy) in blocking_guards:
+                            if (px + d_g.dx, py + d_g.dy) in adj_or_blocking:
                                 self._queue_text("BRIBE", enter=True)
                                 self._queue_text(f"{briber_idx}{d_g.name[0].lower()}", enter=False)
                                 return self._emit_key(state_machine, pygame.K_o)
@@ -1891,7 +1901,10 @@ class AutoPlayController:
             candidate_prey: list[tuple[str, int, int]] = []
             for c in getattr(screen, "creatures", []):
                 tname = str(c.get("tile_name") or c.get("tile") or "").lower()
-                if tname in ("whirlpool", "pirate", "serpent", "squid"):
+                # Guards excluded per engine truth (wontattack) + user lore:
+                # attacking a guard makes ALL guards hostile - a pure loss.
+                # (Also starving-hunt block below keeps land prey only.)
+                if tname in ("whirlpool", "pirate", "serpent", "squid", "guard"):
                     continue
                 cx, cy = c.get("x"), c.get("y")
                 if cx is None or cy is None:

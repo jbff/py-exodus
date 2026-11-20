@@ -135,6 +135,9 @@ def record_rollout(
                 if party.is_party_dead():
                     outcome = f"WIPED@{step}"
                     break
+                # Location-transition rows first: attribute gold to WHERE it
+                # was spent (the 65k drain over 24 seeds was unattributable
+                # because town/castle interiors went unrecorded).
                 if getattr(party, "exodus_defeated", 0) > 0:
                     outcome = f"WON@{step}"
                     break
@@ -170,6 +173,19 @@ def record_rollout(
                         "gold_delta": gained,
                     }) + "\n")
                     combat_gold = None
+                if screen_kind != prev_screen_kind:
+                    f.write(json.dumps({
+                        "t": "move",
+                        "step": step,
+                        "seed": seed,
+                        "from": prev_screen_kind,
+                        "to": screen_kind,
+                        "gold": party.gold,
+                        "x": party.x,
+                        "y": party.y,
+                        "map": getattr(getattr(scr, "game_map", None), "id", getattr(party, "map_id", 0)),
+                        **_party_snapshot(party, scr),
+                    }) + "\n")
                 prev_screen_kind = screen_kind
 
                 state_sig = (
