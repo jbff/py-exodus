@@ -90,6 +90,43 @@ def test_action_index_roundtrip_attack_east():
     assert (act.type, act.direction) == (ActionType.ATTACK, Direction.EAST)
 
 
+def test_mask_heals_require_a_wounded_target():
+    """Livelock regression (2026-11-20 pirate ship): engine REFUSES heals on
+    a full-health target without advancing the turn, so a masked-legal heal
+    on a healthy party produced an endless cast-refuse-cast loop. Heals are
+    only legal when someone is actually wounded."""
+    from py_exodus.nn.combat_env import SPELL_ACTION_INDEX
+
+    arena = _stub_arena()  # everyone at full HP
+    mask = legal_action_mask(arena, 2)  # SERENA, cleric with MP
+    sanctu = SPELL_ACTION_INDEX[Spell.SANCTU]
+    sanctu_mani = SPELL_ACTION_INDEX[Spell.SANCTU_MANI]
+    assert mask[sanctu] is False and mask[sanctu_mani] is False
+
+
+def test_mask_heals_allowed_when_ally_is_wounded():
+    from py_exodus.nn.combat_env import SPELL_ACTION_INDEX
+
+    arena = _stub_arena()
+    arena.party.members[0].hp = 100  # 50% wounded
+    mask = legal_action_mask(arena, 2)  # SERENA, cleric with MP
+    sanctu = SPELL_ACTION_INDEX[Spell.SANCTU]
+    sanctu_mani = SPELL_ACTION_INDEX[Spell.SANCTU_MANI]
+    assert mask[sanctu] is True and mask[sanctu_mani] is True
+
+
+def test_mask_cure_requires_poisoned_ally():
+    from py_exodus.nn.combat_env import SPELL_ACTION_INDEX
+
+    arena = _stub_arena()
+    mask = legal_action_mask(arena, 2)
+    assert mask[SPELL_ACTION_INDEX[Spell.ALCORT]] is False
+
+    arena.party.members[1].status = Status.POISONED
+    mask = legal_action_mask(arena, 2)
+    assert mask[SPELL_ACTION_INDEX[Spell.ALCORT]] is True
+
+
 def test_legal_action_mask_length_matches_num_actions():
     arena = _stub_arena()
     assert len(legal_action_mask(arena, 0)) == NUM_COMBAT_ACTIONS

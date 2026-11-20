@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections import deque
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -24,6 +25,8 @@ from py_exodus.autoplay.planner import (
 )
 from py_exodus.constants import ArmorType, Direction, Profession, Status, Transport, WeaponType
 from py_exodus.world.map import DungeonTile
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from py_exodus.state_machine import StateMachine
@@ -166,6 +169,12 @@ class AutoPlayController:
         self._heal_patient_idx: int = 1
         self._talk_dir_key: int = pygame.K_UP
         self._mapped_dungeon_levels: set[tuple[int, int]] = set()
+        # Loop-breaker state (memory layer): emitted-key history + optional
+        # transport lock. See the loop-breaker block near _emit_key.
+        self._step_history: deque[tuple] = deque(maxlen=self._HISTORY_MAX)
+        self._transport_locked: str | None = None
+        self._lock_no_cycle_ticks: int = 0
+        self._lock_age_ticks: int = 0
         # NN combat policy: loaded once at startup and kept resident for the
         # whole session (combat is frequent; reloading per fight is a no-go).
         self.nn_combat_policy: CombatNNPolicy | None = (
@@ -241,6 +250,7 @@ class AutoPlayController:
         return stepped
 
     def _emit_key(self, state_machine: StateMachine, key: int) -> int:
+        self._record_step(self._current_step_signature(state_machine, key))
         event = pygame.event.Event(
             pygame.KEYDOWN,
             key=key,
@@ -249,6 +259,165 @@ class AutoPlayController:
         )
         state_machine.handle_event(event)
         return key
+
+    # --- loop-breaker (memory layer over the goal ladder) --------------------
+    #
+    # Root cause it addresses (2026-11-20 B/X starvation at Britain): the
+    # controller is an if-ladder with no memory, so two branches that both
+    # fire on the same party state oscillate forever (FOOT "board" branch
+    # vs SHIP "disembark-to-shop" branch), burning a food unit per pass.
+    # The break: record emitted-key signatures, detect a repeating
+    # transport-action cycle, derive the goal-correct transport, and lock
+    # out the contrary transport action until the pattern actually stops.
+
+    _HISTORY_MAX = 16
+    _OSC_MIN_HISTORY = 6
+    _LOCK_RELEASE_TICKS = 12
+    _LOCK_MAX_TICKS = 600
+    #: The observed oscillation class: alternating board/disembark.
+    _TRANSPORT_CYCLE_KEYS = frozenset({pygame.K_b, pygame.K_x})
+
+    def _current_step_signature(self, state_machine: StateMachine, key: int) -> tuple:
+        screen = state_machine.current_screen
+        party = getattr(screen, "party", None)
+        if party is not None:
+            if hasattr(screen, "avatar_x"):
+                pos = (screen.avatar_x, screen.avatar_y)
+            else:
+                pos = (party.x, party.y)
+            map_id = self._screen_map_id(screen, party)
+        else:
+            pos, map_id = (-1, -1), -1
+        return (type(screen).__name__, map_id, pos, key)
+
+    def _record_step(self, signature: tuple) -> None:
+        self._step_history.append(signature)
+
+    def _detect_transport_oscillation(self) -> bool:
+        """True when the recent history repeats a board/disembark cycle.
+
+        Only alternating transport-action cycles (B/X) are treated as
+        oscillation — standing still and repeating one action (grinding
+        attacks, waiting at a shrine) is not one.
+        """
+        h = self._step_history
+        if len(h) < self._OSC_MIN_HISTORY:
+            return False
+        tail = tuple(h)[-8:]
+        n = len(tail)
+        # Period-2: ... A B A B (>= 4 entries), all at one position.
+        if n >= 4:
+            a, b = tail[-2], tail[-1]
+            if (
+                a != b
+                and a[3] in self._TRANSPORT_CYCLE_KEYS
+                and b[3] in self._TRANSPORT_CYCLE_KEYS
+                and a[:3] == b[:3]
+                and tail[-4] == a
+                and tail[-3] == b
+            ):
+                return True
+        # Longer period-2 core with noise: A B A B A at one position.
+        if n >= 5:
+            seq = [(s[0], s[1], s[2], s[3]) for s in tail]
+            for start in range(0, n - 4):
+                w = seq[start : start + 5]
+                if (
+                    w[0] == w[2] == w[4]
+                    and w[1] == w[3]
+                    and w[0] != w[1]
+                    and w[0][3] in self._TRANSPORT_CYCLE_KEYS
+                    and w[1][3] in self._TRANSPORT_CYCLE_KEYS
+                ):
+                    return True
+        return False
+
+    def _desired_transport(self, goal_name: str, party) -> str:
+        """The transport the goal actually wants, mirroring the branch rules."""
+        if goal_name in ("SAIL_WHIRLPOOL", "CAPTURE_SHIP", "DIG_EXOTICS", "CONQUER_EXODUS"):
+            return "SHIP"
+        if goal_name in ("OUTFIT_BRITAIN", "BUY_FOOD", "RESURRECT_DEAD", "CURE_POISON"):
+            return "FOOT"
+        if goal_name in ("GRIND_AND_LEVEL", "GET_MARK_KINGS"):
+            from py_exodus.constants import ArmorType, WeaponType
+
+            living = [m for m in party.members if not m.is_dead()]
+            ready_for_sea = bool(living) and all(
+                m.level >= 5 and m.marks[0] > 0 for m in living
+            ) and all(m.marks[0] > 0 for m in party.members)
+            has_exotics = all(
+                (m.weapon == WeaponType.EXOTIC or m.weapons.get(WeaponType.EXOTIC, 0) > 0)
+                and (m.armor == ArmorType.EXOTIC or m.armors.get(ArmorType.EXOTIC, 0) > 0)
+                for m in party.members
+            )
+            return "SHIP" if ready_for_sea and not has_exotics else "FOOT"
+        return "FOOT"
+
+    def _engage_transport_lock(self, desired: str, reason: str = "") -> None:
+        self._transport_locked = desired
+        self._lock_no_cycle_ticks = 0
+        self._lock_age_ticks = 0
+        logger.warning(
+            "Autoplay loop-breaker: transport lock engaged (%s, desired=%s) "
+            "after repeating %s cycle; history tail: %s",
+            reason,
+            desired,
+            reason,
+            list(self._step_history)[-6:],
+        )
+
+    def _release_transport_lock(self) -> None:
+        self._transport_locked = None
+        self._lock_no_cycle_ticks = 0
+
+    def _tick_loop_breaker(self, state_machine: StateMachine) -> None:
+        if self._detect_transport_oscillation():
+            self._lock_no_cycle_ticks = 0
+            if self._transport_locked is None:
+                screen = state_machine.current_screen
+                party = getattr(screen, "party", None)
+                if party is None:
+                    return
+                goal = evaluate_goal(
+                    party, map_id=self._screen_map_id(screen, party)
+                )
+                self._engage_transport_lock(
+                    self._desired_transport(goal.name, party),
+                    reason=f"{goal.name}",
+                )
+        elif self._transport_locked is not None:
+            self._lock_no_cycle_ticks += 1
+            self._lock_age_ticks += 1
+            if (
+                self._lock_no_cycle_ticks >= self._LOCK_RELEASE_TICKS
+                or self._lock_age_ticks >= self._LOCK_MAX_TICKS
+            ):
+                self._release_transport_lock()
+
+    def _transport_action_allowed(self, key: int, desired: str, safety: bool = False) -> bool:
+        """Gate for transport actions: safety disembarks always pass."""
+        if safety:
+            return True
+        if self._transport_locked is None:
+            return True
+        if desired == "SHIP":
+            return key != pygame.K_x  # block disembark, not board
+        if desired == "FOOT":
+            return key != pygame.K_b  # block board, not disembark
+        return True
+
+    def _transport_emit_allowed(self, state_machine: StateMachine, key: int) -> bool:
+        """Gate for board/disembark emission sites (goal-aware)."""
+        if self._transport_locked is None:
+            return True
+        screen = state_machine.current_screen
+        party = getattr(screen, "party", None)
+        if party is None:
+            return True
+        goal = evaluate_goal(party, map_id=self._screen_map_id(screen, party))
+        return self._transport_action_allowed(
+            key, self._desired_transport(goal.name, party)
+        )
 
     def _queue_text(self, text: str, enter: bool = True) -> None:
         for ch in text:
@@ -265,6 +434,8 @@ class AutoPlayController:
         screen = state_machine.current_screen
         if screen is None:
             return None
+
+        self._tick_loop_breaker(state_machine)
 
         screen_name = type(screen).__name__
         if screen_name == "FinalScreen":
@@ -1193,7 +1364,9 @@ class AutoPlayController:
                     screen=screen,
                 )
                 if (px, py) in frigates:
-                    return self._emit_key(state_machine, pygame.K_b)
+                    if self._transport_emit_allowed(state_machine, pygame.K_b):
+                        return self._emit_key(state_machine, pygame.K_b)
+                    return None  # loop-breaker: boarding locked out this cycle
                 reachable_frigates = {
                     pos for pos in frigates
                     if find_2d_step(gmap, (px, py), {pos}, Transport.FOOT, party=party) is not None
@@ -1372,7 +1545,9 @@ class AutoPlayController:
                     screen=screen,
                 )
                 if (px, py) in frigates:
-                    return self._emit_key(state_machine, pygame.K_b)
+                    if self._transport_emit_allowed(state_machine, pygame.K_b):
+                        return self._emit_key(state_machine, pygame.K_b)
+                    return None  # loop-breaker: boarding locked out this cycle
                 reachable_frigates = {
                     pos for pos in frigates
                     if find_2d_step(gmap, (px, py), {pos}, Transport.FOOT, party=party) is not None
@@ -1397,7 +1572,9 @@ class AutoPlayController:
                     return self._move_toward(state_machine, gmap, party, (px, py), {(10, 59)})
                 frigates = self._boardable_frigates(party, screen=screen)
                 if (px, py) in frigates:
-                    return self._emit_key(state_machine, pygame.K_b)
+                    if self._transport_emit_allowed(state_machine, pygame.K_b):
+                        return self._emit_key(state_machine, pygame.K_b)
+                    return None  # loop-breaker: boarding locked out this cycle
                 reachable_frigates = {
                     pos for pos in frigates
                     if find_2d_step(gmap, (px, py), {pos}, Transport.FOOT, party=party) is not None
@@ -1424,7 +1601,9 @@ class AutoPlayController:
         if goal == Goal.CAPTURE_SHIP:
             frigates = self._boardable_frigates(party, include_damaged=False)
             if (px, py) in frigates:
-                return self._emit_key(state_machine, pygame.K_b)
+                if self._transport_emit_allowed(state_machine, pygame.K_b):
+                    return self._emit_key(state_machine, pygame.K_b)
+                return None  # loop-breaker: boarding locked out this cycle
             reachable_frigates = {
                 pos
                 for pos in frigates
@@ -1627,7 +1806,11 @@ class AutoPlayController:
                 if can_move_to(gmap, lx, ly, Transport.FOOT, party=party) and (
                     (lx, ly) == (46, 19) or find_2d_step(gmap, (lx, ly), {(46, 19)}, Transport.FOOT, party=party) is not None
                 ):
-                    return self._emit_key(state_machine, pygame.K_x)
+                    # Loop-breaker: when a transport cycle lock holds against
+                    # disembarking, fall through to the sailing fallback
+                    # below instead of oscillating.
+                    if self._transport_emit_allowed(state_machine, pygame.K_x):
+                        return self._emit_key(state_machine, pygame.K_x)
             return self._move_toward(
                 state_machine,
                 gmap,

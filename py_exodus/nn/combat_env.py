@@ -262,6 +262,13 @@ def legal_action_mask(
                 )
                 if direction is None:
                     continue
+            if sp in _HEAL_SPELLS:
+                # Heals refuse when nobody is wounded — and a refused cast
+                # does NOT advance the turn; a masked-legal refusal is how
+                # the NN got stuck re-healing a full-health ally forever
+                # (2026-11-20 pirate-ship livelock). Heal = wounded exists.
+                if _find_lowest_hp_heal_target(arena.party) is None:
+                    continue
             if sp == Spell.ALCORT and not any(
                 getattr(m, "status", None) is not None
                 and getattr(m.status, "name", "") in ("POISON", "POISONED")
