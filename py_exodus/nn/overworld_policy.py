@@ -472,20 +472,17 @@ def _ppo_rollout_one_seed(args: tuple[int, str, str | None, int]) -> dict[str, A
                     v = float(val.item())
                 chosen_key = _ACTION_TO_KEY[a_idx]
                 sm.handle_event(pygame.event.Event(pygame.KEYDOWN, key=chosen_key, unicode=""))
-                # Anti-oscillation & tactical survival shaping
-                step_r = 0.002 if a_idx == _KEY_TO_ACTION[sym_key] else 0.0
+                # Progress-first + non-farmable tactical survival shaping
+                step_r = 0.02 if a_idx == _KEY_TO_ACTION[sym_key] else 0.0
                 if prev_action is not None and (prev_action ^ 1) == a_idx and prev_action < 4 and a_idx < 4:
-                    step_r -= 0.015
+                    step_r -= 0.02
                 post_threat = _nearest_threat_dist(scr, gmap)
                 living = [m for m in party.members if not m.is_dead()]
                 min_hp = min((m.hp / max(1, m.max_hp) for m in living), default=0.0)
                 min_lvl = min((m.level for m in living), default=1)
                 low_hull = party.transport == Transport.SHIP and getattr(party, "ship_hull", 100) <= 35
-                if (len(living) <= 2 or min_hp < 0.35 or min_lvl < 5 or low_hull) and pre_threat <= 3:
-                    if post_threat > pre_threat:
-                        step_r += 0.08
-                    elif post_threat < pre_threat:
-                        step_r -= 0.08
+                if (len(living) <= 2 or min_hp < 0.35 or min_lvl < 5 or low_hull) and post_threat <= 1 and pre_threat > 1:
+                    step_r -= 0.08
                 if low_hull:
                     step_r -= 0.03
                 prev_action = a_idx
