@@ -338,7 +338,13 @@ def score_goals(
         and feats["any_below_shrine_cap"] > 0.0
         and feats["party_gold"] >= 2000.0
     ):
-        scores[Goal.SAIL_WHIRLPOOL] = max(scores[Goal.SAIL_WHIRLPOOL], 470.0)
+        # 2026-11-20 live bug: this fired with the party ON FOOT after the
+        # Ambrosia exit - "sail to the whirlpool" from grass is unreachable,
+        # so the party idled. Grab a frigate first, then sail.
+        if feats["on_ship"] > 0.0:
+            scores[Goal.SAIL_WHIRLPOOL] = max(scores[Goal.SAIL_WHIRLPOOL], 470.0)
+        else:
+            scores[Goal.CAPTURE_SHIP] = max(scores[Goal.CAPTURE_SHIP], 506.0)
 
     if cur_map_id != 12 and feats["min_level"] < 25.0:
         scores[Goal.GRIND_AND_LEVEL] = max(scores[Goal.GRIND_AND_LEVEL], 450.0)

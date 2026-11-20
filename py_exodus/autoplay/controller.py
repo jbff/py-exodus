@@ -722,6 +722,40 @@ class AutoPlayController:
         }
 
     @staticmethod
+    def _frigate_is_stranded(gmap, frigate_xy) -> bool:
+        """True when the frigate sits on a water pocket that cannot reach
+        open sea (2026-11-20 live artifact: dock dances moored a frigate in
+        a grass-surrounded pond near Britain; boarding it can never sail).
+        Flood-fills water tiles from the frigate position; a pocket smaller
+        than the threshold is landlocked. Uses a move cap so huge oceans
+        short-circuit fast."""
+        from py_exodus.screens.overworld import can_move_to
+
+        try:
+            from collections import deque as _dq
+
+            fx, fy = frigate_xy
+            start = (fx % gmap.width, fy % gmap.height)
+            seen = {start}
+            q = _dq([start])
+            LIMIT = 64  # a sea-connected pocket is far larger than this
+            while q and len(seen) <= LIMIT:
+                cx, cy = q.popleft()
+                for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+                    nx, ny = (cx + dx) % gmap.width, (cy + dy) % gmap.height
+                    if (nx, ny) in seen:
+                        continue
+                    if not can_move_to(gmap, nx, ny, Transport.SHIP, party=None):
+                        continue
+                    seen.add((nx, ny))
+                    q.append((nx, ny))
+                    if len(seen) > LIMIT:
+                        return False
+            return len(seen) <= LIMIT
+        except Exception:
+            return False
+
+    @staticmethod
     def _screen_map_id(screen, party) -> int:
         raw_id = getattr(getattr(screen, "game_map", None), "id", None)
         if raw_id is None:
@@ -1724,7 +1758,19 @@ class AutoPlayController:
             )
 
         if goal == Goal.CAPTURE_SHIP:
-            frigates = self._boardable_frigates(party, include_damaged=False)
+            frigates = {
+                xy for xy in self._boardable_frigates(party, include_damaged=False)
+                if not self._frigate_is_stranded(gmap, xy)
+            }
+            if (px, py) in self._boardable_frigates(party, include_damaged=False) and (
+                (px, py) not in frigates
+            ):
+                # Standing on our own stranded frigate: leave it, the hunt
+                # will win a seaworthy one.
+                if party.transport == Transport.FOOT:
+                    return self._hunt_starving_prey_or_patrol(
+                        state_machine, screen, gmap, party, px, py, living
+                    )
             if (px, py) in frigates:
                 if self._transport_emit_allowed(state_machine, pygame.K_b):
                     return self._emit_key(state_machine, pygame.K_b)
