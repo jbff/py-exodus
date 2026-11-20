@@ -252,6 +252,7 @@ def score_goals(
         scores[Goal.OUTFIT_BRITAIN] = 700.0 + dawn_bonus
 
     # 5. Early leveling, Marks, Exotics, Ambrosia prep, Exodus
+    food_gold_reserve = 75.0 if feats["min_member_food"] < 100.0 else 0.0
     if feats["min_level"] < 5.0:
         scores[Goal.GRIND_AND_LEVEL] = max(scores[Goal.GRIND_AND_LEVEL], 680.0)
 
@@ -259,9 +260,9 @@ def score_goals(
         if not in_dungeon_or_ambrosia and not on_ship:
             gems = feats["total_gems"]
             torches = feats["total_torches"]
-            if gems < 2.0 and feats["party_gold"] >= (125.0 if gems == 0.0 else 200.0):
+            if gems < 2.0 and feats["party_gold"] >= (125.0 if gems == 0.0 else 200.0) + food_gold_reserve:
                 scores[Goal.BUY_GEMS] = 660.0
-            if torches < 4.0 and feats["party_gold"] >= (80.0 if torches == 0.0 else 150.0):
+            if torches < 4.0 and feats["party_gold"] >= (80.0 if torches == 0.0 else 150.0) + food_gold_reserve:
                 scores[Goal.BUY_TORCHES] = 655.0
         scores[Goal.GET_MARK_KINGS] = 650.0
 
@@ -275,14 +276,14 @@ def score_goals(
         if not in_dungeon_or_ambrosia and not on_ship:
             gems = feats["total_gems"]
             torches = feats["total_torches"]
-            if gems < 8.0 and feats["party_gold"] >= (125.0 if gems == 0.0 else 225.0):
+            if gems < 8.0 and feats["party_gold"] >= (125.0 if gems == 0.0 else 225.0) + food_gold_reserve:
                 scores[Goal.BUY_GEMS] = max(scores[Goal.BUY_GEMS], 570.0)
-            if torches < 4.0 and feats["party_gold"] >= (80.0 if torches == 0.0 else 150.0):
+            if torches < 4.0 and feats["party_gold"] >= (80.0 if torches == 0.0 else 150.0) + food_gold_reserve:
                 scores[Goal.BUY_TORCHES] = max(scores[Goal.BUY_TORCHES], 565.0)
         scores[Goal.GET_REMAINING_MARKS] = 550.0
 
     if not has_all_cards:
-        if not on_ship and feats["total_keys"] < 4.0 and feats["party_gold"] >= 50.0:
+        if not on_ship and feats["total_keys"] < 4.0 and feats["party_gold"] >= 50.0 + food_gold_reserve:
             scores[Goal.BUY_KEYS] = 520.0 + dawn_bonus
         gold_target = 4500.0 if feats["any_below_shrine_cap"] > 0.0 else 1500.0
         if feats["living_count"] < feats["member_count"] or feats["party_gold"] < gold_target:

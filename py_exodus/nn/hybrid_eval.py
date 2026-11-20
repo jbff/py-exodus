@@ -18,12 +18,13 @@ from py_exodus.nn.combat_bc import load_combat_checkpoint
 from py_exodus.nn.combat_env import encode_combat_state, index_to_action, legal_action_mask
 from py_exodus.nn.macro_critic import DisagreementLogger, load_macro_checkpoint
 from py_exodus.nn.macro_dataset import INDEX_TO_GOAL, legal_goal_mask
+from py_exodus.nn.overworld_survival import choose_survival_override_key
 from py_exodus.screens.overworld import OverworldScreen
 from py_exodus.state_machine import StateMachine
 
 
-def _eval_one_seed(args: tuple[int, str | None, str | None, int]) -> dict[str, Any]:
-    seed, macro_ckpt, combat_ckpt, max_steps = args
+def _eval_one_seed(args: tuple[int, str | None, str | None, int, float]) -> dict[str, Any]:
+    seed, macro_ckpt, combat_ckpt, max_steps, residual_alpha = args
     import pygame
     pygame.init()
     torch.set_num_threads(1)
@@ -58,7 +59,8 @@ def _eval_one_seed(args: tuple[int, str | None, str | None, int]) -> dict[str, A
         cache_key = (step_box[0], int(mid), p.x, p.y)
         if cache_key in goal_cache:
             return goal_cache[cache_key]
-        sym_goal = orig_eval(p, map_id=map_id)
+        sym_scores = planner_mod.score_goals(p, map_id=mid, screen=scr)
+        sym_goal = max(sym_scores, key=sym_scores.__getitem__)
         feats = extract_macro_features(p, map_id=mid, screen=scr)
         vec = macro_feature_vector(feats)
         mask = legal_goal_mask(p, map_id=mid, screen=scr)
@@ -66,7 +68,16 @@ def _eval_one_seed(args: tuple[int, str | None, str | None, int]) -> dict[str, A
             f_t = torch.tensor([vec], dtype=torch.float32)
             m_t = torch.tensor([mask], dtype=torch.bool)
             logits, _ = macro_net(f_t, m_t)
-            nn_goal = INDEX_TO_GOAL[int(logits.argmax(dim=-1).item())]
+            if residual_alpha > 0.0:
+                probs = torch.softmax(logits[0], dim=-1)
+                combined = {
+                    g: sym_scores[g] + residual_alpha * float(probs[i].item())
+                    for i, g in enumerate(INDEX_TO_GOAL.values())
+                    if mask[i]
+                }
+                nn_goal = max(combined, key=combined.__getitem__) if combined else sym_goal
+            else:
+                nn_goal = INDEX_TO_GOAL[int(logits.argmax(dim=-1).item())]
         logger.log(
             seed=seed,
             step=step_box[0],
@@ -103,6 +114,15 @@ def _eval_one_seed(args: tuple[int, str | None, str | None, int]) -> dict[str, A
                         logits, _ = combat_net(g_t, c_t, m_t)
                         a_idx = int(logits.argmax(dim=-1).item())
                     arena.execute_turn(index_to_action(a_idx, arena, m_idx, asset_mgr=am))
+            elif (
+                type(scr).__name__ == "OverworldScreen"
+                and not getattr(getattr(scr, "text_log", None), "is_waiting_for_input", False)
+            ):
+                surv_key = choose_survival_override_key(getattr(scr, "game_map", None), party, scr)
+                if surv_key is not None:
+                    sm.handle_event(pygame.event.Event(pygame.KEYDOWN, key=surv_key, unicode=""))
+                else:
+                    ctrl.step(sm)
             else:
                 ctrl.step(sm)
             sm.update(0.05)
@@ -143,8 +163,9 @@ def evaluate_hybrid_on_holdout(
     *,
     max_steps: int = 160_000,
     workers: int = 10,
+    residual_alpha: float = 15.0,
 ) -> list[dict[str, Any]]:
     """Evaluate MacroCriticNet (+ optional CombatPolicyNet) across holdout seeds in parallel."""
-    tasks = [(s, macro_ckpt, combat_ckpt, max_steps) for s in seeds]
+    tasks = [(s, macro_ckpt, combat_ckpt, max_steps, residual_alpha) for s in seeds]
     with mp.get_context("fork").Pool(min(workers, len(tasks))) as pool:
         return pool.map(_eval_one_seed, tasks)
