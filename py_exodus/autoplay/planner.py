@@ -284,7 +284,22 @@ def score_goals(
     if not has_all_cards:
         if not on_ship and feats["total_keys"] < 4.0 and feats["party_gold"] >= 50.0:
             scores[Goal.BUY_KEYS] = 520.0 + dawn_bonus
-        gold_target = 4500.0 if feats["any_below_shrine_cap"] > 0.0 else 1500.0
+        # User strategy ruling (2026-11-20): the FIRST Ambrosia trip happens
+        # EARLY - just enough gold for 10 x 100g cleric-wis shrine points
+        # (ALCORT costs 35 MP and MP = wisdom, so wis 35 buys self-sufficient
+        # poison cures) plus keys - not after a 4500g stat-max grind. The
+        # 4500 target only applies once the cleric can cast ALCORT, at which
+        # point DG raids + Ambrosia stat-max returns become the loop.
+        cleric_alcort_ready = any(
+            not m.is_dead()
+            and m.profession in (Profession.CLERIC, Profession.DRUID)
+            and m.max_mp >= 35.0
+            for m in party.members
+        )
+        if not cleric_alcort_ready:
+            gold_target = 1500.0
+        else:
+            gold_target = 4500.0 if feats["any_below_shrine_cap"] > 0.0 else 1500.0
         if feats["living_count"] < feats["member_count"] or feats["party_gold"] < gold_target:
             scores[Goal.GRIND_AND_LEVEL] = max(scores[Goal.GRIND_AND_LEVEL], 510.0)
         needed_keys = sum(1 for idx in (0, 2) if not any(m.cards[idx] > 0 for m in living))

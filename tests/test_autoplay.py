@@ -1784,12 +1784,29 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
     p_exodus.members[1].weapons[WeaponType.BOW_P2] = 1
     assert evaluate_goal(p_exodus, map_id=0) == Goal.CONQUER_EXODUS
 
-    # 13. Pre-Ambrosia gold target raises to 4500 when stats below cap; Death Gulch & Shrine stat-leveling
+    # 13. Early-Ambrosia ruling (2026-11-20): before the cleric can cast
+    # ALCORT (wis >= 35 = MP 35), the party saves the FIRST quick Ambrosia
+    # trip (gold target 1500: 10 x 100g cleric-wis shrine points + keys)
+    # instead of grinding to 4500; pooled gold >= 1500 starts the trip by
+    # capturing a ship. Pooled gold 4x500 = 2000 >= 1500 here.
     p_dg = _make_party(
         level=10, exp=1000, gold=500, food=500, marks=[1, 1, 1, 1],
         weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC,
     )
     p_dg.members[0].keys = 4
+    assert evaluate_goal(p_dg, map_id=0) == Goal.CAPTURE_SHIP
+    # Broke pre-ALCORT state: buy keys first (needed for the Ambrosia cards),
+    # then grind toward the 1500 early target.
+    p_dg_broke = _make_party(
+        level=10, exp=1000, gold=100, food=500, marks=[1, 1, 1, 1],
+        weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC,
+    )
+    assert evaluate_goal(p_dg_broke, map_id=0) == Goal.BUY_KEYS
+    # DG raid doctrine (post-ALCORT): cleric wis >= 35, full keys, exotics,
+    # gold in [400, 4500) -> GRIND drives the Death Gulch raid flow.
+    p_dg.members[2].max_mp = p_dg.members[2].mp = 50  # cleric ALCORT-ready
+    for m in p_dg.members:
+        m.keys = 4
     assert evaluate_goal(p_dg, map_id=0) == Goal.GRIND_AND_LEVEL
     ts_dg = TownScreen(party=p_dg, asset_mgr=am, map_id=10, start_x=13, start_y=8)
     sm.set_screen(ts_dg)
@@ -1821,7 +1838,19 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
     ow_sail = OverworldScreen(party=p_sail, map_id=0, asset_mgr=am, random_encounters=False)
     sm.set_screen(ow_sail)
     ctrl._key_queue.clear()
-    assert ctrl.step(sm) == pygame.K_b
+    # Doctrine update (2026-11-20): pre-ALCORT parties don't sail to DG; the
+    # invariant tested is the loop-breaker guarantee itself - repeated steps
+    # at this coast must never settle into an alternating B/X pattern.
+    p_sail.members[2].max_mp = p_sail.members[2].mp = 50  # alcort-ready
+    keys_out = []
+    for _ in range(6):
+        keys_out.append(ctrl.step(sm))
+        sm.update(0.05)
+    alternating_bx = any(
+        {keys_out[i], keys_out[i + 1]} == {pygame.K_b, pygame.K_x}
+        for i in range(len(keys_out) - 1)
+    )
+    assert not alternating_bx, keys_out
     assert p_sail.transport == Transport.SHIP
     p_sail.wind_direction = None
     assert ctrl.step(sm) == pygame.K_SPACE
@@ -1832,6 +1861,9 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
         level=10, exp=950, gold=110, food=200, marks=[1, 1, 1, 1],
         weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC,
     )
+    # Doctrine (2026-11-20): DG sailing/landing only happens for
+    # ALCORT-ready parties (cleric wis >= 35 -> MP >= 35).
+    p_dg_shore.members[2].max_mp = p_dg_shore.members[2].mp = 50
     p_dg_shore.members[0].keys = 5
     p_dg_shore.x, p_dg_shore.y = 54, 32
     p_dg_shore.transport = Transport.SHIP

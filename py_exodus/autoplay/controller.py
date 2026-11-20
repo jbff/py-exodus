@@ -400,6 +400,25 @@ class AutoPlayController:
                 or self._lock_age_ticks >= self._LOCK_MAX_TICKS
             ):
                 self._release_transport_lock()
+            elif self._lock_age_ticks % 50 == 0:
+                # Self-reporting ticket: the lock stopped an oscillation but
+                # no other branch claimed this state - a missing goal handler
+                # that needs to be fixed, not slept through.
+                screen = state_machine.current_screen
+                party = getattr(screen, "party", None)
+                logger.error(
+                    "AUTOPLAY STALLED while locked (%s): goal=%s map=%s pos=(%s,%s) "
+                    "transport=%s - every one of these needs a goal handler. "
+                    "history tail: %s",
+                    self._transport_locked,
+                    evaluate_goal(party, map_id=self._screen_map_id(screen, party)).name
+                    if party is not None else "?",
+                    self._screen_map_id(screen, party) if screen is not None else "?",
+                    getattr(party, "x", "?") if party else "?",
+                    getattr(party, "y", "?") if party else "?",
+                    getattr(party, "transport", "?"),
+                    list(self._step_history)[-6:],
+                )
 
     def _transport_action_allowed(self, key: int, desired: str, safety: bool = False) -> bool:
         """Gate for transport actions: safety disembarks always pass."""
@@ -1387,6 +1406,14 @@ class AutoPlayController:
                 and len(living) == len(party.members)
                 and 400 <= party.gold < 4500
                 and sum(m.keys for m in living) >= 4
+                # No DG raids before ALCORT self-sufficiency: the first
+                # Ambrosia trip (cleric wis >= 35) comes first.
+                and any(
+                    not m.is_dead()
+                    and m.profession in (Profession.CLERIC, Profession.DRUID)
+                    and m.max_mp >= 35.0
+                    for m in party.members
+                )
             )
             if not wants_death_gulch and goal not in (
                 Goal.DIG_EXOTICS,
@@ -1836,6 +1863,12 @@ class AutoPlayController:
             and all(
                 (m.weapon == WeaponType.EXOTIC or m.weapons.get(WeaponType.EXOTIC, 0) > 0)
                 and (m.armor == ArmorType.EXOTIC or m.armors.get(ArmorType.EXOTIC, 0) > 0)
+                for m in party.members
+            )
+            and any(
+                not m.is_dead()
+                and m.profession in (Profession.CLERIC, Profession.DRUID)
+                and m.max_mp >= 35.0
                 for m in party.members
             )
             and all(any(m.marks[i] > 0 for m in living) for i in (1, 2, 3))
