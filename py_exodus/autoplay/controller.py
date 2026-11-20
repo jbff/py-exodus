@@ -886,12 +886,33 @@ class AutoPlayController:
                 return self._emit_key(state_machine, pygame.K_c)
 
         # Heal detour if hurt (skip during BUY_FOOD/starvation, and skip/save MP during CURE_POISON unless <= 25 HP)
+        needs_heal_now = needs_heal(party)
+        # 100-seed atlas (2026-11-20): 63/82 deaths died with min-HP < 35% -
+        # parties walked CURE_POISON/BUY_FOOD/RESURRECT voyages while hurt
+        # because the heal-detour was deliberately skipped for those goals
+        # (a starvation-era gold-crunch rule). Voyage deaths dwarfed the
+        # savings, so: heal-detours now apply on ANY voyage when aboard a
+        # ship (sea fights are lethal to wounded parties) or at deep HP
+        # (< 50%), regardless of goal.
+        min_hp_frac_now = min(
+            (
+                m.hp / max(1, m.max_hp)
+                for m in party.members
+                if not m.is_dead()
+            ),
+            default=1.0,
+        )
+        voyage_or_deep_wound = party.transport == Transport.SHIP or min_hp_frac_now < 0.5
         if (
-            needs_heal(party)
-            and goal != Goal.BUY_FOOD
+            needs_heal_now
             and party.food > 0
             and (
-                goal != Goal.CURE_POISON
+                voyage_or_deep_wound
+                or goal != Goal.BUY_FOOD
+            )
+            and (
+                voyage_or_deep_wound
+                or goal != Goal.CURE_POISON
                 or any(not m.is_dead() and m.hp <= 25 for m in party.members)
             )
         ):
