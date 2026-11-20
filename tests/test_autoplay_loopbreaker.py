@@ -123,13 +123,37 @@ def test_gate_blocks_board_when_foot_is_desired():
     assert ctrl._transport_action_allowed(pygame.K_x, desired="FOOT") is True
 
 
-def test_lock_releases_when_pattern_stops():
+def _walked_sm(x: int, y: int):
+    party = type("_P", (), {"x": x, "y": y})()
+    screen = type("_S", (), {"party": party})()
+    return type("_SM", (), {"current_screen": screen})()
+
+
+def test_lock_releases_when_pattern_stops_and_moved():
     ctrl = AutoPlayController(enabled=True)
     ctrl._engage_transport_lock("SHIP", reason="bx-cycle")
-    # Simulate the pattern breaking: new signatures at new positions.
+    ctrl._lock_anchor_pos = (4, 18)  # party walks away from the dock
     for i in range(AutoPlayController._LOCK_RELEASE_TICKS + 1):
-        ctrl._record_step(_sig(pygame.K_RIGHT, x=4 + i, y=18))
-        ctrl._tick_loop_breaker(object())
+        ctrl._record_step(_sig(pygame.K_RIGHT, x=5 + i, y=18))
+        ctrl._tick_loop_breaker(_walked_sm(5 + i, 18))
+    assert ctrl._transport_locked is None
+
+
+def test_lock_sticks_while_party_has_not_moved():
+    """Sticky-lock release (2026-11-20 live log): a quiet-ticks-only release
+    recreated the dock B/X cycle at Britain under calm wind (X gated ->
+    silent ticks -> release -> X -> re-lock forever). The lock must hold
+    until the party actually moves off the anchor."""
+    ctrl = AutoPlayController(enabled=True)
+    ctrl._engage_transport_lock("SHIP", reason="bx-cycle")
+    ctrl._lock_anchor_pos = (45, 16)
+    for i in range(AutoPlayController._LOCK_MAX_TICKS // 2):
+        ctrl._record_step(_sig(pygame.K_SPACE, x=45, y=16))
+        ctrl._tick_loop_breaker(_walked_sm(45, 16))
+    assert ctrl._transport_locked == "SHIP"
+    # ... but the hard age cap always wins in the end.
+    for i in range(AutoPlayController._LOCK_MAX_TICKS + 1):
+        ctrl._tick_loop_breaker(_walked_sm(45, 16))
     assert ctrl._transport_locked is None
 
 

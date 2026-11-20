@@ -356,6 +356,17 @@ class AutoPlayController:
         self._transport_locked = desired
         self._lock_no_cycle_ticks = 0
         self._lock_age_ticks = 0
+        self._lock_sm = None
+        # Anchor: the lock is sticky until the party actually MOVES off this
+        # spot (or the hard age cap). A quiet-ticks release re-creates the
+        # cycle at the same dock when ship movement is blocked (e.g. calm
+        # wind at Britain, 2026-11-20 live log).
+        try:
+            sm_screen = self._lock_sm.current_screen if self._lock_sm else None
+        except Exception:
+            sm_screen = None
+        _party = getattr(sm_screen, "party", None)
+        self._lock_anchor_pos = (_party.x, _party.y) if _party is not None else None
         logger.warning(
             "Autoplay loop-breaker: transport lock engaged (%s, desired=%s) "
             "after repeating %s cycle; history tail: %s",
@@ -370,6 +381,7 @@ class AutoPlayController:
         self._lock_no_cycle_ticks = 0
 
     def _tick_loop_breaker(self, state_machine: StateMachine) -> None:
+        self._lock_sm = state_machine
         if self._detect_transport_oscillation():
             self._lock_no_cycle_ticks = 0
             if self._transport_locked is None:
@@ -387,11 +399,26 @@ class AutoPlayController:
         elif self._transport_locked is not None:
             self._lock_no_cycle_ticks += 1
             self._lock_age_ticks += 1
+            self._lock_sm = state_machine
+            anchor = getattr(self, "_lock_anchor_pos", None)
+            party = getattr(state_machine.current_screen, "party", None)
+            moved = (
+                party is not None
+                and anchor is not None
+                and (party.x, party.y) != anchor
+            )
             if (
                 self._lock_no_cycle_ticks >= self._LOCK_RELEASE_TICKS
-                or self._lock_age_ticks >= self._LOCK_MAX_TICKS
-            ):
+                and moved
+            ) or self._lock_age_ticks >= self._LOCK_MAX_TICKS:
                 self._release_transport_lock()
+            elif self._lock_age_ticks % 50 == 0:
+                screen = state_machine.current_screen
+                party_x = getattr(getattr(party, "x", None), "x", None) or getattr(party, "x", "?")
+                logger.error(
+                    "AUTOPLAY STALLED while locked (%s): pos=(%s) transport=%s",
+                    self._transport_locked, getattr(party, "x", "?"), getattr(party, "transport", "?"),
+                )
             elif self._lock_age_ticks % 50 == 0:
                 # Self-reporting ticket: the lock stopped an oscillation but
                 # no other branch claimed this state - a missing goal handler
