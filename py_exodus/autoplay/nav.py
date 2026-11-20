@@ -10,6 +10,7 @@ import pygame
 from py_exodus.constants import Direction, Transport
 from py_exodus.screens.overworld import can_move_to
 from py_exodus.world.dungeon import turn_left_dir, turn_right_dir
+from py_exodus.world.tile_effects import all_members_mark_of_force
 from py_exodus.world.map import DungeonTile
 
 if TYPE_CHECKING:
@@ -33,6 +34,8 @@ def find_2d_step_and_cost(
     prefer_paths: bool = False,
     allow_locked_doors: bool = False,
     ignore_wind: bool = False,
+    hazard_costs: dict[tuple[int, int], float] | None = None,
+    hazard_alpha: float = 0.0,
 ) -> tuple[Direction | None, int | None]:
     """Return ``(first_direction, path_cost)`` toward the nearest reachable goal."""
     goal_set: set[tuple[int, int]] = (
@@ -74,7 +77,13 @@ def find_2d_step_and_cost(
         return 1 if tname in ("floor", "bridge", "path") else 4
 
     has_fire = party is not None and any(not m.is_dead() and m.marks[1] > 0 for m in party.members)
-    has_force = party is not None and any(not m.is_dead() and m.marks[2] > 0 for m in party.members)
+    # Force-field passage is BLOCKED unless EVERY living member holds the
+    # Mark of Force (marks[3]) — the pathfinder must mirror the movement
+    # validator (tile_effects.all_members_mark_of_force / GBC postexo1.c)
+    # or it routes through walls the walk refuses, and the controller
+    # oscillates against the refusal. (2026-11-20 fix: was marks[2] = the
+    # Snake mark, with any-member semantics.)
+    has_force = party is not None and all_members_mark_of_force(party)
 
     def _passable(nx: int, ny: int) -> bool:
         t = game_map.get_tile(nx, ny)
@@ -123,6 +132,13 @@ def find_2d_step_and_cost(
                     if nxt in avoid or not _passable(nx, ny):
                         continue
                     ncost = cost + _tile_cost(nx, ny)
+                if hazard_costs and hazard_alpha > 0.0:
+                    # NN hazard critic: P(mishap soon) as extra edge cost so
+                    # the planner detours around historically dangerous
+                    # position/power combos (2026-11-20 strategy layer).
+                    ncost = cost + _tile_cost(nx, ny) + hazard_alpha * float(
+                        hazard_costs.get(nxt, 0.0)
+                    )
                 if ncost < best_cost.get(nxt, 10**9):
                     best_cost[nxt] = ncost
                     tie += 1
@@ -186,6 +202,8 @@ def find_2d_step(
     prefer_paths: bool = False,
     allow_locked_doors: bool = False,
     ignore_wind: bool = False,
+    hazard_costs: dict[tuple[int, int], float] | None = None,
+    hazard_alpha: float = 0.0,
 ) -> Direction | None:
     """Return the first cardinal Direction toward the nearest reachable goal on a 2D map."""
     return find_2d_step_and_cost(

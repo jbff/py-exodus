@@ -342,6 +342,11 @@ def test_evaluate_goal_progression():
         weapon=WeaponType.EXOTIC,
         armor=ArmorType.EXOTIC,
     )
+    # Return-trip doctrine (2026-11-20): stats below cap + gold would send a
+    # L25 party on a last stat-max Ambrosia visit before Castle Fire; stats
+    # at racial caps isolate the pure Exodus endgame state.
+    for m in ready_exodus.members:
+        m.strength = m.dexterity = m.wisdom = m.intelligence = 99
     assert evaluate_goal(ready_exodus) == Goal.CONQUER_EXODUS
 
     # Exodus defeated -> DONE
@@ -392,6 +397,66 @@ def test_autoplay_controller_shrine_screen(pygame_setup, asset_mgr):
             break
         ctrl.step(sm)
     assert sm.current_screen is not shrine
+
+
+def _non_canonical_party(level: int = 5) -> Party:
+    """Four wizards: a plausible user party, but not what autoplay supports."""
+    party = _make_party(level=level)
+    for member in party.members:
+        member.profession = Profession.WIZARD
+    return party
+
+
+def test_autoplay_refuses_non_canonical_party(pygame_setup, asset_mgr):
+    """Step-time guard: a user-built 4-wizard party must disable autoplay."""
+    party = _non_canonical_party()
+    sm = StateMachine(asset_mgr=asset_mgr)
+    ow = OverworldScreen(party=party, asset_mgr=asset_mgr)
+    sm.push_screen(ow)
+
+    ctrl = AutoPlayController(enabled=True)
+    ctrl.step(sm)
+    assert ctrl.enabled is False
+    assert sm.autoplay_enabled is False
+
+
+def test_f9_toggle_refused_on_non_canonical_party(pygame_setup, asset_mgr):
+    """Toggle gate: F9 on a non-canonical party must not engage autoplay."""
+    from py_exodus.screens.overworld import OverworldScreen as _OW
+
+    party = _non_canonical_party()
+    sm = StateMachine(asset_mgr=asset_mgr)
+    sm.push_screen(_OW(party=party, asset_mgr=asset_mgr))
+
+    ctrl = AutoPlayController()
+    assert ctrl.toggle() is True
+    assert ctrl.can_engage(sm) is False
+
+
+def test_canonical_party_engages(pygame_setup, asset_mgr):
+    party = _make_party(level=5)
+    sm = StateMachine(asset_mgr=asset_mgr)
+    sm.push_screen(OverworldScreen(party=party, asset_mgr=asset_mgr))
+
+    ctrl = AutoPlayController()
+    ctrl.toggle()
+    assert ctrl.can_engage(sm) is True
+    ctrl.step(sm)
+    assert ctrl.enabled is True
+
+
+def test_party_member_deaths_do_not_trip_composition_guard(pygame_setup, asset_mgr):
+    """Wipes must disable autoplay through the death path, not composition."""
+    party = _make_party(level=5)
+    for member in party.members:
+        member.status = Status.DEAD
+    sm = StateMachine(asset_mgr=asset_mgr)
+    sm.push_screen(OverworldScreen(party=party, asset_mgr=asset_mgr))
+
+    ctrl = AutoPlayController(enabled=True)
+    # Composition still counts as canonical (dead members stay listed);
+    # the party-wipe branch disables separately in step().
+    assert ctrl._party_is_canonical(sm.current_screen) is True
 
 
 def test_autoplay_controller_overworld_dig_exotics(pygame_setup, asset_mgr):
@@ -579,8 +644,13 @@ def test_nearest_shop_town_and_monster_chasing(pygame_setup):
     assert AutoPlayController._nearest_shop_town_portal(sosaria, 44, 20, Transport.FOOT) == (46, 19)  # Britain
 
     party = Party()
-    for name in ("A", "B", "C", "D"):
-        party.add_member(Character(name, "M", Race.HUMAN, Profession.FIGHTER, weapon=WeaponType.MACE, armor=ArmorType.CLOTH, gold=0))
+    # Canonical composition (the neural-net branch only supports autoplay on
+    # Thief+Fighter+Cleric+Wizard parties; other shapes are refused).
+    for name, prof in zip(
+        ("A", "B", "C", "D"),
+        (Profession.THIEF, Profession.FIGHTER, Profession.CLERIC, Profession.WIZARD),
+    ):
+        party.add_member(Character(name, "M", Race.HUMAN, prof, weapon=WeaponType.MACE, armor=ArmorType.CLOTH, gold=0))
     party.x, party.y = 43, 21
     sm = StateMachine(asset_mgr=am, audio=None)
     ow = OverworldScreen(party=party, asset_mgr=am, random_encounters_enabled=False)
@@ -1684,14 +1754,36 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
     )
     p_exodus.members[0].weapons[WeaponType.BOW] = 1
     p_exodus.members[1].weapons[WeaponType.BOW_P2] = 1
+    # Return-trip doctrine (2026-11-20): with stats below cap and >= 2000g
+    # the ladder prefers a stat-max Ambrosia visit before Castle Fire.
+    # Everyone at cap isolates the pure Exodus endgame state here.
+    for m in p_exodus.members:
+        m.strength = m.dexterity = m.wisdom = m.intelligence = 99
     assert evaluate_goal(p_exodus, map_id=0) == Goal.CONQUER_EXODUS
 
-    # 13. Pre-Ambrosia gold target raises to 4500 when stats below cap; Death Gulch & Shrine stat-leveling
+    # 13. Early-Ambrosia ruling (2026-11-20): before the cleric can cast
+    # ALCORT (wis >= 35 = MP 35), the party saves the FIRST quick Ambrosia
+    # trip (gold target 1500: 10 x 100g cleric-wis shrine points + keys)
+    # instead of grinding to 4500; pooled gold >= 1500 starts the trip by
+    # capturing a ship. Pooled gold 4x500 = 2000 >= 1500 here.
     p_dg = _make_party(
         level=10, exp=1000, gold=500, food=500, marks=[1, 1, 1, 1],
         weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC,
     )
     p_dg.members[0].keys = 4
+    assert evaluate_goal(p_dg, map_id=0) == Goal.CAPTURE_SHIP
+    # Broke pre-ALCORT state: buy keys first (needed for the Ambrosia cards),
+    # then grind toward the 1500 early target.
+    p_dg_broke = _make_party(
+        level=10, exp=1000, gold=100, food=500, marks=[1, 1, 1, 1],
+        weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC,
+    )
+    assert evaluate_goal(p_dg_broke, map_id=0) == Goal.BUY_KEYS
+    # DG raid doctrine (post-ALCORT): cleric wis >= 35, full keys, exotics,
+    # gold in [400, 4500) -> GRIND drives the Death Gulch raid flow.
+    p_dg.members[2].max_mp = p_dg.members[2].mp = 50  # cleric ALCORT-ready
+    for m in p_dg.members:
+        m.keys = 4
     assert evaluate_goal(p_dg, map_id=0) == Goal.GRIND_AND_LEVEL
     ts_dg = TownScreen(party=p_dg, asset_mgr=am, map_id=10, start_x=13, start_y=8)
     sm.set_screen(ts_dg)
@@ -1723,7 +1815,19 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
     ow_sail = OverworldScreen(party=p_sail, map_id=0, asset_mgr=am, random_encounters=False)
     sm.set_screen(ow_sail)
     ctrl._key_queue.clear()
-    assert ctrl.step(sm) == pygame.K_b
+    # Doctrine update (2026-11-20): pre-ALCORT parties don't sail to DG; the
+    # invariant tested is the loop-breaker guarantee itself - repeated steps
+    # at this coast must never settle into an alternating B/X pattern.
+    p_sail.members[2].max_mp = p_sail.members[2].mp = 50  # alcort-ready
+    keys_out = []
+    for _ in range(6):
+        keys_out.append(ctrl.step(sm))
+        sm.update(0.05)
+    alternating_bx = any(
+        {keys_out[i], keys_out[i + 1]} == {pygame.K_b, pygame.K_x}
+        for i in range(len(keys_out) - 1)
+    )
+    assert not alternating_bx, keys_out
     assert p_sail.transport == Transport.SHIP
     p_sail.wind_direction = None
     assert ctrl.step(sm) == pygame.K_SPACE
@@ -1734,6 +1838,9 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
         level=10, exp=950, gold=110, food=200, marks=[1, 1, 1, 1],
         weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC,
     )
+    # Doctrine (2026-11-20): DG sailing/landing only happens for
+    # ALCORT-ready parties (cleric wis >= 35 -> MP >= 35).
+    p_dg_shore.members[2].max_mp = p_dg_shore.members[2].mp = 50
     p_dg_shore.members[0].keys = 5
     p_dg_shore.x, p_dg_shore.y = 54, 32
     p_dg_shore.transport = Transport.SHIP

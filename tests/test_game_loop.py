@@ -1242,7 +1242,7 @@ def test_wanderer_health_tiers_widen_table_exclusively(
         for member in sample_party.members:
             member.max_hp = value
 
-    # > 300 and <= 400: ids 10..13
+    # > 300 and <= 400: ids 10..14 (Daemon tier adds Giant already at >300)
     _set_all_max_hp(350)
     calls = _pick_calls(monkeypatch)
     picks = {overworld._pick_creature_for_tile(grass) for _ in range(400)}
@@ -1264,20 +1264,20 @@ def test_wanderer_health_tiers_widen_table_exclusively(
     assert picks == {"orc", "skeleton", "thief", "giant", "daemon", "fighter"}
     assert "wizard" not in picks
 
-    # > 700: Wizard in, Pincher still excluded by the exclusive bound
+    # > 700 (deviation-restored): Wizard AND Pincher in, top id reachable
     _set_all_max_hp(900)
     calls = _pick_calls(monkeypatch)
     picks = {overworld._pick_creature_for_tile(grass) for _ in range(400)}
-    assert calls and all(c == (10, 16) for c in calls), calls[:4]
+    assert calls and all(c == (10, 17) for c in calls), calls[:4]
     assert "wizard" in picks
-    assert "pincher" not in picks
+    assert "pincher" in picks
 
 
 def test_wanderer_swimmable_gives_pirate_serpent_only(
     pygame_setup, asset_mgr, sample_party, monkeypatch
 ):
-    """Water tiles roll getRandomBetween(20, 22): exclusive bound pins ids
-    {20, 21} = Pirate and Serpent. Squid (Man-O-War, id 22) never spawns."""
+    """DEVIATION-UPDATED (2026-11-20): the original spawn pool includes
+    Squid (id 22). Water rolls randint(20, 22) -> {Pirate, Serpent, Squid}."""
     overworld = OverworldScreen(party=sample_party, map_id=0, asset_mgr=asset_mgr)
     overworld.creatures.clear()
     water = asset_mgr.get_tile_by_name("water")
@@ -1285,9 +1285,8 @@ def test_wanderer_swimmable_gives_pirate_serpent_only(
     calls = _pick_calls(monkeypatch)
     picks = {overworld._pick_creature_for_tile(water) for _ in range(200)}
 
-    assert calls and all(c == (20, 21) for c in calls), calls[:4]
-    assert picks == {"pirate", "serpent"}
-    assert "squid" not in picks
+    assert calls and all(c == (20, 22) for c in calls), calls[:4]
+    assert picks == {"pirate", "serpent", "squid"}
 
 
 def test_wanderer_forest_uses_java_land_table_no_forest_branch(

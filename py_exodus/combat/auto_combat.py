@@ -226,6 +226,17 @@ def _try_pre_attack_spell(
         if _can_cast_spell(member, Spell.SANCTU):
             return Action.cast(Spell.SANCTU, target_member=lowest_member)
 
+    # Cure poison before it stacks further damage (2026-11-20): the old
+    # teacher never cured, so BC models had no cure-poison examples at all.
+    poisoned = [
+        m
+        for m in arena.party.members
+        if not _is_member_dead(m)
+        and getattr(getattr(m, "status", None), "name", "") in ("POISON", "POISONED")
+    ]
+    if poisoned and _can_cast_spell(member, Spell.ALCORT):
+        return Action.cast(Spell.ALCORT, target_member=poisoned[0])
+
     return None
 
 

@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 from collections import deque
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pygame
 
+from py_exodus.autoplay.economy_runtime import EconomyRuntime
+from py_exodus.autoplay.hazard_runtime import HazardRuntime
 from py_exodus.autoplay.equipment import (
     best_hand_transfer,
     best_owned_armor,
@@ -23,6 +26,8 @@ from py_exodus.autoplay.planner import (
 )
 from py_exodus.constants import ArmorType, Direction, Profession, Status, Transport, WeaponType
 from py_exodus.world.map import DungeonTile
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from py_exodus.state_machine import StateMachine
@@ -140,7 +145,11 @@ class AutoPlayController:
     MIN_INTERVAL = 0.01
     MAX_INTERVAL = 0.50
 
-    def __init__(self, enabled: bool = False, step_interval: float = 0.08) -> None:
+    def __init__(
+        self,
+        enabled: bool = False,
+        step_interval: float = 0.08,
+    ) -> None:
         self.enabled = enabled
         self.step_interval = max(self.MIN_INTERVAL, min(self.MAX_INTERVAL, step_interval))
         self._timer: float = 0.0
@@ -159,6 +168,17 @@ class AutoPlayController:
         self._heal_patient_idx: int = 1
         self._talk_dir_key: int = pygame.K_UP
         self._mapped_dungeon_levels: set[tuple[int, int]] = set()
+        # Loop-breaker state (memory layer): emitted-key history + optional
+        # transport lock. See the loop-breaker block near _emit_key.
+        # NN strategy layer: hazard critic risk maps -> A* edge costs;
+        # economy critic -> yield-scored prey selection. Both inert unless
+        # trained checkpoints exist AND their env flags are set.
+        self._hazard = HazardRuntime()
+        self._economy = EconomyRuntime()
+        self._step_history: deque[tuple] = deque(maxlen=self._HISTORY_MAX)
+        self._transport_locked: str | None = None
+        self._lock_no_cycle_ticks: int = 0
+        self._lock_age_ticks: int = 0
 
     def toggle(self) -> bool:
         """Flip autoplay enabled state and clear any queued keystrokes."""
@@ -166,6 +186,40 @@ class AutoPlayController:
         self._key_queue.clear()
         self._timer = 0.0
         return self.enabled
+
+    #: Full Autoplay is built and trained around exactly one party shape:
+    #: Thief + Fighter + Cleric + Wizard (4 members). A user party with
+    #: other professions would take the controller down untested paths —
+    #: refuse to engage on those (F9 does nothing; a mid-session --autoplay
+    #: gets disabled at the first gameplay screen).
+    CANONICAL_PROFESSIONS = frozenset(
+        {"THIEF", "FIGHTER", "CLERIC", "WIZARD"}
+    )
+
+    @staticmethod
+    def _party_is_canonical(screen) -> bool | None:
+        """True/False if the screen's party composition is checkable."""
+        party = getattr(screen, "party", None)
+        if party is None:
+            return None
+        members = list(getattr(party, "members", []) or [])
+        if len(members) != 4:
+            return False
+        professions = {
+            getattr(getattr(m, "profession", None), "name", "").upper() for m in members
+        }
+        return professions == AutoPlayController.CANONICAL_PROFESSIONS
+
+    def can_engage(self, state_machine: StateMachine) -> bool:
+        """Whether F9 engagement is allowed for the current screen.
+
+        Start/Roster screens are exempt: autoplay builds the canonical
+        party itself there. Screens without a party (menus, etc.) are too.
+        """
+        screen = state_machine.current_screen
+        if screen is None or type(screen).__name__ in ("StartScreen", "RosterScreen"):
+            return True
+        return self._party_is_canonical(screen) is not False
 
     def adjust_speed(self, faster: bool) -> float:
         """Adjust step interval faster or slower, clamped to [0.01, 0.50]."""
@@ -195,6 +249,7 @@ class AutoPlayController:
         return stepped
 
     def _emit_key(self, state_machine: StateMachine, key: int) -> int:
+        self._record_step(self._current_step_signature(state_machine, key))
         event = pygame.event.Event(
             pygame.KEYDOWN,
             key=key,
@@ -203,6 +258,184 @@ class AutoPlayController:
         )
         state_machine.handle_event(event)
         return key
+
+    # --- loop-breaker (memory layer over the goal ladder) --------------------
+    #
+    # Root cause it addresses (2026-11-20 B/X starvation at Britain): the
+    # controller is an if-ladder with no memory, so two branches that both
+    # fire on the same party state oscillate forever (FOOT "board" branch
+    # vs SHIP "disembark-to-shop" branch), burning a food unit per pass.
+    # The break: record emitted-key signatures, detect a repeating
+    # transport-action cycle, derive the goal-correct transport, and lock
+    # out the contrary transport action until the pattern actually stops.
+
+    _HISTORY_MAX = 16
+    _OSC_MIN_HISTORY = 6
+    _LOCK_RELEASE_TICKS = 12
+    _LOCK_MAX_TICKS = 600
+    #: The observed oscillation class: alternating board/disembark.
+    _TRANSPORT_CYCLE_KEYS = frozenset({pygame.K_b, pygame.K_x})
+
+    def _current_step_signature(self, state_machine: StateMachine, key: int) -> tuple:
+        screen = state_machine.current_screen
+        party = getattr(screen, "party", None)
+        if party is not None:
+            if hasattr(screen, "avatar_x"):
+                pos = (screen.avatar_x, screen.avatar_y)
+            else:
+                pos = (party.x, party.y)
+            map_id = self._screen_map_id(screen, party)
+        else:
+            pos, map_id = (-1, -1), -1
+        return (type(screen).__name__, map_id, pos, key)
+
+    def _record_step(self, signature: tuple) -> None:
+        self._step_history.append(signature)
+
+    def _detect_transport_oscillation(self) -> bool:
+        """True when the recent history repeats a board/disembark cycle.
+
+        Only alternating transport-action cycles (B/X) are treated as
+        oscillation — standing still and repeating one action (grinding
+        attacks, waiting at a shrine) is not one.
+        """
+        h = self._step_history
+        if len(h) < self._OSC_MIN_HISTORY:
+            return False
+        tail = tuple(h)[-8:]
+        n = len(tail)
+        # Period-2: ... A B A B (>= 4 entries), all at one position.
+        if n >= 4:
+            a, b = tail[-2], tail[-1]
+            if (
+                a != b
+                and a[3] in self._TRANSPORT_CYCLE_KEYS
+                and b[3] in self._TRANSPORT_CYCLE_KEYS
+                and a[:3] == b[:3]
+                and tail[-4] == a
+                and tail[-3] == b
+            ):
+                return True
+        # Longer period-2 core with noise: A B A B A at one position.
+        if n >= 5:
+            seq = [(s[0], s[1], s[2], s[3]) for s in tail]
+            for start in range(0, n - 4):
+                w = seq[start : start + 5]
+                if (
+                    w[0] == w[2] == w[4]
+                    and w[1] == w[3]
+                    and w[0] != w[1]
+                    and w[0][3] in self._TRANSPORT_CYCLE_KEYS
+                    and w[1][3] in self._TRANSPORT_CYCLE_KEYS
+                ):
+                    return True
+        return False
+
+    def _desired_transport(self, goal_name: str, party) -> str:
+        """The transport the goal actually wants, mirroring the branch rules."""
+        if goal_name in ("SAIL_WHIRLPOOL", "CAPTURE_SHIP", "DIG_EXOTICS", "CONQUER_EXODUS"):
+            return "SHIP"
+        if goal_name in ("OUTFIT_BRITAIN", "BUY_FOOD", "RESURRECT_DEAD", "CURE_POISON"):
+            return "FOOT"
+        if goal_name in ("GRIND_AND_LEVEL", "GET_MARK_KINGS"):
+            from py_exodus.constants import ArmorType, WeaponType
+
+            living = [m for m in party.members if not m.is_dead()]
+            ready_for_sea = bool(living) and all(
+                m.level >= 5 and m.marks[0] > 0 for m in living
+            ) and all(m.marks[0] > 0 for m in party.members)
+            has_exotics = all(
+                (m.weapon == WeaponType.EXOTIC or m.weapons.get(WeaponType.EXOTIC, 0) > 0)
+                and (m.armor == ArmorType.EXOTIC or m.armors.get(ArmorType.EXOTIC, 0) > 0)
+                for m in party.members
+            )
+            return "SHIP" if ready_for_sea and not has_exotics else "FOOT"
+        return "FOOT"
+
+    def _engage_transport_lock(self, desired: str, reason: str = "") -> None:
+        self._transport_locked = desired
+        self._lock_no_cycle_ticks = 0
+        self._lock_age_ticks = 0
+        logger.warning(
+            "Autoplay loop-breaker: transport lock engaged (%s, desired=%s) "
+            "after repeating %s cycle; history tail: %s",
+            reason,
+            desired,
+            reason,
+            list(self._step_history)[-6:],
+        )
+
+    def _release_transport_lock(self) -> None:
+        self._transport_locked = None
+        self._lock_no_cycle_ticks = 0
+
+    def _tick_loop_breaker(self, state_machine: StateMachine) -> None:
+        if self._detect_transport_oscillation():
+            self._lock_no_cycle_ticks = 0
+            if self._transport_locked is None:
+                screen = state_machine.current_screen
+                party = getattr(screen, "party", None)
+                if party is None:
+                    return
+                goal = evaluate_goal(
+                    party, map_id=self._screen_map_id(screen, party)
+                )
+                self._engage_transport_lock(
+                    self._desired_transport(goal.name, party),
+                    reason=f"{goal.name}",
+                )
+        elif self._transport_locked is not None:
+            self._lock_no_cycle_ticks += 1
+            self._lock_age_ticks += 1
+            if (
+                self._lock_no_cycle_ticks >= self._LOCK_RELEASE_TICKS
+                or self._lock_age_ticks >= self._LOCK_MAX_TICKS
+            ):
+                self._release_transport_lock()
+            elif self._lock_age_ticks % 50 == 0:
+                # Self-reporting ticket: the lock stopped an oscillation but
+                # no other branch claimed this state - a missing goal handler
+                # that needs to be fixed, not slept through.
+                screen = state_machine.current_screen
+                party = getattr(screen, "party", None)
+                logger.error(
+                    "AUTOPLAY STALLED while locked (%s): goal=%s map=%s pos=(%s,%s) "
+                    "transport=%s - every one of these needs a goal handler. "
+                    "history tail: %s",
+                    self._transport_locked,
+                    evaluate_goal(party, map_id=self._screen_map_id(screen, party)).name
+                    if party is not None else "?",
+                    self._screen_map_id(screen, party) if screen is not None else "?",
+                    getattr(party, "x", "?") if party else "?",
+                    getattr(party, "y", "?") if party else "?",
+                    getattr(party, "transport", "?"),
+                    list(self._step_history)[-6:],
+                )
+
+    def _transport_action_allowed(self, key: int, desired: str, safety: bool = False) -> bool:
+        """Gate for transport actions: safety disembarks always pass."""
+        if safety:
+            return True
+        if self._transport_locked is None:
+            return True
+        if desired == "SHIP":
+            return key != pygame.K_x  # block disembark, not board
+        if desired == "FOOT":
+            return key != pygame.K_b  # block board, not disembark
+        return True
+
+    def _transport_emit_allowed(self, state_machine: StateMachine, key: int) -> bool:
+        """Gate for board/disembark emission sites (goal-aware)."""
+        if self._transport_locked is None:
+            return True
+        screen = state_machine.current_screen
+        party = getattr(screen, "party", None)
+        if party is None:
+            return True
+        goal = evaluate_goal(party, map_id=self._screen_map_id(screen, party))
+        return self._transport_action_allowed(
+            key, self._desired_transport(goal.name, party)
+        )
 
     def _queue_text(self, text: str, enter: bool = True) -> None:
         for ch in text:
@@ -220,10 +453,21 @@ class AutoPlayController:
         if screen is None:
             return None
 
+        self._tick_loop_breaker(state_machine)
+
         screen_name = type(screen).__name__
         if screen_name == "FinalScreen":
             self._key_queue.clear()
             return None
+
+        # Composition guard: refuse to run on any non-canonical party.
+        # Roster building is exempt (autoplay constructs the party there);
+        # party.members keeps dead members, so a wipe mid-run never trips.
+        if self.enabled and screen_name not in ("StartScreen", "RosterScreen"):
+            if self._party_is_canonical(screen) is False:
+                self.enabled = False
+                state_machine.autoplay_enabled = False
+                return None
 
         screen_party = getattr(screen, "party", None)
         if (
@@ -770,13 +1014,23 @@ class AutoPlayController:
                             for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0))
                         )
                     }
-                    if blocking_guards:
+                    # User ruling (2026-11-20): bribe liberally inside Death
+                    # Gulch. A 100g bribe PERMANENTLY removes the guard
+                    # (special_commands.do_bribe) and clears the corridor, so
+                    # the raid stays deterministic - fighting costs food and
+                    # turns for 0-damage guards, and any blocked path risks
+                    # another idle loop.
+                    adj_or_blocking = blocking_guards | {
+                        (px + dx, py + dy)
+                        for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0))
+                    } & guards
+                    if adj_or_blocking:
                         briber_idx, briber = max(living, key=lambda im: im[1].gold)
                         if briber.gold < 100:
                             self._join_gold_member_idx = briber_idx
                             return self._emit_key(state_machine, pygame.K_j)
                         for d_g in (Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST):
-                            if (px + d_g.dx, py + d_g.dy) in blocking_guards:
+                            if (px + d_g.dx, py + d_g.dy) in adj_or_blocking:
                                 self._queue_text("BRIBE", enter=True)
                                 self._queue_text(f"{briber_idx}{d_g.name[0].lower()}", enter=False)
                                 return self._emit_key(state_machine, pygame.K_o)
@@ -1058,6 +1312,39 @@ class AutoPlayController:
         cur_map_id = self._screen_map_id(screen, party)
         living = [m for m in party.members if not m.is_dead()]
 
+        # CURE_POISON on the overworld: with no on-the-spot ALCORT caster
+        # (2026-11-20 live-run stall at the Death Gulch portal — the goal
+        # previously only had an in-town handler), walk to the nearest
+        # reachable healer-town entry. On SHIP, disembark at any walkable
+        # coast first; once on FOOT this branch takes over and enters the
+        # town.
+        if goal == Goal.CURE_POISON and cur_map_id == 0:
+            if party.transport == Transport.SHIP:
+                from py_exodus.screens.overworld import can_move_to
+
+                for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+                    lx, ly = (px + dx) % gmap.width, (py + dy) % gmap.height
+                    if can_move_to(gmap, lx, ly, Transport.FOOT, party=party):
+                        return self._emit_key(state_machine, pygame.K_x)
+            else:
+                healer_entries = [
+                    (t[0], t[1]) for t in _HEALER_TOWNS.values()
+                ]
+                reachable = [
+                    entry
+                    for entry in healer_entries
+                    if find_2d_step(gmap, (px, py), {entry}, Transport.FOOT, party=party) is not None
+                ]
+                if reachable:
+                    best = min(
+                        reachable,
+                        key=lambda e: (
+                            find_2d_step_and_cost(gmap, (px, py), {e}, Transport.FOOT, party=party)[1]
+                            or 10**9
+                        ),
+                    )
+                    return self._enter_portal_or_wait_dawn(state_machine, screen, gmap, party, px, py, best)
+
         # Loot dropped chests on foot on Sosaria or Ambrosia (prefer APPAR_UNEM, else G with member 1)
         if cur_map_id in _PIRATE_SEA_MAPS and party.transport == Transport.FOOT:
             chests = {
@@ -1102,6 +1389,14 @@ class AutoPlayController:
                 and len(living) == len(party.members)
                 and 400 <= party.gold < 4500
                 and sum(m.keys for m in living) >= 4
+                # No DG raids before ALCORT self-sufficiency: the first
+                # Ambrosia trip (cleric wis >= 35) comes first.
+                and any(
+                    not m.is_dead()
+                    and m.profession in (Profession.CLERIC, Profession.DRUID)
+                    and m.max_mp >= 35.0
+                    for m in party.members
+                )
             )
             if not wants_death_gulch and goal not in (
                 Goal.DIG_EXOTICS,
@@ -1129,7 +1424,9 @@ class AutoPlayController:
                     screen=screen,
                 )
                 if (px, py) in frigates:
-                    return self._emit_key(state_machine, pygame.K_b)
+                    if self._transport_emit_allowed(state_machine, pygame.K_b):
+                        return self._emit_key(state_machine, pygame.K_b)
+                    return None  # loop-breaker: boarding locked out this cycle
                 reachable_frigates = {
                     pos for pos in frigates
                     if find_2d_step(gmap, (px, py), {pos}, Transport.FOOT, party=party) is not None
@@ -1308,7 +1605,9 @@ class AutoPlayController:
                     screen=screen,
                 )
                 if (px, py) in frigates:
-                    return self._emit_key(state_machine, pygame.K_b)
+                    if self._transport_emit_allowed(state_machine, pygame.K_b):
+                        return self._emit_key(state_machine, pygame.K_b)
+                    return None  # loop-breaker: boarding locked out this cycle
                 reachable_frigates = {
                     pos for pos in frigates
                     if find_2d_step(gmap, (px, py), {pos}, Transport.FOOT, party=party) is not None
@@ -1333,7 +1632,9 @@ class AutoPlayController:
                     return self._move_toward(state_machine, gmap, party, (px, py), {(10, 59)})
                 frigates = self._boardable_frigates(party, screen=screen)
                 if (px, py) in frigates:
-                    return self._emit_key(state_machine, pygame.K_b)
+                    if self._transport_emit_allowed(state_machine, pygame.K_b):
+                        return self._emit_key(state_machine, pygame.K_b)
+                    return None  # loop-breaker: boarding locked out this cycle
                 reachable_frigates = {
                     pos for pos in frigates
                     if find_2d_step(gmap, (px, py), {pos}, Transport.FOOT, party=party) is not None
@@ -1360,7 +1661,9 @@ class AutoPlayController:
         if goal == Goal.CAPTURE_SHIP:
             frigates = self._boardable_frigates(party, include_damaged=False)
             if (px, py) in frigates:
-                return self._emit_key(state_machine, pygame.K_b)
+                if self._transport_emit_allowed(state_machine, pygame.K_b):
+                    return self._emit_key(state_machine, pygame.K_b)
+                return None  # loop-breaker: boarding locked out this cycle
             reachable_frigates = {
                 pos
                 for pos in frigates
@@ -1545,6 +1848,12 @@ class AutoPlayController:
                 and (m.armor == ArmorType.EXOTIC or m.armors.get(ArmorType.EXOTIC, 0) > 0)
                 for m in party.members
             )
+            and any(
+                not m.is_dead()
+                and m.profession in (Profession.CLERIC, Profession.DRUID)
+                and m.max_mp >= 35.0
+                for m in party.members
+            )
             and all(any(m.marks[i] > 0 for m in living) for i in (1, 2, 3))
             and len(living) == len(party.members)
             and 400 <= party.gold < 4500
@@ -1563,7 +1872,11 @@ class AutoPlayController:
                 if can_move_to(gmap, lx, ly, Transport.FOOT, party=party) and (
                     (lx, ly) == (46, 19) or find_2d_step(gmap, (lx, ly), {(46, 19)}, Transport.FOOT, party=party) is not None
                 ):
-                    return self._emit_key(state_machine, pygame.K_x)
+                    # Loop-breaker: when a transport cycle lock holds against
+                    # disembarking, fall through to the sailing fallback
+                    # below instead of oscillating.
+                    if self._transport_emit_allowed(state_machine, pygame.K_x):
+                        return self._emit_key(state_machine, pygame.K_x)
             return self._move_toward(
                 state_machine,
                 gmap,
@@ -1601,10 +1914,13 @@ class AutoPlayController:
             and all(m.hp * 10 >= m.max_hp * 3 for m in living)
         )
         if not needs_heal(party) or broke_and_starving:
-            land_targets: set[tuple[int, int]] = set()
+            candidate_prey: list[tuple[str, int, int]] = []
             for c in getattr(screen, "creatures", []):
                 tname = str(c.get("tile_name") or c.get("tile") or "").lower()
-                if tname in ("whirlpool", "pirate", "serpent", "squid"):
+                # Guards excluded per engine truth (wontattack) + user lore:
+                # attacking a guard makes ALL guards hostile - a pure loss.
+                # (Also starving-hunt block below keeps land prey only.)
+                if tname in ("whirlpool", "pirate", "serpent", "squid", "guard"):
                     continue
                 cx, cy = c.get("x"), c.get("y")
                 if cx is None or cy is None:
@@ -1612,7 +1928,14 @@ class AutoPlayController:
                 dx = min((cx - px) % gmap.width, (px - cx) % gmap.width)
                 dy = min((cy - py) % gmap.height, (py - cy) % gmap.height)
                 if dx + dy <= 12:
-                    land_targets.add((cx, cy))
+                    candidate_prey.append((tname, cx, cy))
+            # Economy critic (inert by default): prefer prey that actually
+            # pays gold at the party's power level.
+            land_targets = self._economy.select_prey(
+                party, state_machine.current_screen, candidate_prey
+            )
+            if land_targets is None:
+                land_targets = {(x, y) for _t, x, y in candidate_prey}
             if land_targets:
                 d = find_2d_step(gmap, (px, py), land_targets, party.transport, party=party, avoid_tiles=self._overworld_avoid)
                 if d is not None:
@@ -2112,6 +2435,20 @@ class AutoPlayController:
         }
         return self._move_toward(state_machine, gmap, party, (px, py), adjacent)
 
+    def _hazard_hazard_costs(self, state_machine: StateMachine, party):
+        """Scaled hazard costs for the current position (None when inert)."""
+        runtime = getattr(self, "_hazard", None)
+        if runtime is None or not runtime.active:
+            return None
+        screen = state_machine.current_screen
+        if screen is None or getattr(screen, "game_map", None) is None:
+            return None
+        try:
+            return runtime.hazard_costs(party, screen)
+        except Exception as exc:  # strategy layer must never break the run
+            logger.warning("hazard critic error: %s", exc)
+            return None
+
     def _move_toward(
         self,
         state_machine: StateMachine,
@@ -2127,6 +2464,8 @@ class AutoPlayController:
         )
         avoid = getattr(self, "_overworld_avoid", None) or None
         wind = getattr(party, "wind_direction", None)
+        hz_costs = self._hazard_hazard_costs(state_machine, party)
+        hz_alpha = self._hazard.alpha if self._hazard.active else 0.0
         d, wind_cost = find_2d_step_and_cost(
             game_map,
             start=start,
@@ -2136,6 +2475,8 @@ class AutoPlayController:
             wind_direction=wind,
             avoid_tiles=avoid,
             allow_locked_doors=(has_key and party.transport == Transport.FOOT),
+            hazard_costs=hz_costs,
+            hazard_alpha=hz_alpha,
         )
         if (
             starving_buy_food
