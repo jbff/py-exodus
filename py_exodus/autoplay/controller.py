@@ -489,10 +489,18 @@ class AutoPlayController:
                 self._queue_text(f"{caster[0]}h{poison_idx}", enter=False)
                 return self._emit_key(state_machine, pygame.K_c)
 
-        # Heal detour if hurt (skip during BUY_FOOD/starvation, and save Cleric/Druid MP for ALCORT when poisoned)
-        if needs_heal(party) and goal != Goal.BUY_FOOD and party.food > 0:
+        # Heal detour if hurt (skip during BUY_FOOD/starvation, and skip/save MP during CURE_POISON unless <= 25 HP)
+        if (
+            needs_heal(party)
+            and goal != Goal.BUY_FOOD
+            and party.food > 0
+            and (
+                goal != Goal.CURE_POISON
+                or any(not m.is_dead() and m.hp <= 25 for m in party.members)
+            )
+        ):
             saving_for_alcort = poison_idx is not None and all(
-                m.hp > 50 for m in party.members if not m.is_dead()
+                m.hp > 25 for m in party.members if not m.is_dead()
             )
             caster = next(
                 (
@@ -603,7 +611,10 @@ class AutoPlayController:
         )
         if (
             map_id == 10
-            and (goal == Goal.GRIND_AND_LEVEL or (goal == Goal.CURE_POISON and can_alcort))
+            and (
+                goal in (Goal.GRIND_AND_LEVEL, Goal.BUY_KEYS)
+                or (goal == Goal.CURE_POISON and can_alcort)
+            )
             and party.gold < 9000
             and party.food >= 40
             and all(not m.is_dead() and m.hp > 100 for m in party.members)
@@ -1015,7 +1026,7 @@ class AutoPlayController:
                 and has_exotics
                 and has_remaining_marks
                 and len(living) == len(party.members)
-                and 300 <= party.gold < 4500
+                and 400 <= party.gold < 4500
                 and sum(m.keys for m in living) >= 4
             )
             if not wants_death_gulch and goal not in (
@@ -1038,7 +1049,7 @@ class AutoPlayController:
                     party,
                     include_damaged=(
                         not on_mainland
-                        and hull_val > 5
+                        and not self._is_hull_critical(party, screen)
                         and goal != Goal.GET_REMAINING_MARKS
                     ),
                     screen=screen,
@@ -1241,7 +1252,7 @@ class AutoPlayController:
                     party,
                     include_damaged=(
                         not on_mainland
-                        and hull_val > 5
+                        and not self._is_hull_critical(party, screen)
                         and goal != Goal.GET_REMAINING_MARKS
                     ),
                     screen=screen,
@@ -1443,7 +1454,7 @@ class AutoPlayController:
             )
             and all(any(m.marks[i] > 0 for m in living) for i in (1, 2, 3))
             and len(living) == len(party.members)
-            and 300 <= party.gold < 4500
+            and 400 <= party.gold < 4500
             and sum(m.keys for m in living) >= 4
         )
 
