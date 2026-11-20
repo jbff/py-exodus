@@ -30,6 +30,7 @@ from py_exodus.nn.macro_critic import (
     save_macro_checkpoint,
 )
 from py_exodus.nn.macro_dataset import (
+    GOAL_LIST,
     INDEX_TO_GOAL,
     compute_milestone_score,
     legal_goal_mask,
@@ -49,10 +50,28 @@ class MacroTransition:
     reward: float
     value: float
     done: bool
+    sym_scores: list[float] | None = None
 
 
-def _rollout_one_seed(args: tuple[int, str, str | None, int, float]) -> dict[str, Any]:
-    seed, macro_ckpt, combat_ckpt, max_steps, temperature = args
+def _policy_dist(
+    logits: torch.Tensor,
+    mask: torch.Tensor,
+    sym_scores: torch.Tensor | None,
+    residual_alpha: float,
+    score_temp: float,
+    temperature: float,
+) -> Categorical:
+    """Build exact action distribution for either pure-NN or Residual-EV rollouts."""
+    if residual_alpha > 0.0 and sym_scores is not None:
+        probs = torch.softmax(logits, dim=-1)
+        combined = sym_scores + residual_alpha * probs
+        policy_logits = (combined / max(1e-3, score_temp)).masked_fill(~mask, -1e9)
+        return Categorical(logits=policy_logits)
+    return Categorical(logits=logits / max(0.1, temperature))
+
+
+def _rollout_one_seed(args: tuple[int, str, str | None, int, float, float, float]) -> dict[str, Any]:
+    seed, macro_ckpt, combat_ckpt, max_steps, temperature, residual_alpha, score_temp = args
     import pygame
 
     pygame.init()
@@ -115,15 +134,19 @@ def _rollout_one_seed(args: tuple[int, str, str | None, int, float]) -> dict[str
         feats = extract_macro_features(p, map_id=mid, screen=scr)
         vec = macro_feature_vector(feats)
         mask = legal_goal_mask(p, map_id=mid, screen=scr)
+        sym_vec: list[float] | None = None
+        if residual_alpha > 0.0:
+            sym_dict = planner_mod.score_goals(p, map_id=mid, screen=scr)
+            sym_vec = [float(sym_dict[g]) if m else 0.0 for g, m in zip(GOAL_LIST, mask)]
         with torch.no_grad():
             f_t = torch.tensor([vec], dtype=torch.float32)
             m_t = torch.tensor([mask], dtype=torch.bool)
+            s_t = torch.tensor([sym_vec], dtype=torch.float32) if sym_vec is not None else None
             logits, val = macro_net(f_t, m_t)
-            scaled = logits / max(0.1, temperature)
-            dist = Categorical(logits=scaled)
+            dist = _policy_dist(logits, m_t, s_t, residual_alpha, score_temp, temperature)
             idx_t = dist.sample()
             g_idx = int(idx_t.item())
-            lp = float(Categorical(logits=logits).log_prob(idx_t).item())
+            lp = float(dist.log_prob(idx_t).item())
             v = float(val.item())
 
         transitions.append(
@@ -135,6 +158,7 @@ def _rollout_one_seed(args: tuple[int, str, str | None, int, float]) -> dict[str
                 reward=0.0,
                 value=v,
                 done=False,
+                sym_scores=sym_vec,
             )
         )
         goal = INDEX_TO_GOAL[g_idx]
@@ -202,10 +226,15 @@ def collect_macro_rollouts(
     max_steps: int = 80_000,
     workers: int = 1,
     temperature: float = 1.0,
+    residual_alpha: float = 0.0,
+    score_temp: float = 25.0,
 ) -> tuple[list[MacroTransition], list[dict[str, Any]]]:
     """Collect parallel macro RL rollouts on training seeds only."""
     validate_train_seeds(seeds)
-    tasks = [(int(s), str(macro_ckpt), str(combat_ckpt) if combat_ckpt else None, max_steps, temperature) for s in seeds]
+    tasks = [
+        (int(s), str(macro_ckpt), str(combat_ckpt) if combat_ckpt else None, max_steps, temperature, residual_alpha, score_temp)
+        for s in seeds
+    ]
     if workers <= 1 or len(tasks) <= 1:
         episodes = [_rollout_one_seed(t) for t in tasks]
     else:
@@ -265,10 +294,15 @@ def train_macro_rl(
     value_coef: float = 0.5,
     ppo_epochs: int = 4,
     batch_size: int = 256,
+    residual_alpha: float = 0.0,
+    score_temp: float = 25.0,
+    curriculum_seeds: list[int] | tuple[int, ...] | None = None,
     device: str | None = None,
 ) -> tuple[MacroCriticNet, dict[str, Any]]:
     """Fine-tune MacroCriticNet with KL-anchored PPO over full-game macro rollouts."""
     validate_train_seeds(train_seeds)
+    if curriculum_seeds:
+        validate_train_seeds(curriculum_seeds)
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -296,7 +330,13 @@ def train_macro_rl(
             save_macro_checkpoint(tmp_ckpt, model.to("cpu"), bc_meta)
             model.to(device)
 
-            batch_seeds = [rng.choice(train_seeds) for _ in range(episodes_per_iter)]
+            if curriculum_seeds:
+                n_cur = episodes_per_iter // 2
+                batch_seeds = [rng.choice(curriculum_seeds) for _ in range(n_cur)] + [
+                    rng.choice(train_seeds) for _ in range(episodes_per_iter - n_cur)
+                ]
+            else:
+                batch_seeds = [rng.choice(train_seeds) for _ in range(episodes_per_iter)]
             transitions, summaries = collect_macro_rollouts(
                 batch_seeds,
                 tmp_ckpt,
@@ -304,6 +344,8 @@ def train_macro_rl(
                 max_steps=max_steps,
                 workers=workers,
                 temperature=temperature,
+                residual_alpha=residual_alpha,
+                score_temp=score_temp,
             )
             if not transitions:
                 continue
@@ -316,24 +358,31 @@ def train_macro_rl(
             masks = torch.tensor([t.legal_mask for t in transitions], dtype=torch.bool)
             goals = torch.tensor([t.goal_idx for t in transitions], dtype=torch.long)
             old_lp = torch.tensor([t.log_prob for t in transitions], dtype=torch.float32)
+            has_sym = residual_alpha > 0.0 and transitions[0].sym_scores is not None
+            sym_t = (
+                torch.tensor([t.sym_scores for t in transitions], dtype=torch.float32)
+                if has_sym
+                else torch.zeros((len(transitions), len(GOAL_LIST)), dtype=torch.float32)
+            )
 
             loader = DataLoader(
-                TensorDataset(feats, masks, goals, old_lp, adv, ret),
+                TensorDataset(feats, masks, goals, old_lp, adv, ret, sym_t),
                 batch_size=min(batch_size, len(transitions)),
                 shuffle=True,
             )
             model.train()
             for _ in range(ppo_epochs):
-                for b_f, b_m, b_g, b_olp, b_adv, b_ret in loader:
+                for b_f, b_m, b_g, b_olp, b_adv, b_ret, b_sym in loader:
                     b_f = b_f.to(device)
                     b_m = b_m.to(device)
                     b_g = b_g.to(device)
                     b_olp = b_olp.to(device)
                     b_adv = b_adv.to(device)
                     b_ret = b_ret.to(device)
+                    b_sym = b_sym.to(device) if has_sym else None
 
                     logits, vals = model(b_f, b_m)
-                    dist = Categorical(logits=logits)
+                    dist = _policy_dist(logits, b_m, b_sym, residual_alpha, score_temp, temperature)
                     new_lp = dist.log_prob(b_g)
                     ratio = torch.exp(new_lp - b_olp)
                     surr1 = ratio * b_adv

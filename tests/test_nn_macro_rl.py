@@ -56,3 +56,28 @@ def test_train_macro_rl_smoke(tmp_path):
     assert len(meta["history"]) == 1
     assert isinstance(model, MacroCriticNet)
     torch.cuda.empty_cache() if torch.cuda.is_available() else None
+
+
+def test_train_macro_rl_residual_ev_smoke(tmp_path):
+    bc_ckpt = tmp_path / "macro_bc.pt"
+    rl_ckpt = tmp_path / "macro_rl_res.pt"
+    save_macro_checkpoint(bc_ckpt, MacroCriticNet(), {"git_sha": "test"})
+
+    model, meta = train_macro_rl(
+        bc_ckpt,
+        [0, 1],
+        out_ckpt=rl_ckpt,
+        iterations=1,
+        episodes_per_iter=2,
+        max_steps=40,
+        workers=1,
+        ppo_epochs=1,
+        batch_size=8,
+        residual_alpha=100.0,
+        score_temp=25.0,
+        curriculum_seeds=[0],
+        device="cpu",
+    )
+    assert rl_ckpt.exists()
+    assert meta["transitions"] > 0
+    assert isinstance(model, MacroCriticNet)
