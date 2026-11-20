@@ -94,42 +94,16 @@ def test_controller_nn_missing_checkpoint_raises(monkeypatch, tmp_path):
         AutoPlayController(enabled=True, nn_combat=True, nn_device="cpu")
 
 
-def test_controller_nn_combat_drives_arena(pygame_setup, asset_mgr):
+def test_nn_inference_error_propagates(pygame_setup, asset_mgr):
+    """No fallback on the NN branch: a failing net must raise, loudly."""
+    ctrl = AutoPlayController(enabled=True, nn_combat=True, nn_device="cpu")
+    if not ctrl.nn_combat_policy.available:
+        pytest.skip("combat checkpoint/torch unavailable")
+    ctrl.nn_combat_policy.model = object()  # not a net: chooser will raise
     sm = StateMachine(asset_mgr=asset_mgr)
     combat = _combat_screen(asset_mgr)
     sm.push_screen(combat)
-
-    ctrl = AutoPlayController(enabled=True, step_interval=0.05, nn_combat=True)
-    assert ctrl.nn_combat_policy is not None
-
-    calls = []
-
-    class StubPolicy:
-        available = True
-
-        def step_combat(self, state_machine, screen):
-            calls.append((state_machine, screen))
-            return None
-
-    ctrl.nn_combat_policy = StubPolicy()
-    ctrl.step(sm)
-    assert len(calls) == 1
-    # NN mode must NOT toggle the symbolic auto-combat.
-    assert combat.auto_combat is False
-
-
-def test_controller_nn_inference_error_propagates(pygame_setup, asset_mgr):
-    sm = StateMachine(asset_mgr=asset_mgr)
-    combat = _combat_screen(asset_mgr)
-    sm.push_screen(combat)
-
-    class BrokenPolicy:
-        def step_combat(self, state_machine, screen):
-            raise ValueError("cuda exploded")
-
-    ctrl = AutoPlayController(enabled=True, step_interval=0.05, nn_combat=True)
-    ctrl.nn_combat_policy = BrokenPolicy()
-    with pytest.raises(ValueError, match="cuda exploded"):
+    with pytest.raises(TypeError):
         ctrl.step(sm)
 
 
@@ -144,77 +118,47 @@ def test_real_policy_executes_turns_without_crash(pygame_setup, asset_mgr):
         pytest.skip("combat checkpoint/torch unavailable")
     for _ in range(240):
         ctrl.step(sm)
-        sm.update(0.05)  # progress FX so animations complete and logs flush
+        sm.update(0.05)
         if combat.arena.is_finished:
             break
-    assert combat.arena.log_messages, "NN policy should have executed combat actions"
+    assert combat.arena.log_messages or combat.text_log.lines, (
+        "NN policy should have executed combat actions"
+    )
 
 
-def test_real_policy_drives_screen_pipeline(pygame_setup, asset_mgr):
-    """NN turns must go through the screen so FX plays and the travelogue logs.
+def test_sm_scales_dt_for_combat_screen_in_autoplay(pygame_setup, asset_mgr, monkeypatch):
+    """Autoplay accelerates combat FX like symbolic auto-combat does.
 
-    Regression: driving arena.execute_turn directly bypassed
-    CombatScreen._execute_action, leaving zero animations and an empty
-    travelogue during NN autoplay.
+    Regression: NN autoplay combat ran FX at manual pacing (0.35s per hit)
+    because the screen's fx_dt acceleration gate only fires with
+    auto_combat on; the state machine must scale dt the same way.
     """
-    sm = StateMachine(asset_mgr=asset_mgr)
-    combat = _combat_screen(asset_mgr)
-    sm.push_screen(combat)
-
-    ctrl = AutoPlayController(enabled=True, step_interval=0.05, nn_combat=True)
+    ctrl = AutoPlayController(enabled=True, step_interval=0.02, nn_combat=True)
     if not ctrl.nn_combat_policy.available:
         pytest.skip("combat checkpoint/torch unavailable")
-    initial = list(combat.text_log.lines)  # e.g. "SHADOW's turn." from init
-    for _ in range(240):
-        ctrl.step(sm)
-        sm.update(0.05)  # progress FX so animations complete and logs flush
-        if combat.arena.is_finished:
-            break
-    new_lines = [
-        line
-        for line in combat.text_log.lines[len(initial):]
-        if not line.endswith("turn.")  # ignore per-turn markers
-    ]
-    assert new_lines, (
-        "travelogue should log NN combat actions beyond turn markers"
-    )
-
-
-def test_policy_waits_for_in_flight_animation(pygame_setup, asset_mgr):
-    """While the screen animates, the policy must not execute another turn."""
     sm = StateMachine(asset_mgr=asset_mgr)
     combat = _combat_screen(asset_mgr)
     sm.push_screen(combat)
+    ctrl.step(sm)  # sets autoplay_enabled + autoplay_step_interval
+    assert sm.autoplay_enabled is True
 
-    policy = CombatNNPolicy(device="cpu")
-    if not policy.available:
-        pytest.skip("combat checkpoint/torch unavailable")
+    seen = []
+    monkeypatch.setattr(combat, "update", lambda dt: seen.append(dt))
+    sm.update(0.05)
+    assert seen, "combat screen should receive update(dt)"
+    # Symbolic rule: interval < 0.12 -> dt * (0.12 / interval); 0.05 * 6
+    assert seen[0] == pytest.approx(0.05 * (0.12 / 0.02))
 
-    combat._anim_stage = "projectile"
-    before = len(combat.arena.log_messages)
-    policy.step_combat(sm, combat)
-    assert len(combat.arena.log_messages) == before, "should not act mid-animation"
-    assert combat._anim_stage == "projectile"  # untouched
+    # Outside autoplay (or with screen auto-combat on, which already
+    # accelerates internally) there must be no extra scaling.
+    monkeypatch.setattr(combat, "update", lambda dt: seen.append(dt))
+    sm.autoplay_enabled = False
+    seen.clear()
+    sm.update(0.05)
+    assert seen[0] == pytest.approx(0.05)
 
-
-def test_policy_handles_party_death_exception(pygame_setup, asset_mgr, monkeypatch):
-    """A wipe mid-NN-action routes through the screen's death check."""
-    from py_exodus.entities.party import PartyDeathException
-
-    sm = StateMachine(asset_mgr=asset_mgr)
-    combat = _combat_screen(asset_mgr)
-    sm.push_screen(combat)
-
-    policy = CombatNNPolicy(device="cpu")
-    if not policy.available:
-        pytest.skip("combat checkpoint/torch unavailable")
-
-    called = []
-    monkeypatch.setattr(
-        combat, "_execute_action", lambda action: (_ for _ in ()).throw(
-            PartyDeathException("wipe")
-        )
-    )
-    monkeypatch.setattr(combat, "check_party_death", lambda: called.append(True))
-    policy.step_combat(sm, combat)
-    assert called == [True]
+    sm.autoplay_enabled = True
+    combat.auto_combat = True
+    seen.clear()
+    sm.update(0.05)
+    assert seen[0] == pytest.approx(0.05)

@@ -112,6 +112,22 @@ class StateMachine:
         if cur is None:
             return
 
+        # NN-autoplay combat acceleration: full-autoplay with the neural
+        # policy never toggles the screen's own auto_combat, so CombatScreen
+        # would tick its FX at real-time pacing while autoplay runs. Mirror
+        # the symbolic rule (CombatScreen.update: interval < 0.12 scales
+        # fx_dt by 0.12/interval) at the update level, and only for Combat
+        # screens that autoplay is driving: symbolic auto_combat already
+        # accelerates internally, so it is excluded to avoid double speed.
+        if (
+            self.autoplay_enabled
+            and type(cur).__name__ == "CombatScreen"
+            and not getattr(cur, "auto_combat", False)
+            and self.autoplay_step_interval is not None
+            and self.autoplay_step_interval < 0.12
+        ):
+            dt = dt * (0.12 / max(0.01, self.autoplay_step_interval))
+
         cur.update(dt)
         self._check_screen_transition(cur)
 
