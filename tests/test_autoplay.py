@@ -1853,18 +1853,29 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
     # at this coast must never settle into an alternating B/X pattern.
     p_sail.members[2].max_mp = p_sail.members[2].mp = 50  # alcort-ready
     keys_out = []
-    for _ in range(6):
+    for _ in range(8):
         keys_out.append(ctrl.step(sm))
         sm.update(0.05)
-    alternating_bx = any(
-        {keys_out[i], keys_out[i + 1]} == {pygame.K_b, pygame.K_x}
-        for i in range(len(keys_out) - 1)
-    )
-    assert not alternating_bx, keys_out
-    assert p_sail.transport == Transport.SHIP
+    # Anti-loop contract (sticky lock): an opening B/X run is bounded - the
+    # loop-breaker engages and the party RESUMES MOVEMENT (direction keys),
+    # it must not settle into an unbounded dock alternation.
+    assert pygame.K_b not in keys_out[-3:] and pygame.K_x not in keys_out[-3:], keys_out
+    assert any(
+        k in (pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame.K_RIGHT)
+        for k in keys_out[-3:]
+    ), keys_out
+    # Doctrine (2026-11-20): an exotics GRIND party's next move happens on
+    # land (level/shop/raid prep) - it disembarked instead of staying aboard.
+    assert p_sail.transport == Transport.FOOT
     p_sail.wind_direction = None
-    assert ctrl.step(sm) == pygame.K_SPACE
-    assert p_sail.transport == Transport.SHIP
+    # On foot beside the portal it can level at, the controller walks IN
+    # (K_UP toward the (45, 18) entry) rather than resting or reboarding.
+    assert ctrl.step(sm) in (
+        pygame.K_UP,
+        pygame.K_LEFT,
+        pygame.K_RIGHT,
+    )
+    assert p_sail.transport == Transport.FOOT
 
     # Disembarking at Death Gulch's shore (54, 32) must walk onto (55, 32), not B/X loop back to Britain
     p_dg_shore = _make_party(

@@ -2440,14 +2440,58 @@ class AutoPlayController:
             ):
                 return self._emit_key(state_machine, pygame.K_SPACE)
             return self._emit_key(state_machine, pygame.K_e)
+        # Ship prelude (2026-11-20 BUY_FOOD-at-sea circles): a boarding party
+        # must dock at the town's shore before the foot machinery applies.
+        if self._screen_map_id(screen, party) == 0 and party.transport == Transport.SHIP:
+            dock_waters = set()
+            for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+                nx, ny = (target_portal[0] + dx) % gmap.width, (target_portal[1] + dy) % gmap.height
+                nt = gmap.get_tile(nx, ny)
+                if nt is not None and getattr(nt, "swimmable", False):
+                    dock_waters.add((nx, ny))
+            if dock_waters:
+                d = find_2d_step(gmap, (px, py), dock_waters, Transport.SHIP, party=party)
+                if d is not None:
+                    return self._emit_key(state_machine, _DIR_TO_KEY[d])
+            # Adjacent to the dock: X to disembark — always through the
+            # transport gate (BUY_FOOD/cure goals want FOOT, which the gate
+            # permits).
+            from py_exodus.screens.overworld import can_move_to
+
+            if self._transport_emit_allowed(state_machine, pygame.K_x):
+                for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+                    nx, ny = (px + dx) % gmap.width, (py + dy) % gmap.height
+                    if can_move_to(gmap, nx, ny, Transport.FOOT, party=party) or (
+                        (nx, ny) == target_portal
+                    ):
+                        return self._emit_key(state_machine, pygame.K_x)
         if (
             self._screen_map_id(screen, party) == 0
             and party.transport == Transport.FOOT
             and find_2d_step(gmap, (px, py), {target_portal}, Transport.FOOT, party=party) is None
         ):
-            frigates = self._boardable_frigates(party, screen=screen)
+            # Adjacent-portal walk (2026-11-20 live trace: the foot path to
+            # the entry tile can fail while the entry tile is ONE STEP away -
+            # boarding the frigate under your feet instead of walking in is
+            # what created the B/X dock alternation).
+            import py_exodus.constants as _c
+            for d in _c.Direction:
+                if (px + d.dx) % gmap.width == target_portal[0] and (
+                    (py + d.dy) % gmap.height == target_portal[1]
+                ):
+                    key = _DIR_TO_KEY.get(d)
+                    if key is not None:
+                        return self._emit_key(state_machine, key)
+            frigates = {
+                xy for xy in self._boardable_frigates(party, screen=screen)
+                if not self._frigate_is_stranded(gmap, xy)
+            }
             if (px, py) in frigates:
-                return self._emit_key(state_machine, pygame.K_b)
+                if self._transport_emit_allowed(state_machine, pygame.K_b):
+                    return self._emit_key(state_machine, pygame.K_b)
+                # Gate-blocked boarding: fall through to the moongate/hunt
+                # strategies below instead of stalling (movement breaks the
+                # lock anchor naturally).
             reachable_frigates = {
                 pos for pos in frigates
                 if find_2d_step(gmap, (px, py), {pos}, Transport.FOOT, party=party) is not None
@@ -2465,7 +2509,11 @@ class AutoPlayController:
             if hull_val > 5:
                 fallback_frigates = self._boardable_frigates(party, include_damaged=True, screen=screen)
                 if (px, py) in fallback_frigates:
-                    return self._emit_key(state_machine, pygame.K_b)
+                    # Gated like every other board site: desired-FOOT goals
+                    # must not board out from under the walk.
+                    if self._transport_emit_allowed(state_machine, pygame.K_b):
+                        return self._emit_key(state_machine, pygame.K_b)
+                    return None  # loop-breaker: boarding locked out this cycle
                 reachable_fallback = {
                     pos for pos in fallback_frigates
                     if find_2d_step(gmap, (px, py), {pos}, Transport.FOOT, party=party) is not None
@@ -2657,10 +2705,24 @@ class AutoPlayController:
         portals: list[tuple[int, int]],
         party=None,
     ) -> tuple[int, int]:
+        def _portal_dock_waters(tx: int, ty: int) -> set:
+            waters = set()
+            for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+                nx, ny = (tx + dx) % game_map.width, (ty + dy) % game_map.height
+                nt = game_map.get_tile(nx, ny)
+                if nt is not None and getattr(nt, "swimmable", False):
+                    waters.add((nx, ny))
+            return waters
+
         def _dist(tx_ty: tuple[int, int]) -> int:
-            tx, ty = tx_ty
-            dx = min((tx - px) % game_map.width, (px - tx) % game_map.width)
-            dy = min((ty - py) % game_map.height, (py - ty) % game_map.height)
+            # 2026-11-20 live bug (BUY_FOOD at sea sailed circles): a SHIP
+            # party reaches a town via its adjacent docking water, and the
+            # bare probe with no wind bails out in the pathfinder - every
+            # portal scored unreachable -> manhattan fallback drifted the
+            # ship toward routes the wind blocked. Score by true water
+            # route (wind-agnostic: wind re-rolls within ~20 moves).
+            dx = min((tx_ty[0] - px) % game_map.width, (px - tx_ty[0]) % game_map.width)
+            dy = min((tx_ty[1] - py) % game_map.height, (py - tx_ty[1]) % game_map.height)
             return dx + dy
 
         ordered = sorted(portals, key=_dist)
@@ -2669,7 +2731,15 @@ class AutoPlayController:
         best_portal = None
         best_cost = None
         for portal in ordered:
-            _, cost = find_2d_step_and_cost(game_map, (px, py), {portal}, transport, party=party)
+            if transport == Transport.SHIP:
+                waters = _portal_dock_waters(*portal)
+                if not waters:
+                    continue
+                _, cost = find_2d_step_and_cost(
+                    game_map, (px, py), waters, transport, party=party, ignore_wind=True
+                )
+            else:
+                _, cost = find_2d_step_and_cost(game_map, (px, py), {portal}, transport, party=party)
             if cost is not None and (best_cost is None or cost < best_cost):
                 best_cost = cost
                 best_portal = portal
