@@ -1846,6 +1846,27 @@ class AutoPlayController:
                 and min((c["x"] - px) % gmap.width, (px - c["x"]) % gmap.width)
                 + min((c["y"] - py) % gmap.height, (py - c["y"]) % gmap.height) <= 3
             ]
+            if nearby_pirates and party.transport == Transport.FOOT:
+                # Same rule on foot (user correction: cannons hit anyone in
+                # range): step away from the pirate along the coast.
+                wind_foot = None
+                blocked_foot = None
+                best_dir, best_gap = None, -1
+                for cand in _CARDINALS:
+                    nx, ny = (px + cand.dx) % gmap.width, (py + cand.dy) % gmap.height
+                    from py_exodus.screens.overworld import can_move_to as _cmt
+
+                    if not _cmt(gmap, nx, ny, Transport.FOOT, party=party):
+                        continue
+                    gap = sum(
+                        min((pxp - nx) % gmap.width, (nx - pxp) % gmap.width)
+                        + min((pyp - ny) % gmap.height, (ny - pyp) % gmap.height)
+                        for pxp, pyp in nearby_pirates
+                    )
+                    if gap > best_gap:
+                        best_dir, best_gap = cand, gap
+                if best_dir is not None:
+                    return self._emit_key(state_machine, _DIR_TO_KEY[best_dir])
             if nearby_pirates and party.transport == Transport.SHIP:
                 d = find_2d_step(
                     gmap, (px, py), set(nearby_pirates), Transport.SHIP,
@@ -1853,6 +1874,39 @@ class AutoPlayController:
                 )
                 if d is not None:
                     return self._emit_key(state_machine, _DIR_TO_KEY[d])
+                # User ruling (2026-11-20): ENGAGE OR STEP AWAY - the cannon
+                # band is never a waiting room. If this tick cannot close
+                # (wind/heading), take the adjacent-water step that puts the
+                # most distance on the pirate.
+                wind = getattr(party, "wind_direction", None)
+                blocked = wind.reverse() if wind is not None else None
+                best_dir, best_gap = None, -1
+                for cand in _CARDINALS:
+                    if blocked is not None and cand == blocked:
+                        continue
+                    nx, ny = (px + cand.dx) % gmap.width, (py + cand.dy) % gmap.height
+                    from py_exodus.screens.overworld import can_move_to as _cmt
+
+                    if not _cmt(gmap, nx, ny, Transport.SHIP, party=party):
+                        continue
+                    gap = min(
+                        min((pxp - nx) % gmap.width, (nx - pxp) % gmap.width)
+                        for pxp, pyp in nearby_pirates
+                        for _ in (0,)
+                    ) + min(
+                        min((pyp - ny) % gmap.height, (ny - pyp) % gmap.height)
+                        for pxp, pyp in nearby_pirates
+                        for _ in (0,)
+                    )
+                    if gap > best_gap:
+                        best_dir, best_gap = cand, gap
+                if best_dir is not None:
+                    d = find_2d_step(
+                        gmap, (px, py), {(px + best_dir.dx, py + best_dir.dy)},
+                        Transport.SHIP, party=party, wind_direction=wind,
+                    )
+                    if d is not None:
+                        return self._emit_key(state_machine, _DIR_TO_KEY[d])
             frigates = {
                 xy for xy in self._boardable_frigates(party, include_damaged=False)
                 if not self._frigate_is_stranded(gmap, xy)
