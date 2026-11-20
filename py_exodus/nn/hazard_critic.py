@@ -60,8 +60,8 @@ def build_features(row: dict[str, Any]) -> list[float]:
     goal = str(row.get("goal", "")).replace("Goal.", "")
     feats = [
         float(row.get("min_hp_frac", 1.0)),
-        float(sum(row.get("levels", [1, 1, 1, 1])) / (4.0 * 25.0)),
-        float(max(row.get("levels", [1, 1, 1, 1])) / 25.0),
+        float(sum(row.get("levels") or [1, 1, 1, 1]) / (4.0 * 25.0)),
+        float(max(row.get("levels") or [1, 1, 1, 1]) / 25.0),
         float(living) / 4.0,
         min(1.0, float(row.get("gold", 0)) / 4500.0),
         min(1.0, float(row.get("food", 300)) / 900.0),

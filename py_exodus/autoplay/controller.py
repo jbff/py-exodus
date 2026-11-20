@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 import pygame
 
+from py_exodus.autoplay.economy_runtime import EconomyRuntime
 from py_exodus.autoplay.hazard_runtime import HazardRuntime
 from py_exodus.autoplay.equipment import (
     best_hand_transfer,
@@ -172,9 +173,11 @@ class AutoPlayController:
         self._mapped_dungeon_levels: set[tuple[int, int]] = set()
         # Loop-breaker state (memory layer): emitted-key history + optional
         # transport lock. See the loop-breaker block near _emit_key.
-        # NN strategy layer: hazard critic risk maps -> A* edge costs.
-        # Inert unless a trained checkpoint exists AND PY_EXODUS_HAZARD_ALPHA > 0.
+        # NN strategy layer: hazard critic risk maps -> A* edge costs;
+        # economy critic -> yield-scored prey selection. Both inert unless
+        # trained checkpoints exist AND their env flags are set.
         self._hazard = HazardRuntime()
+        self._economy = EconomyRuntime()
         self._step_history: deque[tuple] = deque(maxlen=self._HISTORY_MAX)
         self._transport_locked: str | None = None
         self._lock_no_cycle_ticks: int = 0
@@ -1885,7 +1888,7 @@ class AutoPlayController:
             and all(m.hp * 10 >= m.max_hp * 3 for m in living)
         )
         if not needs_heal(party) or broke_and_starving:
-            land_targets: set[tuple[int, int]] = set()
+            candidate_prey: list[tuple[str, int, int]] = []
             for c in getattr(screen, "creatures", []):
                 tname = str(c.get("tile_name") or c.get("tile") or "").lower()
                 if tname in ("whirlpool", "pirate", "serpent", "squid"):
@@ -1896,7 +1899,14 @@ class AutoPlayController:
                 dx = min((cx - px) % gmap.width, (px - cx) % gmap.width)
                 dy = min((cy - py) % gmap.height, (py - cy) % gmap.height)
                 if dx + dy <= 12:
-                    land_targets.add((cx, cy))
+                    candidate_prey.append((tname, cx, cy))
+            # Economy critic (inert by default): prefer prey that actually
+            # pays gold at the party's power level.
+            land_targets = self._economy.select_prey(
+                party, state_machine.current_screen, candidate_prey
+            )
+            if land_targets is None:
+                land_targets = {(x, y) for _t, x, y in candidate_prey}
             if land_targets:
                 d = find_2d_step(gmap, (px, py), land_targets, party.transport, party=party, avoid_tiles=self._overworld_avoid)
                 if d is not None:
