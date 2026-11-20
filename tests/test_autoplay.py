@@ -1804,6 +1804,188 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
     assert str(getattr(ow_evo.game_map.get_tile(10, 57), "name", "")).lower() == "water"
 
 
+def _make_stub_grid(width: int, height: int, tiles: dict[tuple[int, int], str], default: str = "water", map_id: int = 0):
+    """Build a minimal wrap-around stub GameMap for isolated autoplay policy tests."""
+    from types import SimpleNamespace
+
+    def _tile_obj(name: str):
+        swimmable = name in ("water", "whirlpool")
+        walkable = name in ("grass", "sand", "brush", "forest", "floor", "cobblestone", "path")
+        return SimpleNamespace(
+            name=name,
+            swimmable=swimmable,
+            sailable=swimmable,
+            walkable=walkable,
+            passable=walkable,
+            dispelable=False,
+            attribs=0,
+        )
+
+    class _StubMap:
+        def __init__(self):
+            self.id = map_id
+            self.width = width
+            self.height = height
+            self.border_behavior = "wrap"
+            self.moongates = ()
+            self.npcs = ()
+
+        def get_tile(self, x: int, y: int):
+            return _tile_obj(tiles.get((x % width, y % height), default))
+
+    return _StubMap()
+
+
+def _stub_screen(**kwargs):
+    """Build a minimal stub OverworldScreen accepted by StateMachine.set_screen and AutoPlayController."""
+    from types import SimpleNamespace
+
+    class OverworldScreen:
+        def __init__(self, **attrs):
+            self.on_enter = lambda *a: None
+            self.on_exit = lambda *a: None
+            self.handle_event = lambda e: None
+            self.is_finished = False
+            self.text_log = SimpleNamespace(is_waiting_for_input=False, lines=[])
+            self.creatures = []
+            for k, v in attrs.items():
+                setattr(self, k, v)
+
+    return OverworldScreen(**kwargs)
+
+
+def test_marooned_fallback_routes_to_hunt_patrol_never_space(pygame_setup):
+    """Marooned FOOT party with no reachable portal, frigate, or moongate patrols via hunt fallback, never K_SPACE."""
+    gmap = _make_stub_grid(6, 6, {(2, 2): "grass", (3, 2): "grass", (5, 5): "grass"})
+    party = _make_party(level=5, exp=500, gold=100, food=500, transport=Transport.FOOT)
+    party.x, party.y = 2, 2
+    sm = StateMachine(asset_mgr=None, audio=None)
+    screen = _stub_screen(game_map=gmap, creatures=[], party=party)
+    sm.set_screen(screen)
+    ctrl = AutoPlayController(enabled=True)
+    key = ctrl._enter_portal_or_wait_dawn(sm, screen, gmap, party, 2, 2, (5, 5))
+    assert key == pygame.K_RIGHT
+
+
+def test_water_standoff_unconditional_full_hp(pygame_setup):
+    """Full-HP party on water in pirate seas still steps away to >= 3 Manhattan from a pirate."""
+    gmap = _make_stub_grid(7, 7, {}, default="water", map_id=0)
+    party = _make_party(
+        level=10, exp=1000, gold=100, food=500, marks=[1, 1, 1, 1],
+        weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC, transport=Transport.SHIP,
+    )
+    party.x, party.y = 3, 3
+    party.wind_direction = Direction.NORTH
+    sm = StateMachine(asset_mgr=None, audio=None)
+    screen = _stub_screen(
+        game_map=gmap,
+        creatures=[{"x": 3, "y": 5, "tile_name": "pirate"}],
+        party=party,
+        heading=Direction.NORTH,
+        ship_hull=50,
+    )
+    sm.set_screen(screen)
+    ctrl = AutoPlayController(enabled=True)
+    assert ctrl.step(sm) == pygame.K_UP
+
+
+def test_starving_override_keeps_avoid_within_limit(pygame_setup):
+    """Starving BUY_FOOD party keeps _overworld_avoid when a detour within _STARVING_AVOID_MAX_STEPS exists."""
+    gmap = _make_stub_grid(7, 7, {}, default="grass", map_id=0)
+    party = _make_party(level=5, exp=500, gold=100, food=0, transport=Transport.FOOT)
+    party.x, party.y = 3, 3
+    sm = StateMachine(asset_mgr=None, audio=None)
+    screen = _stub_screen(game_map=gmap, creatures=[], party=party)
+    sm.set_screen(screen)
+    ctrl = AutoPlayController(enabled=True)
+    ctrl._overworld_avoid = {(3, 2)}
+    assert ctrl._move_toward(sm, gmap, party, (3, 3), {(3, 1)}) != pygame.K_UP
+
+
+def test_starving_override_relaxes_avoid_when_no_safe_route_within_limit(pygame_setup):
+    """Starving BUY_FOOD party relaxes _overworld_avoid when avoid blocks all routes within _STARVING_AVOID_MAX_STEPS."""
+    gmap = _make_stub_grid(7, 7, {}, default="grass", map_id=0)
+    party = _make_party(level=5, exp=500, gold=100, food=0, transport=Transport.FOOT)
+    party.x, party.y = 3, 3
+    sm = StateMachine(asset_mgr=None, audio=None)
+    screen = _stub_screen(game_map=gmap, creatures=[], party=party)
+    sm.set_screen(screen)
+    ctrl = AutoPlayController(enabled=True)
+    ctrl._overworld_avoid = {(3, 2), (2, 3), (4, 3), (3, 4)}
+    assert ctrl._move_toward(sm, gmap, party, (3, 3), {(3, 1)}) == pygame.K_UP
+
+
+def test_kx_landing_refuses_pirate_adjacent_when_alternate_exists(pygame_setup):
+    """K_x landing filter excludes pirate-adjacent shore tiles when a safe shore tile exists."""
+    gmap = _make_stub_grid(7, 7, {(2, 1): "grass", (4, 1): "grass"}, default="water", map_id=0)
+    party = _make_party(level=5, exp=500, gold=100, food=500, transport=Transport.SHIP)
+    screen = _stub_screen(game_map=gmap, creatures=[{"x": 2, "y": 0, "tile_name": "pirate"}], party=party)
+    safe = AutoPlayController._safe_shore_water(gmap, party, screen, {(2, 2), (4, 2)})
+    assert (2, 2) not in safe
+
+
+def test_broadsides_permitted_at_critical_hull(pygame_setup):
+    """Ship with hull <= 30 still fires broadsides when a pirate is lined up."""
+    gmap = _make_stub_grid(10, 10, {}, default="water", map_id=0)
+    party = _make_party(
+        level=10, exp=1000, gold=100, food=500, marks=[1, 1, 1, 1],
+        weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC, transport=Transport.SHIP,
+    )
+    party.x, party.y = 4, 4
+    party.ship_hull = 30
+    sm = StateMachine(asset_mgr=None, audio=None)
+    screen = _stub_screen(
+        game_map=gmap,
+        creatures=[{"x": 6, "y": 4, "tile_name": "pirate"}],
+        party=party,
+        heading=Direction.NORTH,
+        ship_hull=30,
+    )
+    sm.set_screen(screen)
+    ctrl = AutoPlayController(enabled=True)
+    assert ctrl.step(sm) == pygame.K_f
+
+
+def test_cure_poison_suppresses_sanctu_above_25_hp(pygame_setup):
+    """CURE_POISON suppresses out-of-combat SANCTU heal detour unless a living member has <= 25 HP."""
+    gmap = _make_stub_grid(7, 7, {}, default="grass", map_id=0)
+    party = _make_party(level=5, exp=500, gold=200, food=500, transport=Transport.FOOT)
+    party.x, party.y = 3, 3
+    party.members[0].status = Status.POISONED
+    party.members[0].hp = 40
+    party.members[0].max_hp = 200
+    party.members[2].mp = 20
+    party.members[2].max_mp = 50
+    sm = StateMachine(asset_mgr=None, audio=None)
+    screen = _stub_screen(game_map=gmap, creatures=[], party=party)
+    sm.set_screen(screen)
+    ctrl = AutoPlayController(enabled=True)
+    assert ctrl.step(sm) != pygame.K_c
+
+
+def test_no_resting_on_unsafe_town_maps(pygame_setup):
+    """Autoplay never rests with K_SPACE inside Exodus (2) or Death Gulch (10)."""
+    from py_exodus.assets import AssetManager
+    from py_exodus.screens.town import TownScreen
+
+    am = AssetManager("data")
+    am.load_all()
+    party = _make_party(
+        level=10, exp=1000, gold=100, food=500, marks=[1, 1, 1, 1],
+        weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC,
+    )
+    party.members[0].hp = 150
+    party.members[0].max_hp = 500
+    party.members[2].mp = 0
+    party.members[2].max_mp = 50
+    ts = TownScreen(party=party, asset_mgr=am, map_id=10, start_x=13, start_y=8)
+    sm = StateMachine(asset_mgr=am, audio=None)
+    sm.set_screen(ts)
+    ctrl = AutoPlayController(enabled=True)
+    assert ctrl.step(sm) != pygame.K_SPACE
+
+
+
 
 
 

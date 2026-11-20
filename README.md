@@ -65,7 +65,7 @@ python3 -m py_exodus
 ```bash
 uv run python -m pytest
 ```
-The suite currently runs **1,255 tests** covering mechanics, Java/GBC parity, vendors, dungeons, combat, rendering, and autoplay regressions.
+The suite currently runs **1,263 tests** covering mechanics, Java/GBC parity, vendors, dungeons, combat, rendering, and autoplay regressions.
 
 ---
 
@@ -82,7 +82,7 @@ The suite currently runs **1,255 tests** covering mechanics, Java/GBC parity, ve
 2. **Input**: Keyboard only (no gamepad mapping yet).
 3. **`H` (Hand Equipment)**: Transfers unequipped weapons and armor only (per Java `HandDialog.java`), not food—autoplay compensates by equalizing food at purchase time.
 4. **Combat regen**: Passive MP (`tick_regen`) and meal-crossing `+1 HP` do not tick during combat rounds (only healing spells restore HP mid-battle).
-5. **Autoplay (unassisted win rate)**: End-to-end A-to-Z victory is verified both under `NOHURT` and unassisted (`seed=437`), though non-`nohurt` runs still occasionally wipe to early-game L1–L3 combat, ship-loss pirate cannon fire on islands, or `BUY_FOOD` starvation loops.
+5. **Autoplay (unassisted win rate)**: End-to-end A-to-Z victory is verified both under `NOHURT` (`seed=417 WON@142845`, `seed=418 WON@114926`) and unassisted (`nohurt=False`: `seed=437 WON@112074`, `seed=471 WON@149406`, `seed=472 WON@134745`). Recent 10-seed 160k non-`nohurt` sweeps: `435–444` (1 win `437`, 1 survived `441`, 8 wipes: `436/440/443` Death Gulch shore cannon, `435/439/444` `BUY_FOOD`/starvation, `438/442` mid-game combat/poison), `465–474` (2 wins `471/472`, 1 survived `473`, 7 wipes), `485–494` (3 survived, 7 wipes), and `505–514` (1 survived, 9 wipes).
 
 ---
 

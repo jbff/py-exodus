@@ -34,6 +34,17 @@ _DIR_TO_KEY: dict[Direction, int] = {
     Direction.EAST: pygame.K_RIGHT,
 }
 
+_MAP_SOSARIA = 0
+_MAP_CASTLE_LB = 1
+_MAP_EXODUS = 2
+_MAP_DEATH_GULCH = 10
+_MAP_AMBROSIA = 13
+_PIRATE_SEA_MAPS: tuple[int, ...] = (_MAP_SOSARIA, _MAP_AMBROSIA)
+_UNSAFE_REST_TOWN_MAPS: tuple[int, ...] = (_MAP_EXODUS, _MAP_DEATH_GULCH)
+_PIRATE_STANDOFF_DIST = 3
+# ~2x a typical mainland town food run; leaves HP margin before starvation ticks kill a 0-food party.
+_STARVING_AVOID_MAX_STEPS = 40
+
 # EXODUS card panels: (x, y, bit_mask, card_letter, card_index)
 _EXODUS_PANELS: tuple[tuple[int, int, int, str, int], ...] = (
     (30, 12, 0x1, "l", 3),  # Love
@@ -347,6 +358,75 @@ class AutoPlayController:
             hull = getattr(party, "ship_hull", 50)
         return hull <= cls._CRITICAL_HULL_THRESHOLD
 
+    def _get_any_shore_water(self, gmap, party) -> frozenset[tuple[int, int]]:
+        """Return cached water tiles adjacent to FOOT-walkable land on this map."""
+        from py_exodus.screens.overworld import can_move_to
+
+        has_fire = any(not m.is_dead() and m.marks[1] > 0 for m in party.members)
+        has_force = any(not m.is_dead() and m.marks[2] > 0 for m in party.members)
+        cache = getattr(self, "_any_shore_water_cache", None)
+        if cache is None:
+            cache = {}
+            self._any_shore_water_cache = cache
+        key = (getattr(gmap, "id", 0), has_fire, has_force)
+        if key not in cache:
+            cache[key] = frozenset(
+                (wx, wy)
+                for wy in range(gmap.height)
+                for wx in range(gmap.width)
+                if str(getattr(gmap.get_tile(wx, wy), "name", "")).lower() == "water"
+                and any(
+                    can_move_to(
+                        gmap,
+                        (wx + dx) % gmap.width,
+                        (wy + dy) % gmap.height,
+                        Transport.FOOT,
+                        party=party,
+                    )
+                    for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0))
+                )
+            )
+        return cache[key]
+
+    @staticmethod
+    def _safe_shore_water(
+        gmap,
+        party,
+        screen,
+        shore_tiles: set[tuple[int, int]] | frozenset[tuple[int, int]],
+    ) -> set[tuple[int, int]]:
+        """Filter out shore tiles whose walkable land is pirate-adjacent when an alternate exists."""
+        from py_exodus.screens.overworld import can_move_to
+
+        pirates = [
+            (c["x"], c["y"])
+            for c in getattr(screen, "creatures", ())
+            if str(c.get("tile_name") or c.get("tile") or "").lower() == "pirate"
+            and "x" in c and "y" in c
+        ]
+        if not pirates:
+            return set(shore_tiles)
+
+        def _is_pirate_adjacent_landing(wx: int, wy: int) -> bool:
+            for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+                lx, ly = (wx + dx) % gmap.width, (wy + dy) % gmap.height
+                ntile = gmap.get_tile(lx, ly)
+                if (
+                    ntile is not None
+                    and not getattr(ntile, "swimmable", False)
+                    and can_move_to(gmap, lx, ly, Transport.FOOT, party=party)
+                    and any(
+                        min((lx - px_) % gmap.width, (px_ - lx) % gmap.width)
+                        + min((ly - py_) % gmap.height, (py_ - ly) % gmap.height) <= 1
+                        for px_, py_ in pirates
+                    )
+                ):
+                    return True
+            return False
+
+        safe = {pt for pt in shore_tiles if not _is_pirate_adjacent_landing(*pt)}
+        return safe if safe else set(shore_tiles)
+
     @classmethod
     def _boardable_frigates(cls, party, include_damaged: bool = False, screen=None) -> set[tuple[int, int]]:
         """Return frigate coordinates, skipping a critically damaged last_ship."""
@@ -540,7 +620,7 @@ class AutoPlayController:
         gmap = screen.game_map
         map_id = getattr(gmap, "id", getattr(screen, "map_id", party.map_id))
         if (
-            map_id not in (2, 10)
+            map_id not in _UNSAFE_REST_TOWN_MAPS
             and needs_heal(party)
             and party.food >= 100
             and not any(not m.is_dead() and m.food == 0 for m in party.members)
@@ -943,22 +1023,16 @@ class AutoPlayController:
             and "x" in c and "y" in c
         ]
         if pirates:
-            if needs_heal(party) and len(reachable_coast) > 1:
-                target = max(
-                    reachable_coast,
-                    key=lambda pt: min(abs(pt[0] - px_) + abs(pt[1] - py_) for px_, py_ in pirates),
-                )
-            else:
-                target = min(
-                    reachable_coast,
-                    key=lambda pt: min(abs(pt[0] - px_) + abs(pt[1] - py_) for px_, py_ in pirates),
-                )
-                pirate_near_target = any(
-                    abs(target[0] - px_) + abs(target[1] - py_) <= 6 for px_, py_ in pirates
-                )
-                if (px, py) == target and not pirate_near_target:
-                    self._patrol_idx += 1
-                    target = reachable_coast[self._patrol_idx % len(reachable_coast)]
+            target = min(
+                reachable_coast,
+                key=lambda pt: min(abs(pt[0] - px_) + abs(pt[1] - py_) for px_, py_ in pirates),
+            )
+            pirate_near_target = any(
+                abs(target[0] - px_) + abs(target[1] - py_) <= 6 for px_, py_ in pirates
+            )
+            if (px, py) == target and not pirate_near_target:
+                self._patrol_idx += 1
+                target = reachable_coast[self._patrol_idx % len(reachable_coast)]
         else:
             target = reachable_coast[self._patrol_idx % len(reachable_coast)]
             if (px, py) == target:
@@ -985,7 +1059,7 @@ class AutoPlayController:
         living = [m for m in party.members if not m.is_dead()]
 
         # Loot dropped chests on foot on Sosaria or Ambrosia (prefer APPAR_UNEM, else G with member 1)
-        if cur_map_id in (0, 13) and party.transport == Transport.FOOT:
+        if cur_map_id in _PIRATE_SEA_MAPS and party.transport == Transport.FOOT:
             chests = {
                 (obj.get("x"), obj.get("y"))
                 for obj in getattr(party, "dynamic_objects", [])
@@ -1072,7 +1146,7 @@ class AutoPlayController:
         # Low-level parties on foot avoid coastal sea monsters; ships avoid sea monsters & fire broadsides
         avoid_monsters: set[tuple[int, int]] = set()
         self._ship_threat_near = False
-        if cur_map_id in (0, 13) and party.transport == Transport.SHIP:
+        if cur_map_id in _PIRATE_SEA_MAPS and party.transport == Transport.SHIP:
             heading = getattr(screen, "heading", Direction.EAST)
             broadsides_horiz = heading in (Direction.NORTH, Direction.SOUTH)
             cannon_targets = {
@@ -1160,39 +1234,15 @@ class AutoPlayController:
         self._overworld_avoid = avoid_monsters
 
         if (
-            cur_map_id in (0, 13)
+            cur_map_id in _PIRATE_SEA_MAPS
             and party.transport == Transport.SHIP
             and self._is_hull_critical(party, screen)
         ):
-            from py_exodus.screens.overworld import can_move_to
-
-            if any(
-                can_move_to(
-                    gmap,
-                    (px + dx) % gmap.width,
-                    (py + dy) % gmap.height,
-                    Transport.FOOT,
-                    party=party,
-                )
-                for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0))
-            ):
+            shore_water = self._safe_shore_water(
+                gmap, party, screen, self._get_any_shore_water(gmap, party)
+            )
+            if (px, py) in shore_water:
                 return self._emit_key(state_machine, pygame.K_x)
-            shore_water = {
-                (wx, wy)
-                for wy in range(gmap.height)
-                for wx in range(gmap.width)
-                if str(getattr(gmap.get_tile(wx, wy), "name", "")).lower() == "water"
-                and any(
-                    can_move_to(
-                        gmap,
-                        (wx + dx) % gmap.width,
-                        (wy + dy) % gmap.height,
-                        Transport.FOOT,
-                        party=party,
-                    )
-                    for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0))
-                )
-            }
             if shore_water:
                 return self._move_toward(state_machine, gmap, party, (px, py), shore_water)
 
@@ -1320,7 +1370,54 @@ class AutoPlayController:
                 return self._move_toward(state_machine, gmap, party, (px, py), reachable_frigates)
             return self._hunt_starving_prey_or_patrol(state_machine, screen, gmap, party, px, py, living)
 
-        if cur_map_id == 0 and needs_heal(party):
+        starving_on_food_route = (
+            goal == Goal.BUY_FOOD
+            and any(not m.is_dead() and m.food == 0 for m in living)
+        )
+        if (
+            cur_map_id in _PIRATE_SEA_MAPS
+            and party.transport == Transport.SHIP
+            and goal != Goal.CAPTURE_SHIP
+            and not starving_on_food_route
+        ):
+            nearby_pirates = [
+                (c["x"], c["y"])
+                for c in getattr(screen, "creatures", ())
+                if str(c.get("tile_name") or c.get("tile") or "").lower() == "pirate"
+                and "x" in c and "y" in c
+                and min((c["x"] - px) % gmap.width, (px - c["x"]) % gmap.width)
+                + min((c["y"] - py) % gmap.height, (py - c["y"]) % gmap.height) < _PIRATE_STANDOFF_DIST
+            ]
+            if nearby_pirates:
+                from py_exodus.screens.overworld import can_move_to
+
+                wind = getattr(party, "wind_direction", None)
+                blocked_dir = wind.reverse() if wind is not None else None
+                best_dir = None
+                best_dist = -1
+                for d, (dx, dy) in (
+                    (Direction.NORTH, (0, -1)),
+                    (Direction.SOUTH, (0, 1)),
+                    (Direction.WEST, (-1, 0)),
+                    (Direction.EAST, (1, 0)),
+                ):
+                    if wind is None or d == blocked_dir:
+                        continue
+                    nx, ny = (px + dx) % gmap.width, (py + dy) % gmap.height
+                    if not can_move_to(gmap, nx, ny, transport=Transport.SHIP, party=party):
+                        continue
+                    min_d = min(
+                        min((nx - cx) % gmap.width, (cx - nx) % gmap.width)
+                        + min((ny - cy) % gmap.height, (cy - ny) % gmap.height)
+                        for cx, cy in nearby_pirates
+                    )
+                    if min_d > best_dist:
+                        best_dist = min_d
+                        best_dir = d
+                if best_dir is not None:
+                    return self._emit_key(state_machine, _DIR_TO_KEY[best_dir])
+
+        if cur_map_id == _MAP_SOSARIA and needs_heal(party):
             # Emergency step away only when a monster is within 1 tile (radius 2-3 is routed around via _overworld_avoid)
             evade_rad = 3 if party.transport == Transport.SHIP else 1
             nearby = [
@@ -1329,10 +1426,6 @@ class AutoPlayController:
                 if "x" in c and "y" in c and abs(c["x"] - px) + abs(c["y"] - py) <= evade_rad
             ]
             if nearby:
-                if party.transport == Transport.FOOT and not on_mainland:
-                    hull_val = getattr(screen, "ship_hull", getattr(party, "ship_hull", 50))
-                    if (px, py) in self._boardable_frigates(party, include_damaged=(hull_val > 5), screen=screen):
-                        return self._emit_key(state_machine, pygame.K_b)
                 wind = getattr(party, "wind_direction", None)
                 if party.transport == Transport.SHIP and wind is None:
                     return self._emit_key(state_machine, pygame.K_SPACE)
@@ -1812,21 +1905,11 @@ class AutoPlayController:
                 ignore_wind=True,
             ) is not None:
                 return self._move_toward(state_machine, gmap, party, (px, py), mainland_water)
-            if any(
-                can_move_to(gmap, (px + dx) % gmap.width, (py + dy) % gmap.height, Transport.FOOT, party=party)
-                for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0))
-            ):
+            any_shore_water = self._safe_shore_water(
+                gmap, party, state_machine.current_screen, self._get_any_shore_water(gmap, party)
+            )
+            if (px, py) in any_shore_water:
                 return self._emit_key(state_machine, pygame.K_x)
-            any_shore_water = {
-                (wx, wy)
-                for wy in range(gmap.height)
-                for wx in range(gmap.width)
-                if str(getattr(gmap.get_tile(wx, wy), "name", "")).lower() == "water"
-                and any(
-                    can_move_to(gmap, (wx + dx) % gmap.width, (wy + dy) % gmap.height, Transport.FOOT, party=party)
-                    for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0))
-                )
-            }
             if any_shore_water and find_2d_step(
                 gmap,
                 (px, py),
@@ -1876,28 +1959,6 @@ class AutoPlayController:
                 and (c.get("x"), c.get("y")) in water_comp
             ]
             if pirates_in_bay:
-                low_or_hurt = needs_heal(party) or any(
-                    m.max_hp > 0 and m.hp * 2 < m.max_hp for m in living
-                )
-                if low_or_hurt:
-                    all_pirates = [
-                        (c["x"], c["y"])
-                        for c in getattr(state_machine.current_screen, "creatures", ())
-                        if str(c.get("tile_name") or c.get("tile") or "").lower() == "pirate"
-                        and "x" in c and "y" in c
-                    ]
-                    safe_land = {
-                        (lx, ly)
-                        for lx, ly in reachable_land
-                        if all(
-                            (lx != px_ and ly != py_) or abs(lx - px_) + abs(ly - py_) > 4
-                            for px_, py_ in all_pirates
-                        )
-                    }
-                    if safe_land:
-                        if (px, py) in safe_land:
-                            return self._emit_key(state_machine, pygame.K_SPACE)
-                        return self._move_toward(state_machine, gmap, party, (px, py), safe_land)
                 best_shore = min(
                     shore_tiles,
                     key=lambda st: min(abs(st[0] - px_) + abs(st[1] - py_) for px_, py_ in pirates_in_bay),
@@ -2018,7 +2079,7 @@ class AutoPlayController:
                     if str(getattr(gmap.get_tile((lx + dx) % gmap.width, (ly + dy) % gmap.height), "name", "")).lower() == "water"
                 )
                 shore_cache[cache_key] = shore_water
-            shore_water = shore_cache[cache_key]
+            shore_water = self._safe_shore_water(gmap, party, screen, shore_cache[cache_key])
             if (px, py) in shore_water:
                 return self._emit_key(state_machine, pygame.K_x)
             if shore_water:
@@ -2064,7 +2125,7 @@ class AutoPlayController:
             any(not m.is_dead() and m.food == 0 for m in party.members)
             and evaluate_goal(party, getattr(game_map, "id", getattr(party, "map_id", 0))) == Goal.BUY_FOOD
         )
-        avoid = None if starving_buy_food else (getattr(self, "_overworld_avoid", None) or None)
+        avoid = getattr(self, "_overworld_avoid", None) or None
         wind = getattr(party, "wind_direction", None)
         d, wind_cost = find_2d_step_and_cost(
             game_map,
@@ -2076,6 +2137,22 @@ class AutoPlayController:
             avoid_tiles=avoid,
             allow_locked_doors=(has_key and party.transport == Transport.FOOT),
         )
+        if (
+            starving_buy_food
+            and avoid
+            and (d is None or (wind_cost is not None and wind_cost > _STARVING_AVOID_MAX_STEPS))
+        ):
+            avoid = None
+            d, wind_cost = find_2d_step_and_cost(
+                game_map,
+                start=start,
+                goals=goals,
+                transport=party.transport,
+                party=party,
+                wind_direction=wind,
+                avoid_tiles=None,
+                allow_locked_doors=(has_key and party.transport == Transport.FOOT),
+            )
         if (
             party.transport == Transport.SHIP
             and wind is not None
