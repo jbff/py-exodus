@@ -887,6 +887,31 @@ class AutoPlayController:
 
         # Heal detour if hurt (skip during BUY_FOOD/starvation, and skip/save MP during CURE_POISON unless <= 25 HP)
         needs_heal_now = needs_heal(party)
+        # Vendor-over-heals rule (2026-11-20 live report): during cure/food/
+        # resurrect goals, do NOT burn turns SANCTU-healing when the relevant
+        # town entry is within a short walk - the vendor cures instantly for
+        # 100g while heal-casting grinds the percentage up one tick at a
+        # time.
+        gmap_now = getattr(screen, "game_map", None)
+        if needs_heal_now and goal in (
+            Goal.CURE_POISON, Goal.RESURRECT_DEAD, Goal.BUY_FOOD
+        ) and gmap_now is not None:
+            town_type = {
+                Goal.CURE_POISON: _HEALER_TOWNS,
+                Goal.RESURRECT_DEAD: _HEALER_TOWNS,
+                Goal.BUY_FOOD: _FOOD_TOWNS,
+            }[goal]
+            px_here, py_here = (
+                (screen.avatar_x, screen.avatar_y)
+                if hasattr(screen, "avatar_x") else (party.x, party.y)
+            )
+            for entry in ((t[0], t[1]) for t in town_type.values()):
+                _, cost = find_2d_step_and_cost(
+                    gmap_now, (px_here, py_here), {entry}, Transport.FOOT, party=party
+                )
+                if cost is not None and cost <= 8:
+                    needs_heal_now = False
+                    break
         # 100-seed atlas (2026-11-20): 63/82 deaths died with min-HP < 35% -
         # parties walked CURE_POISON/BUY_FOOD/RESURRECT voyages while hurt
         # because the heal-detour was deliberately skipped for those goals
@@ -919,6 +944,14 @@ class AutoPlayController:
             saving_for_alcort = poison_idx is not None and all(
                 m.hp > 25 for m in party.members if not m.is_dead()
             )
+            # Poison-precedence user ruling (2026-11-20): poison ticks eat
+            # heals faster than pass-mp regen can fund them - while anyone
+            # is poisoned, heals only fire for a dying member (<= 25 HP);
+            # otherwise save the MP for cures/vendor trips.
+            if poison_idx is not None and not any(
+                not m.is_dead() and m.hp <= 25 for m in party.members
+            ):
+                caster = None
             caster = next(
                 (
                     (i + 1, m.profession)
