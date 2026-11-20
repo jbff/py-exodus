@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 import pygame
 
+from py_exodus.autoplay.hazard_runtime import HazardRuntime
 from py_exodus.autoplay.equipment import (
     best_hand_transfer,
     best_owned_armor,
@@ -171,6 +172,9 @@ class AutoPlayController:
         self._mapped_dungeon_levels: set[tuple[int, int]] = set()
         # Loop-breaker state (memory layer): emitted-key history + optional
         # transport lock. See the loop-breaker block near _emit_key.
+        # NN strategy layer: hazard critic risk maps -> A* edge costs.
+        # Inert unless a trained checkpoint exists AND PY_EXODUS_HAZARD_ALPHA > 0.
+        self._hazard = HazardRuntime()
         self._step_history: deque[tuple] = deque(maxlen=self._HISTORY_MAX)
         self._transport_locked: str | None = None
         self._lock_no_cycle_ticks: int = 0
@@ -2359,6 +2363,20 @@ class AutoPlayController:
         }
         return self._move_toward(state_machine, gmap, party, (px, py), adjacent)
 
+    def _hazard_hazard_costs(self, state_machine: StateMachine, party):
+        """Scaled hazard costs for the current position (None when inert)."""
+        runtime = getattr(self, "_hazard", None)
+        if runtime is None or not runtime.active:
+            return None
+        screen = state_machine.current_screen
+        if screen is None or getattr(screen, "game_map", None) is None:
+            return None
+        try:
+            return runtime.hazard_costs(party, screen)
+        except Exception as exc:  # strategy layer must never break the run
+            logger.warning("hazard critic error: %s", exc)
+            return None
+
     def _move_toward(
         self,
         state_machine: StateMachine,
@@ -2374,6 +2392,8 @@ class AutoPlayController:
         )
         avoid = getattr(self, "_overworld_avoid", None) or None
         wind = getattr(party, "wind_direction", None)
+        hz_costs = self._hazard_hazard_costs(state_machine, party)
+        hz_alpha = self._hazard.alpha if self._hazard.active else 0.0
         d, wind_cost = find_2d_step_and_cost(
             game_map,
             start=start,
@@ -2383,6 +2403,8 @@ class AutoPlayController:
             wind_direction=wind,
             avoid_tiles=avoid,
             allow_locked_doors=(has_key and party.transport == Transport.FOOT),
+            hazard_costs=hz_costs,
+            hazard_alpha=hz_alpha,
         )
         if (
             starving_buy_food

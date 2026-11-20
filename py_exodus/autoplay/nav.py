@@ -34,6 +34,8 @@ def find_2d_step_and_cost(
     prefer_paths: bool = False,
     allow_locked_doors: bool = False,
     ignore_wind: bool = False,
+    hazard_costs: dict[tuple[int, int], float] | None = None,
+    hazard_alpha: float = 0.0,
 ) -> tuple[Direction | None, int | None]:
     """Return ``(first_direction, path_cost)`` toward the nearest reachable goal."""
     goal_set: set[tuple[int, int]] = (
@@ -130,6 +132,13 @@ def find_2d_step_and_cost(
                     if nxt in avoid or not _passable(nx, ny):
                         continue
                     ncost = cost + _tile_cost(nx, ny)
+                if hazard_costs and hazard_alpha > 0.0:
+                    # NN hazard critic: P(mishap soon) as extra edge cost so
+                    # the planner detours around historically dangerous
+                    # position/power combos (2026-11-20 strategy layer).
+                    ncost = cost + _tile_cost(nx, ny) + hazard_alpha * float(
+                        hazard_costs.get(nxt, 0.0)
+                    )
                 if ncost < best_cost.get(nxt, 10**9):
                     best_cost[nxt] = ncost
                     tie += 1
@@ -193,6 +202,8 @@ def find_2d_step(
     prefer_paths: bool = False,
     allow_locked_doors: bool = False,
     ignore_wind: bool = False,
+    hazard_costs: dict[tuple[int, int], float] | None = None,
+    hazard_alpha: float = 0.0,
 ) -> Direction | None:
     """Return the first cardinal Direction toward the nearest reachable goal on a 2D map."""
     return find_2d_step_and_cost(

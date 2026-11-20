@@ -28,6 +28,12 @@ class _Tile:
         self.name = name
         self.attribs = attribs
 
+    # can_move_to duck-type surface
+    walkable: bool = True
+    sailable: bool = False
+    dispelable: bool = False
+    rule: str = ""
+
 
 class _Map:
     def __init__(self, rows: list[list]) -> None:
