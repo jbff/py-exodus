@@ -125,6 +125,8 @@ def record_rollout(
     events = 0
 
     outcome = "SURVIVED"
+    prev_screen_kind = "OverworldScreen"
+    combat_gold: int | None = None
     gzip_ctx = gzip.open(out_path, "wt", encoding="utf-8") if str(out_path).endswith(".gz") else open(out_path, "w", encoding="utf-8")
     try:
         with gzip_ctx as f:
@@ -136,6 +138,39 @@ def record_rollout(
                 if getattr(party, "exodus_defeated", 0) > 0:
                     outcome = f"WON@{step}"
                     break
+
+                screen_kind = type(scr).__name__
+                # Combat event rows: the kill-vs-chest-vs-vendor attribution
+                # the economy critic needs (v1 rows couldn't tell them apart;
+                # the net learned rank-corr 0.06 = noise).
+                if screen_kind == "CombatScreen" and prev_screen_kind != "CombatScreen":
+                    f.write(json.dumps({
+                        "t": "combat_start",
+                        "step": step,
+                        "seed": seed,
+                        "x": party.x,
+                        "y": party.y,
+                        "map": getattr(getattr(scr, "game_map", None), "id", getattr(party, "map_id", 0)),
+                        "gold": party.gold,
+                        "creatures": sorted(
+                            {str(m.tile).lower() for m in getattr(scr.arena, "monsters", ())}
+                        ),
+                        "monster_count": len(getattr(scr.arena, "monsters", ())),
+                        **_party_snapshot(party, scr),
+                        **_nearby_threats(scr),
+                    }) + "\n")
+                    combat_gold = party.gold
+                elif screen_kind != "CombatScreen" and prev_screen_kind == "CombatScreen":
+                    gained = party.gold - (combat_gold if combat_gold is not None else party.gold)
+                    f.write(json.dumps({
+                        "t": "combat_end",
+                        "step": step,
+                        "seed": seed,
+                        "gold": party.gold,
+                        "gold_delta": gained,
+                    }) + "\n")
+                    combat_gold = None
+                prev_screen_kind = screen_kind
 
                 state_sig = (
                     party.x, party.y, party.transport.value.lower(),

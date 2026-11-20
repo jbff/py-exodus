@@ -138,3 +138,31 @@ def test_lock_never_blocks_safety_disembark():
     ctrl = AutoPlayController(enabled=True)
     ctrl._engage_transport_lock("SHIP", reason="bx-cycle")
     assert ctrl._transport_action_allowed(pygame.K_x, desired="SHIP", safety=True) is True
+
+
+def test_cure_poison_overworld_travels_to_healer(pygame_setup):
+    """Regression (2026-11-20 live stall): CURE_POISON on map 0 previously
+    had NO overworld handler — a poisoned party with no ALCORT clerk idled
+    at the Death Gulch portal forever. It must now travel toward a healer
+    town instead of issuing nothing."""
+    import pygame as pg
+
+    from py_exodus.assets import AssetManager
+    from py_exodus.constants import Status
+    from py_exodus.screens.overworld import OverworldScreen
+    from py_exodus.state_machine import StateMachine
+
+    from tests.test_autoplay import _make_party
+
+    am = AssetManager("data")
+    am.load_all()
+    party = _make_party(level=20, gold=1000, map_id=0, x=55, y=30)
+    for m in party.members:
+        m.status = Status.POISONED
+        m.mp = m.max_mp = 0  # no on-the-spot ALCORT possible
+    sm = StateMachine(asset_mgr=am, audio=None)
+    sm.push_screen(OverworldScreen(party=party, asset_mgr=am, random_encounters_enabled=False))
+
+    ctrl = AutoPlayController(enabled=True)
+    key = ctrl.step(sm)
+    assert key is not None, "controller must act on an unhandled overworld cure goal"

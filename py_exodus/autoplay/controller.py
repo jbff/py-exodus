@@ -1297,6 +1297,39 @@ class AutoPlayController:
         cur_map_id = self._screen_map_id(screen, party)
         living = [m for m in party.members if not m.is_dead()]
 
+        # CURE_POISON on the overworld: with no on-the-spot ALCORT caster
+        # (2026-11-20 live-run stall at the Death Gulch portal — the goal
+        # previously only had an in-town handler), walk to the nearest
+        # reachable healer-town entry. On SHIP, disembark at any walkable
+        # coast first; once on FOOT this branch takes over and enters the
+        # town.
+        if goal == Goal.CURE_POISON and cur_map_id == 0:
+            if party.transport == Transport.SHIP:
+                from py_exodus.screens.overworld import can_move_to
+
+                for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+                    lx, ly = (px + dx) % gmap.width, (py + dy) % gmap.height
+                    if can_move_to(gmap, lx, ly, Transport.FOOT, party=party):
+                        return self._emit_key(state_machine, pygame.K_x)
+            else:
+                healer_entries = [
+                    (t[0], t[1]) for t in _HEALER_TOWNS.values()
+                ]
+                reachable = [
+                    entry
+                    for entry in healer_entries
+                    if find_2d_step(gmap, (px, py), {entry}, Transport.FOOT, party=party) is not None
+                ]
+                if reachable:
+                    best = min(
+                        reachable,
+                        key=lambda e: (
+                            find_2d_step_and_cost(gmap, (px, py), {e}, Transport.FOOT, party=party)[1]
+                            or 10**9
+                        ),
+                    )
+                    return self._enter_portal_or_wait_dawn(state_machine, screen, gmap, party, px, py, best)
+
         # Loot dropped chests on foot on Sosaria or Ambrosia (prefer APPAR_UNEM, else G with member 1)
         if cur_map_id in _PIRATE_SEA_MAPS and party.transport == Transport.FOOT:
             chests = {
