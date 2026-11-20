@@ -479,11 +479,15 @@ def _ppo_rollout_one_seed(args: tuple[int, str, str | None, int]) -> dict[str, A
                 post_threat = _nearest_threat_dist(scr, gmap)
                 living = [m for m in party.members if not m.is_dead()]
                 min_hp = min((m.hp / max(1, m.max_hp) for m in living), default=0.0)
-                if (len(living) <= 2 or min_hp < 0.35) and pre_threat <= 3:
+                min_lvl = min((m.level for m in living), default=1)
+                low_hull = party.transport == Transport.SHIP and getattr(party, "ship_hull", 100) <= 35
+                if (len(living) <= 2 or min_hp < 0.35 or min_lvl < 5 or low_hull) and pre_threat <= 3:
                     if post_threat > pre_threat:
-                        step_r += 0.05
+                        step_r += 0.08
                     elif post_threat < pre_threat:
-                        step_r -= 0.05
+                        step_r -= 0.08
+                if low_hull:
+                    step_r -= 0.03
                 prev_action = a_idx
                 transitions.append(
                     OverworldTransition(
