@@ -19,3 +19,9 @@ __pycache__/
 refs/
 .worktrees/
 resume.sh
+
+# NN training artifacts (regenerable; only the shipped combat_ppo.pt is tracked)
+py_exodus/nn/checkpoints/combat_dataset_fullspace.json
+py_exodus/nn/checkpoints/combat_bc_fullspace.pt
+py_exodus/nn/checkpoints/combat_ppo_fullspace.pt
+py_exodus/nn/checkpoints/combat_fullspace_eval_report.json

@@ -394,6 +394,99 @@ def test_autoplay_controller_shrine_screen(pygame_setup, asset_mgr):
     assert sm.current_screen is not shrine
 
 
+def _non_canonical_party(level: int = 5) -> Party:
+    """Four wizards: a plausible user party, but not what autoplay supports."""
+    party = _make_party(level=level)
+    for member in party.members:
+        member.profession = Profession.WIZARD
+    return party
+
+
+def test_autoplay_refuses_non_canonical_party(pygame_setup, asset_mgr):
+    """Step-time guard: a user-built 4-wizard party must disable autoplay."""
+    party = _non_canonical_party()
+    sm = StateMachine(asset_mgr=asset_mgr)
+    ow = OverworldScreen(party=party, asset_mgr=asset_mgr)
+    sm.push_screen(ow)
+
+    ctrl = AutoPlayController(enabled=True)
+    ctrl.step(sm)
+    assert ctrl.enabled is False
+    assert sm.autoplay_enabled is False
+
+
+def test_f9_toggle_refused_on_non_canonical_party(pygame_setup, asset_mgr):
+    """Toggle gate: F9 on a non-canonical party must not engage autoplay."""
+    from py_exodus.screens.overworld import OverworldScreen as _OW
+
+    party = _non_canonical_party()
+    sm = StateMachine(asset_mgr=asset_mgr)
+    sm.push_screen(_OW(party=party, asset_mgr=asset_mgr))
+
+    ctrl = AutoPlayController()
+    assert ctrl.toggle() is True
+    assert ctrl.can_engage(sm) is False
+
+
+def test_canonical_party_engages(pygame_setup, asset_mgr):
+    party = _make_party(level=5)
+    sm = StateMachine(asset_mgr=asset_mgr)
+    sm.push_screen(OverworldScreen(party=party, asset_mgr=asset_mgr))
+
+    ctrl = AutoPlayController()
+    ctrl.toggle()
+    assert ctrl.can_engage(sm) is True
+    ctrl.step(sm)
+    assert ctrl.enabled is True
+
+
+def test_party_member_deaths_do_not_trip_composition_guard(pygame_setup, asset_mgr):
+    """Wipes must disable autoplay through the death path, not composition."""
+    party = _make_party(level=5)
+    for member in party.members:
+        member.status = Status.DEAD
+    sm = StateMachine(asset_mgr=asset_mgr)
+    sm.push_screen(OverworldScreen(party=party, asset_mgr=asset_mgr))
+
+    ctrl = AutoPlayController(enabled=True)
+    # Composition still counts as canonical (dead members stay listed);
+    # the party-wipe branch disables separately in step().
+    assert ctrl._party_is_canonical(sm.current_screen) is True
+
+
+def test_tab_auto_combat_refused_on_non_canonical_party(
+    pygame_setup, asset_mgr, monkeypatch
+):
+    """neural-net branch rule: TAB auto-combat needs T+F+C+W, also for F9-less users."""
+    import pygame as pg
+
+    combat_map = load_conflict_map("cnflct_a.json", asset_mgr)
+    party = _non_canonical_party(level=5)
+    combat = CombatScreen(
+        party=party,
+        combat_map=combat_map,
+        asset_mgr=asset_mgr,
+        encounter_type="goblin",
+    )
+    sm = StateMachine(asset_mgr=asset_mgr)
+    sm.push_screen(combat)
+
+    sm.handle_event(pg.event.Event(pg.KEYDOWN, key=pg.K_TAB, mod=0, unicode="\t"))
+    assert combat.auto_combat is False
+
+    canonical = _make_party(level=5)
+    combat2 = CombatScreen(
+        party=canonical,
+        combat_map=combat_map,
+        asset_mgr=asset_mgr,
+        encounter_type="goblin",
+    )
+    sm2 = StateMachine(asset_mgr=asset_mgr)
+    sm2.push_screen(combat2)
+    sm2.handle_event(pg.event.Event(pg.KEYDOWN, key=pg.K_TAB, mod=0, unicode="\t"))
+    assert combat2.auto_combat is True
+
+
 def test_autoplay_controller_overworld_dig_exotics(pygame_setup, asset_mgr):
     party = _make_party(
         level=6,
@@ -579,8 +672,13 @@ def test_nearest_shop_town_and_monster_chasing(pygame_setup):
     assert AutoPlayController._nearest_shop_town_portal(sosaria, 44, 20, Transport.FOOT) == (46, 19)  # Britain
 
     party = Party()
-    for name in ("A", "B", "C", "D"):
-        party.add_member(Character(name, "M", Race.HUMAN, Profession.FIGHTER, weapon=WeaponType.MACE, armor=ArmorType.CLOTH, gold=0))
+    # Canonical composition (the neural-net branch only supports autoplay on
+    # Thief+Fighter+Cleric+Wizard parties; other shapes are refused).
+    for name, prof in zip(
+        ("A", "B", "C", "D"),
+        (Profession.THIEF, Profession.FIGHTER, Profession.CLERIC, Profession.WIZARD),
+    ):
+        party.add_member(Character(name, "M", Race.HUMAN, prof, weapon=WeaponType.MACE, armor=ArmorType.CLOTH, gold=0))
     party.x, party.y = 43, 21
     sm = StateMachine(asset_mgr=am, audio=None)
     ow = OverworldScreen(party=party, asset_mgr=am, random_encounters_enabled=False)

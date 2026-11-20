@@ -179,6 +179,40 @@ class AutoPlayController:
         self._timer = 0.0
         return self.enabled
 
+    #: Full Autoplay is built and trained around exactly one party shape:
+    #: Thief + Fighter + Cleric + Wizard (4 members). A user party with
+    #: other professions would take the controller down untested paths —
+    #: refuse to engage on those (F9 does nothing; a mid-session --autoplay
+    #: gets disabled at the first gameplay screen).
+    CANONICAL_PROFESSIONS = frozenset(
+        {"THIEF", "FIGHTER", "CLERIC", "WIZARD"}
+    )
+
+    @staticmethod
+    def _party_is_canonical(screen) -> bool | None:
+        """True/False if the screen's party composition is checkable."""
+        party = getattr(screen, "party", None)
+        if party is None:
+            return None
+        members = list(getattr(party, "members", []) or [])
+        if len(members) != 4:
+            return False
+        professions = {
+            getattr(getattr(m, "profession", None), "name", "").upper() for m in members
+        }
+        return professions == AutoPlayController.CANONICAL_PROFESSIONS
+
+    def can_engage(self, state_machine: StateMachine) -> bool:
+        """Whether F9 engagement is allowed for the current screen.
+
+        Start/Roster screens are exempt: autoplay builds the canonical
+        party itself there. Screens without a party (menus, etc.) are too.
+        """
+        screen = state_machine.current_screen
+        if screen is None or type(screen).__name__ in ("StartScreen", "RosterScreen"):
+            return True
+        return self._party_is_canonical(screen) is not False
+
     def adjust_speed(self, faster: bool) -> float:
         """Adjust step interval faster or slower, clamped to [0.01, 0.50]."""
         if faster:
@@ -236,6 +270,15 @@ class AutoPlayController:
         if screen_name == "FinalScreen":
             self._key_queue.clear()
             return None
+
+        # Composition guard: refuse to run on any non-canonical party.
+        # Roster building is exempt (autoplay constructs the party there);
+        # party.members keeps dead members, so a wipe mid-run never trips.
+        if self.enabled and screen_name not in ("StartScreen", "RosterScreen"):
+            if self._party_is_canonical(screen) is False:
+                self.enabled = False
+                state_machine.autoplay_enabled = False
+                return None
 
         screen_party = getattr(screen, "party", None)
         if (

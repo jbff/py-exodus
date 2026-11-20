@@ -24,7 +24,13 @@ MAX_COMBAT_PARAMS = 3_000_000
 
 
 class CombatPolicyNet(nn.Module):
-    """Compact CNN+MLP policy+value network (~1.45M params) for 11x11 CombatArena."""
+    """Compact CNN+MLP policy+value network (~1.1M params) for 11x11 CombatArena.
+
+    v2 (2026-11-20): encoder grew to 11 grid channels + 33 context dims, so
+    the conv trunk was rebalanced 64/128/128 -> 48/96/64 to keep the net
+    SMALLER than before despite richer inputs — FC head cost scales with
+    the final channel count, which is what dominates the parameter budget.
+    """
 
     def __init__(
         self,
@@ -34,14 +40,14 @@ class CombatPolicyNet(nn.Module):
     ) -> None:
         super().__init__()
         self.conv = nn.Sequential(
-            nn.Conv2d(in_channels, 64, kernel_size=3, padding=1),
+            nn.Conv2d(in_channels, 48, kernel_size=3, padding=1),
             nn.ReLU(),
-            nn.Conv2d(64, 128, kernel_size=3, padding=1),
+            nn.Conv2d(48, 96, kernel_size=3, padding=1),
             nn.ReLU(),
-            nn.Conv2d(128, 128, kernel_size=3, padding=1),
+            nn.Conv2d(96, 64, kernel_size=3, padding=1),
             nn.ReLU(),
         )
-        flat_dim = 128 * COMBAT_GRID_SIZE * COMBAT_GRID_SIZE  # 15,488
+        flat_dim = 64 * COMBAT_GRID_SIZE * COMBAT_GRID_SIZE  # 7,744
         self.ctx_mlp = nn.Sequential(
             nn.Linear(context_dim, 64),
             nn.ReLU(),
@@ -132,12 +138,24 @@ def train_combat_bc(
 
     model.eval()
     with torch.no_grad():
-        v_g = grids[val_idx].to(device)
-        v_c = contexts[val_idx].to(device)
-        v_m = masks[val_idx].to(device)
-        v_a = actions[val_idx].to(device)
-        v_logits, _ = model(v_g, v_c, v_m)
-        val_acc = float((v_logits.argmax(dim=-1) == v_a).float().mean().item())
+        # Batched forward: the conv stack's activations on the whole val
+        # split at once are ~1 GiB+ (2026-11-20 CUDA OOM on a 6 GB card);
+        # 512-sample batches stay well inside it.
+        eval_idx = val_idx if n_val > 0 else train_idx
+        eval_acc_over = max(1, n_val if n_val > 0 else n_train)
+        v_correct = 0
+        for start in range(0, len(eval_idx), 512):
+            sl = slice(start, start + 512)
+            v_g = grids[eval_idx[sl]].to(device)
+            v_c = contexts[eval_idx[sl]].to(device)
+            v_m = masks[eval_idx[sl]].to(device)
+            v_logits, _ = model(v_g, v_c, v_m)
+            v_correct += int(
+                (v_logits.argmax(dim=-1) == actions[eval_idx[sl]].to(device))
+                .sum()
+                .item()
+            )
+        val_acc = v_correct / eval_acc_over
 
     meta = {
         "git_sha": current_git_sha(),
@@ -260,3 +278,113 @@ def evaluate_combat_policy(
         "ally_deaths": total_deaths,
         "deaths_per_ep": total_deaths / max(1, total),
     }
+
+
+def evaluate_combat_policy_fullspace(
+    model: CombatPolicyNet | None,
+    seeds: list[int] | tuple[int, ...],
+    *,
+    assets_dir: str = "data",
+    device: str = "cpu",
+    monster_counts: tuple[int, ...] = tuple(range(1, 9)),
+    levels: tuple[int, ...] = (3, 6, 9, 12, 16, 20, 25),
+    episodes_per_cell: int = 4,
+    max_turns: int = 90,
+) -> dict[str, Any]:
+    """Evaluate (or baseline with ``model=None``) across the full battlefield.
+
+    Cells enumerate every reachable (creature, transport, conflict map,
+    monster_count) combination — ship battles, boarding and sea-swimmer
+    encounters included — where the phase-1 nets were only ever evaluated
+    on land maps. Stats split ship-battle vs land families so an
+    out-of-distribution collapse shows up directly.
+    """
+    import random
+
+    from py_exodus.assets import AssetManager
+    from py_exodus.combat.arena import CombatArena
+    from py_exodus.combat.auto_combat import choose_auto_combat_action
+    from py_exodus.constants import Transport
+    from py_exodus.nn.combat_dataset import (
+        _make_diverse_party,
+        battle_terrain_cells,
+        validate_train_seeds,
+    )
+    from py_exodus.nn.combat_env import (
+        encode_combat_state,
+        index_to_action,
+        legal_action_mask,
+    )
+    from py_exodus.world.loader import load_map
+
+    # NOTE: no validate_train_seeds here — this evaluates on HOLDOUT seeds
+    # (900-999); the validator guards TRAINING collections only.
+    am = AssetManager(assets_dir)
+    am.load_all()
+    if model is not None:
+        model = model.to(device)
+        model.eval()
+    cells = battle_terrain_cells(monster_counts=monster_counts)
+
+    by_family = {
+        "land": {"episodes": 0, "wins": 0, "deaths": 0},
+        "ship": {"episodes": 0, "wins": 0, "deaths": 0},
+    }
+    ep_i = 0
+    for tile, transport, cmap_id, count in cells:
+        for k in range(episodes_per_cell):
+            ep_i += 1
+            ep_seed = seeds[ep_i % len(seeds)] * 1000 + (ep_i // len(seeds)) + k
+            rng = random.Random(ep_seed)
+            random.seed(ep_seed)
+            level = levels[ep_i % len(levels)]
+            party = _make_diverse_party(level=level, rng=rng)
+            party.transport = transport
+            random.seed(ep_seed)
+            arena = CombatArena(
+                party, load_map(cmap_id, am), asset_mgr=am,
+                creature_tile=tile, monster_count=count,
+            )
+            scr = type(
+                "_Scr",
+                (),
+                {
+                    "trammel_phase": rng.randrange(24),
+                    "felucca_phase": rng.randrange(8),
+                    "creatures": (),
+                },
+            )()
+            steps = 0
+            while not arena.is_finished and steps < max_turns * 4:
+                m_idx = arena.active_party_member_idx
+                if model is None:
+                    action = choose_auto_combat_action(arena, m_idx, asset_mgr=am)
+                else:
+                    grid, ctx = encode_combat_state(arena, m_idx, screen=scr, asset_mgr=am)
+                    mask = legal_action_mask(arena, m_idx, asset_mgr=am)
+                    with torch.no_grad():
+                        g_t = torch.tensor([grid], dtype=torch.float32, device=device)
+                        c_t = torch.tensor([ctx], dtype=torch.float32, device=device)
+                        m_t = torch.tensor([mask], dtype=torch.bool, device=device)
+                        logits, _ = model(g_t, c_t, m_t)
+                        a_idx = int(logits.argmax(dim=-1).item())
+                    action = index_to_action(a_idx, arena, m_idx, asset_mgr=am)
+                arena.execute_turn(action)
+                steps += 1
+            fam = "ship" if transport == Transport.SHIP else "land"
+            won = bool(arena.is_finished and arena.is_victory)
+            slot = by_family[fam]
+            slot["episodes"] += 1
+            slot["wins"] += 1 if won else 0
+            slot["deaths"] += sum(1 for m in party.members if m.is_dead())
+
+    total_eps = sum(f["episodes"] for f in by_family.values())
+    total_wins = sum(f["wins"] for f in by_family.values())
+    report = {"episodes": total_eps, "wins": total_wins}
+    for fam, slot in by_family.items():
+        report[fam] = {
+            "win_rate": slot["wins"] / max(1, slot["episodes"]),
+            "deaths_per_ep": slot["deaths"] / max(1, slot["episodes"]),
+            "episodes": slot["episodes"],
+        }
+    return report

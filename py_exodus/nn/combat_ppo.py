@@ -19,12 +19,20 @@ from py_exodus.nn.combat_bc import (
     save_combat_checkpoint,
 )
 from py_exodus.nn.combat_dataset import (
-    _DEFAULT_CONFLICT_MAP_IDS,
-    _DEFAULT_CREATURES,
-    _make_sample_party,
+    _make_diverse_party,
+    battle_terrain_cells,
     current_git_sha,
     validate_train_seeds,
 )
+
+
+def _battlefield_cells() -> list[tuple[str, Transport, int, int]]:
+    """Cached enumeration of the full space cells for rollout sampling."""
+    cache = getattr(_battlefield_cells, "_cache", None)
+    if cache is None:
+        cache = list(battle_terrain_cells())
+        _battlefield_cells._cache = cache
+    return cache
 from py_exodus.nn.combat_env import (
     encode_combat_state,
     index_to_action,
@@ -124,10 +132,17 @@ def collect_ppo_rollouts(
         ep_rng = random.Random(ep_seed)
         random.seed(ep_seed)
         level = 3 + ((s + ep) % 12)
-        party = _make_sample_party(level=level, rng=ep_rng)
-        cmap = load_map(ep_rng.choice(_DEFAULT_CONFLICT_MAP_IDS), am)
-        creature_tile = ep_rng.choice(_DEFAULT_CREATURES)
-        monster_count = ep_rng.randint(1, 5)
+        party = _make_diverse_party(level=level, rng=ep_rng)
+        # Full battlefield sampling (v3, 2026-11-20): match the rollout env
+        # to the collector/evaluator space — every reachable (creature,
+        # transport, map, count) cell — or PPO would erode the ship-battle
+        # and nuke-spell skills BC just learned back toward land-only
+        # (the bug family that caused the original serpent loop).
+        creature_tile, transport, cmap_id, monster_count = ep_rng.choice(
+            _battlefield_cells()
+        )
+        party.transport = transport
+        cmap = load_map(cmap_id, am)
         arena = CombatArena(
             party, cmap, asset_mgr=am, creature_tile=creature_tile, monster_count=monster_count
         )

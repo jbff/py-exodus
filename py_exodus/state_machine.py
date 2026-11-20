@@ -103,6 +103,23 @@ class StateMachine:
                 cur.open_book()
                 return
 
+        # neural-net branch rule (2026-11-20 user ruling): TAB/F2 auto-combat
+        # is only supported for the canonical autoplay party shape
+        # (Thief+Fighter+Cleric+Wizard) — the symbolic teacher and the NN
+        # combat policy are built and tested for exactly that composition,
+        # so a user-built non-canonical party must not enable auto-combat.
+        # Intercepted here (routing layer) since CombatScreen itself is an
+        # engine file.
+        if (
+            event.type == pygame.KEYDOWN
+            and event.key in (pygame.K_TAB, pygame.K_F2)
+            and type(cur).__name__ == "CombatScreen"
+        ):
+            from py_exodus.autoplay.controller import AutoPlayController
+
+            if AutoPlayController._party_is_canonical(cur) is False:
+                return
+
         cur.handle_event(event)
         self._check_screen_transition(cur)
 

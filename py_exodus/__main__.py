@@ -104,6 +104,12 @@ class GameApp:
                 if event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_F9:
                         self.autoplay.toggle()
+                        if (
+                            self.autoplay.enabled
+                            and not self.autoplay.can_engage(self.state_machine)
+                        ):
+                            # Non-canonical party: autoplay does not run.
+                            self.autoplay.enabled = False
                         self.state_machine.autoplay_enabled = self.autoplay.enabled
                         continue
                     if self.autoplay.enabled and event.key == pygame.K_LEFTBRACKET:

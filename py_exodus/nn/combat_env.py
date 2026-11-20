@@ -8,6 +8,7 @@ from py_exodus.combat.auto_combat import (
     _CARDINAL_DIRS,
     _can_cast_spell,
     _find_lowest_hp_heal_target,
+    _find_ranged_attack_dir,
     _get_weapon_info,
     _is_magic_negated,
     _is_member_dead,
@@ -22,9 +23,71 @@ if TYPE_CHECKING:
     from py_exodus.combat.arena import CombatArena
 
 COMBAT_GRID_SIZE = 11
-COMBAT_GRID_CHANNELS = 10
-COMBAT_CONTEXT_DIM = 20
-NUM_COMBAT_ACTIONS = 15
+COMBAT_GRID_CHANNELS = 11  # v2: +1 monster-type ordinal channel
+COMBAT_CONTEXT_DIM = 33  # v2: 20 - 4 (moon/wind/hull) + level + weapon one-hot
+
+# v3 action space (2026-11-20): every combat-castable spell gets its own
+# learnable index instead of the compressed heal/aoe buckets — the net can
+# now *choose* which spell (heal size, cure poison, nuke, decayer, bolt).
+# Directions/targets for directed spells stay mechanical: engine helpers
+# pick the line of sight / lowest-HP ally, matching what the symbolic
+# teacher does, so BC imitates spell *choice*.
+#   0-3   MOVE  (N, S, E, W)
+#   4-7   ATTACK with equipped weapon (same directions)
+#   8     REPOND   (wizard, free — destroys orcs/gremlins/trolls)
+#   9     PONTORI  (cleric, free — turns undead)
+#   10-16 wizard: MITTAR, FULGAR, NOXUM, DAG_MENTAR, NECORP, DECORP, UNSPEAKABLE
+#   17-21 cleric: SANCTU, ALCORT, SANCTU_MANI, EXCUUN, ZXKUQYB
+#   22    PASS (always legal)
+SPELL_ACTION_INDEX: dict["Spell", int] = {
+    Spell.REPOND: 8,
+    Spell.PONTORI: 9,
+    Spell.MITTAR: 10,
+    Spell.FULGAR: 11,
+    Spell.NOXUM: 12,
+    Spell.DAG_MENTAR: 13,
+    Spell.NECORP: 14,
+    Spell.DECORP: 15,
+    Spell.UNSPEAKABLE: 16,
+    Spell.SANCTU: 17,
+    Spell.ALCORT: 18,
+    Spell.SANCTU_MANI: 19,
+    Spell.EXCUUN: 20,
+    Spell.ZXKUQYB: 21,
+}
+PASS_INDEX = 22
+_DIRECTED_SPELLS: tuple["Spell", ...] = (
+    Spell.MITTAR, Spell.FULGAR, Spell.DECORP, Spell.EXCUUN,
+)
+_FREE_SPELLS: tuple["Spell", ...] = (Spell.REPOND, Spell.PONTORI)
+
+#: Battle-creature id -> ordinal, straight from creatures.xml (parity-stable).
+#: Encoded on the monster-type grid channel so the net knows WHAT it is
+#: fighting (dragon vs equal-HP orc behave very differently), not just where.
+MONSTER_TYPE_ORDINAL: dict[str, float] = {
+    "orc": 10, "skeleton": 11, "thief": 12, "giant": 13, "daemon": 14,
+    "fighter": 15, "wizard": 16, "pincher": 17, "dragon": 18, "balron": 19,
+    "pirate": 20, "serpent": 21, "squid": 22,
+}
+_MONSTER_TYPE_NORM = max(MONSTER_TYPE_ORDINAL.values())
+
+
+def _weapon_onehot(member: Any) -> list[float]:
+    """One-hot of the equipped weapon (16 WeaponType slots, parity order)."""
+    weapon = getattr(member, "weapon", None)
+    return [
+        1.0 if weapon is not None and (weapon == wk or getattr(weapon, "value", None) == wk) else 0.0
+        for wk in _WEAPON_TYPE_KEYS
+    ]
+
+#: WeaponType members, ordered, for the equipped-weapon one-hot (the net
+#: must see what is armed: Exotic vs Dagger damage differ enormously).
+_WEAPON_TYPE_KEYS: tuple[str, ...] = (
+    "NONE", "DAGGER", "MACE", "SLING", "AXE", "BOW", "SWORD", "SWORD_2H",
+    "AXE_P2", "BOW_P2", "SWORD_P2", "GLOVES", "AXE_P4", "BOW_P4", "SWORD_P4",
+    "EXOTIC",
+)
+NUM_COMBAT_ACTIONS = 23  # v3: per-spell actions (see SPELL_ACTION_INDEX)
 
 _DIR_TO_OFFSET: dict[Direction, int] = {
     Direction.NORTH: 0,
@@ -38,7 +101,20 @@ _OFFSET_TO_DIR: tuple[Direction, ...] = (
     Direction.EAST,
     Direction.WEST,
 )
+# Spell-book membership for mask/context derivations: which profession can
+# index which spell action (engine truth — Spell's value[3] is its book).
+_PROFESSION_SPELL_INDICES: dict[str, tuple[int, ...]] = {}
+for _sp, _idx in SPELL_ACTION_INDEX.items():
+    _book = str(_sp.value[3])
+    _PROFESSION_SPELL_INDICES.setdefault(_book, _PROFESSION_SPELL_INDICES.get(_book, ()) + (_idx,))
+
 _HEAL_SPELLS = (Spell.SANCTU_MANI, Spell.SANCTU)
+
+
+def _member_book(member: Any) -> str:
+    """Spell book of the member's profession ('wizard'/'cleric'/other)."""
+    prof = getattr(getattr(member, "profession", None), "name", "").lower()
+    return prof if prof in ("wizard", "cleric") else "none"
 _AOE_SPELLS = (
     Spell.REPOND,
     Spell.PONTORI,
@@ -58,19 +134,14 @@ _WIND_TO_IDX: dict[Direction | None, float] = {
 
 
 def action_to_index(action: Action) -> int:
-    """Map a CombatArena Action to discrete action index [0, 14]."""
+    """Map a CombatArena Action to discrete action index [0, 22]."""
     if action.type == ActionType.MOVE and action.direction in _DIR_TO_OFFSET:
         return _DIR_TO_OFFSET[action.direction]
     if action.type == ActionType.ATTACK and action.direction in _DIR_TO_OFFSET:
         return 4 + _DIR_TO_OFFSET[action.direction]
-    if action.type == ActionType.CAST:
-        if action.spell == Spell.MITTAR and action.direction in _DIR_TO_OFFSET:
-            return 8 + _DIR_TO_OFFSET[action.direction]
-        if action.spell in _HEAL_SPELLS:
-            return 12
-        if action.spell in _AOE_SPELLS:
-            return 13
-    return 14
+    if action.type == ActionType.CAST and action.spell in SPELL_ACTION_INDEX:
+        return SPELL_ACTION_INDEX[action.spell]
+    return PASS_INDEX
 
 
 def index_to_action(
@@ -79,31 +150,61 @@ def index_to_action(
     member_idx: int,
     asset_mgr: Any = None,
 ) -> Action:
-    """Convert discrete action index [0, 14] into a valid CombatArena Action."""
+    """Convert discrete action index [0, 22] into a valid CombatArena Action."""
     if 0 <= idx <= 3:
         return Action.move(_OFFSET_TO_DIR[idx])
     if 4 <= idx <= 7:
         return Action.attack(_OFFSET_TO_DIR[idx - 4])
-    if 8 <= idx <= 11:
-        return Action.cast(Spell.MITTAR, direction=_OFFSET_TO_DIR[idx - 8])
-    if idx == 12:
-        member = arena.party.members[member_idx]
-        target = _find_lowest_hp_heal_target(arena.party) or member
-        spell = Spell.SANCTU_MANI if _can_cast_spell(member, Spell.SANCTU_MANI) else Spell.SANCTU
-        return Action.cast(spell, target_member=target)
-    if idx == 13:
-        member = arena.party.members[member_idx]
-        visible = [m for m in arena.monsters if not m.is_dead and m.visible]
-        for sp in _AOE_SPELLS:
-            free = sp in (Spell.REPOND, Spell.PONTORI)
-            if _can_cast_spell(member, sp, check_free=free):
-                if sp == Spell.REPOND and not any(getattr(m, "tile", None) == "orc" for m in visible):
-                    continue
-                if sp == Spell.PONTORI and not any(_is_undead(m) for m in visible):
-                    continue
-                return Action.cast(sp)
+    if idx == PASS_INDEX:
         return Action.pass_turn()
-    return Action.pass_turn()
+
+    spell = _ACTION_INDEX_TO_SPELL.get(idx)
+    if spell is None:
+        return Action.pass_turn()
+    member = arena.party.members[member_idx]
+
+    if spell in _FREE_SPELLS:
+        return Action.cast(spell)
+
+    if spell in _DIRECTED_SPELLS:
+        # Direction stays mechanical, like the symbolic teacher: pick the
+        # cardinal line with a visible target.
+        px, py = arena.player_positions.get(member_idx, (0, 0))
+        visible_positions = {
+            (m.x, m.y) for m in arena.monsters if not m.is_dead and m.visible
+        }
+        direction = _find_ranged_attack_dir(
+            arena, px, py, max_range=5, attack_through=False,
+            visible_positions=visible_positions,
+        )
+        if direction is None:
+            return Action.pass_turn()
+        return Action.cast(spell, direction=direction)
+
+    if spell in (Spell.SANCTU, Spell.SANCTU_MANI):
+        target = _find_lowest_hp_heal_target(arena.party) or member
+        return Action.cast(spell, target_member=target)
+
+    if spell == Spell.ALCORT:
+        target = next(
+            (
+                m
+                for m in arena.party.members
+                if not _is_member_dead(m)
+                and getattr(getattr(m, "status", None), "name", "")
+                in ("POISON", "POISONED")
+            ),
+            member,
+        )
+        return Action.cast(spell, target_member=target)
+
+    # AOE / decay nukes: no direction or target.
+    return Action.cast(spell)
+
+
+_ACTION_INDEX_TO_SPELL: dict[int, "Spell"] = {
+    v: k for k, v in SPELL_ACTION_INDEX.items()
+}
 
 
 def legal_action_mask(
@@ -111,9 +212,9 @@ def legal_action_mask(
     member_idx: int,
     asset_mgr: Any = None,
 ) -> list[bool]:
-    """Return a 15-element boolean mask of legal actions for the active party member."""
+    """Return a 23-element boolean mask of legal actions for the active member."""
     mask = [False] * NUM_COMBAT_ACTIONS
-    mask[14] = True  # PASS is always legal
+    mask[PASS_INDEX] = True  # PASS is always legal
 
     if member_idx < 0 or member_idx >= len(arena.party.members):
         return mask
@@ -148,34 +249,26 @@ def legal_action_mask(
                 mask[4 + i] = True
 
     if not _is_magic_negated(arena):
-        if _can_cast_spell(member, Spell.MITTAR):
-            for i, d in enumerate(_OFFSET_TO_DIR):
-                path = trace_projectile_path(
-                    combat_map=arena.combat_map,
-                    start_x=px,
-                    start_y=py,
-                    direction=d,
-                    max_range=16,
-                    attack_through_objects=False,
-                    monsters=arena.monsters,
-                    players=arena.player_positions,
+        for sp, sp_idx in SPELL_ACTION_INDEX.items():
+            free = sp in _FREE_SPELLS
+            if not _can_cast_spell(member, sp, check_free=free):
+                continue
+            if sp in _DIRECTED_SPELLS:
+                # Directed bolts need a clear line of sight, mechanically
+                # selected the way index_to_action does.
+                direction = _find_ranged_attack_dir(
+                    arena, px, py, max_range=5, attack_through=False,
+                    visible_positions=visible_positions,
                 )
-                if path and path[-1] in visible_positions:
-                    mask[8 + i] = True
-        if (
-            _find_lowest_hp_heal_target(arena.party) is not None
-            and (_can_cast_spell(member, Spell.SANCTU_MANI) or _can_cast_spell(member, Spell.SANCTU))
-        ):
-            mask[12] = True
-        for sp in _AOE_SPELLS:
-            free = sp in (Spell.REPOND, Spell.PONTORI)
-            if _can_cast_spell(member, sp, check_free=free):
-                if sp == Spell.REPOND and not any(getattr(m, "tile", None) == "orc" for m in visible_monsters):
+                if direction is None:
                     continue
-                if sp == Spell.PONTORI and not any(_is_undead(m) for m in visible_monsters):
-                    continue
-                mask[13] = True
-                break
+            if sp == Spell.ALCORT and not any(
+                getattr(m, "status", None) is not None
+                and getattr(m.status, "name", "") in ("POISON", "POISONED")
+                for m in arena.party.members
+            ):
+                continue  # nothing to cure
+            mask[sp_idx] = True
 
     return mask
 
@@ -222,6 +315,9 @@ def encode_combat_state(
             grid[6][my][mx] = 1.0
         if _is_poisonous(mon):
             grid[7][my][mx] = 1.0
+        creature_id = MONSTER_TYPE_ORDINAL.get(str(getattr(mon, "tile", "")).lower())
+        if creature_id is not None:
+            grid[10][my][mx] = creature_id / _MONSTER_TYPE_NORM
 
     px, py = arena.player_positions.get(member_idx, (0, 0))
     member = arena.party.members[member_idx] if 0 <= member_idx < len(arena.party.members) else None
@@ -236,11 +332,11 @@ def encode_combat_state(
     living = [m for m in arena.party.members if not _is_member_dead(m)]
     negated = _is_magic_negated(arena)
     mask = legal_action_mask(arena, member_idx, asset_mgr=asset_mgr)
+    # v2 encoder (2026-11-20): dropped moon phases, wind and ship hull —
+    # combat-irrelevant noise the net could only overfit on (user ruling).
+    # Added the acting member's level and a one-hot of the armed weapon,
+    # the two capability signals the old encoding could not see at all.
     context = [
-        float(getattr(screen, "trammel_phase", 0) if screen is not None else 0) / 24.0,
-        float(getattr(screen, "felucca_phase", 0) if screen is not None else 0) / 8.0,
-        _WIND_TO_IDX.get(getattr(arena.party, "wind_direction", None), -1.0) / 4.0,
-        float(getattr(arena.party, "ship_hull", 50)) / 50.0,
         (float(member.hp) / max(1, member.max_hp)) if member is not None else 0.0,
         (float(member.mp) / max(1, member.max_mp)) if member is not None else 0.0,
         1.0 if (member is not None and getattr(member.status, "name", "") == "POISONED") else 0.0,
@@ -252,10 +348,17 @@ def encode_combat_state(
         min((float(m.hp) / max(1, m.max_hp) for m in living), default=0.0),
         float(len(visible_monsters)) / 8.0,
         1.0 if negated else 0.0,
-        1.0 if mask[12] else 0.0,
-        1.0 if any(mask[8:12]) else 0.0,
-        1.0 if mask[13] else 0.0,
+        1.0 if any(mask[SPELL_ACTION_INDEX[sp]] for sp in _HEAL_SPELLS) else 0.0,
+        1.0 if any(
+            mask[_idx]
+            for _idx in _PROFESSION_SPELL_INDICES.get(
+                _member_book(member), ()
+            )
+        ) else 0.0,
+        1.0 if mask[SPELL_ACTION_INDEX[Spell.ALCORT]] else 0.0,
         float(getattr(arena, "turn_count", 0)) / 60.0,
         1.0 if getattr(arena.party, "transport", Transport.FOOT) == Transport.SHIP else 0.0,
+        (float(member.level) / 25.0) if member is not None else 0.0,
+        *_weapon_onehot(member),
     ]
     return grid, context
