@@ -31,6 +31,8 @@ class GameApp:
         headless: bool = False,
         sound_enabled: bool = True,
         autoplay: bool = False,
+        nn_combat: bool = False,
+        nn_device: str = "auto",
         **kwargs: Any,
     ) -> None:
         self.scale = scale
@@ -79,7 +81,9 @@ class GameApp:
             audio=self.audio,
         )
 
-        self.autoplay = AutoPlayController(enabled=autoplay)
+        self.autoplay = AutoPlayController(
+            enabled=autoplay, nn_combat=nn_combat, nn_device=nn_device
+        )
         self.state_machine.autoplay_enabled = self.autoplay.enabled
         self.state_machine.autoplay_step_interval = self.autoplay.step_interval
         self.clock = pygame.time.Clock()
@@ -163,6 +167,21 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Start in Full Autoplay (Watch Mode); F9 toggles at runtime.",
     )
     parser.add_argument(
+        "--nn-combat",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Use the neural-net combat policy during autoplay "
+            "(default: on when --autoplay is passed, off otherwise)."
+        ),
+    )
+    parser.add_argument(
+        "--nn-device",
+        default="auto",
+        choices=["auto", "cuda", "cpu"],
+        help="Torch device for the NN combat policy (default: auto = CUDA if available).",
+    )
+    parser.add_argument(
         "--seed",
         type=int,
         default=None,
@@ -177,7 +196,8 @@ def main(argv: list[str] | None = None) -> None:
     if args.seed is not None:
         random.seed(args.seed)
     debug.set_debug(args.debug)
-    app = GameApp(autoplay=args.autoplay)
+    nn_combat = args.nn_combat if args.nn_combat is not None else args.autoplay
+    app = GameApp(autoplay=args.autoplay, nn_combat=nn_combat, nn_device=args.nn_device)
     try:
         app.run()
     except KeyboardInterrupt:

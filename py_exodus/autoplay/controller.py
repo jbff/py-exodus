@@ -13,6 +13,7 @@ from py_exodus.autoplay.equipment import (
     best_owned_weapon,
     best_shop_upgrade,
 )
+from py_exodus.autoplay.nn_policy import CombatNNPolicy
 from py_exodus.autoplay.nav import find_2d_step, find_2d_step_and_cost, find_dungeon_step
 from py_exodus.autoplay.planner import (
     Goal,
@@ -140,7 +141,13 @@ class AutoPlayController:
     MIN_INTERVAL = 0.01
     MAX_INTERVAL = 0.50
 
-    def __init__(self, enabled: bool = False, step_interval: float = 0.08) -> None:
+    def __init__(
+        self,
+        enabled: bool = False,
+        step_interval: float = 0.08,
+        nn_combat: bool = False,
+        nn_device: str = "auto",
+    ) -> None:
         self.enabled = enabled
         self.step_interval = max(self.MIN_INTERVAL, min(self.MAX_INTERVAL, step_interval))
         self._timer: float = 0.0
@@ -159,6 +166,11 @@ class AutoPlayController:
         self._heal_patient_idx: int = 1
         self._talk_dir_key: int = pygame.K_UP
         self._mapped_dungeon_levels: set[tuple[int, int]] = set()
+        # NN combat policy: loaded once at startup and kept resident for the
+        # whole session (combat is frequent; reloading per fight is a no-go).
+        self.nn_combat_policy: CombatNNPolicy | None = (
+            CombatNNPolicy(device=nn_device) if nn_combat else None
+        )
 
     def toggle(self) -> bool:
         """Flip autoplay enabled state and clear any queued keystrokes."""
@@ -306,6 +318,15 @@ class AutoPlayController:
             screen.auto_combat_interval = self.step_interval
             if getattr(screen, "_auto_combat_timer", 0.0) > self.step_interval:
                 screen._auto_combat_timer = self.step_interval
+        # NN combat policy drives the arena directly (hybrid_eval pattern).
+        # No symbolic fallback on this branch: an NN failure raises.
+        # step_combat returns None after acting, or a key to emit.
+        policy = self.nn_combat_policy
+        if policy is not None:
+            key = policy.step_combat(state_machine, screen)
+            if key is None:
+                return None  # policy acted directly on the arena
+            return self._emit_key(state_machine, key)
         if screen.arena.is_finished:
             self._key_queue.clear()
             return self._emit_key(state_machine, pygame.K_RETURN)

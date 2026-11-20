@@ -1,6 +1,6 @@
 # py-exodus
 
-A Python 3 / Pygame-CE reimplementation of *Ultima III: Exodus*, featuring **Auto-Combat** (`TAB`) and an experimental autonomous **Full Autoplay / Watch Mode** (`F9`).
+A Python 3 / Pygame-CE reimplementation of *Ultima III: Exodus*, featuring **Auto-Combat** (`TAB`), an experimental autonomous **Full Autoplay / Watch Mode** (`F9`), and — on the `neural-net` branch — a **neural-net combat policy** that `Full Autoplay` uses by default.
 
 ---
 
@@ -31,8 +31,18 @@ Pressing **`F9`** (with **`[`** / **`]`** to adjust step speed) hands the entire
 > - **Pre-NN Symbolic Baseline (`master` / `pre-nn` tag)**: End-to-end A-to-Z victory from a fresh game both under `--debug` `NOHURT` (`seed=417 WON@142,845`, `seed=418 WON@114,926`) and **unassisted (no cheat flags)** (`seed=437 WON@112,074`, `seed=471 WON@149,406`, `seed=472 WON@134,745`, `seed=522 WON@112,667`, `seed=525 WON@102,913`, `seed=543 WON@132,678`).
 > - **`neural-net` Hybrid Policy**:
 >   - **Phase 0**: Shared 35-feature macro extractor (`py_exodus/autoplay/features.py`) + EV/utility `score_goals` (`py_exodus/autoplay/planner.py`); `900–909` holdout baseline `1 / 10` (`seed=908 WON@111,905`).
->   - **Phases 1–2 (Combat)**: `CombatPolicyNet` (`1.74M` params, `76.18 MB` peak VRAM) trained via outcome-filtered BC (`94.87%` val accuracy, `193/200 = 96.5%` on `900–999` holdout) and PPO (`194/200 = 97.0%`, `0` ally deaths vs symbolic `auto_combat` `190/200 = 95.0%`).
->   - **Phase 3 (Macro Critic — gated)**: `MacroCriticNet` (`1.23M` params, `32.87 MB` peak VRAM, `98.25%` val accuracy on `seed=554`) + `DisagreementLogger`; `900–909` hybrid holdout gate scored `0 / 10` WON (`4` survived), so full-game PPO remains gated until trained on a broader set of `0–899` winning trajectories.
+>   - **Phases 1–2 (Combat)** — **wired into live autoplay**: `CombatPolicyNet` (`1.74M` params, `76.18 MB` peak VRAM) trained via outcome-filtered BC (`94.87%` val accuracy, `193/200 = 96.5%` on `900–999` holdout) and PPO (`194/200 = 97.0%`, `0` ally deaths vs symbolic `auto_combat` `190/200 = 95.0%`). The PPO checkpoint ships at `py_exodus/nn/checkpoints/combat_ppo.pt` and drives combat turns whenever autoplay is enabled (see **NN Combat Policy** below).
+>   - **Phase 3 (Macro Critic + Overworld Policy — offline evaluation only, not wired into autoplay)**: `MacroCriticNet` BC achieves `99%+` val accuracy, but on full-game `900–909` holdout runs no NN configuration beat the symbolic baseline (`1/10`): macro-BC residual-EV ties it (`1/10`, `seed=905 WON@84,535`), while macro-PPO (`macro_rl.pt`, `macro_rl_res.pt`) and the 3-net overworld variants (`overworld_ppo*.pt`) all scored `0 / 10` (reward-hacking loitering, early wipes on foot near Britain, economy stalls). Full-game PPO remains gated; see the handoff report for diagnosed failure modes and next steps.
+
+### NN Combat Policy (`neural-net` branch)
+
+`Full Autoplay` no longer plays combat with the symbolic `auto_combat` heuristic: it drives the arena directly through the trained `CombatPolicyNet` (`py_exodus/autoplay/nn_policy.py`, mirroring the offline evaluator `py_exodus/nn/hybrid_eval.py`). The net was measured at `97.0%` holdout wins with `0` ally deaths (`900–999` encounters) vs `95.0%` for symbolic auto-combat, and is loaded **once** at startup and kept resident for the whole session (never reloaded per encounter).
+
+- **`--autoplay`**: enables the NN combat policy by default.
+- **`--nn-combat` / `--no-nn-combat`**: force it on or off when running autoplay.
+- **`--nn-device auto|cuda|cpu`**: torch device for the net (default `auto` = CUDA when available, e.g. an RTX 3050).
+- **No symbolic fallback**: if the checkpoint or torch/CUDA is broken, the game errors out at startup rather than silently degrading (`autoplay/nn_policy.py` raises on load failure; inference errors propagate).
+- The symbolic `TAB` auto-combat remains untouched for interactive play, and autoplay with `--no-nn-combat` still uses it.
 
 ---
 
@@ -67,7 +77,7 @@ python3 -m py_exodus
 ```bash
 uv run python -m pytest
 ```
-The suite currently runs **1,293 tests** covering mechanics, Java/GBC parity, vendors, dungeons, combat, rendering, autoplay regressions, and the `neural-net` hybrid modules.
+The suite currently runs **1,313 tests** covering mechanics, Java/GBC parity, vendors, dungeons, combat, rendering, autoplay regressions, and the `neural-net` hybrid modules.
 
 ---
 
@@ -85,9 +95,9 @@ The suite currently runs **1,293 tests** covering mechanics, Java/GBC parity, ve
 3. **`H` (Hand Equipment)**: Transfers unequipped weapons and armor only (per Java `HandDialog.java`), not food—autoplay compensates by equalizing food at purchase time.
 4. **Combat regen**: Passive MP (`tick_regen`) and meal-crossing `+1 HP` do not tick during combat rounds (only healing spells restore HP mid-battle).
 5. **Autoplay & `neural-net` Hybrid Branch**: End-to-end A-to-Z victory on the `pre-nn` symbolic baseline (`master` tag `pre-nn`) is verified both under `NOHURT` (`seed=417 WON@142845`, `seed=418 WON@114926`) and unassisted (`nohurt=False`: `seed=437 WON@112074`, `seed=471 WON@149406`, `seed=472 WON@134745`, `seed=522 WON@112667`, `seed=525 WON@102913`, `seed=543 WON@132678`). On this `neural-net` branch (implementing `docs/superpowers/plans/2026-11-19-nn-hybrid-policy.md`, `<= 5M` params / `< 500 MB` VRAM on RTX 3050):
-   - **Phase 0**: Shared 35-feature macro extractor (`py_exodus/autoplay/features.py`) and EV/utility `score_goals` (`py_exodus/autoplay/planner.py`); `900–909` holdout baseline `1 / 10` (`seed=908 WON@111905`).
-   - **Phases 1–2 (Combat)**: `CombatPolicyNet` (`1.74M` params, `76.18 MB` peak VRAM) trained via outcome-filtered BC (`94.87%` val accuracy, `193/200 = 96.5%` on `900–999` holdout encounters) and PPO (`194/200 = 97.0%`, `0` ally deaths vs symbolic `auto_combat` `190/200 = 95.0%`).
-   - **Phase 3 (Macro Critic — evaluating)**: `MacroCriticNet` (`1.23M` params, `32.87 MB` peak VRAM, `98.25%` val accuracy) + `DisagreementLogger`, gating full-game holdout performance on `900–999` before any full-game PPO fine-tuning.
+   - **Phases 1–2 (Combat — wired into live autoplay)**: `CombatPolicyNet` (`1.74M` params, `76.18 MB` peak VRAM) trained via outcome-filtered BC (`94.87%` val accuracy, `193/200 = 96.5%` on `900–999` holdout encounters) and PPO (`194/200 = 97.0%`, `0` ally deaths vs symbolic `auto_combat` `190/200 = 95.0%`). The PPO checkpoint ships at `py_exodus/nn/checkpoints/combat_ppo.pt` and, since 2026-11-20, `Full Autoplay` drives combat turns through it by default (`--autoplay` enables it; `--no-nn-combat` disables; `--nn-device` selects `auto|cuda|cpu`). `py_exodus/autoplay/nn_policy.py` loads it once at startup and keeps it resident; there is **no symbolic fallback on this branch** — a broken NN setup raises at startup.
+   - **Phase 0 (macro features/EV planner)**: shared 35-feature macro extractor (`py_exodus/autoplay/features.py`) and `score_goals` (`py_exodus/autoplay/planner.py`); `900–909` full-game baseline `1 / 10` (`seed=908 WON@111905`).
+   - **Phase 3 (Macro Critic + Overworld Policy — offline only)**: `MacroCriticNet` (`1.23M` params, `32.87 MB` peak VRAM) BC reaches `99%+` val accuracy and `OverworldPolicyNet` (`1.48M` params) BC hits `1.0` val accuracy, but no macro/overworld configuration has beaten the symbolic full-game baseline (`1/10` holdout): macro-BC residual-EV ties it (`1/10`, `seed=905 WON@84535`); macro-PPO and 3-net overworld variants scored `0 / 10` (reward-hacking loitering, early on-foot wipes near Britain, economy stalls). These nets remain deliberately unwired from autoplay on this branch.
 
 ---
 
