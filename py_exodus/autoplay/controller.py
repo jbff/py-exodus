@@ -335,12 +335,28 @@ class AutoPlayController:
                     return True
         return False
 
-    def _desired_transport(self, goal_name: str, party) -> str:
-        """The transport the goal actually wants, mirroring the branch rules."""
+    def _desired_transport(
+        self, goal_name: str, party, gmap=None, px: int | None = None,
+        py: int | None = None,
+    ) -> str:
+        """The transport the goal actually wants, mirroring the branch rules.
+        Geographic call sites: on an ISLAND (e.g. the Exotic dig isles) the
+        foot-reachable checks flip the intent to SHIP - a docked party on a
+        dig isle with GET_REMAINING_MARKS must sail out, not 'stay foot'
+        (2026-11-20 live B/X lock at (18,44))."""
         if goal_name in ("SAIL_WHIRLPOOL", "CAPTURE_SHIP", "DIG_EXOTICS", "CONQUER_EXODUS"):
             return "SHIP"
         if goal_name in ("OUTFIT_BRITAIN", "BUY_FOOD", "RESURRECT_DEAD", "CURE_POISON"):
             return "FOOT"
+        if goal_name == "GET_REMAINING_MARKS" and gmap is not None and px is not None:
+            target = (49, 34) if not all(
+                m.marks[1] > 0 and m.marks[3] > 0
+                for m in [m for m in party.members if not m.is_dead()]
+            ) else (58, 44)
+            foot_ok = find_2d_step(
+                gmap, (px, py), {target}, Transport.FOOT, party=party
+            ) is not None
+            return "FOOT" if foot_ok else "SHIP"
         if goal_name in ("GRIND_AND_LEVEL", "GET_MARK_KINGS"):
             from py_exodus.constants import ArmorType, WeaponType
 
@@ -360,6 +376,14 @@ class AutoPlayController:
             # at Lord British, shop, or prep the DG raid. 2026-11-20 live
             # log: a docked exotics party at a Britain landing tile sat
             # forever because the sail intent gated its own disembark.
+            # WITH exotics: land intent only when land leads home - on the
+            # dig ISLE (or a docked pocket) sail stays the intent
+            # (2026-11-20 live (45,16)/(18,44) locks).
+            if gmap is not None and px is not None:
+                foot_ok = find_2d_step(
+                    gmap, (px, py), {(46, 19)}, Transport.FOOT, party=party
+                ) is not None
+                return "FOOT" if foot_ok else "SHIP"
             return "FOOT"
         return "FOOT"
 
@@ -456,9 +480,11 @@ class AutoPlayController:
             return key != pygame.K_b  # block board, not disembark
         return True
 
-    def _transport_emit_allowed(self, state_machine: StateMachine, key: int) -> bool:
+    def _transport_emit_allowed(
+        self, state_machine: StateMachine, key: int, safety: bool = False
+    ) -> bool:
         """Gate for board/disembark emission sites (goal-aware)."""
-        if self._transport_locked is None:
+        if safety or self._transport_locked is None:
             return True
         screen = state_machine.current_screen
         party = getattr(screen, "party", None)
@@ -466,7 +492,11 @@ class AutoPlayController:
             return True
         goal = evaluate_goal(party, map_id=self._screen_map_id(screen, party))
         return self._transport_action_allowed(
-            key, self._desired_transport(goal.name, party)
+            key,
+            self._desired_transport(
+                goal.name, party, gmap=screen.game_map, px=party.x, py=party.y
+            ),
+            safety=safety,
         )
 
     def _queue_text(self, text: str, enter: bool = True) -> None:
@@ -2630,7 +2660,9 @@ class AutoPlayController:
             # permits).
             from py_exodus.screens.overworld import can_move_to
 
-            if self._transport_emit_allowed(state_machine, pygame.K_x):
+            # Landing at the target's dock water is a deliberate ARRIVAL,
+            # never an escape: the transport gate never blocks it.
+            if self._transport_emit_allowed(state_machine, pygame.K_x, safety=True):
                 for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
                     nx, ny = (px + dx) % gmap.width, (py + dy) % gmap.height
                     if can_move_to(gmap, nx, ny, Transport.FOOT, party=party) or (
