@@ -1204,108 +1204,76 @@ def _pick_calls(monkeypatch):
     return calls
 
 
-def test_wanderer_grass_low_health_party_never_gets_giant(
-    pygame_setup, asset_mgr, sample_party, monkeypatch
+def _set_all_max_hp(party, value: int) -> None:
+    for member in party.members:
+        member.max_hp = value
+
+
+def _roll(overworld, tile, n: int = 4000) -> dict:
+    from collections import Counter
+
+    return Counter(overworld._pick_creature_for_tile(tile) for _ in range(n))
+
+
+def test_wanderer_weak_party_only_meets_orc_thief_skeleton(
+    pygame_setup, asset_mgr, sample_party
 ):
-    """A level-1 party (avgMaxHP <= 300) rolls ids 10..12 only:
-    Orc/Skeleton/Thief. Java NEVER gives it a Giant — the pre-fix port's
-    uniform {orc, skeleton, giant, thief} choice is the wiped-by-Giants bug."""
+    """Original SpawnMonster ($7A0C): when EVERY member's max HP <= 150 the
+    type roll narrows to RandNum(0,2) - Orc / Thief / Skeleton only."""
     overworld = OverworldScreen(party=sample_party, map_id=0, asset_mgr=asset_mgr)
     overworld.creatures.clear()
-    # Whole-roster average max HP <= 300 (Java Party.getAverageMaxHealth).
-    for member in sample_party.members:
-        member.max_hp = 100
-
+    _set_all_max_hp(sample_party, 150)
     grass = asset_mgr.get_tile_by_name("grass")
-    calls = _pick_calls(monkeypatch)
-    picks = [overworld._pick_creature_for_tile(grass) for _ in range(200)]
-
-    assert calls and all(c == (10, 12) for c in calls), calls[:4]
-    assert set(picks) == {"orc", "skeleton", "thief"}
-    assert "giant" not in picks
+    got = set(_roll(overworld, grass, 600))
+    assert got == {"orc", "thief", "skeleton"}
 
 
-def test_wanderer_health_tiers_widen_table_exclusively(
-    pygame_setup, asset_mgr, sample_party, monkeypatch
+def test_wanderer_stronger_party_uses_and_skewed_roll_with_all_land_types(
+    pygame_setup, asset_mgr, sample_party
 ):
-    """Each tier's random range matches Java, and the exclusive high bound
-    keeps the top id out: >300 adds Giant (ids 10..13), >400 adds Daemon,
-    >500 adds Fighter (Pincher still out), >700 adds Wizard (Pincher still
-    out — getRandomBetween(10,17) can never return 17)."""
+    """Above 150 max HP the original rolls RandNum(0,12) & RandNum(0,12):
+    every land type incl. Pincher, Dragon, Balron is reachable, but heavily
+    skewed to the weak ones (Orc ~42%, Dragon/Balron/Pincher <1% each), with
+    NO party-strength tiers beyond the 150 rule."""
     overworld = OverworldScreen(party=sample_party, map_id=0, asset_mgr=asset_mgr)
     overworld.creatures.clear()
+    _set_all_max_hp(sample_party, 900)
     grass = asset_mgr.get_tile_by_name("grass")
-
-    def _set_all_max_hp(value: int) -> None:
-        # Java Party.getAverageMaxHealth averages EVERY member, so the tier
-        # boundary is driven by the whole roster, not one member.
-        for member in sample_party.members:
-            member.max_hp = value
-
-    # > 300 and <= 400: ids 10..13
-    _set_all_max_hp(350)
-    calls = _pick_calls(monkeypatch)
-    picks = {overworld._pick_creature_for_tile(grass) for _ in range(400)}
-    assert calls and all(c == (10, 13) for c in calls), calls[:4]
-    assert picks == {"orc", "skeleton", "thief", "giant"}
-
-    # > 400 and <= 500: adds Daemon
-    _set_all_max_hp(450)
-    calls = _pick_calls(monkeypatch)
-    picks = {overworld._pick_creature_for_tile(grass) for _ in range(400)}
-    assert calls and all(c == (10, 14) for c in calls), calls[:4]
-    assert picks == {"orc", "skeleton", "thief", "giant", "daemon"}
-
-    # > 500 and <= 700: adds Fighter, Wizard still excluded
-    _set_all_max_hp(600)
-    calls = _pick_calls(monkeypatch)
-    picks = {overworld._pick_creature_for_tile(grass) for _ in range(400)}
-    assert calls and all(c == (10, 15) for c in calls), calls[:4]
-    assert picks == {"orc", "skeleton", "thief", "giant", "daemon", "fighter"}
-    assert "wizard" not in picks
-
-    # > 700: Wizard in, Pincher still excluded by the exclusive bound
-    _set_all_max_hp(900)
-    calls = _pick_calls(monkeypatch)
-    picks = {overworld._pick_creature_for_tile(grass) for _ in range(400)}
-    assert calls and all(c == (10, 16) for c in calls), calls[:4]
-    assert "wizard" in picks
-    assert "pincher" not in picks
+    n = 60000
+    counts = _roll(overworld, grass, n)
+    land = {"orc", "thief", "skeleton", "fighter", "giant", "daemon", "pincher",
+            "wizard", "dragon", "balron"}
+    assert land <= set(counts), land - set(counts)
+    # Water types roll but return None on grass (spawn retried elsewhere).
+    assert not ({"pirate", "serpent", "squid"} & set(counts))
+    assert 0.40 < counts["orc"] / n < 0.44          # 71/169 = 42.0%
+    assert 0.11 < counts["thief"] / n < 0.14        # 21/169 = 12.4%
+    assert counts["dragon"] / n < 0.012 and counts["balron"] / n < 0.012
 
 
-def test_wanderer_swimmable_gives_pirate_serpent_only(
-    pygame_setup, asset_mgr, sample_party, monkeypatch
+def test_wanderer_swimmable_gives_serpent_manowar_pirate_only(
+    pygame_setup, asset_mgr, sample_party
 ):
-    """Water tiles roll getRandomBetween(20, 22): exclusive bound pins ids
-    {20, 21} = Pirate and Serpent. Squid (Man-O-War, id 22) never spawns."""
+    """Sea types (MonBegin water) spawn only on water: Serpent, Man-O-War
+    (Squid) and Pirate, 3/169 each of the original's roll."""
     overworld = OverworldScreen(party=sample_party, map_id=0, asset_mgr=asset_mgr)
     overworld.creatures.clear()
+    _set_all_max_hp(sample_party, 900)
     water = asset_mgr.get_tile_by_name("water")
-
-    calls = _pick_calls(monkeypatch)
-    picks = {overworld._pick_creature_for_tile(water) for _ in range(200)}
-
-    assert calls and all(c == (20, 21) for c in calls), calls[:4]
-    assert picks == {"pirate", "serpent"}
-    assert "squid" not in picks
+    counts = _roll(overworld, water, 20000)
+    assert set(counts) - {None} == {"serpent", "squid", "pirate"}
+    assert all(0.015 < counts[k] / 20000 < 0.021 for k in ("serpent", "squid", "pirate"))
 
 
-def test_wanderer_forest_uses_java_land_table_no_forest_branch(
-    pygame_setup, asset_mgr, sample_party, monkeypatch
+def test_wanderer_land_types_need_grass_not_forest(
+    pygame_setup, asset_mgr, sample_party
 ):
-    """Java getRandomCreatureForTile has NO forest/brush special case: the
-    health-tier land table covers every non-swimmable, non-creatureunwalkable
-    tile. A level-1 party on forest therefore still never meets a Giant."""
+    """Original MonBegin for land types is the plain grass tile: forest and
+    other terrain never host a wanderer (the attempt fails and retries)."""
     overworld = OverworldScreen(party=sample_party, map_id=0, asset_mgr=asset_mgr)
     overworld.creatures.clear()
     forest = asset_mgr.get_tile_by_name("forest")
-
-    calls = _pick_calls(monkeypatch)
-    picks = {overworld._pick_creature_for_tile(forest) for _ in range(200)}
-
-    assert calls and all(c == (10, 12) for c in calls), calls[:4]
-    assert picks == {"orc", "skeleton", "thief"}
-    assert "giant" not in picks
+    assert set(_roll(overworld, forest, 400)) == {None}
 
 
 def test_wanderer_creatureunwalkable_tile_never_spawns_there(
