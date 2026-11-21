@@ -414,7 +414,8 @@ class AutoPlayController:
                 # SHIP TILE beside the mainland, you simply step off and
                 # walk (user ruling: not aboard, wind is irrelevant).
                 foot_ok = any(
-                    find_2d_step(gmap, start, {target}, Transport.FOOT, party=party)
+                    start == target
+                    or find_2d_step(gmap, start, {target}, Transport.FOOT, party=party)
                     is not None
                     for start in self._foot_starts(gmap, px, py, party)
                 )
