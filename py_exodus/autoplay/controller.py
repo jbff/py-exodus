@@ -176,6 +176,7 @@ class AutoPlayController:
         self._transport_locked: str | None = None
         self._lock_no_cycle_ticks: int = 0
         self._lock_age_ticks: int = 0
+        self._foot_grace_ticks: int = 0
         # NN combat policy: loaded once at startup and kept resident for the
         # whole session (combat is frequent; reloading per fight is a no-go).
         self.nn_combat_policy: CombatNN_policy_T | None = (
@@ -1604,6 +1605,10 @@ class AutoPlayController:
         _rec_desired = self._desired_transport(
             goal.name, party, gmap, px, py
         )
+        if self._foot_grace_ticks > 0:
+            self._foot_grace_ticks -= 1
+            if party.transport == Transport.FOOT:
+                _rec_desired = "FOOT"  # just landed: walk before re-boarding
         if party.transport == Transport.SHIP and _rec_desired == "FOOT":
             from py_exodus.screens.overworld import can_move_to as _cmt0
 
@@ -1613,6 +1618,10 @@ class AutoPlayController:
                 for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0))
             )
             if on_shore:
+                # Landing: give walking a grace window so pure routing
+                # cannot instantly re-board over an unreachable final
+                # approach (the arrival dance).
+                self._foot_grace_ticks = 60
                 return self._emit_key(state_machine, pygame.K_x)
         elif party.transport == Transport.FOOT and _rec_desired == "SHIP":
             here_or_adjacent = {
