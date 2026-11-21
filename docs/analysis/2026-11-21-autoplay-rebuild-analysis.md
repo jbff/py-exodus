@@ -125,3 +125,50 @@ types 0-2); the nasty ones (types 7, 11, 12) are under 1% each; sea monsters (6,
 (24/23/25 = thief/orc/skeleton is inferred from the source comment; the rest needs the LairWare
 tile table or GBC `monsterstatdat` ordering). Sea tiles 13/14/15 are most likely
 pirate/serpent/Man-O-War. Resolve this before porting; do not guess.
+
+## Reference research: how the original ports handle monsters (2026-11-21)
+
+Sources: LairWare `refs/ultima3/Sources/UltimaMisc.c:1141-1290` (SpawnMonster / MoveMonsters),
+`UltimaSpellCombat.c:812-905` (HowMany / Combat setup); GBC `refs/ult3src/sdk/gbz80-gb/2-1-5/examples/u3/battle3.c:1105-1285`
+(`generatemonsters`, `montilearr`), `funcs5.c:219-` (`monsterstatdat`); NES `refs/nes_ultima_3_disassembly`.
+
+**Type table (LW and GBC agree exactly; mapping confirmed by LW `Tiles.plist` + GBC tile offset +6):**
+roll idx = RandNum(0,12) & RandNum(0,12): 0 Orc, 1 Thief, 2 Skeleton, 3 Fighter, 4 Giant, 5 Daemon,
+6 Sea Serpent(water), 7 Pincher(Orcus), 8 Wizard, 9 Man-O-War(water), 10 Pirate(water), 11 Dragon, 12 Balron.
+Terrain: water types only on water (tile 0); land types only on grass (tile 4). The GBC additionally treats tile
+0x0B/0x05 as valid land in dungeons-of-generators only. After beating Exodus (`extragame`) the GBC stops spawning
+pirates. **Cleric (21) / Ranger / Merchant etc. never spawn as wanderers.** Implemented in `b8c2648`.
+
+**Where LW and GBC differ:**
+- Weak-party rule: LW has "all members max HP <= 150 -> only Orc/Thief/Skeleton" (UltimaMisc.c:1161-1164); GBC has NO such rule.
+  Kept LW's (gentler at level 1). Under the user's truth chain (GBC wins over Java; LW+NES agree beats GBC) this is LW-only,
+  NES gives no confirmation, so it is a judgment call - flag it to the user if revisited.
+- Spawn chance per turn: LW 7/135 (5.2%) (`RandNum(0,134) < 128` returns); GBC 9/137 (6.6%) (`make_rnd(0x89) & 0x80`).
+- Placement: both pick a RANDOM tile anywhere on the 64x64 map (`RandNum(0, mapsize-1)`), retry on wrong terrain;
+  GBC also forbids same column AND same row as the player; LW forbids same x or same y.
+- Population cap: LW 32 slots, GBC 31 (`nummonsters < 31`). The port caps at 6 on-screen (`len(self.creatures) < 6`) and 8 total.
+
+**Combat numbers are NOT scaled by party strength in the originals:**
+- LW `HowMany()`: 1..8 monsters (`RandNum(0,7)+1`), independent of party. The port already matches (GBC ruling, arena.py:327).
+- LW monster HP = `RandNum(0, monhpstart[type]) | 0x0F` where monhpstart caps are 0x20..0xF0 (Orc 48 ... up to 240); the port's
+  per-type caps come from Java `basehp` and are LOWER than GBC's for several types (Thief 80 vs 128, Giant 80 vs 112,
+  Wizard 112 vs 160, Daemon 135 vs 160) - so the port's monsters are, if anything, slightly softer than GBC's.
+- No difficulty scaling exists to explain why the original is survivable; players survive by their own tactics (levelling
+  with Lord British, spells, ranged weapons) - and by encounter RARITY (next point).
+
+**Big finding - encounter frequency/placement is what differs most from the port:**
+- Original: ~5-7% spawn chance per turn at a RANDOM place on the whole map (usually far from the party), up to 31-32
+  persistent monsters roaming the map; most are far away; the party meets few of them unless it dawdles. All monsters
+  then home in on the party each turn (LW `GetMonsterDir`/attack mode 0xC0) but from a long way off.
+- Port (Java behaviour): 25% chance per turn (`overworld.py:1932`) AND a forced spawn whenever no creature exists, placed
+  8-12 tiles from the party (`_spawn_wandering_creature`, :1796-1812), cap 6, despawn beyond 24 tiles. That is a far
+  higher encounter rate than the original, which is the likely source of the "legions of demons" feel and a large part of the
+  combat-death rate seen in run 2.
+- A faithful port of spawning therefore means changing RATE, PLACEMENT, CAP and PERSISTENCE together, not only the type
+  table. Not yet done (needs a persistent whole-map monster list; the overworld currently despawns at 24 tiles). This is
+  the next experiment to try before softening anything.
+
+**NES (`refs/nes_ultima_3_disassembly`):** a different game design (13+ enemy classes, level-tiered `NPC_LND_EN_1/3/5/7/9`
+and `NPC_WTR_EN_5/7` overworld enemy classes; `Ultima_3_Defines.asm:815-821`; spawn code is unlabelled assembly, not found
+in a quick pass). It does NOT use the LW/GBC AND-roll table, so LW+NES cannot be said to agree on the type mechanism.
+Not used as truth for this experiment.
