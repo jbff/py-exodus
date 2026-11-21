@@ -180,13 +180,15 @@ def score_goals(
     dawn_bonus = 20.0 if feats["dawn_open"] > 0.0 else 0.0
 
     # 1. Sustenance & food runway
-    # 2026-11-20 live trace (the Yew shuttle): needs_food() satisfied at the
-    # ~25-pack reserve, so the ladder flipped to GRIND after each tiny
-    # purchase and the party walked out, drained on the road, walked back -
-    # buying ~25 per visit forever. The BUY_FOOD goal now fills to the
-    # shop-target reserve (150) in ONE visit: hungry OR below the practical
-    # stock threshold with coin available.
-    food_below_stock = feats["min_member_food"] < 150.0 and feats["party_gold"] >= 150.0
+    # 2026-11-21 regression autopsy (seed 47: WON at lv38 on the 17:54 build,
+    # then WIPED at lv2): the ladder must trigger BUY_FOOD at a LOW WATER
+    # MARK, never at the shop's fill target. 1173ac7 made it fire whenever
+    # min food < 150 with 150+ gold, while the grocery fills to 150 - so the
+    # party re-targeted a shop one turn after leaving it, forever: BUY_FOOD
+    # (900) preempted GRIND/DIG/Ambrosia, gold never accumulated (>=4500 in
+    # 23/88 old runs vs 1/100 now), Ambrosia visits collapsed (39% -> 2%),
+    # wins went 3 -> 0. The one-visit fill is the shop handler's job
+    # (_food_shop_target, since 0874a2c); the trigger stays needs_food().
     if (
         not in_dungeon_or_ambrosia
         and (
@@ -197,12 +199,9 @@ def score_goals(
                 and not (at_exotic_island and not living_has_exotics)
             )
         )
-        and (needs_food(party) or food_below_stock)
+        and needs_food(party)
         and not (at_exotic_island and not living_has_exotics and feats["total_food"] >= 100.0)
-        and (
-            feats["party_gold"] >= 30.0
-            or (food_below_stock and feats["party_gold"] >= 30.0)
-        )
+        and feats["party_gold"] >= 30.0
     ):
         starvation_urgency = max(0.0, 40.0 - min(40.0, feats["food_runway_turns"] * 0.1))
         scores[Goal.BUY_FOOD] = 900.0 + starvation_urgency + cannon_risk + pirate_risk

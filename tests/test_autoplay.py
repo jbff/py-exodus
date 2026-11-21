@@ -2261,3 +2261,25 @@ def test_needs_food_ignores_dead_members_rations():
     # One starving member still counts regardless of the total.
     healthy.members[2].food = 10
     assert needs_food(healthy) is True
+
+
+def test_buy_food_trigger_is_a_low_water_mark_not_the_fill_target():
+    """Regression (seed 47, 2026-11-21): 1173ac7 fired BUY_FOOD whenever
+    min member food < 150 with 150+ gold, while the grocery fills to 150.
+    The party therefore re-targeted a shop one turn after leaving it, and
+    BUY_FOOD (900) preempted every progression goal: Ambrosia visits fell
+    39% -> 2%, runs reaching 4500 gold fell 23/88 -> 1/100, and the seed
+    that won at level 38 wiped at level 2. The one-visit fill belongs to
+    the shop handler; the ladder trigger waits for the low water mark."""
+    from py_exodus.autoplay.planner import score_goals
+
+    party = _make_party(level=5, gold=600, map_id=0)
+    for m in party.members:
+        m.food = 149
+    scores = score_goals(party, map_id=0)
+    assert scores[Goal.BUY_FOOD] < -1e8, "149 rations each is not hungry"
+
+    for m in party.members:
+        m.food = 70
+    scores = score_goals(party, map_id=0)
+    assert scores[Goal.BUY_FOOD] > 800.0, "70 rations each must trigger a food run"
