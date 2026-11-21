@@ -33,6 +33,8 @@ class GameApp:
         autoplay: bool = False,
         nn_combat: bool = False,
         nn_device: str = "auto",
+        seed: int | None = None,
+        trace: bool = False,
         **kwargs: Any,
     ) -> None:
         self.scale = scale
@@ -81,8 +83,16 @@ class GameApp:
             audio=self.audio,
         )
 
+        from py_exodus.autoplay.tracer import RunTracer
+
+        self._tracer: RunTracer | None = (
+            RunTracer(enabled=trace, seed=seed) if (trace and autoplay) else None
+        )
         self.autoplay = AutoPlayController(
-            enabled=autoplay, nn_combat=nn_combat, nn_device=nn_device
+            enabled=autoplay,
+            nn_combat=nn_combat,
+            nn_device=nn_device,
+            tracer=self._tracer,
         )
         self.state_machine.autoplay_enabled = self.autoplay.enabled
         self.state_machine.autoplay_step_interval = self.autoplay.step_interval
@@ -90,6 +100,15 @@ class GameApp:
 
     def run(self, max_frames: int | None = None) -> None:
         """Execute the main game loop at 60 FPS."""
+        if self._tracer is not None:
+            try:
+                return self._run_inner(max_frames)
+            except BaseException as exc:
+                self._tracer.end("CRASHED", exc)
+                raise
+        return self._run_inner(max_frames)
+
+    def _run_inner(self, max_frames: int | None = None) -> None:
         self.running = True
         frame = 0
 
@@ -193,6 +212,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Seed Python's RNG for reproducible runs.",
     )
+    parser.add_argument(
+        "--trace",
+        action="store_true",
+        help="Record this autoplay run to a gzipped JSONL trace (crashes capture a stack trace).",
+    )
     return parser.parse_args(argv)
 
 
@@ -208,7 +232,13 @@ def main(argv: list[str] | None = None) -> None:
     print(f"[py-exodus] effective seed: {args.seed} (rerun with --seed {args.seed})")
     debug.set_debug(args.debug)
     nn_combat = args.nn_combat if args.nn_combat is not None else args.autoplay
-    app = GameApp(autoplay=args.autoplay, nn_combat=nn_combat, nn_device=args.nn_device)
+    app = GameApp(
+        autoplay=args.autoplay,
+        nn_combat=nn_combat,
+        nn_device=args.nn_device,
+        seed=args.seed,
+        trace=args.trace,
+    )
     try:
         app.run()
     except KeyboardInterrupt:

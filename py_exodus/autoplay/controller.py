@@ -150,6 +150,7 @@ class AutoPlayController:
         step_interval: float = 0.08,
         nn_combat: bool = False,
         nn_device: str = "auto",
+        tracer: Any | None = None,
     ) -> None:
         self.enabled = enabled
         self.step_interval = max(self.MIN_INTERVAL, min(self.MAX_INTERVAL, step_interval))
@@ -177,9 +178,11 @@ class AutoPlayController:
         self._lock_age_ticks: int = 0
         # NN combat policy: loaded once at startup and kept resident for the
         # whole session (combat is frequent; reloading per fight is a no-go).
-        self.nn_combat_policy: CombatNNPolicy | None = (
+        self.nn_combat_policy: CombatNN_policy_T | None = (
             CombatNNPolicy(device=nn_device) if nn_combat else None
         )
+        # --trace live-run recorder (see autoplay/tracer.py)
+        self._tracer = tracer
 
     def toggle(self) -> bool:
         """Flip autoplay enabled state and clear any queued keystrokes."""
@@ -475,6 +478,20 @@ class AutoPlayController:
             self._key_queue.append(pygame.K_RETURN)
 
     def step(self, state_machine: StateMachine) -> int | None:
+        """Emit one logical input step (tracer observes each tick)."""
+        try:
+            key = self._step_impl(state_machine)
+            self._last_key = key
+        finally:
+            tracer = getattr(self, "_tracer", None)
+            if tracer is not None and getattr(self, "enabled", False):
+                try:
+                    tracer.record_step(state_machine, getattr(self, "_last_key", None))
+                except Exception:
+                    pass  # tracing must never break a run
+        return key
+
+    def _step_impl(self, state_machine: StateMachine) -> int | None:
         """Emit one logical input step for the active screen."""
         state_machine.autoplay_enabled = self.enabled
         state_machine.autoplay_step_interval = self.step_interval
