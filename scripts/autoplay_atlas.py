@@ -58,6 +58,13 @@ def _seed_of(path: Path) -> int:
 
 
 def analyze(rows: list[dict]) -> dict:
+    # After a wipe the game emits post-death rows (living == 0, goal SETUP_PARTY);
+    # drop them so cause/goal-at-death describe the moment BEFORE the party died.
+    end_row = next((r for r in reversed(rows) if r.get("t") == "end"), None)
+    body = [r for r in rows if r.get("t") != "end"]
+    while body and body[-1].get("living", 1) == 0:
+        body.pop()
+    rows = body + ([end_row] if end_row else [])
     states = [r for r in rows if r.get("t") in ("s", "combat_start", "combat_end", "end")]
     end = next((r for r in reversed(rows) if r.get("t") == "end"), None)
     outcome = str(end.get("outcome")) if end else "INCOMPLETE"
@@ -90,6 +97,10 @@ def analyze(rows: list[dict]) -> dict:
             cause = "combat:" + "+".join(tail[-1].get("creatures") or ["?"])
             if tail[-1].get("transport") == "ship":
                 cause += "@sea"
+        elif (last.get("near") or {}).get("pirate", 99) <= 4:
+            # No combat screen but a pirate ship in cannon range: shot dead on
+            # a shore, or the ship was sunk (hull 0 kills the party).
+            cause = "cannon:pirate@" + ("sea" if last.get("transport") == "ship" else "shore")
         elif max(last.get("food") or [0]) == 0:
             cause = "starved"
         elif poisoned:
