@@ -126,10 +126,30 @@ def test_desired_transport_buy_food_wants_foot():
     assert ctrl._desired_transport("BUY_FOOD", party) == "FOOT"
 
 
-def test_desired_transport_dig_exotics_wants_ship():
+def test_desired_transport_dig_exotics_is_pure_routing():
+    """DIG's destination is the nearest dig ground: ship while water
+    separates, FOOT once at/near the spot (2026-11-21: hardcoded SHIP made
+    the reconciler re-board forever at the dig isle)."""
+    from py_exodus.assets import AssetManager
+    from py_exodus.world.loader import MapLoader
+
+    am = AssetManager("data")
+    am.load_all()
+    gmap = MapLoader(am).load_map(0)
     ctrl = AutoPlayController(enabled=True)
     party = _grind_party(ctrl)
-    assert ctrl._desired_transport("DIG_EXOTICS", party) == "SHIP"
+    # At the exotic isle (foot): dig grounds are here -> FOOT.
+    party.x, party.y = 34, 3
+    assert (
+        ctrl._desired_transport("DIG_EXOTICS", party, gmap=gmap, px=34, py=3)
+        == "FOOT"
+    )
+    # Far away on water: sail there.
+    party.x, party.y = 50, 30
+    assert (
+        ctrl._desired_transport("DIG_EXOTICS", party, gmap=gmap, px=50, py=30)
+        == "SHIP"
+    )
 
 
 def test_gate_blocks_disembark_when_ship_is_desired():

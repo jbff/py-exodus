@@ -366,6 +366,31 @@ class AutoPlayController:
             return (49, 34) if need_ff else (58, 44)
         elif goal_name == "GRIND_AND_LEVEL":
             return (46, 19)  # Britain hub: leveling/shop/raid prep
+        elif goal_name == "DIG_EXOTICS":
+            # The dig grounds ARE the destination (2026-11-21: DIG was left
+            # in the hardcoded SHIP bucket, so the reconciler re-boarded
+            # forever at the dig spot where the DIG branch correctly steps
+            # off. Route to the nearest dig tile: foot at the spot, ship
+            # only while water separates).
+            return min(
+                ((33, 3), (19, 44)),
+                key=lambda xy: min(
+                    (xy[0] - px) % gmap.width, (px - xy[0]) % gmap.width
+                ) + min(
+                    (xy[1] - py) % gmap.height, (py - xy[1]) % gmap.height
+                ),
+            )
+        elif goal_name == "CONQUER_EXODUS":
+            return (10, 59)  # Great Earth Serpent / Exodus approach
+        elif goal_name == "SAIL_WHIRLPOOL":
+            return min(
+                ((50, 13), (17, 48)),
+                key=lambda xy: min(
+                    (xy[0] - px) % gmap.width, (px - xy[0]) % gmap.width
+                ) + min(
+                    (xy[1] - py) % gmap.height, (py - xy[1]) % gmap.height
+                ),
+            )
         else:
             return None
         if not entries:
@@ -394,8 +419,8 @@ class AutoPlayController:
                     for start in self._foot_starts(gmap, px, py, party)
                 )
                 return "FOOT" if foot_ok else "SHIP"
-        # Sea-shaped goals are trivially SHIP.
-        if goal_name in ("SAIL_WHIRLPOOL", "CAPTURE_SHIP", "DIG_EXOTICS", "CONQUER_EXODUS"):
+        # Capture has no land destination (the hunt owns it).
+        if goal_name == "CAPTURE_SHIP":
             return "SHIP"
         # Unknown destination (BUY_*, future goals): decide by where you
         # STAND. Aboard already -> stay aboard (never force a disembark on
