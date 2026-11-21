@@ -103,7 +103,14 @@ def main() -> int:
             gap = int(b.get("step", 0)) - int(a.get("step", 0))
             if gap > best[0]:
                 best = (gap, a)
-        if best[0] >= 2000 and best[1] is not None:
+        # Only the overworld maps carry live party coordinates: inside a
+        # town party.x/y stay on the entry portal, so a town visit shows one
+        # long gap that means "time spent in town", not "stood still".
+        if (
+            best[0] >= 2000
+            and best[1] is not None
+            and best[1].get("map") in (0, 13)
+        ):
             dwell_sites.append((_seed(f), best[0], best[1]))
 
     print(f"rollouts: {n_files}")
@@ -139,7 +146,7 @@ def main() -> int:
 
     if dwell_sites:
         dwell_sites.sort(key=lambda t: -t[1])
-        print(f"\nmax-dwell stalls (>=2000 ticks at one spot): {len(dwell_sites)}")
+        print(f"\nmax-dwell stalls (>=2000 ticks at one overworld tile): {len(dwell_sites)}")
         for seed, gap, r in dwell_sites[:12]:
             nbr = ",".join(sorted((r.get("nearby") or {}))[:3])
             print(f"  seed {seed}: {gap} ticks at map {r.get('map')} "
