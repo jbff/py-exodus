@@ -97,3 +97,31 @@ legs are walk / sail own ship / capture a ship / moongate, costed (wind-aware), 
 and followed until arrival or invalidation. Goal handlers only name destinations; nothing else
 may emit B or X. Squid policy (user): keep off squid-infested coast on foot; on a ship, cannon
 them, never melee them, until ALCORT is available.
+
+### Original spawn distribution (computed, LairWare `type = RandNum(0,12) & RandNum(0,12)`)
+
+| type idx | P(%) | MonTypes tile | start terrain (`MonBegin`) |
+|---|---|---|---|
+| 0 | 42.0 | 24 | grass (thief per the "thiefs/orx/skeletons" comment) |
+| 1 | 12.4 | 23 | grass (orc) |
+| 2 | 12.4 | 25 | grass (skeleton) |
+| 3 | 4.1 | 20 | grass |
+| 4 | 10.1 | 26 | grass |
+| 5 | 1.8 | 27 | grass |
+| 6 | 1.8 | 13 | **water** (sea monster) |
+| 7 | 0.6 | 28 | grass |
+| 8 | 10.1 | 22 | grass |
+| 9 | 1.8 | 14 | **water** |
+| 10 | 1.8 | 15 | **water** |
+| 11 | 0.6 | 29 | grass |
+| 12 | 0.6 | 30 | grass |
+
+Takeaways: the original is heavily weighted to the weakest types (54% of land spawns are
+types 0-2); the nasty ones (types 7, 11, 12) are under 1% each; sea monsters (6, 9, 10) are
+~5.4% combined and spawn only on water tiles. There is no party-strength tier beyond the
+"all members max HP <= 150 -> types 0-2 only" rule.
+
+**Still unresolved:** the exact tile-number -> monster-name mapping for MonTypes
+(24/23/25 = thief/orc/skeleton is inferred from the source comment; the rest needs the LairWare
+tile table or GBC `monsterstatdat` ordering). Sea tiles 13/14/15 are most likely
+pirate/serpent/Man-O-War. Resolve this before porting; do not guess.
