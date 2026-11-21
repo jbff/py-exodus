@@ -90,10 +90,34 @@ def _grind_party(controller=None, marks=(1, 0, 0, 0), exotics=False, level=5):
     return party
 
 
-def test_desired_transport_grind_pre_sea_wants_ship():
+def test_desired_transport_is_pure_routing_for_grind(asset_map=None):
+    """2026-11-21 doctrine: transport = f(where you are, where you're
+    going). GRIND's destination is the Britain hub - foot there, SHIP only
+    when water separates you from it."""
+    from py_exodus.assets import AssetManager
+    from py_exodus.world.loader import MapLoader
+
+    am = AssetManager("data")
+    am.load_all()
+    gmap = MapLoader(am).load_map(0)
     ctrl = AutoPlayController(enabled=True)
-    party = _grind_party(ctrl)  # lvl 5, Mark of Kings, no exotics
-    assert ctrl._desired_transport("GRIND_AND_LEVEL", party) == "SHIP"
+    party = _grind_party(ctrl)
+    # On the mainland near Britain: foot.
+    party.x, party.y = 44, 20
+    assert (
+        ctrl._desired_transport(
+            "GRIND_AND_LEVEL", party, gmap=gmap, px=party.x, py=party.y
+        )
+        == "FOOT"
+    )
+    # On the exotic isle: water separates -> SHIP.
+    party.x, party.y = 24, 4
+    assert (
+        ctrl._desired_transport(
+            "GRIND_AND_LEVEL", party, gmap=gmap, px=party.x, py=party.y
+        )
+        == "SHIP"
+    )
 
 
 def test_desired_transport_buy_food_wants_foot():
