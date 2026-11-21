@@ -288,9 +288,10 @@ def test_evaluate_goal_progression():
     lvl5 = _make_party(level=5, exp=500, marks=[0, 0, 0, 0], gold=0)
     assert evaluate_goal(lvl5) == Goal.GET_MARK_KINGS
 
-    # Has Mark of Kings, on foot without exotics -> CAPTURE_SHIP
+    # Has Mark of Kings, on foot without exotics -> DIG_EXOTICS (the trip
+    # layer, not the goal, decides that a ship is needed; formerly CAPTURE_SHIP)
     marked_foot = _make_party(level=5, exp=500, marks=[1, 0, 0, 0], transport=Transport.FOOT, gold=0)
-    assert evaluate_goal(marked_foot) == Goal.CAPTURE_SHIP
+    assert evaluate_goal(marked_foot) == Goal.DIG_EXOTICS
 
     # Has Mark of Kings, on ship without exotics -> DIG_EXOTICS
     marked_ship_no_ex = _make_party(level=5, exp=500, marks=[1, 0, 0, 0], transport=Transport.SHIP, gold=0)
@@ -298,10 +299,14 @@ def test_evaluate_goal_progression():
 
     # Has all Marks, Exotics, keys, and >=1500g on ship -> SAIL_WHIRLPOOL
     marked_ship = _make_party(level=5, exp=500, marks=[1, 1, 1, 1], transport=Transport.SHIP, gold=1500)
-    marked_ship.members[0].keys = 2
+    marked_ship.members[0].keys = 4  # key shopping is no longer suppressed on a ship
     for m in marked_ship.members:
+        # Equipped: owned-but-unequipped gear is an OUTFIT step on ship too now
+        # (goals no longer depend on the transport).
         m.weapons[WeaponType.EXOTIC] = 1
         m.armors[ArmorType.EXOTIC] = 1
+        m.weapon = WeaponType.EXOTIC
+        m.armor = ArmorType.EXOTIC
     assert evaluate_goal(marked_ship) == Goal.SAIL_WHIRLPOOL
 
     # OverworldScreen map_id=13 overrides stale party.map_id=0 for Ambrosia (requires keys for Death/Moons)
@@ -587,8 +592,16 @@ def test_nearest_shop_town_and_monster_chasing(pygame_setup):
     am = AssetManager()
     am.load_all()
     sosaria = load_map(0, am)
-    assert AutoPlayController._nearest_shop_town_portal(sosaria, 10, 44, Transport.FOOT) == (7, 44)  # Grey
-    assert AutoPlayController._nearest_shop_town_portal(sosaria, 44, 20, Transport.FOOT) == (46, 19)  # Britain
+    # The trip planner picks the cheapest shop town (formerly _nearest_shop_town_portal).
+    from py_exodus.autoplay.controller import _SHOP_TOWNS
+    from py_exodus.autoplay.trip import Destination, plan_trip
+
+    shops = Destination(
+        frozenset((i[0], i[1]) for mid, i in _SHOP_TOWNS.items() if mid != 11), Transport.FOOT, "shop"
+    )
+    walker = _make_party(level=1)
+    assert plan_trip(sosaria, walker, 0, (10, 44), Transport.FOOT, shops, {}).legs[-1].end == (7, 44)  # Grey
+    assert plan_trip(sosaria, walker, 0, (44, 20), Transport.FOOT, shops, {}).legs[-1].end == (46, 19)  # Britain
 
     party = Party()
     for name in ("A", "B", "C", "D"):
@@ -777,7 +790,8 @@ def test_buy_keys_before_ambrosia_and_unlock_locked_door(pygame_setup):
         if sum(m.keys for m in party.members) >= 4:
             break
     assert sum(m.keys for m in party.members) >= 4
-    assert evaluate_goal(party) == Goal.CAPTURE_SHIP
+    # Formerly CAPTURE_SHIP on foot; goals no longer depend on the transport.
+    assert evaluate_goal(party) == Goal.SAIL_WHIRLPOOL
 
     # On Ambrosia (map 13), party at (11, 6) east of locked_door (10, 6) unlocks it with U
     party.map_id = 13
@@ -871,13 +885,18 @@ def test_dawn_double_new_moon_wait_and_moongate_helper(pygame_setup):
     party.moon_phase = 0
     assert ctrl.step(sm) == pygame.K_e
 
-    # Moongate wait-and-step helper: adjacent to gate 0, passes when misaligned, steps in when aligned
+    # Moongate leg of a trip: adjacent to gate 0, passes when the moons are
+    # misaligned, steps in when trammel == 0 and felucca == 1 (phase 1).
+    from py_exodus.autoplay.trip import Leg
+
     gmap = ow.game_map
     gx, gy = gmap.moongates[0].x, gmap.moongates[0].y
+    leg = Leg(Transport.FOOT, (gx, gy), "GATE", gate_src=0, gate_dest=1)
+    party.x, party.y = gx + 1, gy
     party.moon_phase = 5
-    assert ctrl._step_moongate(sm, ow, gmap, party, gx + 1, gy, src_idx=0, dest_idx=0) == pygame.K_SPACE
-    party.moon_phase = 0
-    assert ctrl._step_moongate(sm, ow, gmap, party, gx + 1, gy, src_idx=0, dest_idx=0) == pygame.K_LEFT
+    assert ctrl._drive_gate(sm, ow, gmap, party, (gx + 1, gy), leg) == pygame.K_SPACE
+    party.moon_phase = 1
+    assert ctrl._drive_gate(sm, ow, gmap, party, (gx + 1, gy), leg) == pygame.K_LEFT
 
 
 def test_bulk_food_buying_strategy(pygame_setup):
@@ -1324,8 +1343,16 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
     wiz.weapons[WeaponType.EXOTIC] = 1
     assert best_owned_weapon(wiz, prefer_ranged=True) == WeaponType.EXOTIC
 
-    # Gate 1 (57, 46) picks reachable Gate 3 instead of impossible dest_idx=0
-    assert ctrl._pick_moongate_dest(ow_s.game_map, 1, (45, 18), p_ship) == 3
+    # Gate 1 (57, 46) island: the trip hops to the reachable Gate 3, never an impossible destination
+    from py_exodus.autoplay.trip import Destination, plan_trip
+
+    gate_plan = plan_trip(
+        ow_s.game_map, _make_party(level=5), 0, (57, 45), Transport.FOOT,
+        Destination(frozenset({(45, 18)}), Transport.FOOT, "castle"), {}, allow_capture=False,
+    )
+    assert [(leg.action, leg.gate_src, leg.gate_dest) for leg in gate_plan.legs] == [
+        ("GATE", 1, 3), ("ARRIVE", None, None)
+    ]
 
     # Disembarking onto exotic island (34, 3) stays in DIG_EXOTICS instead of looping K_x <-> K_b
     p_ex = _make_party(level=5, exp=500, gold=100, food=250, marks=[1, 0, 0, 0], transport=Transport.FOOT)
@@ -1385,7 +1412,7 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
     p_ret.members[2].max_mp = 50
     assert ctrl.step(sm) == pygame.K_SPACE
 
-    # CAPTURE_SHIP loots dropped chests instead of ignoring them
+    # A party that needs a ship (formerly CAPTURE_SHIP) loots dropped chests instead of ignoring them
     p_cap2 = _make_party(level=5, exp=500, gold=1500, food=500, marks=[1, 1, 1, 1], weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC, transport=Transport.FOOT)
     p_cap2.members[0].keys = 4
     p_cap2.x, p_cap2.y = 44, 15
@@ -1393,7 +1420,7 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
     ow_c2 = OverworldScreen(party=p_cap2, asset_mgr=am, random_encounters=False)
     sm.set_screen(ow_c2)
     ctrl._key_queue.clear()
-    assert evaluate_goal(p_cap2) == Goal.CAPTURE_SHIP
+    assert evaluate_goal(p_cap2) == Goal.SAIL_WHIRLPOOL
     assert ctrl.step(sm) == pygame.K_DOWN
 
     # Broadsides do not fire across non-wrapping map borders (e.g. x=1 -> x=63)
@@ -1450,9 +1477,11 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
     ow_i.creatures = []
     sm.set_screen(ow_i)
     assert evaluate_goal(p_isl) == Goal.BUY_FOOD
-    # With a frigate parked nearby on the coast, boards or walks toward it instead of K_SPACE
+    # With a frigate parked on the coast (and gate 1 on the island) the trip boards it or heads
+    # for the moongate instead of K_SPACE
     p_isl.dynamic_objects.append({"tile": "frigate", "x": 58, "y": 44})
-    assert ctrl.step(sm) == pygame.K_b
+    assert ctrl.step(sm) != pygame.K_SPACE
+    assert ctrl._trip.legs[0].action in ("B", "GATE")
 
     # BUY_FOOD picks Yew (34, 16) when closer than Britain, and skips closed Dawn
     p_yew = _make_party(level=5, exp=500, gold=100, food=50)
@@ -1463,16 +1492,23 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
     sm.set_screen(ow_y)
     assert ctrl.step(sm) == pygame.K_RIGHT  # toward Yew (34, 16)
 
-    # CAPTURE_SHIP ignores unreachable open-ocean frigates and keeps patrolling coast
+    # A party that needs a ship ignores unreachable open-ocean frigates: the trip captures one at the coast
     p_cap = _make_party(level=5, exp=500, gold=1500, food=500, marks=[1, 1, 1, 1], weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC)
     p_cap.members[0].keys = 4
     p_cap.x, p_cap.y = 45, 12
-    p_cap.dynamic_objects.append({"tile": "frigate", "x": 55, "y": 12})  # unreachable in deep water
+    # (Formerly (55, 12), which is a mountain tile next to walkable land, so reachable on foot
+    # under the engine's hasShipObjectAt rule.) (49, 11) is water on all four sides.
+    p_cap.dynamic_objects.append({"tile": "frigate", "x": 49, "y": 11})  # unreachable in deep water
     ow_c = OverworldScreen(party=p_cap, asset_mgr=am, random_encounters=False)
     ow_c.creatures = []
     sm.set_screen(ow_c)
-    assert evaluate_goal(p_cap) == Goal.CAPTURE_SHIP
-    assert ctrl.step(sm) != pygame.K_SPACE
+    assert all(
+        ow_c.game_map.get_tile(49 + dx, 11 + dy).name == "water" for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0))
+    )
+    assert evaluate_goal(p_cap) == Goal.SAIL_WHIRLPOOL
+    ctrl.step(sm)
+    assert ctrl._trip is not None and ctrl._trip.legs[0].action == "CAPTURE"
+    assert all(leg.end != (49, 11) for leg in ctrl._trip.legs)
 
 
 def test_wind_hold_four_heading_progress_and_hull_triage_policy(pygame_setup):
@@ -1488,7 +1524,7 @@ def test_wind_hold_four_heading_progress_and_hull_triage_policy(pygame_setup):
     # 1. Wind-hold 4-heading leg: ship near (32, 58) heading to armor island berth (34, 3).
     # Even when wind blocks a later heading (e.g. SOUTH blocks NORTH), ship advances when free_d != wind.reverse()
     # instead of holding forever until food < 100, and holds (K_SPACE) when free_d IS blocked.
-    p = _make_party(level=5, exp=500, gold=500, food=500, marks=[1, 0, 0, 0], transport=Transport.SHIP)
+    p = _make_party(level=5, exp=500, gold=0, food=500, marks=[1, 0, 0, 0], transport=Transport.SHIP)  # gold 0: no shop detour
     p.x, p.y = 32, 59
     p.wind_direction = Direction.SOUTH  # blocks NORTH, allows SOUTH/WEST/EAST
     ow = OverworldScreen(party=p, asset_mgr=am, random_encounters=False)
@@ -1506,7 +1542,7 @@ def test_wind_hold_four_heading_progress_and_hull_triage_policy(pygame_setup):
 
     # When wind directly opposes free_d (SOUTH from (34, 59) toward (34, 3)) and forces >1.5x detour, holds with K_SPACE
     ctrl._key_queue.clear()
-    p2 = _make_party(level=5, exp=500, gold=500, food=500, marks=[1, 0, 0, 0], transport=Transport.SHIP)
+    p2 = _make_party(level=5, exp=500, gold=0, food=500, marks=[1, 0, 0, 0], transport=Transport.SHIP)  # gold 0: no shop detour
     p2.x, p2.y = 34, 59
     p2.wind_direction = Direction.NORTH  # blocks SOUTH (direct wrapped route to (34, 3))
     ow2 = OverworldScreen(party=p2, asset_mgr=am, random_encounters=False)
@@ -1514,21 +1550,35 @@ def test_wind_hold_four_heading_progress_and_hull_triage_policy(pygame_setup):
     sm.set_screen(ow2)
     assert ctrl.step(sm) == pygame.K_SPACE
 
-    # 2. Unified hull triage policy (<= 25): skips broadsides, disembarks adjacent to land, skips last_ship
-    p_hull = _make_party(level=5, exp=500, gold=500, food=500, marks=[1, 0, 0, 0], transport=Transport.SHIP)
+    # 2. Critical hull (<= 30): next to the dig island the trip lands (X) ...
+    p_hull = _make_party(level=5, exp=500, gold=0, food=500, marks=[1, 0, 0, 0], transport=Transport.SHIP)  # gold 0: no shop detour
     p_hull.ship_hull = 25
     p_hull.x, p_hull.y = 34, 3  # adjacent to (33, 3) land
     ow_h = OverworldScreen(party=p_hull, asset_mgr=am, random_encounters=False)
-    ow_h.creatures = [{"x": 34, "y": 5, "tile_name": "pirate"}]  # in broadside range
+    ow_h.creatures = []
     sm.set_screen(ow_h)
     assert ctrl._is_hull_critical(p_hull, ow_h) is True
-    assert ctrl.step(sm) == pygame.K_x  # disembarks instead of firing broadsides
+    assert ctrl.step(sm) == pygame.K_x
+
+    # ... but with a pirate's broadside lane on that tile it neither waits nor lands into the
+    # lane (X would leave the party on foot on the same tile): it turns or sails out.
+    p_hull2 = _make_party(level=5, exp=500, gold=0, food=500, marks=[1, 0, 0, 0], transport=Transport.SHIP)
+    p_hull2.ship_hull = 25
+    p_hull2.x, p_hull2.y = 34, 3
+    p_hull2.wind_direction = Direction.NORTH
+    ow_h2 = OverworldScreen(party=p_hull2, asset_mgr=am, random_encounters=False)
+    ow_h2.creatures = [{"x": 34, "y": 5, "tile_name": "pirate"}]  # distance 2, same column
+    sm.set_screen(ow_h2)
+    assert ctrl.step(sm) not in (pygame.K_SPACE, pygame.K_x)
+
+    # A critically damaged last ship is a last resort for boarding (planner penalty).
+    from py_exodus.autoplay.trip import CRITICAL_SHIP_BOARD_PENALTY
 
     last = {"tile": "frigate", "x": 34, "y": 3}
     p_hull.ship_hull = 25
     p_hull.last_ship = last
     p_hull.dynamic_objects = [last]
-    assert (34, 3) not in ctrl._boardable_frigates(p_hull)
+    assert ctrl._frigate_costs(p_hull, None)[(34, 3)] == CRITICAL_SHIP_BOARD_PENALTY
 
 
 def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
@@ -1575,8 +1625,10 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
     sm.set_screen(ow_bs)
     assert ctrl.step(sm) == pygame.K_UP  # chases orc to earn 30g for food
 
-    # ...but never while a pirate or sea serpent is near (<= 7 tiles)
-    ow_bs.creatures.append({"x": 40, "y": 23, "tile_name": "pirate"})
+    # ...but never while a pirate or sea serpent is near (<= 7 tiles). The pirate sits off the
+    # party's row and column, so the firing-lane rule does not decide this step.
+    ow_bs.creatures.append({"x": 43, "y": 24, "tile_name": "pirate"})
+    p_bs.x, p_bs.y = 40, 20  # (random encounters are off: the first step walked onto the orc)
     assert ctrl.step(sm) != pygame.K_UP
 
     # 3. Stranded on Snake Island (57, 46) in GRIND_AND_LEVEL uses moongate/frigate instead of K_SPACE stall
@@ -1666,17 +1718,22 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
     ctrl.update(1.0, sm)  # large dt backlog is capped so event loop never freezes
     assert ctrl._timer < ctrl.step_interval
 
-    # 10. at_exotic_island only suppresses dead-member grind while on FOOT, not when sailing past on SHIP
+    # 10. at_exotic_island suppresses dead-member grind next to the dig site whatever the
+    # transport (formerly FOOT only; goals no longer depend on the transport), and not elsewhere
     p_ex_ship = _make_party(level=13, exp=3000, gold=100, food=500, marks=[1, 0, 0, 0], transport=Transport.SHIP)
     p_ex_ship.members[3].status = Status.DEAD
     p_ex_ship.members[3].hp = 0
     p_ex_ship.x, p_ex_ship.y = 20, 44
+    assert evaluate_goal(p_ex_ship, map_id=0) == Goal.DIG_EXOTICS
+    p_ex_ship.x, p_ex_ship.y = 30, 44
     assert evaluate_goal(p_ex_ship, map_id=0) == Goal.GRIND_AND_LEVEL
     p_ex_ship.transport = Transport.FOOT
     p_ex_ship.x, p_ex_ship.y = 19, 44
     assert evaluate_goal(p_ex_ship, map_id=0) == Goal.DIG_EXOTICS
 
-    # 11. GRIND_AND_LEVEL on SHIP at non-mainland (18, 42) sails to mainland instead of K_SPACE stalling
+    # 11. On SHIP at (18, 42), 3 tiles from the exotic-armor site (19, 44): the goal is DIG_EXOTICS
+    # as it would be on foot (formerly GRIND_AND_LEVEL on a ship: a boarding/landing goal flip),
+    # and the ship moves instead of K_SPACE stalling
     p_1842 = _make_party(level=6, exp=600, gold=100, food=500, marks=[1, 0, 0, 0], transport=Transport.SHIP)
     p_1842.members[3].status = Status.DEAD
     p_1842.members[3].hp = 0
@@ -1686,7 +1743,7 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
     ow_1842.creatures = []
     sm.set_screen(ow_1842)
     ctrl._key_queue.clear()
-    assert evaluate_goal(p_1842, map_id=0) == Goal.GRIND_AND_LEVEL
+    assert evaluate_goal(p_1842, map_id=0) == Goal.DIG_EXOTICS
     assert ctrl.step(sm) != pygame.K_SPACE
 
     # 12. CONQUER_EXODUS with EXOTIC equipped and BOW in inventory stays CONQUER_EXODUS (no OUTFIT_BRITAIN flip)
@@ -1866,21 +1923,29 @@ def _stub_screen(**kwargs):
     return OverworldScreen(**kwargs)
 
 
-def test_marooned_fallback_routes_to_hunt_patrol_never_space(pygame_setup):
-    """Marooned FOOT party with no reachable portal, frigate, or moongate patrols via hunt fallback, never K_SPACE."""
-    gmap = _make_stub_grid(6, 6, {(2, 2): "grass", (3, 2): "grass", (5, 5): "grass"})
+def test_marooned_party_plans_a_ship_capture(pygame_setup):
+    """Marooned FOOT party with no reachable portal, frigate, or moongate gets a trip that
+    captures a ship at its coast (formerly a hunt/patrol fallback), never 'no route'."""
+    from py_exodus.autoplay.trip import Destination
+
+    gmap = _make_stub_grid(6, 6, {(2, 2): "grass", (3, 2): "grass", (5, 5): "grass"}, default="water")
     party = _make_party(level=5, exp=500, gold=100, food=500, transport=Transport.FOOT)
     party.x, party.y = 2, 2
     sm = StateMachine(asset_mgr=None, audio=None)
     screen = _stub_screen(game_map=gmap, creatures=[], party=party)
     sm.set_screen(screen)
     ctrl = AutoPlayController(enabled=True)
-    key = ctrl._enter_portal_or_wait_dawn(sm, screen, gmap, party, 2, 2, (5, 5))
-    assert key == pygame.K_RIGHT
+    dest = Destination(frozenset({(5, 5)}), Transport.FOOT, "portal")
+    key = ctrl._trip_drive(sm, screen, gmap, party, 2, 2, 0, dest)
+    assert key is not None
+    assert [leg.action for leg in ctrl._trip.legs] == ["CAPTURE", "X", "ARRIVE"]
 
 
 def test_water_standoff_unconditional_full_hp(pygame_setup):
-    """Full-HP party on water in pirate seas still steps away to >= 3 Manhattan from a pirate."""
+    """Full-HP ship two tiles from a pirate in its column (the firing lane) leaves the line.
+
+    Formerly it sailed on to distance 3, which is still the firing lane. Heading north the
+    next tile (3, 2) is distance 3 in the same column, so the ship turns east/west instead."""
     gmap = _make_stub_grid(7, 7, {}, default="water", map_id=0)
     party = _make_party(
         level=10, exp=1000, gold=100, food=500, marks=[1, 1, 1, 1],
@@ -1898,7 +1963,7 @@ def test_water_standoff_unconditional_full_hp(pygame_setup):
     )
     sm.set_screen(screen)
     ctrl = AutoPlayController(enabled=True)
-    assert ctrl.step(sm) == pygame.K_UP
+    assert ctrl.step(sm) in (pygame.K_LEFT, pygame.K_RIGHT)
 
 
 def test_starving_override_keeps_avoid_within_limit(pygame_setup):
@@ -1927,17 +1992,29 @@ def test_starving_override_relaxes_avoid_when_no_safe_route_within_limit(pygame_
     assert ctrl._move_toward(sm, gmap, party, (3, 3), {(3, 1)}) == pygame.K_UP
 
 
-def test_kx_landing_refuses_pirate_adjacent_when_alternate_exists(pygame_setup):
-    """K_x landing filter excludes pirate-adjacent shore tiles when a safe shore tile exists."""
+def test_kx_landing_refuses_pirate_lane_when_alternate_exists(pygame_setup):
+    """The trip lands (X) outside a pirate's firing lane when another landing exists.
+
+    (2, 2) is two tiles below the pirate at (2, 0): in its lane. (4, 2) is not."""
+    from py_exodus.autoplay.threats import compute_threats
+    from py_exodus.autoplay.trip import Destination
+
     gmap = _make_stub_grid(7, 7, {(2, 1): "grass", (4, 1): "grass"}, default="water", map_id=0)
     party = _make_party(level=5, exp=500, gold=100, food=500, transport=Transport.SHIP)
+    party.x, party.y = 3, 4
     screen = _stub_screen(game_map=gmap, creatures=[{"x": 2, "y": 0, "tile_name": "pirate"}], party=party)
-    safe = AutoPlayController._safe_shore_water(gmap, party, screen, {(2, 2), (4, 2)})
-    assert (2, 2) not in safe
+    ctrl = AutoPlayController(enabled=True)
+    ctrl._threats = compute_threats(gmap, party, screen.creatures)
+    dest = Destination(frozenset({(2, 1), (4, 1)}), Transport.FOOT, "land")
+    plan = ctrl._replan(gmap, party, screen, 0, (3, 4), Transport.SHIP, dest)
+    assert plan.legs[0].action == "X"
+    assert plan.legs[0].end != (2, 2)
+    assert not ctrl._threats.in_lane(plan.legs[0].end)
 
 
 def test_broadsides_permitted_at_critical_hull(pygame_setup):
-    """Ship with hull <= 30 still fires broadsides when a pirate is lined up."""
+    """Ship with hull <= 30 and a pirate lined up at distance 2: it sails out of the lane when
+    its heading allows, and fires the broadside only when it cannot leave this turn."""
     gmap = _make_stub_grid(10, 10, {}, default="water", map_id=0)
     party = _make_party(
         level=10, exp=1000, gold=100, food=500, marks=[1, 1, 1, 1],
@@ -1955,7 +2032,13 @@ def test_broadsides_permitted_at_critical_hull(pygame_setup):
     )
     sm.set_screen(screen)
     ctrl = AutoPlayController(enabled=True)
+    party.wind_direction = Direction.NORTH  # sailing north is allowed: leave the lane
+    assert ctrl.step(sm) == pygame.K_UP
+    party.x, party.y = 4, 4
+    party.wind_direction = Direction.SOUTH  # north blocked: shoot back at the pirate to the east
+    ctrl._key_queue.clear()
     assert ctrl.step(sm) == pygame.K_f
+    assert ctrl._key_queue[0] == pygame.K_RIGHT
 
 
 def test_cure_poison_suppresses_sanctu_above_25_hp(pygame_setup):

@@ -74,6 +74,23 @@ def build_party():
     return party
 
 
+def _seed_dungeon_rngs() -> None:
+    """Dungeon states build their own ``random.Random()`` (world/dungeon.py);
+    derive each from the seeded global stream so a batch seed reproduces."""
+    import types
+
+    from py_exodus.world import dungeon
+
+    if getattr(dungeon.random, "_autoplay_seeded", False):
+        return
+    real = dungeon.random
+    proxy = types.ModuleType("random")
+    proxy.__dict__.update(real.__dict__)
+    proxy.Random = lambda *a, **k: real.Random(*a, **k) if (a or k) else real.Random(real.getrandbits(64))
+    proxy._autoplay_seeded = True
+    dungeon.random = proxy
+
+
 def run_seed(
     seed: int,
     out_dir: Path | str,
@@ -94,6 +111,12 @@ def run_seed(
 
     am = _assets()
     random.seed(seed)
+    # tile_effects keeps its own unseeded die (swamp/lava rolls); seed it so a
+    # batch seed reproduces. Dungeons still make their own random.Random().
+    from py_exodus.world import tile_effects
+
+    tile_effects._rng.seed(seed)
+    _seed_dungeon_rngs()
     party = build_party()
     sm = StateMachine(asset_mgr=am, audio=None)
     sm.set_screen(OverworldScreen(party=party, asset_mgr=am))

@@ -9,7 +9,7 @@ from py_exodus.autoplay.equipment import (
     best_owned_weapon,
     best_shop_upgrade,
 )
-from py_exodus.constants import ArmorType, Profession, Status, Transport, WeaponType
+from py_exodus.constants import ArmorType, Profession, Status, WeaponType
 
 if TYPE_CHECKING:
     from py_exodus.entities.party import Party
@@ -28,7 +28,6 @@ class Goal(str, Enum):
     BUY_TORCHES = "buy_torches"
     GET_MARK_KINGS = "get_mark_kings"
     BUY_KEYS = "buy_keys"
-    CAPTURE_SHIP = "capture_ship"
     SAIL_WHIRLPOOL = "sail_whirlpool"
     AMBROSIA_CARDS_SHRINES = "ambrosia_cards_shrines"
     EXIT_AMBROSIA = "exit_ambrosia"
@@ -140,9 +139,11 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
 
     cur_map_id = _normalize_map_id(party, map_id)
 
+    # Goals never depend on the transport mode: the trip layer
+    # (autoplay/trip.py) decides walking, sailing, capturing or moongates, so
+    # boarding or landing can never flip the goal (the old B/X loops).
     at_exotic_island = (
         cur_map_id == 0
-        and party.transport == Transport.FOOT
         and any(abs(party.x - tx) + abs(party.y - ty) <= 4 for tx, ty in ((33, 3), (19, 44)))
     )
     has_exotics = all(
@@ -158,14 +159,6 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
 
     if (
         cur_map_id not in (13, 15, 16, 17, 18, 19, 20)
-        and (
-            party.transport != Transport.SHIP
-            or (
-                cur_map_id == 0
-                and (party.food < 250 or any(m.food < 50 for m in living))
-                and not (at_exotic_island and not living_has_exotics)
-            )
-        )
         and needs_food(party)
         and not (at_exotic_island and not living_has_exotics and party.food >= 100)
         and party.gold >= 30
@@ -174,7 +167,6 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
 
     if (
         cur_map_id not in (13, 15, 16, 17, 18, 19, 20)
-        and (party.transport != Transport.SHIP or cur_map_id == 0)
         and not (at_exotic_island and not living_has_exotics and party.food >= 100)
         and any(m.is_dead() for m in party.members)
     ):
@@ -193,7 +185,6 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
 
     if (
         cur_map_id not in (13, 15, 16, 17, 18, 19, 20)
-        and party.transport != Transport.SHIP
         and not (at_exotic_island and not has_exotics and party.food >= 100)
         and any(m.status == Status.POISONED for m in living)
         and party.gold >= 100
@@ -220,7 +211,6 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
     prefer_ranged = not (has_all_cards and has_remaining_marks and has_exotics)
     if (
         cur_map_id != 13
-        and party.transport != Transport.SHIP
         and not (at_exotic_island and not has_exotics)
         and not (has_all_cards and has_remaining_marks and not has_exotics)
         and (
@@ -238,10 +228,7 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
         return Goal.GRIND_AND_LEVEL
 
     if not all(m.marks[0] > 0 for m in party.members):
-        if (
-            cur_map_id not in (13, 15, 16, 17, 18, 19, 20)
-            and party.transport != Transport.SHIP
-        ):
+        if cur_map_id not in (13, 15, 16, 17, 18, 19, 20):
             gems = sum(m.gems for m in living)
             torches = sum(m.torches for m in living)
             if gems < 2 and party.gold >= (125 if gems == 0 else 200):
@@ -251,15 +238,10 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
         return Goal.GET_MARK_KINGS
 
     if not has_exotics:
-        if party.transport == Transport.SHIP or at_exotic_island:
-            return Goal.DIG_EXOTICS
-        return Goal.CAPTURE_SHIP
+        return Goal.DIG_EXOTICS
 
     if not has_remaining_marks:
-        if (
-            cur_map_id not in (13, 15, 16, 17, 18, 19, 20)
-            and party.transport != Transport.SHIP
-        ):
+        if cur_map_id not in (13, 15, 16, 17, 18, 19, 20):
             gems = sum(m.gems for m in living)
             torches = sum(m.torches for m in living)
             if gems < 8 and party.gold >= (125 if gems == 0 else 225):
@@ -271,11 +253,7 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
     if not has_all_cards:
         if cur_map_id == 13:
             return Goal.AMBROSIA_CARDS_SHRINES
-        if (
-            party.transport != Transport.SHIP
-            and sum(m.keys for m in living) < 4
-            and party.gold >= 50
-        ):
+        if sum(m.keys for m in living) < 4 and party.gold >= 50:
             return Goal.BUY_KEYS
         any_below_cap = any(
             member_needs_shrine_stat(m, stat_attr, cap_attr)
@@ -299,8 +277,6 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
             return Goal.GRIND_AND_LEVEL
         if (party.food < 500 or any(m.food < 120 for m in living)) and party.gold >= 100:
             return Goal.BUY_FOOD
-        if party.transport != Transport.SHIP:
-            return Goal.CAPTURE_SHIP
         return Goal.SAIL_WHIRLPOOL
 
     if cur_map_id == 13:
