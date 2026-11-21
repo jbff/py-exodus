@@ -1592,6 +1592,51 @@ class AutoPlayController:
         cur_map_id = self._screen_map_id(screen, party)
         living = [m for m in party.members if not m.is_dead()]
 
+        # --- Transport reconciler (2026-11-21) ---------------------------
+        # The simplest algorithm in the game, in one place: decide what
+        # transport the route needs; if you're in the wrong one, switch.
+        #   needs SHIP, on foot, hull underfoot/adjacent -> BOARD.
+        #   needs FOOT, aboard, shoreline touching      -> STEP OFF.
+        #   otherwise: the movement branches proceed (they never board or
+        #   disembark on their own - all such sites are transport-gated).
+        # This runs before every goal branch, so no branch can improvise a
+        # ship<->foot dance.
+        _rec_desired = self._desired_transport(
+            goal.name, party, gmap, px, py
+        )
+        if party.transport == Transport.SHIP and _rec_desired == "FOOT":
+            from py_exodus.screens.overworld import can_move_to as _cmt0
+
+            on_shore = any(
+                _cmt0(gmap, (px + dx) % gmap.width, (py + dy) % gmap.height,
+                      Transport.FOOT, party=party)
+                for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0))
+            )
+            if on_shore:
+                return self._emit_key(state_machine, pygame.K_x)
+        elif party.transport == Transport.FOOT and _rec_desired == "SHIP":
+            here_or_adjacent = {
+                (px, py),
+                *(
+                    ((px + dx) % gmap.width, (py + dy) % gmap.height)
+                    for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0))
+                ),
+            }
+            hulls = {
+                (obj.get("x"), obj.get("y"))
+                for obj in getattr(party, "dynamic_objects", ())
+                if str(obj.get("tile", "")).lower() == "frigate"
+                and not self._frigate_is_stranded(gmap, (obj.get("x"), obj.get("y")))
+            }
+            if (px, py) in hulls:
+                return self._emit_key(state_machine, pygame.K_b)
+            reachable_hulls = hulls & here_or_adjacent
+            if reachable_hulls:
+                return self._move_toward(
+                    state_machine, gmap, party, (px, py), reachable_hulls
+                )
+            # no hull here: fall through to the goal branches (the CAPTURE
+            # hunt/patrol owns winning one)
         # GRIND + SHIP + no Exotics: sail toward the dig-adjacency waters
         # (2026-11-20 dock-stall at Britain landing tiles under calm-wind
         # waiting). Once adjacent, evaluate_goal organically flips to
@@ -2660,7 +2705,9 @@ class AutoPlayController:
             if str(obj.get("tile", "")).lower() == "frigate"
         }
         if (px, py) in frigates and (px, py) in water_comp:
-            return self._emit_key(state_machine, pygame.K_b)
+            if self._transport_emit_allowed(state_machine, pygame.K_b):
+                return self._emit_key(state_machine, pygame.K_b)
+            return None  # routing says FOOT: do not board out from under it
         usable_frigates = {
             pos
             for pos in frigates
@@ -2710,7 +2757,9 @@ class AutoPlayController:
                 return self._emit_key(state_machine, pygame.K_SPACE)
             return self._move_toward(state_machine, gmap, party, (px, py), shore_tiles)
         if (px, py) in frigates:
-            return self._emit_key(state_machine, pygame.K_b)
+            if self._transport_emit_allowed(state_machine, pygame.K_b):
+                return self._emit_key(state_machine, pygame.K_b)
+            return None  # routing says FOOT: do not board out from under it
         any_frigates = {
             pos
             for pos in frigates
