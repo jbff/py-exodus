@@ -350,7 +350,12 @@ class AutoPlayController:
             entries = [(t[0], t[1]) for m, t in _HEALER_TOWNS.items() if m != 11 or dawn_open]
         elif goal_name == "BUY_FOOD":
             entries = [(t[0], t[1]) for m, t in _FOOD_TOWNS.items() if m != 11 or dawn_open]
-        elif goal_name == "OUTFIT_BRITAIN":
+        elif goal_name in (
+            "OUTFIT_BRITAIN", "BUY_KEYS", "BUY_GEMS", "BUY_TORCHES"
+        ):
+            # Shop-shaped goals (keys/gems/torches vendors live in towns):
+            # routing must be geography-aware or an isle party's board gets
+            # blocked by a FOOT default (2026-11-21 BUY_GEMS isle stall).
             entries = [(t[0], t[1]) for t in _SHOP_TOWNS.values()]
         elif goal_name == "GET_REMAINING_MARKS":
             living = [m for m in party.members if not m.is_dead()]
@@ -383,10 +388,45 @@ class AutoPlayController:
                     gmap, (px, py), {target}, Transport.FOOT, party=party
                 ) is not None
                 return "FOOT" if foot_ok else "SHIP"
-        # Legacy fallback for non-portal goals (DIG/whirlpool/capture/exodus).
+        # Sea-shaped goals are trivially SHIP.
         if goal_name in ("SAIL_WHIRLPOOL", "CAPTURE_SHIP", "DIG_EXOTICS", "CONQUER_EXODUS"):
             return "SHIP"
+        # Unknown destination (BUY_*, future goals): decide by where you
+        # STAND. Aboard already -> stay aboard (never force a disembark on
+        # a guess). On foot -> if your foot-component is a tiny isle/pocket
+        # you cannot walk to ANY destination; the ship is the only transport
+        # that moves you (2026-11-21 GET IT DONE rule).
+        if party.transport == Transport.SHIP:
+            return "SHIP"
+        if gmap is not None and px is not None and py is not None:
+            if self._foot_component_size(gmap, px, py, party) <= 64:
+                return "SHIP"
         return "FOOT"
+
+    @staticmethod
+    def _foot_component_size(gmap, px: int, py: int, party, cap: int = 65) -> int:
+        """Size of the foot-walkable connected component at (px, py), capped.
+
+        Tiny component == confined to an isle/pocket: no walking goal can
+        be pursued from here, so the transport decision is SHIP regardless
+        of which goal asked. Pure where-you-are test (user doctrine).
+        """
+        from collections import deque as _dq
+        from py_exodus.screens.overworld import can_move_to
+
+        seen = {(px % gmap.width, py % gmap.height)}
+        q = _dq(list(seen))
+        while q and len(seen) < cap:
+            cx, cy = q.popleft()
+            for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+                nx, ny = (cx + dx) % gmap.width, (cy + dy) % gmap.height
+                if (nx, ny) in seen:
+                    continue
+                if not can_move_to(gmap, nx, ny, Transport.FOOT, party=party):
+                    continue
+                seen.add((nx, ny))
+                q.append((nx, ny))
+        return len(seen)
 
     def _engage_transport_lock(self, desired: str, reason: str = "") -> None:
         self._transport_locked = desired

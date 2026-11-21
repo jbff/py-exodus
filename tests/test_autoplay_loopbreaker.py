@@ -196,6 +196,7 @@ def test_desired_transport_all_town_goals_resolve():
     for goal_name in (
         "CURE_POISON", "RESURRECT_DEAD", "BUY_FOOD", "OUTFIT_BRITAIN",
         "GET_REMAINING_MARKS", "GRIND_AND_LEVEL",
+        "BUY_KEYS", "BUY_GEMS", "BUY_TORCHES",
     ):
         result = ctrl._desired_transport(goal_name, party, gmap=gmap, px=44, py=20)
         assert result in ("FOOT", "SHIP"), (goal_name, result)
