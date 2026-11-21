@@ -2806,6 +2806,17 @@ class AutoPlayController:
             and evaluate_goal(party, getattr(game_map, "id", getattr(party, "map_id", 0))) == Goal.BUY_FOOD
         )
         avoid = getattr(self, "_overworld_avoid", None) or None
+        # Starving-route rule (2026-11-20 seed-84550887 death orbit): with
+        # the party starving on the food route, the moving creature-avoid
+        # bubbles built a walking orbit around a wandering skeleton - the
+        # party starved to death circling it. Starving food-travel ignores
+        # creature avoid-sets entirely: head to food, fight only if engaged.
+        if (
+            len(getattr(party, "members", ())) > 0
+            and party.transport == Transport.FOOT
+            and all(m.food == 0 for m in getattr(party, "members", []) if not m.is_dead())
+        ):
+            avoid = None
         wind = getattr(party, "wind_direction", None)
         d, wind_cost = find_2d_step_and_cost(
             game_map,
