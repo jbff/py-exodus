@@ -1869,7 +1869,7 @@ class AutoPlayController:
                 wind_foot = None
                 blocked_foot = None
                 best_dir, best_gap = None, -1
-                for cand in _CARDINALS:
+                for cand in (Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST):
                     nx, ny = (px + cand.dx) % gmap.width, (py + cand.dy) % gmap.height
                     from py_exodus.screens.overworld import can_move_to as _cmt
 
@@ -1898,7 +1898,7 @@ class AutoPlayController:
                 wind = getattr(party, "wind_direction", None)
                 blocked = wind.reverse() if wind is not None else None
                 best_dir, best_gap = None, -1
-                for cand in _CARDINALS:
+                for cand in (Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST):
                     if blocked is not None and cand == blocked:
                         continue
                     nx, ny = (px + cand.dx) % gmap.width, (py + cand.dy) % gmap.height
