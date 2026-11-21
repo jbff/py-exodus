@@ -394,7 +394,20 @@ class TestUnlock:
         press_direction(ow, Direction.NORTH)
         assert any(m == "Unlocked!" for m in ow.text_log.history)
         assert sample_party.members[0].keys == 0
-        assert ow.game_map.get_tile(10, 9).rule == "door"
+        # USER-DIRECTED (2026-11-21, Ambrosia per LairWare): on the surface
+        # an unlocked door becomes the tile WEST of it (UltimaMain.c:2428-
+        # 2433), not Java's "door" tile; terrain past floor reads as grass.
+        west = ow.game_map.get_tile(9, 9)
+        expected = west.name if west.index <= 8 else "grass"
+        assert ow.game_map.get_tile(10, 9).name == expected
+
+    def test_overworld_unlocked_water_door_becomes_water(self, ow, sample_party):
+        """Ambrosia's door in the water channel (39, 61) opens for a ship."""
+        self._place_locked_door(ow.game_map)
+        ow.game_map.set_tile(9, 9, TileDef(index=0, name="water", rule="water"))
+        sample_party.members[0].keys = 1
+        ow._unlock_direction("N", sample_party.members[0])
+        assert ow.game_map.get_tile(10, 9).name == "water"
 
     def test_overworld_u_cannot_without_keys(self, ow, sample_party):
         self._place_locked_door(ow.game_map)

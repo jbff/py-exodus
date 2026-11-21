@@ -508,6 +508,17 @@ class OverworldScreen(BaseScreen):
         except Exception:
             pass
 
+        # Parked ships/horses belong to the map they were left on (LairWare
+        # Push/PullSosaria; see Party.enter_surface_map).
+        try:
+            surface_id = int(self.map_id)
+        except (TypeError, ValueError):
+            surface_id = -1
+        if hasattr(self.party, "enter_surface_map"):
+            self.party.enter_surface_map(surface_id)
+        if surface_id == 13:
+            self._load_ambrosia_monsters()
+
         # Java GameScreen.java:111-121 — the two Sosaria whirlpools are added
         # manually on the SOSARIA map each time it is prepared (they never
         # spawn automatically and never wander); re-seeding HERE (not in
@@ -525,6 +536,49 @@ class OverworldScreen(BaseScreen):
                 })
         self._seed_wanderers()
 
+    # LairWare monster tile index (Tiles.plist) -> creatures.xml tile key, for
+    # the monster table Ambrosia loads with its map.
+    _AMBROSIA_MONSTER_TILES: dict[int, str] = {
+        10: "horse", 13: "serpent", 14: "squid", 15: "pirate", 16: "merchant",
+        17: "jester", 18: "guard", 20: "fighter", 21: "cleric", 22: "wizard",
+        23: "thief", 24: "orc", 25: "skeleton", 26: "giant", 27: "daemon",
+        28: "pincher", 29: "dragon", 30: "balron",
+    }
+
+    def _load_ambrosia_monsters(self) -> None:
+        """Ambrosia's monster table as live monsters.
+
+        LairWare loads Ambrosia's 'MONS' resource with its map on every visit
+        (LoadUltimaMap(421), UltimaMisc.c:861-901), so these monsters are back
+        at their start tiles each time. On Ambrosia MoveMonsters takes the
+        per-monster behaviour byte (UltimaMisc.c:1276-1330); every Ambrosia
+        entry has 0xC0, which is ``goto moveoutside``: the Sosaria behaviour
+        (close in, attack, pirates fire broadsides). A pirate fought from land
+        leaves its ship (AttackCode, UltimaMain.c:1355-1357) — the only way
+        off Ambrosia (the whirlpool takes only a ship). The port loaded them
+        as frozen town people (Ambrosia is a "city" map in maps.xml); they
+        move to the creature list here. Horse and jester keep the port's
+        creature definitions (non-attacking).
+        """
+        if self.game_map is None:
+            return
+        keep = []
+        for npc in list(getattr(self.game_map, "npcs", ()) or ()):
+            key = self._AMBROSIA_MONSTER_TILES.get(getattr(npc, "tile_index", -1))
+            if key is None:
+                keep.append(npc)
+                continue
+            c_def = self.asset_mgr.get_creature(key) if self.asset_mgr else None
+            self.creatures.append({
+                "name": (c_def.name if c_def else key.capitalize()),
+                "tile_name": key,
+                "tile": key,
+                "x": npc.x,
+                "y": npc.y,
+                **({"sail_dir": "EAST"} if key == "pirate" else {}),
+            })
+        self.game_map.npcs = keep
+
     def _seed_wanderers(self) -> None:
         """Populate a freshly prepared outdoor map with wanderers.
 
@@ -536,6 +590,8 @@ class OverworldScreen(BaseScreen):
         """
         if not self.random_encounters_enabled or self.game_map is None:
             return
+        if str(self.map_id) != "0":
+            return  # SpawnMonster runs on Sosaria only (UltimaMisc.c:1144)
         for _ in range(500):
             self._spawn_wandering_creature()
 
@@ -1264,9 +1320,17 @@ class OverworldScreen(BaseScreen):
         # locked-door conversion (GBC menucmd2.c:1655-1657; anything else is
         # dounlock's else: no conversion, no spend). A keyless
         # member is refused with "You need a key!" (GBC refusal message).
-        if door_module.unlock_door(
-            self.game_map, self.party.x + d.dx, self.party.y + d.dy, member=member
-        ):
+        tx, ty = self.party.x + d.dx, self.party.y + d.dy
+        if door_module.unlock_door(self.game_map, tx, ty, member=member):
+            # LairWare Unlock (UltimaMain.c:2428-2433): on the surface the
+            # door turns into the tile WEST of it (anything past floor reads
+            # as grass). Ambrosia's water door at (39, 61) therefore opens
+            # into water and a ship can pass to the whirlpool bay.
+            west = self.game_map.get_tile((tx - 1) % self.game_map.width, ty)
+            if west is not None and 0 <= getattr(west, "index", 99) <= 8:
+                self.game_map.set_tile(tx, ty, west)
+            elif self.asset_mgr is not None and self.asset_mgr.tile_defs.get(1):
+                self.game_map.set_tile(tx, ty, self.asset_mgr.tile_defs.get(1))
             self.text_log.add_message("Unlocked!")
         else:
             if getattr(member, "keys", 0) <= 0:
@@ -1806,6 +1870,10 @@ class OverworldScreen(BaseScreen):
         Java's 8..12-tile ring, forced spawn and distance despawn are gone.
         """
         if self.game_map is None:
+            return
+        # LairWare SpawnMonster: ``if (Party[3] != 0) return;`` — no
+        # wanderers on Ambrosia (UltimaMisc.c:1144-1145).
+        if str(self.map_id) != "0":
             return
         if random.randint(0, 134) < 128:
             return

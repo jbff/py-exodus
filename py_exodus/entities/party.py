@@ -242,6 +242,8 @@ class Party:
         exodus_defeated: int = 0,
         dynamic_objects: list[dict[str, int]] | None = None,
         dynamic_monsters: list[dict[str, int]] | None = None,
+        objects_map_id: int = 0,
+        sosaria_objects: list[dict[str, int]] | None = None,
     ) -> None:
         self.members: list[PartyMember] = []
         if members:
@@ -327,6 +329,18 @@ class Party:
         # Dynamic overworld delta: up to 24 mutable objects on Sosaria (e.g. docked ships, horses, chests)
         self.dynamic_objects: list[dict[str, int]] = (
             list(dynamic_objects) if dynamic_objects is not None else []
+        )
+        # Which surface map ``dynamic_objects`` belongs to (0 Sosaria, 13
+        # Ambrosia). LairWare keeps parked ships and horses IN the Sosaria
+        # map grid: the whirlpool PushSosaria()s the whole map before loading
+        # Ambrosia and PullSosaria()s it on the way back
+        # (refs/ultima3/Sources/UltimaMain.c:3052,3090; UltimaMisc.c:923-968),
+        # and Ambrosia is reloaded fresh from its resource every visit. So a
+        # Sosaria ship never exists on Ambrosia and Ambrosia's objects are
+        # gone once the party leaves (see ``enter_surface_map``).
+        self.objects_map_id: int = objects_map_id
+        self.sosaria_objects: list[dict[str, int]] = (
+            list(sosaria_objects) if sosaria_objects is not None else []
         )
         # Dynamic monsters delta: up to 8 active monsters on Sosaria
         self.dynamic_monsters: list[dict[str, int]] = (
@@ -854,6 +868,25 @@ class Party:
             m.hp = 0
         self.active_member_index = 0
 
+    def enter_surface_map(self, map_id: int) -> None:
+        """Swap ``dynamic_objects`` to the surface map being loaded.
+
+        LairWare PushSosaria/PullSosaria (UltimaMisc.c:923-968): leaving
+        Sosaria for Ambrosia stashes Sosaria's objects; Ambrosia starts with
+        none; returning restores Sosaria's and drops Ambrosia's (Ambrosia is
+        reloaded from its resource on every visit). Other map ids (towns,
+        dungeons) never come through here.
+        """
+        if map_id not in (0, 13) or map_id == self.objects_map_id:
+            return
+        if map_id == 13:
+            self.sosaria_objects = self.dynamic_objects
+            self.dynamic_objects = []
+        else:
+            self.dynamic_objects = self.sosaria_objects
+            self.sosaria_objects = []
+        self.objects_map_id = map_id
+
     # --- Serialization ---
     def to_dict(self) -> dict[str, Any]:
         """Serialize full party state to dictionary."""
@@ -889,6 +922,10 @@ class Party:
             # 8 entries at save time without mutating in-memory state.
             "dynamic_monsters": list(
                 self.dynamic_monsters[: Party.DYNAMIC_MONSTERS_SAVE_CAP]
+            ),
+            "objects_map_id": self.objects_map_id,
+            "sosaria_objects": list(
+                self.sosaria_objects[: Party.DYNAMIC_OBJECTS_SAVE_CAP]
             ),
         }
 
@@ -938,6 +975,8 @@ class Party:
             exodus_defeated=p_data.get("exodus_defeated", 0),
             dynamic_objects=data.get("dynamic_objects", p_data.get("dynamic_objects", [])),
             dynamic_monsters=data.get("dynamic_monsters", p_data.get("dynamic_monsters", [])),
+            objects_map_id=data.get("objects_map_id", 0),
+            sosaria_objects=data.get("sosaria_objects", []),
         )
 
         # --- Legacy-migration (pre-parity JSON saves) -------------------------
