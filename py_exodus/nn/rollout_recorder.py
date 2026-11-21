@@ -81,9 +81,17 @@ def record_rollout(
     *,
     max_steps: int = 160_000,
     assets_dir: str = "data",
+    nn_combat: bool = False,
+    nn_device: str = "auto",
     step_cb: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
-    """Record one symbolic autoplay episode to ``out_path`` (gzipped JSONL)."""
+    """Record one autoplay episode to ``out_path`` (gzipped JSONL).
+
+    ``nn_combat`` must mirror how the run being studied drives combat:
+    live ``--autoplay`` sets it TRUE (``__main__``: nn_combat defaults to
+    the --autoplay flag), so a corpus intended to describe live Autoplay
+    has to record with it. The default stays False so historical
+    symbolic-combat corpora remain reproducible."""
     import pygame
     import torch
 
@@ -117,7 +125,9 @@ def record_rollout(
 
     from py_exodus.autoplay.planner import evaluate_goal
 
-    ctrl = AutoPlayController(enabled=True)
+    ctrl = AutoPlayController(
+        enabled=True, nn_combat=nn_combat, nn_device=nn_device
+    )
 
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -183,6 +193,8 @@ def record_many(
     out_dir: Path | str,
     *,
     max_steps: int = 160_000,
+    nn_combat: bool = False,
+    nn_device: str = "auto",
 ) -> list[dict[str, Any]]:
     """Record a batch of seeds (single process; use the CLI for parallelism)."""
     out_dir = Path(out_dir)
@@ -192,7 +204,9 @@ def record_many(
         out = out_dir / f"rollout_{seed}.jsonl.gz"
         if out.exists():
             continue
-        res = record_rollout(seed, out, max_steps=max_steps)
+        res = record_rollout(
+            seed, out, max_steps=max_steps, nn_combat=nn_combat, nn_device=nn_device
+        )
         logger.info("seed %s -> %s", seed, res["outcome"])
         results.append(res)
     return results
@@ -207,13 +221,25 @@ if __name__ == "__main__":
     ap.add_argument("--out-dir", default="py_exodus/nn/data/rollouts")
     ap.add_argument("--max-steps", type=int, default=160_000)
     ap.add_argument("--workers", type=int, default=8)
+    ap.add_argument(
+        "--nn-combat",
+        action="store_true",
+        help="Drive combat with the NN policy (matches live --autoplay).",
+    )
+    ap.add_argument("--nn-device", default="auto", choices=("auto", "cuda", "cpu"))
     args = ap.parse_args()
 
     def _work(seed: int) -> dict[str, Any]:
         if not (0 <= seed <= TRAIN_SEED_MAX):
             raise ValueError(f"seed {seed} outside 0..{TRAIN_SEED_MAX}")
         out = Path(args.out_dir) / f"rollout_{seed}.jsonl.gz"
-        return record_rollout(seed, out, max_steps=args.max_steps)
+        return record_rollout(
+            seed,
+            out,
+            max_steps=args.max_steps,
+            nn_combat=args.nn_combat,
+            nn_device=args.nn_device,
+        )
 
     with mp.get_context("fork").Pool(args.workers) as pool:
         for res in pool.map(_work, args.seeds):
