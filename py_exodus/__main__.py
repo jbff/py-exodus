@@ -203,7 +203,7 @@ def main(argv: list[str] | None = None) -> None:
         # Every run gets a printable, rerunnable seed: capture the fresh
         # entropy explicitly so "what seed was that run?" always has an
         # answer (2026-11-20 user request for seed-pinned reproduction).
-        args.seed = __import__("secrets").randrange(10_000_000, 99_999_999)
+        args.seed = random.SystemRandom().randrange(10_000_000, 99_999_999)
     random.seed(args.seed)
     print(f"[py-exodus] effective seed: {args.seed} (rerun with --seed {args.seed})")
     debug.set_debug(args.debug)
