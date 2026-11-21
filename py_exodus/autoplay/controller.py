@@ -347,11 +347,11 @@ class AutoPlayController:
         when the goal's routing is not portal-shaped (legacy fallback)."""
         dawn_open = self._party_dawn_open(party)
         if goal_name in ("CURE_POISON", "RESURRECT_DEAD"):
-            entries = [t for m, t in _HEALER_TOWNS.items() if m != 11 or dawn_open]
+            entries = [(t[0], t[1]) for m, t in _HEALER_TOWNS.items() if m != 11 or dawn_open]
         elif goal_name == "BUY_FOOD":
-            entries = [t for m, t in _FOOD_TOWNS.items() if m != 11 or dawn_open]
+            entries = [(t[0], t[1]) for m, t in _FOOD_TOWNS.items() if m != 11 or dawn_open]
         elif goal_name == "OUTFIT_BRITAIN":
-            entries = list(_SHOP_TOWNS.values())
+            entries = [(t[0], t[1]) for t in _SHOP_TOWNS.values()]
         elif goal_name == "GET_REMAINING_MARKS":
             living = [m for m in party.members if not m.is_dead()]
             need_ff = not all(

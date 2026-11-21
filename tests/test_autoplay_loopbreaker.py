@@ -181,6 +181,26 @@ def test_lock_sticks_while_party_has_not_moved():
     assert ctrl._transport_locked is None
 
 
+def test_desired_transport_all_town_goals_resolve():
+    """Guard: every portal-shaped goal resolves its target table without
+    unpack errors (the 2026-11-21 crash: 3-tuple tables unpacked as pairs)."""
+    from py_exodus.assets import AssetManager
+    from py_exodus.world.loader import MapLoader
+
+    am = AssetManager("data")
+    am.load_all()
+    gmap = MapLoader(am).load_map(0)
+    ctrl = AutoPlayController(enabled=True)
+    party = _grind_party(ctrl)
+    party.x, party.y = 44, 20
+    for goal_name in (
+        "CURE_POISON", "RESURRECT_DEAD", "BUY_FOOD", "OUTFIT_BRITAIN",
+        "GET_REMAINING_MARKS", "GRIND_AND_LEVEL",
+    ):
+        result = ctrl._desired_transport(goal_name, party, gmap=gmap, px=44, py=20)
+        assert result in ("FOOT", "SHIP"), (goal_name, result)
+
+
 def test_lock_never_blocks_safety_disembark():
     """Hull-critical shore disembark (K_x) is a safety action — always allowed."""
     ctrl = AutoPlayController(enabled=True)
