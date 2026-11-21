@@ -115,7 +115,8 @@ def get_combat_map_id(
 
 # --- moveObjects creature-half helpers (Java objects/BaseMap.java:421-610) --- #
 
-MAX_CREATURE_DISTANCE = 24  # Java exodus/Constants.java:44
+# Original U3 monster table size (LairWare UltimaMisc.c:1148, 32 slots).
+MAX_WANDERERS = 32
 
 _DIRECTION_VALUES = (Direction.WEST, Direction.NORTH, Direction.EAST, Direction.SOUTH)
 
@@ -388,14 +389,6 @@ class OverworldScreen(BaseScreen):
         self.heading: Direction = Direction.NORTH
         self.cannon_fx: list[dict[str, Any]] = []
 
-        has_restored_monsters = (
-            str(self.map_id) == "0"
-            and isinstance(world_state, dict)
-            and bool(world_state.get("monsters"))
-        )
-        if self.random_encounters_enabled and not has_restored_monsters:
-            for _ in range(3):
-                self._spawn_wandering_creature()
 
         raw_id = getattr(self.game_map, "id", None)
         if raw_id is None:
@@ -530,6 +523,21 @@ class OverworldScreen(BaseScreen):
                     "y": wy,
                     "wontattack": True,
                 })
+        self._seed_wanderers()
+
+    def _seed_wanderers(self) -> None:
+        """Populate a freshly prepared outdoor map with wanderers.
+
+        USER-DIRECTED DEVIATION FROM JAVA (2026-11-21, original-game
+        spawning): the LairWare new-game path runs ``SpawnMonster()`` 500
+        times (refs/ultima3/Sources/UltimaMain.c:2055-2058). Each call keeps
+        its 7/135 rate gate, so a fresh map starts with ~26 of the 32 slots
+        filled, scattered over the whole map.
+        """
+        if not self.random_encounters_enabled or self.game_map is None:
+            return
+        for _ in range(500):
+            self._spawn_wandering_creature()
 
     def on_enter(self) -> None:
         super().on_enter()
@@ -1778,58 +1786,58 @@ class OverworldScreen(BaseScreen):
                 self.audio.play_sfx("moongate_flash")
 
     def _spawn_wandering_creature(self) -> None:
-        """Spawn a wandering creature near the edge of the viewport.
+        """One call of the original ``SpawnMonster`` (once per turn).
 
-        Occupancy guard (robustness fix, 2026-11-10): Java
-        GameScreen.spawnCreature (GameScreen.java:769-818) re-samples a spawn
-        tile up to maxTries but only rejects rule-less tiles — it never checks
-        whether a creature already stands there, so a wanderer can materialize
-        on an occupied tile. The port keeps the same random candidate shape
-        (dist 8..12, either sign, each axis; wrap) but re-picks candidates
-        until the tile holds no creature and not the party, capped at Java's
-        10 tries: restored Sosaria save fixtures (whirlpools, sea monsters,
-        Journey Onward) must never be trampled by a fresh spawn.
+        USER-DIRECTED DEVIATION FROM JAVA (2026-11-21, user ruling: wanderer
+        spawning must be faithful to the ORIGINAL game). LairWare
+        refs/ultima3/Sources/UltimaMisc.c:1141-1186 ($7A0C):
+
+        - rate: ``if (RandNum(0, 134) < 128) return;`` -> 7/135 per turn;
+        - population: 32 monster slots (whirlpool fixtures are not slots);
+        - placement: a RANDOM tile anywhere on the map, never in the party's
+          column or row; the tile must show the rolled type's start terrain
+          (``_pick_creature_for_tile``). A failed pick moves on to the next
+          free slot (``goto spawn``), so the number of tries equals the
+          number of free slots.
+
+        Port guards kept: never onto another creature or a portal (the
+        original's monsters live in the map grid, so a monster tile is never
+        the start terrain of another one, and portals are not grass/water).
+        Java's 8..12-tile ring, forced spawn and distance despawn are gone.
         """
-        if self.game_map is None or len(self.creatures) >= 8:
+        if self.game_map is None:
+            return
+        if random.randint(0, 134) < 128:
             return
 
-        import random
-
-        for _ in range(10):
-            dist_x = random.randint(8, 12) * random.choice([-1, 1])
-            dist_y = random.randint(8, 12) * random.choice([-1, 1])
-            sx = (self.party.x + dist_x) % self.game_map.width
-            sy = (self.party.y + dist_y) % self.game_map.height
-
-            if any(c.get("x") == sx and c.get("y") == sy for c in self.creatures):
+        free_slots = MAX_WANDERERS - sum(
+            1 for c in self.creatures if c.get("tile_name") != "whirlpool"
+        )
+        width, height = self.game_map.width, self.game_map.height
+        portal_coords = {(p.x, p.y) for p in getattr(self.game_map, "portals", ())}
+        occupied = {(c.get("x"), c.get("y")) for c in self.creatures}
+        for _ in range(max(0, free_slots)):
+            sx = random.randint(0, width - 1)
+            if sx == self.party.x:
                 continue
-            if sx == self.party.x and sy == self.party.y:
+            sy = random.randint(0, height - 1)
+            if sy == self.party.y:
                 continue
-            if any(p.x == sx and p.y == sy for p in getattr(self.game_map, "portals", ())):
+            if (sx, sy) in occupied or (sx, sy) in portal_coords:
                 continue
 
             tile = self.game_map.get_tile(sx, sy)
             if tile is None:
                 continue
-            if (
-                tile.swimmable
-                and self.party.transport != Transport.SHIP
-                and self.party.members
-                and (sum(m.max_hp for m in self.party.members) // len(self.party.members)) <= 300
-            ):
-                continue
 
             c_name = self._pick_creature_for_tile(tile)
             if c_name is None:
-                # Java getRandomCreatureForTile returning null makes
-                # spawnCreature re-try another tile (GameScreen.java:816-817).
                 continue
 
             c_def = self.asset_mgr.get_creature(c_name) if self.asset_mgr else None
             self.creatures.append({
-                # Display name from creatures.xml (Java: creature name),
-                # e.g. "Man-O-War" for the squid tile — never spawnable from
-                # the random pool (exclusive-bound truth), but kept faithful.
+                # Display name from creatures.xml (e.g. "Man-O-War" for the
+                # squid tile).
                 "name": (c_def.name if c_def else c_name.capitalize()),
                 "tile_name": c_name,
                 "tile": c_name,
@@ -1909,8 +1917,9 @@ class OverworldScreen(BaseScreen):
         The QUICKNESS aura skips ``moveObjects`` for the turn
         (``GameScreen.java:728-731``). Per creature, in Java's order:
 
-        1. Despawn beyond ``MAX_CREATURE_DISTANCE`` (= 24, wrap distance),
-           whirlpools excepted (BaseMap.java:505-509).
+        1. No distance despawn: Java removes creatures beyond 24 tiles
+           (BaseMap.java:505-509); the original keeps them (user-directed
+           original-game spawning, 2026-11-21).
         2. Pirate broadsides (BaseMap.java:511-538): with the avatar in the
            same row/column, range 2-3 on a broadsides heading fires the enemy
            cannons (and eats the tick); 2-3 misaligned turns to a broadsides
@@ -1927,10 +1936,9 @@ class OverworldScreen(BaseScreen):
            when the intended dir equals ``sail_dir``, else the turn consumes
            the tick.
         """
-        if not self.creatures and self.random_encounters_enabled:
-            self._spawn_wandering_creature()
-
-        if self.random_encounters_enabled and random.random() < 0.25 and len(self.creatures) < 6:
+        # Original FinishAll (UltimaMisc.c:1111-1126): SpawnMonster then
+        # MoveMonsters every turn; the 7/135 gate lives in the spawn call.
+        if self.random_encounters_enabled:
             self._spawn_wandering_creature()
 
         # Java GameScreen.java:728-731 — moveObjects is skipped entirely
@@ -1961,10 +1969,10 @@ class OverworldScreen(BaseScreen):
                 cr_def.wontattack if cr_def is not None else bool(c.get("wontattack"))
             )
 
-            # 1. Despawn beyond the creature leash (whirlpools are kept).
+            # 1. Java despawns beyond MAX_CREATURE_DISTANCE; the original
+            # keeps every monster on the map until it dies (USER-DIRECTED
+            # DEVIATION, original-game spawning, 2026-11-21).
             dist = movement_distance(width, height, cx, cy, self.party.x, self.party.y)
-            if dist > MAX_CREATURE_DISTANCE and tile_name != "whirlpool":
-                continue
 
             # 2. Pirate broadsides (BaseMap.java:511-538). Java gates on the
             # tile alone; the wontattack conjunction here is a documented
@@ -2280,9 +2288,9 @@ class OverworldScreen(BaseScreen):
         # The block owns the whirlpool fixtures at load: drop the free
         # re-seed before restoring, so the saved fixtures replace them
         # (no duplicates).
-        self.creatures = [
-            c for c in self.creatures if c.get("tile_name") != "whirlpool"
-        ]
+        # The saved block also replaces the freshly seeded wanderers
+        # (original-game seeding in _seed_wanderers).
+        self.creatures = []
         for m in saved_monsters[:8]:
             tile_name = str(m.get("tile_name", "")).lower()
             if not tile_name:

@@ -1111,13 +1111,119 @@ def test_overworld_commands_cast_ztats_get_chest_pass(pygame_setup, asset_mgr, s
     assert all(m.gold == 0 for m in sample_party.members[1:])
 
 
+def _spawn_party(level_hp: int = 400) -> Party:
+    party = Party()
+    for i in range(4):
+        party.add_member(Character(f"H{i}", "M", Race.HUMAN, Profession.FIGHTER, hp=level_hp))
+    for m in party.members:
+        m.max_hp = level_hp
+    party.x, party.y = 20, 20
+    return party
+
+
+_REAL_RANDINT = random.randint
+
+
+def _rate_roll(value: int):
+    """randint stand-in that fixes the 7/135 rate roll and leaves the rest random."""
+    def _r(a, b):
+        if (a, b) == (0, 134):
+            return value
+        return _REAL_RANDINT(a, b)
+    return _r
+
+
+def test_original_spawn_rate_is_7_in_135(pygame_setup, asset_mgr, monkeypatch):
+    """LairWare SpawnMonster (UltimaMisc.c:1146): ``if (RandNum(0,134) < 128)
+    return``. Roll 127 never spawns, roll 128 does; over many turns the
+    spawn frequency is 7/135 (~5.2%)."""
+    ow = OverworldScreen(party=_spawn_party(), map_id=0, asset_mgr=asset_mgr, random_encounters=False)
+    ow.creatures.clear()
+    monkeypatch.setattr(ow, "_pick_creature_for_tile", lambda tile: "orc")
+
+    with patch("py_exodus.screens.overworld.random.randint", side_effect=_rate_roll(127)):
+        for _ in range(50):
+            ow._spawn_wandering_creature()
+    assert ow.creatures == []
+
+    with patch("py_exodus.screens.overworld.random.randint", side_effect=_rate_roll(128)):
+        ow._spawn_wandering_creature()
+    assert len(ow.creatures) == 1
+
+    random.seed(11)
+    spawns = 0
+    for _ in range(13500):
+        ow.creatures.clear()
+        ow._spawn_wandering_creature()
+        spawns += len(ow.creatures)
+    assert 580 <= spawns <= 820  # expected 700
+
+
+def test_original_spawn_placement_whole_map_off_party_lines(pygame_setup, asset_mgr):
+    """Placement (UltimaMisc.c:1167-1180): random tile on the WHOLE map, never
+    the party's column or row; land types on grass, sea types on water.
+    Java's 8..12 ring is gone, so spawns land both near and far."""
+    random.seed(3)
+    party = _spawn_party()
+    ow = OverworldScreen(party=party, map_id=0, asset_mgr=asset_mgr, random_encounters=False)
+    ow.creatures.clear()
+    seen = []
+    with patch("py_exodus.screens.overworld.random.randint", side_effect=_rate_roll(134)):
+        for _ in range(400):
+            ow._spawn_wandering_creature()
+            if ow.creatures:
+                seen.append(ow.creatures.pop())
+    assert len(seen) > 200
+    sea = {"pirate", "serpent", "squid"}
+    dists = []
+    for c in seen:
+        assert c["x"] != party.x and c["y"] != party.y
+        tile = ow.game_map.get_tile(c["x"], c["y"])
+        if c["tile_name"] in sea:
+            assert tile.swimmable
+        else:
+            assert tile.name == "grass"
+        dx = min(abs(c["x"] - party.x), 64 - abs(c["x"] - party.x))
+        dy = min(abs(c["y"] - party.y), 64 - abs(c["y"] - party.y))
+        dists.append(max(dx, dy))
+    assert max(dists) > 24
+    assert min(dists) < 8
+
+
+def test_original_spawn_cap_is_32_slots(pygame_setup, asset_mgr):
+    """32 monster slots (UltimaMisc.c:1148); whirlpool fixtures do not count."""
+    random.seed(5)
+    ow = OverworldScreen(party=_spawn_party(), map_id=0, asset_mgr=asset_mgr, random_encounters=False)
+    with patch("py_exodus.screens.overworld.random.randint", side_effect=_rate_roll(134)):
+        for _ in range(2000):
+            ow._spawn_wandering_creature()
+    wanderers = [c for c in ow.creatures if c.get("tile_name") != "whirlpool"]
+    assert len(wanderers) == 32
+    assert sum(1 for c in ow.creatures if c.get("tile_name") == "whirlpool") == 2
+
+
+def test_original_spawn_seeds_population_on_map_prepare(pygame_setup, asset_mgr):
+    """New-game seeding (UltimaMain.c:2055-2058): 500 SpawnMonster calls, each
+    rate-gated, so a fresh Sosaria starts with roughly 26 wanderers."""
+    random.seed(21)
+    ow = OverworldScreen(party=_spawn_party(), map_id=0, asset_mgr=asset_mgr)
+    wanderers = [c for c in ow.creatures if c.get("tile_name") != "whirlpool"]
+    assert 14 <= len(wanderers) <= 32
+
+
+def test_original_spawn_no_forced_spawn_when_empty(pygame_setup, asset_mgr):
+    """Java forced a spawn whenever no creature existed; the original does not."""
+    ow = OverworldScreen(party=_spawn_party(), map_id=0, asset_mgr=asset_mgr, random_encounters=True)
+    ow.creatures.clear()
+    with patch("py_exodus.screens.overworld.random.randint", side_effect=_rate_roll(0)):
+        ow._update_creatures()
+    assert ow.creatures == []
+
+
 def test_overworld_wanderer_spawn_never_lands_on_occupied_tile(pygame_setup, asset_mgr):
     """Occupancy guard on the wandering-creature spawn (2026-11-10 robustness
-    fix): Java GameScreen.spawnCreature (GameScreen.java:769-818) re-samples
-    a spawn tile up to maxTries but only rejects rule-less tiles — it never
-    checks whether a creature already stands there. The port keeps the same
-    random candidate shape but re-picks until the tile holds no creature and
-    no party (capped at Java's 10 tries). Without the guard a fresh spawn
+    fix, kept under the 2026-11-21 original-game placement): a spawn re-picks
+    until the tile holds no creature and no party. Without the guard a fresh spawn
     can trample a restored save fixture (e.g. the Sosaria whirlpool at
     (50,13)) and the Journey Onward restore test flakes. Seeded regression:
     400 spawns against 8 fixed occupants inside the candidate ring."""

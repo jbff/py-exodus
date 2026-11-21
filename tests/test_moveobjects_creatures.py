@@ -11,9 +11,10 @@ Java truth:
   adjacent misaligned turns. Pirate movement obeys the rotate-then-move rule
   (``511-578``): a pirate only sails when its intended dir equals its
   ``sailDir``, else it turns ``sailDir`` first and does NOT move this tick.
-- ``objects/BaseMap.java:505-509`` — a creature whose movement distance
-  exceeds ``MAX_CREATURE_DISTANCE`` (Constants.java:44 = 24) is removed,
-  except whirlpools.
+- ``objects/BaseMap.java:505-509`` removes a creature beyond 24 tiles; the
+  port follows the ORIGINAL game instead (user ruling 2026-11-21): monsters
+  persist anywhere on the map and keep homing in (LairWare MoveMonsters,
+  UltimaMisc.c:1189-).
 - ``objects/BaseMap.java:540-558`` — wontattack creatures never battle and
   random-walk like the rest of the wontattack set. The whirlpool engulf is a
   USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): ships only, same-tile
@@ -388,15 +389,16 @@ class TestRotateThenMove:
         assert (ow.creatures[0]["x"], ow.creatures[0]["y"]) == (11, 10)
 
 
-class TestDespawn:
-    """BaseMap.java:505-509 — removal beyond MAX_CREATURE_DISTANCE (24,
-    Constants.java:44), whirlpools excepted."""
+class TestNoDistanceDespawn:
+    """Original game (user ruling 2026-11-21): no 24-tile leash. A far
+    monster stays on the map and keeps closing in on the party."""
 
-    def test_creature_beyond_max_distance_removed(self, ow, combat_trigger):
+    def test_far_creature_persists_and_approaches(self, ow, combat_trigger):
         ow.creatures = [{"tile_name": "orc", "tile": "orc", "x": 40, "y": 10}]
         ow._update_creatures()
         assert combat_trigger == []
-        assert ow.creatures == []
+        assert len(ow.creatures) == 1
+        assert (ow.creatures[0]["x"], ow.creatures[0]["y"]) == (39, 10)
 
     def test_whirlpool_beyond_max_distance_survives(self, ow):
         ow.creatures = [
