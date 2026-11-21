@@ -360,3 +360,23 @@ def test_dead_member_without_exotics_does_not_pin_dig_exotics():
     dead.armor = ArmorType.NONE
     p.x, p.y = 33, 3  # standing on the weapon dig site
     assert evaluate_goal(p) != Goal.DIG_EXOTICS
+
+
+def test_hand_transfer_never_gives_a_duplicate():
+    """Smoke seed 1 looped at the dig site: the Thief's dug exotic was handed to
+    the Fighter (who already owned one but had a +2 bow readied), so the Thief
+    dug again forever. A member who owns the item never receives another."""
+    from py_exodus.autoplay.equipment import best_hand_transfer
+
+    p = _make_party(level=8)
+    thief, fighter = p.members[0], p.members[1]
+    thief.weapons.clear()
+    thief.weapons[WeaponType.EXOTIC] = 1  # dug, unequipped
+    thief.weapon = WeaponType.BOW
+    fighter.weapons.clear()
+    fighter.weapons[WeaponType.EXOTIC] = 1  # owned, unequipped
+    fighter.weapon = WeaponType.BOW_P2
+    for m in p.members[2:]:
+        m.weapons[WeaponType.EXOTIC] = 1
+    transfer = best_hand_transfer(p)
+    assert transfer is None or transfer[1] != 2

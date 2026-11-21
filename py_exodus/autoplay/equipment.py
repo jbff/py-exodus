@@ -217,6 +217,11 @@ def best_hand_transfer(party: Party) -> tuple[int, int] | None:
             for j, m2 in enumerate(party.members):
                 if j == i or m2.is_dead():
                     continue
+                # Never hand over a duplicate: a member who already owns one
+                # (equipped or not) gains nothing, and the sender loses it
+                # (the dig-site loop: dig exotic, hand it on, dig again...).
+                if m2.weapons.get(picked_w, 0) > 0 or m2.weapon == picked_w:
+                    continue
                 if can_use_weapon(m2, picked_w) and w_rank > WEAPON_RANK.get(m2.weapon, 0):
                     return (i + 1, j + 1)
             continue
@@ -231,6 +236,8 @@ def best_hand_transfer(party: Party) -> tuple[int, int] | None:
             a_rank = ARMOR_RANK.get(picked_a, 0)
             for j, m2 in enumerate(party.members):
                 if j == i or m2.is_dead():
+                    continue
+                if m2.armors.get(picked_a, 0) > 0 or m2.armor == picked_a:
                     continue
                 if can_use_armor(m2, picked_a) and a_rank > ARMOR_RANK.get(m2.armor, 0):
                     return (i + 1, j + 1)
