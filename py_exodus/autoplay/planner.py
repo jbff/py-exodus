@@ -185,7 +185,7 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
 
     if (
         cur_map_id not in (13, 15, 16, 17, 18, 19, 20)
-        and not (at_exotic_island and not has_exotics and party.food >= 100)
+        and not (at_exotic_island and not living_has_exotics and party.food >= 100)
         and any(m.status == Status.POISONED for m in living)
         and party.gold >= 100
     ):
@@ -211,8 +211,8 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
     prefer_ranged = not (has_all_cards and has_remaining_marks and has_exotics)
     if (
         cur_map_id != 13
-        and not (at_exotic_island and not has_exotics)
-        and not (has_all_cards and has_remaining_marks and not has_exotics)
+        and not (at_exotic_island and not living_has_exotics)
+        and not (has_all_cards and has_remaining_marks and not living_has_exotics)
         and (
             best_shop_upgrade(party) is not None
             or any(
@@ -237,7 +237,9 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
                 return Goal.BUY_TORCHES
         return Goal.GET_MARK_KINGS
 
-    if not has_exotics:
+    # Living members only: the dead can't dig (or use) them, and a party with
+    # dead members and no gold for a healer must not loop at the dig site.
+    if not living_has_exotics:
         return Goal.DIG_EXOTICS
 
     if not has_remaining_marks:

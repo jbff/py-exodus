@@ -343,3 +343,20 @@ def test_lane_guard_blocks_a_step_into_a_lane(pygame_setup, asset_mgr):
     # Stepping east lands at distance 3 in the pirate's row.
     assert ctrl._lane_guard(sm, pygame.K_RIGHT) == pygame.K_SPACE
     assert ctrl._lane_guard(sm, pygame.K_UP) == pygame.K_UP
+
+
+def test_dead_member_without_exotics_does_not_pin_dig_exotics():
+    """Seed-1 smoke stall: a dead member can't dig, so the goal moves on once
+    every LIVING member holds exotic weapon and armor."""
+    from py_exodus.constants import Status
+
+    p = _make_party(level=8, marks=[1, 0, 0, 0], gold=0, weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC)
+    dead = p.members[3]
+    dead.status = Status.DEAD
+    dead.hp = 0
+    dead.weapons.clear()
+    dead.armors.clear()
+    dead.weapon = WeaponType.NONE
+    dead.armor = ArmorType.NONE
+    p.x, p.y = 33, 3  # standing on the weapon dig site
+    assert evaluate_goal(p) != Goal.DIG_EXOTICS

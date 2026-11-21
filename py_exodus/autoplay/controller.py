@@ -232,7 +232,9 @@ class AutoPlayController:
         self._trip_stuck = 0
         self._trip_last_pos: tuple[int, int] | None = None
         self._capture_wait = 0
-        self._banned_capture: set[tuple[int, int]] = set()
+        self._capture_site: tuple[int, int] | None = None
+        # Coast tiles where a capture wait timed out, per map id.
+        self._banned_capture: dict[int, set[tuple[int, int]]] = {}
         self._last_transition: Transition | None = None
         self._ow_turn = 0
         self._squid_blocked = 0
@@ -1599,7 +1601,7 @@ class AutoPlayController:
             dest,
             frig,
             hull_critical=(mode == Transport.SHIP and self._is_hull_critical(party, screen)),
-            banned_capture=frozenset(self._banned_capture),
+            banned_capture=frozenset(self._banned_capture.get(map_id, ())),
             last_transition=self._last_transition,
             turn=self._ow_turn,
             danger=danger,
@@ -1608,7 +1610,6 @@ class AutoPlayController:
         self._trip_frigates = frozenset(frig)
         self._trip_planned_at = self._ow_turn
         self._trip_stuck = 0
-        self._capture_wait = 0
         if self.tracer is not None and hasattr(self.tracer, "note"):
             self.tracer.note(
                 "trip",
@@ -1721,8 +1722,14 @@ class AutoPlayController:
         return self._move_toward(state_machine, gmap, party, pos, adjacent)
 
     def _drive_capture(self, state_machine, screen, gmap, party, pos) -> int:
-        """Wait on the coast for a pirate to come within reach, then fight it."""
+        """Wait on the coast for a pirate to come within reach, then fight it.
+
+        Patience is counted per capture site and survives periodic re-plans.
+        """
         self._trip_stuck = 0
+        if self._capture_site != pos:
+            self._capture_site = pos
+            self._capture_wait = 0
         self._capture_wait += 1
         th = self._threats
         pirates = th.pirates if th is not None else []
@@ -1744,9 +1751,10 @@ class AutoPlayController:
             return self._emit_key(state_machine, pygame.K_SPACE)
         if self._capture_wait > _CAPTURE_PATIENCE:
             w, h = gmap.width, gmap.height
+            banned = self._banned_capture.setdefault(self._screen_map_id(screen, party), set())
             for dx in range(-6, 7):
                 for dy in range(-6, 7):
-                    self._banned_capture.add(((pos[0] + dx) % w, (pos[1] + dy) % h))
+                    banned.add(((pos[0] + dx) % w, (pos[1] + dy) % h))
             self._trip = None
         return self._emit_key(state_machine, pygame.K_SPACE)
 
