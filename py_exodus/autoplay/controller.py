@@ -384,9 +384,14 @@ class AutoPlayController:
         if gmap is not None and px is not None and py is not None:
             target = self._goal_transport_target(goal_name, party, gmap, px, py)
             if target is not None:
-                foot_ok = find_2d_step(
-                    gmap, (px, py), {target}, Transport.FOOT, party=party
-                ) is not None
+                # Probe from the party's foot-start tiles: standing on a
+                # SHIP TILE beside the mainland, you simply step off and
+                # walk (user ruling: not aboard, wind is irrelevant).
+                foot_ok = any(
+                    find_2d_step(gmap, start, {target}, Transport.FOOT, party=party)
+                    is not None
+                    for start in self._foot_starts(gmap, px, py, party)
+                )
                 return "FOOT" if foot_ok else "SHIP"
         # Sea-shaped goals are trivially SHIP.
         if goal_name in ("SAIL_WHIRLPOOL", "CAPTURE_SHIP", "DIG_EXOTICS", "CONQUER_EXODUS"):
@@ -404,6 +409,23 @@ class AutoPlayController:
         return "FOOT"
 
     @staticmethod
+    def _foot_starts(gmap, px: int, py: int, party) -> list[tuple[int, int]]:
+        """Foot-probing start tiles: your tile if walkable, else the
+        adjacent walkable shore tiles (standing on a ship/water tile next
+        to the mainland means you can simply step off - user ruling
+        2026-11-21: 'i need to just walk onto the mainland')."""
+        from py_exodus.screens.overworld import can_move_to as _cmt
+
+        if _cmt(gmap, px, py, Transport.FOOT, party=party):
+            return [(px, py)]
+        starts = []
+        for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+            nx, ny = (px + dx) % gmap.width, (py + dy) % gmap.height
+            if _cmt(gmap, nx, ny, Transport.FOOT, party=party):
+                starts.append((nx, ny))
+        return starts
+
+    @staticmethod
     def _foot_component_size(gmap, px: int, py: int, party, cap: int = 65) -> int:
         """Size of the foot-walkable connected component at (px, py), capped.
 
@@ -414,7 +436,10 @@ class AutoPlayController:
         from collections import deque as _dq
         from py_exodus.screens.overworld import can_move_to
 
-        seen = {(px % gmap.width, py % gmap.height)}
+        starts = AutoPlayController._foot_starts(gmap, px, py, party)
+        if not starts:
+            return 1  # deep water: nothing adjacent to walk onto
+        seen = {(sx % gmap.width, sy % gmap.height) for sx, sy in starts}
         q = _dq(list(seen))
         while q and len(seen) < cap:
             cx, cy = q.popleft()
@@ -552,6 +577,17 @@ class AutoPlayController:
         """Emit one logical input step (tracer observes each tick)."""
         try:
             key = self._step_impl(state_machine)
+            # Zero-turn idle cure (2026-11-21 live GRIND deadlock): every
+            # sail/walk path returning None consumes NO turn - so wind,
+            # moons, and food never advance and the party sits forever
+            # (standing on a wind-blocked ship). On the overworld, an empty
+            # step becomes SPACE: consume the turn, let the world move.
+            if (
+                key is None
+                and getattr(self, "enabled", False)
+                and type(state_machine.current_screen).__name__ == "OverworldScreen"
+            ):
+                key = self._emit_key(state_machine, pygame.K_SPACE)
             self._last_key = key
         finally:
             tracer = getattr(self, "_tracer", None)
