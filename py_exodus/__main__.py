@@ -85,9 +85,8 @@ class GameApp:
 
         from py_exodus.autoplay.tracer import RunTracer
 
-        self._tracer: RunTracer | None = (
-            RunTracer(enabled=trace, seed=seed) if (trace and autoplay) else None
-        )
+        self._tracer_run = bool(trace)
+        self._tracer: RunTracer | None = RunTracer(enabled=bool(trace and autoplay), seed=seed) if trace else None
         self.autoplay = AutoPlayController(
             enabled=autoplay,
             nn_combat=nn_combat,
@@ -123,6 +122,8 @@ class GameApp:
                 if event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_F9:
                         self.autoplay.toggle()
+                        if self.autoplay.enabled and self._tracer is not None:
+                            self._tracer.activate()
                         if (
                             self.autoplay.enabled
                             and not self.autoplay.can_engage(self.state_machine)

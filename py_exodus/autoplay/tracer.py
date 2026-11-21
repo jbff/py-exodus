@@ -32,8 +32,12 @@ class RunTracer:
         seed: int | None = None,
         out_dir: Path | str | None = None,
     ) -> None:
+        self._want = enabled  # --trace on the command line
         self.enabled = enabled
         self.seed = seed
+        self.out_dir = Path(out_dir) if out_dir else (
+            Path(__file__).resolve().parent.parent / "nn" / "data" / "runtrace"
+        )
         self._file: Any = None
         self._path: Path | None = None
         self._last_state: tuple | None = None
@@ -41,14 +45,23 @@ class RunTracer:
         self._combat_gold: int | None = None
         self._n_rows = 0
         if enabled:
-            out = Path(out_dir) if out_dir else (
-                Path(__file__).resolve().parent.parent / "nn" / "data" / "runtrace"
-            )
-            out.mkdir(parents=True, exist_ok=True)
-            stamp = time.strftime("%Y%m%d-%H%M%S")
-            self._path = out / f"runtrace_seed{seed}_{stamp}.jsonl.gz"
-            self._file = gzip.open(self._path, "wt", encoding="utf-8")
-            self._emit({"t": "start", "seed": seed, "when": stamp})
+            self._open()
+
+    def _open(self) -> None:
+        """Open the trace file lazily (F9-toggled autoplay starts AFTER
+        launch, so activation happens when autoplay actually enables)."""
+        if self._file is not None:
+            return
+        self.out_dir.mkdir(parents=True, exist_ok=True)
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        self._path = self.out_dir / f"runtrace_seed{self.seed}_{stamp}.jsonl.gz"
+        self._file = gzip.open(self._path, "wt", encoding="utf-8")
+        self._emit({"t": "start", "seed": self.seed, "when": stamp})
+
+    def activate(self) -> None:
+        """Turn tracing on at runtime (autoplay became enabled)."""
+        self.enabled = True
+        self._open()
 
     # -- recording ---------------------------------------------------------
 
@@ -66,6 +79,8 @@ class RunTracer:
         """Call once per autoplay tick (from AutoPlayController.step)."""
         if not self.enabled or self._file is None:
             return
+        if not getattr(state_machine, "autoplay_enabled", False):
+            return  # autoplay toggled off mid-run; keep the trace clean
         screen = state_machine.current_screen
         if screen is None:
             return
