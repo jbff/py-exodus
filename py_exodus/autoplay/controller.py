@@ -111,6 +111,13 @@ _SOSARIA_PATROL: tuple[tuple[int, int], ...] = (
 )
 
 
+def _wrap_manhattan(gmap, px: int, py: int, tx: int, ty: int) -> int:
+    """Manhattan distance on the wrapping overworld."""
+    dx = min((tx - px) % gmap.width, (px - tx) % gmap.width)
+    dy = min((ty - py) % gmap.height, (py - ty) % gmap.height)
+    return dx + dy
+
+
 def _key_to_unicode(key: int) -> str:
     """Return the pygame unicode string corresponding to a key constant."""
     if pygame.K_a <= key <= pygame.K_z:
@@ -341,11 +348,53 @@ class AutoPlayController:
         phase = int(getattr(party, "moon_phase", 0)) % 24
         return min(7, phase // 3) == 0 and phase % 8 == 0
 
+    @staticmethod
+    def _dig_ground_needed(party, gmap, px: int, py: int) -> tuple[int, int] | None:
+        """The dig ground the DIG flow will actually visit, or None.
+
+        Single source of truth shared by the transport router and the DIG
+        branch. The two used to answer independently - the router took the
+        NEAREST ground, the branch took the ground for the gear still
+        MISSING - so a party needing only armor at the weapon ground was
+        routed FOOT while the branch boarded to sail to (19,44); the
+        reconciler and the branch then undid each other every tick
+        (seed 63240257, the isle B/X)."""
+        need_weapon = any(
+            not m.is_dead()
+            and m.weapon != WeaponType.EXOTIC
+            and m.weapons.get(WeaponType.EXOTIC, 0) == 0
+            for m in party.members
+        )
+        need_armor = any(
+            not m.is_dead()
+            and m.armor != ArmorType.EXOTIC
+            and m.armors.get(ArmorType.EXOTIC, 0) == 0
+            for m in party.members
+        )
+        if need_weapon and need_armor:
+            # Tie-break must mirror the DIG branch exactly (armor ground wins).
+            if _wrap_manhattan(gmap, px, py, 19, 44) <= _wrap_manhattan(
+                gmap, px, py, 33, 3
+            ):
+                return (19, 44)
+            return (33, 3)
+        if need_armor:
+            return (19, 44)
+        if need_weapon:
+            return (33, 3)
+        return None
+
     def _goal_transport_target(
         self, goal_name: str, party, gmap, px: int, py: int
-    ) -> tuple[int, int] | None:
-        """The destination whose reachability decides foot-vs-ship, or None
-        when the goal's routing is not portal-shaped (legacy fallback)."""
+    ) -> set[tuple[int, int]] | None:
+        """The destinations whose reachability decides foot-vs-ship, or None
+        when the goal's routing is not portal-shaped (legacy fallback).
+
+        Every candidate matters, not just the first table entry: the goal
+        handlers pick the NEAREST REACHABLE portal, so "any of these is
+        walkable" is the question routing must ask. Testing entries[0]
+        only could say SHIP while the handler walked to the town next
+        door (another reconciler-vs-branch fight)."""
         dawn_open = self._party_dawn_open(party)
         if goal_name in ("CURE_POISON", "RESURRECT_DEAD"):
             entries = [(t[0], t[1]) for m, t in _HEALER_TOWNS.items() if m != 11 or dawn_open]
@@ -363,40 +412,27 @@ class AutoPlayController:
             need_ff = not all(
                 m.marks[1] > 0 and m.marks[3] > 0 for m in living
             )
-            return (49, 34) if need_ff else (58, 44)
+            return {(49, 34)} if need_ff else {(58, 44)}
         elif goal_name == "GRIND_AND_LEVEL":
-            return (46, 19)  # Britain hub: leveling/shop/raid prep
+            return {(46, 19)}  # Britain hub: leveling/shop/raid prep
         elif goal_name == "DIG_EXOTICS":
-            # The dig grounds ARE the destination (2026-11-21: DIG was left
-            # in the hardcoded SHIP bucket, so the reconciler re-boarded
-            # forever at the dig spot where the DIG branch correctly steps
-            # off. Route to the nearest dig tile: foot at the spot, ship
-            # only while water separates).
-            return min(
-                ((33, 3), (19, 44)),
-                key=lambda xy: min(
-                    (xy[0] - px) % gmap.width, (px - xy[0]) % gmap.width
-                ) + min(
-                    (xy[1] - py) % gmap.height, (py - xy[1]) % gmap.height
-                ),
-            )
+            # The dig grounds ARE the destination. It must be the SAME
+            # ground the DIG branch will actually visit (the gear still
+            # missing), not merely the nearest one: at (34,3) with only
+            # armor left, DIG sails for (19,44) while a nearest-ground
+            # verdict said "FOOT to (33,3)" - the reconciler and the branch
+            # then fought each other into a B/X loop (seed 63240257).
+            ground = self._dig_ground_needed(party, gmap, px, py)
+            return {ground} if ground is not None else None
         elif goal_name == "CONQUER_EXODUS":
-            return (10, 59)  # Great Earth Serpent / Exodus approach
+            return {(10, 59)}  # Great Earth Serpent / Exodus approach
         elif goal_name == "SAIL_WHIRLPOOL":
-            return min(
-                ((50, 13), (17, 48)),
-                key=lambda xy: min(
-                    (xy[0] - px) % gmap.width, (px - xy[0]) % gmap.width
-                ) + min(
-                    (xy[1] - py) % gmap.height, (py - xy[1]) % gmap.height
-                ),
-            )
+            return {(50, 13), (17, 48)}
         else:
             return None
         if not entries:
             return None
-        tx, ty = entries[0]
-        return (tx, ty)
+        return set(entries)
 
     def _desired_transport(
         self, goal_name: str, party, gmap=None, px: int | None = None,
@@ -408,14 +444,16 @@ class AutoPlayController:
         boat you have; capture one only if there is none - those are the
         board sites' and CAPTURE flow's jobs, not this function's)."""
         if gmap is not None and px is not None and py is not None:
-            target = self._goal_transport_target(goal_name, party, gmap, px, py)
-            if target is not None:
+            targets = self._goal_transport_target(goal_name, party, gmap, px, py)
+            if targets:
                 # Probe from the party's foot-start tiles: standing on a
                 # SHIP TILE beside the mainland, you simply step off and
-                # walk (user ruling: not aboard, wind is irrelevant).
+                # walk (user ruling: not aboard, wind is irrelevant). ANY
+                # target counts - the handlers pick the nearest reachable
+                # one, so one walkable destination means walking suffices.
                 foot_ok = any(
-                    start == target
-                    or find_2d_step(gmap, start, {target}, Transport.FOOT, party=party)
+                    start in targets
+                    or find_2d_step(gmap, start, targets, Transport.FOOT, party=party)
                     is not None
                     for start in self._foot_starts(gmap, px, py, party)
                 )
@@ -1696,7 +1734,10 @@ class AutoPlayController:
                 }
                 if (px, py) in adj_water:
                     continue  # at the dig grounds: let DIG take over
-                d = find_2d_step(gmap, (px, py), adj_water, Transport.SHIP, party=party)
+                d = find_2d_step(
+                    gmap, (px, py), adj_water, Transport.SHIP, party=party,
+                    wind_direction=getattr(party, "wind_direction", None),
+                )
                 if d is not None:
                     return self._emit_key(state_machine, _DIR_TO_KEY[d])
         # CURE_POISON on the overworld: with no on-the-spot ALCORT caster
@@ -1953,20 +1994,15 @@ class AutoPlayController:
                 ),
                 None,
             )
+            # Ground selection is shared with the transport router - see
+            # _dig_ground_needed (the 2026-11-21 isle B/X came from the two
+            # disagreeing).
+            dig_xy = self._dig_ground_needed(party, gmap, px, py)
             dig_target: tuple[int, int, int] | None = None
-            if need_wpn_idx is not None and need_arm_idx is not None:
-                def _wrap_dist(tx: int, ty: int) -> int:
-                    dx = abs(tx - px)
-                    dy = abs(ty - py)
-                    return min(dx, gmap.width - dx) + min(dy, gmap.height - dy)
-                if _wrap_dist(19, 44) <= _wrap_dist(33, 3):
-                    dig_target = (19, 44, need_arm_idx)
-                else:
-                    dig_target = (33, 3, need_wpn_idx)
-            elif need_arm_idx is not None:
-                dig_target = (19, 44, need_arm_idx)
-            elif need_wpn_idx is not None:
+            if dig_xy == (33, 3) and need_wpn_idx is not None:
                 dig_target = (33, 3, need_wpn_idx)
+            elif dig_xy == (19, 44) and need_arm_idx is not None:
+                dig_target = (19, 44, need_arm_idx)
 
             if dig_target is not None:
                 tx, ty, m_idx = dig_target
@@ -2831,21 +2867,35 @@ class AutoPlayController:
                 if nt is not None and getattr(nt, "swimmable", False):
                     dock_waters.add((nx, ny))
             if dock_waters:
-                d = find_2d_step(gmap, (px, py), dock_waters, Transport.SHIP, party=party)
+                d = find_2d_step(
+                    gmap, (px, py), dock_waters, Transport.SHIP, party=party,
+                    wind_direction=getattr(party, "wind_direction", None),
+                )
                 if d is not None:
                     return self._emit_key(state_machine, _DIR_TO_KEY[d])
-            # Adjacent to the dock: X to disembark — always through the
-            # transport gate (BUY_FOOD/cure goals want FOOT, which the gate
-            # permits).
             from py_exodus.screens.overworld import can_move_to
 
-            # Landing at the target's dock water is a deliberate ARRIVAL,
-            # never an escape: the transport gate never blocks it.
-            if self._transport_emit_allowed(state_machine, pygame.K_x, safety=True):
-                for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
-                    nx, ny = (px + dx) % gmap.width, (py + dy) % gmap.height
-                    if can_move_to(gmap, nx, ny, Transport.FOOT, party=party) or (
-                        (nx, ny) == target_portal
+            # ARRIVAL-ONLY disembark (2026-11-21 seed-63240257 starvation:
+            # this block used to X at ANY walkable shore, with safety=True,
+            # so even a SHIP transport lock could not stop it. Aboard beside
+            # the exotic isle the party X'd every tick, the reconciler
+            # re-boarded because the shop was across water, and the B/X ate
+            # the last of the food.) Land only where the target portal is
+            # actually walkable from the shore underfoot.
+            for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+                nx, ny = (px + dx) % gmap.width, (py + dy) % gmap.height
+                if (nx, ny) == target_portal or (
+                    can_move_to(gmap, nx, ny, Transport.FOOT, party=party)
+                    and find_2d_step(
+                        gmap, (nx, ny), {target_portal}, Transport.FOOT,
+                        party=party,
+                    )
+                    is not None
+                ):
+                    # Landing at the target is a deliberate ARRIVAL, never an
+                    # escape: the transport gate never blocks it.
+                    if self._transport_emit_allowed(
+                        state_machine, pygame.K_x, safety=True
                     ):
                         return self._emit_key(state_machine, pygame.K_x)
         if (

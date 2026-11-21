@@ -255,3 +255,140 @@ def test_cure_poison_overworld_travels_to_healer(pygame_setup):
     ctrl = AutoPlayController(enabled=True)
     key = ctrl.step(sm)
     assert key is not None, "controller must act on an unhandled overworld cure goal"
+
+
+# --- 2026-11-21 isle starvation (seed 63240257) ------------------------------
+
+
+def _armor_only_party():
+    """All members carry an EXOTIC weapon; none has exotic armor."""
+    from py_exodus.constants import WeaponType
+
+    party = _grind_party(exotics=False)
+    for m in party.members:
+        m.weapon = WeaponType.EXOTIC
+        m.weapons[WeaponType.EXOTIC] = 1
+    return party
+
+
+def _weapon_only_party():
+    """All members wear EXOTIC armor; none carries an exotic weapon."""
+    from py_exodus.constants import ArmorType
+
+    party = _grind_party(exotics=False)
+    for m in party.members:
+        m.armor = ArmorType.EXOTIC
+        m.armors[ArmorType.EXOTIC] = 1
+    return party
+
+
+def test_dig_routing_follows_need_not_nearest_ground():
+    """Root cause of the seed-63240257 isle B/X: routing picked the NEAREST
+    dig ground while the DIG branch picks the ground for the gear still
+    MISSING. At (34,3) with only armor left, DIG walks/boards to sail for
+    (19,44) while routing said "FOOT to (33,3)" - so the reconciler kept
+    yanking the party off the frigate and the DIG branch kept boarding.
+    Routing must ask the same need-based question the branch asks."""
+    from py_exodus.assets import AssetManager
+    from py_exodus.world.loader import MapLoader
+
+    am = AssetManager("data")
+    am.load_all()
+    gmap = MapLoader(am).load_map(0)
+    ctrl = AutoPlayController(enabled=True)
+
+    # Armor only -> the armor ground (19,44) lies across water -> SHIP.
+    party = _armor_only_party()
+    party.x, party.y = 34, 3
+    assert (
+        ctrl._desired_transport("DIG_EXOTICS", party, gmap=gmap, px=34, py=3)
+        == "SHIP"
+    ), "armor-only party at the weapon ground must route SHIP to the armor ground"
+
+    # Weapon only -> the weapon ground (33,3) is one step away -> FOOT.
+    party = _weapon_only_party()
+    party.x, party.y = 34, 3
+    assert (
+        ctrl._desired_transport("DIG_EXOTICS", party, gmap=gmap, px=34, py=3)
+        == "FOOT"
+    ), "weapon-only party at the weapon ground must route FOOT"
+
+    # Both needed -> nearest ground (mirrors the branch) -> FOOT here.
+    party = _grind_party(exotics=False)
+    party.x, party.y = 34, 3
+    assert (
+        ctrl._desired_transport("DIG_EXOTICS", party, gmap=gmap, px=34, py=3)
+        == "FOOT"
+    )
+
+
+class _TraceSM:
+    """Minimal StateMachine stand-in capturing emitted KEYDOWN events."""
+
+    def __init__(self, screen):
+        self.current_screen = screen
+        self.keys: list[int] = []
+
+    def handle_event(self, event):
+        self.keys.append(event.key)
+
+
+def _aboard_party(x, y):
+    from py_exodus.constants import Transport
+
+    party = _grind_party(exotics=False)
+    party.x, party.y = x, y
+    party.transport = Transport.SHIP
+    party.ship_hull = 50
+    party.dynamic_objects = [{"tile": "frigate", "x": x, "y": y}]
+    return party
+
+
+def _portal_screen(gmap, party):
+    return type(
+        "_Scr",
+        (),
+        {"game_map": gmap, "party": party, "trammel_phase": 1, "felucca_phase": 1},
+    )()
+
+
+def test_ship_prelude_never_disembarks_on_a_foreign_shore():
+    """Root cause #2 of the seed-63240257 starvation: the ship prelude's
+    "arrival" disembark fired at ANY walkable shore (with safety=True, so
+    even a SHIP lock could not stop it). Aboard at (29,3) beside the exotic
+    isle it X'd every tick; the reconciler re-boarded (water between it and
+    the shop) -> B/X until the party starved. It must sail instead."""
+    from py_exodus.assets import AssetManager
+    from py_exodus.world.loader import MapLoader
+
+    am = AssetManager("data")
+    am.load_all()
+    gmap = MapLoader(am).load_map(0)
+    ctrl = AutoPlayController(enabled=True)
+    party = _aboard_party(29, 3)
+    screen = _portal_screen(gmap, party)
+    sm = _TraceSM(screen)
+
+    # (29,3) is water; (29,2)/(29,4) are walkable isle brush, so the old
+    # "any shore" test disembarked here even though Britain (46,19) is
+    # across open water.
+    key = ctrl._enter_portal_or_wait_dawn(sm, screen, gmap, party, 29, 3, (46, 19))
+    assert key != pygame.K_x, "must not disembark at a shore that does not reach the target"
+
+
+def test_ship_prelude_still_disembarks_at_the_target_dock():
+    """The arrival case must keep working: beside (46,19)'s dock water the
+    party steps off (X) and walks in."""
+    from py_exodus.assets import AssetManager
+    from py_exodus.world.loader import MapLoader
+
+    am = AssetManager("data")
+    am.load_all()
+    gmap = MapLoader(am).load_map(0)
+    ctrl = AutoPlayController(enabled=True)
+    party = _aboard_party(46, 18)  # dock water directly north of Britain
+    screen = _portal_screen(gmap, party)
+    sm = _TraceSM(screen)
+
+    key = ctrl._enter_portal_or_wait_dawn(sm, screen, gmap, party, 46, 18, (46, 19))
+    assert key == pygame.K_x, "arrival at the target dock must disembark"
