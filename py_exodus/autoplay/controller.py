@@ -1676,7 +1676,13 @@ class AutoPlayController:
                     self._last_cannon_state = (px, py, party.moves)
                     self._key_queue.append(pygame.K_DOWN if 1 <= dy_s <= 3 else pygame.K_UP)
                     return self._emit_key(state_machine, pygame.K_f)
-                if tname in ("pirate", "serpent", "squid") and goal != Goal.CAPTURE_SHIP:
+                if tname in ("pirate", "serpent", "squid") and not (
+                    goal == Goal.CAPTURE_SHIP and tname == "pirate"
+                ):
+                    # User doctrine (2026-11-20): squid avoidance is
+                    # unconditional (Man-O-War poisons regardless of party
+                    # power) and even CAPTURE runs dodge squid/serpent -
+                    # only the PIRATE itself is approached for capture.
                     if abs(cx - px) + abs(cy - py) <= 5:
                         self._ship_threat_near = True
                     avg_max_hp = (
@@ -1684,7 +1690,7 @@ class AutoPlayController:
                         if living
                         else 0
                     )
-                    rad = 3 if (tname in ("serpent", "squid") and avg_max_hp < 600) else 2
+                    rad = 3 if (tname == "squid" or (tname == "serpent" and avg_max_hp < 600)) else 2
                     for ox in range(-rad, rad + 1):
                         for oy in range(-rad, rad + 1):
                             if abs(ox) + abs(oy) <= rad:
