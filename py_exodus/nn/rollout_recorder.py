@@ -149,7 +149,7 @@ def record_rollout(
                         "map": getattr(getattr(scr, "game_map", None), "id", getattr(party, "map_id", 0)),
                         "x": party.x,
                         "y": party.y,
-                        "goal": evaluate_goal(party, map_id=getattr(party, "map_id", 0)).name,
+                        "goal": evaluate_goal(party, map_id=getattr(getattr(scr, "game_map", None), "id", getattr(party, "map_id", 0))).name,
                         **_party_snapshot(party, scr),
                         **_nearby_threats(scr),
                     }

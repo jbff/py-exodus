@@ -487,6 +487,32 @@ def test_poisoned_party_does_not_cast_heals(pygame_setup):
     keys2 = [ctrl2.step(sm3) for _ in range(6)]
     assert pygame.K_c not in keys2, keys2
 
+def test_dawn_doorstep_waits_when_closed(pygame_setup):
+    """2026-11-21 cure-stall autopsy: E on a CLOSED Dawn consumes no turn,
+    freezing the moon clock and repeating E until the step cap (50 of 100
+    post-fix runs). The doorstep rule must SPACE-wait for the double-new
+    window (phase 0) and only then press E."""
+    import pygame as pg
+
+    from py_exodus.assets import AssetManager
+    from py_exodus.constants import Status
+    from py_exodus.screens.overworld import OverworldScreen
+    from py_exodus.state_machine import StateMachine
+
+    am = AssetManager("data")
+    am.load_all()
+    party = _make_party(level=5, gold=521, food=250, marks=[1, 0, 0, 0])
+    for m in party.members:
+        m.status = Status.POISONED
+    party.x, party.y = 37, 53  # Dawn's door
+    party.moon_phase = 5  # closed
+    sm = StateMachine(asset_mgr=am, audio=None)
+    sm.push_screen(OverworldScreen(party=party, map_id=0, asset_mgr=am, random_encounters_enabled=False))
+    ctrl = AutoPlayController(enabled=True)
+    keys = [ctrl.step(sm) for _ in range(6)]
+    assert all(k == pg.K_SPACE or k == pg.K_e for k in keys), keys
+    assert pg.K_e not in keys, f"E on a closed Dawn freezes the clock: {keys}"
+
 def test_party_member_deaths_do_not_trip_composition_guard(pygame_setup, asset_mgr):
     """Wipes must disable autoplay through the death path, not composition."""
     party = _make_party(level=5)

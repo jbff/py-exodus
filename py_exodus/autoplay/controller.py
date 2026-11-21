@@ -951,6 +951,16 @@ class AutoPlayController:
                 else _FOOD_TOWNS
             )
             if any((_t[0], _t[1]) == (_px0, _py0) for _t in _towns.values()):
+                if (_px0, _py0) == (37, 53) and not (
+                    getattr(screen, "trammel_phase", 1) == 0
+                    and getattr(screen, "felucca_phase", 1) == 0
+                ):
+                    # Dawn is only enterable at the double-new-moon; E on a
+                    # closed door consumes NO turn, freezing the moon clock
+                    # and repeating E until the step cap (2026-11-21
+                    # cure-stall autopsy). SPACE consumes turns - wait for
+                    # the window.
+                    return self._emit_key(state_machine, pygame.K_SPACE)
                 return self._emit_key(state_machine, pygame.K_e)
         needs_heal_now = needs_heal(party)
         # Vendor-over-heals rule (2026-11-20 live report): during cure/food/
@@ -2161,11 +2171,19 @@ class AutoPlayController:
                 and (m.armor == ArmorType.EXOTIC or m.armors.get(ArmorType.EXOTIC, 0) > 0)
                 for m in party.members
             )
-            and any(
-                not m.is_dead()
-                and m.profession in (Profession.CLERIC, Profession.DRUID)
-                and m.max_mp >= 35.0
-                for m in party.members
+            and (
+                any(
+                    not m.is_dead()
+                    and m.profession in (Profession.CLERIC, Profession.DRUID)
+                    and m.max_mp >= 35.0
+                    for m in party.members
+                )
+                or not any(
+                    not m.is_dead()
+                    and getattr(getattr(m, "status", None), "name", "")
+                    in ("POISON", "POISONED")
+                    for m in party.members
+                )
             )
             and all(any(m.marks[i] > 0 for m in living) for i in (1, 2, 3))
             and len(living) == len(party.members)
