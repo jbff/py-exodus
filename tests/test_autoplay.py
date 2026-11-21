@@ -149,6 +149,18 @@ def test_find_2d_step_force_field_avoidance(asset_mgr):
     )
     assert step_with_mark == Direction.EAST
 
+    # Regression: the Mark of Force is marks[3] (world/tile_effects.py). A
+    # party holding Force but NOT Snake (marks[2]) must route through the field;
+    # a party holding Snake but not Force must still go around.
+    party_force_only = _make_party(marks=[1, 1, 0, 1])
+    assert find_2d_step(
+        test_map, start=(44, 20), goals=(46, 20), transport=Transport.FOOT, party=party_force_only
+    ) == Direction.EAST
+    party_snake_only = _make_party(marks=[1, 1, 1, 0])
+    assert find_2d_step(
+        test_map, start=(44, 20), goals=(46, 20), transport=Transport.FOOT, party=party_snake_only
+    ) in (Direction.NORTH, Direction.SOUTH)
+
 
 def test_find_2d_step_ship_wind_blocking(asset_mgr):
     sosaria = load_map(0, asset_mgr)

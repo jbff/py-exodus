@@ -9,6 +9,7 @@ import pygame
 
 from py_exodus.constants import Direction, Transport
 from py_exodus.screens.overworld import can_move_to
+from py_exodus.world import tile_effects
 from py_exodus.world.dungeon import turn_left_dir, turn_right_dir
 from py_exodus.world.map import DungeonTile
 
@@ -74,7 +75,9 @@ def find_2d_step_and_cost(
         return 1 if tname in ("floor", "bridge", "path") else 4
 
     has_fire = party is not None and any(not m.is_dead() and m.marks[1] > 0 for m in party.members)
-    has_force = party is not None and any(not m.is_dead() and m.marks[2] > 0 for m in party.members)
+    # Mark of Force is marks[3]; energy fields pass only when EVERY living
+    # member carries it (GBC rule, world/tile_effects.py).
+    has_force = tile_effects.all_members_mark_of_force(party)
 
     def _passable(nx: int, ny: int) -> bool:
         t = game_map.get_tile(nx, ny)

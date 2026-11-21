@@ -22,6 +22,7 @@ from py_exodus.autoplay.planner import (
     prefer_ranged_weapons,
 )
 from py_exodus.constants import ArmorType, Direction, Profession, Status, Transport, WeaponType
+from py_exodus.world import tile_effects
 from py_exodus.world.map import DungeonTile
 
 if TYPE_CHECKING:
@@ -363,7 +364,7 @@ class AutoPlayController:
         from py_exodus.screens.overworld import can_move_to
 
         has_fire = any(not m.is_dead() and m.marks[1] > 0 for m in party.members)
-        has_force = any(not m.is_dead() and m.marks[2] > 0 for m in party.members)
+        has_force = tile_effects.all_members_mark_of_force(party)
         cache = getattr(self, "_any_shore_water_cache", None)
         if cache is None:
             cache = {}
@@ -660,7 +661,7 @@ class AutoPlayController:
                         from py_exodus.screens.overworld import can_move_to
 
                         has_fire = any(not m.is_dead() and m.marks[1] > 0 for m in party.members)
-                        has_force = any(not m.is_dead() and m.marks[2] > 0 for m in party.members)
+                        has_force = tile_effects.all_members_mark_of_force(party)
                         q_ex: deque[tuple[int, int, Direction | None]] = deque([(px, py, None)])
                         vis_ex = {(px, py)}
                         while q_ex:
@@ -2048,7 +2049,7 @@ class AutoPlayController:
             return self._hunt_starving_prey_or_patrol(state_machine, screen, gmap, party, px, py, living)
         if self._screen_map_id(screen, party) == 0 and party.transport == Transport.SHIP:
             has_fire = any(not m.is_dead() and m.marks[1] > 0 for m in party.members)
-            has_force = any(not m.is_dead() and m.marks[2] > 0 for m in party.members)
+            has_force = tile_effects.all_members_mark_of_force(party)
             shore_cache = getattr(self, "_portal_shore_cache", None)
             if shore_cache is None:
                 shore_cache = {}
