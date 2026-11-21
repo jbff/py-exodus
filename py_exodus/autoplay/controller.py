@@ -335,56 +335,57 @@ class AutoPlayController:
                     return True
         return False
 
+    @staticmethod
+    def _party_dawn_open(party) -> bool:
+        phase = int(getattr(party, "moon_phase", 0)) % 24
+        return min(7, phase // 3) == 0 and phase % 8 == 0
+
+    def _goal_transport_target(
+        self, goal_name: str, party, gmap, px: int, py: int
+    ) -> tuple[int, int] | None:
+        """The destination whose reachability decides foot-vs-ship, or None
+        when the goal's routing is not portal-shaped (legacy fallback)."""
+        dawn_open = self._party_dawn_open(party)
+        if goal_name in ("CURE_POISON", "RESURRECT_DEAD"):
+            entries = [t for m, t in _HEALER_TOWNS.items() if m != 11 or dawn_open]
+        elif goal_name == "BUY_FOOD":
+            entries = [t for m, t in _FOOD_TOWNS.items() if m != 11 or dawn_open]
+        elif goal_name == "OUTFIT_BRITAIN":
+            entries = list(_SHOP_TOWNS.values())
+        elif goal_name == "GET_REMAINING_MARKS":
+            living = [m for m in party.members if not m.is_dead()]
+            need_ff = not all(
+                m.marks[1] > 0 and m.marks[3] > 0 for m in living
+            )
+            return (49, 34) if need_ff else (58, 44)
+        elif goal_name == "GRIND_AND_LEVEL":
+            return (46, 19)  # Britain hub: leveling/shop/raid prep
+        else:
+            return None
+        if not entries:
+            return None
+        tx, ty = entries[0]
+        return (tx, ty)
+
     def _desired_transport(
         self, goal_name: str, party, gmap=None, px: int | None = None,
         py: int | None = None,
     ) -> str:
-        """The transport the goal actually wants, mirroring the branch rules.
-        Geographic call sites: on an ISLAND (e.g. the Exotic dig isles) the
-        foot-reachable checks flip the intent to SHIP - a docked party on a
-        dig isle with GET_REMAINING_MARKS must sail out, not 'stay foot'
-        (2026-11-20 live B/X lock at (18,44))."""
-        if goal_name in ("SAIL_WHIRLPOOL", "CAPTURE_SHIP", "DIG_EXOTICS", "CONQUER_EXODUS"):
-            return "SHIP"
-        if goal_name in ("OUTFIT_BRITAIN", "BUY_FOOD", "RESURRECT_DEAD", "CURE_POISON"):
-            return "FOOT"
-        if goal_name == "GET_REMAINING_MARKS" and gmap is not None and px is not None:
-            target = (49, 34) if not all(
-                m.marks[1] > 0 and m.marks[3] > 0
-                for m in [m for m in party.members if not m.is_dead()]
-            ) else (58, 44)
-            foot_ok = find_2d_step(
-                gmap, (px, py), {target}, Transport.FOOT, party=party
-            ) is not None
-            return "FOOT" if foot_ok else "SHIP"
-        if goal_name in ("GRIND_AND_LEVEL", "GET_MARK_KINGS"):
-            from py_exodus.constants import ArmorType, WeaponType
-
-            living = [m for m in party.members if not m.is_dead()]
-            ready_for_sea = bool(living) and all(
-                m.level >= 5 and m.marks[0] > 0 for m in living
-            ) and all(m.marks[0] > 0 for m in party.members)
-            has_exotics = all(
-                (m.weapon == WeaponType.EXOTIC or m.weapons.get(WeaponType.EXOTIC, 0) > 0)
-                and (m.armor == ArmorType.EXOTIC or m.armors.get(ArmorType.EXOTIC, 0) > 0)
-                for m in party.members
-            )
-            if not has_exotics:
-                # Sea intent: board and sail to the dig grounds.
-                return "SHIP" if ready_for_sea else "FOOT"
-            # WITH exotics a GRIND party's next move happens on LAND: level
-            # at Lord British, shop, or prep the DG raid. 2026-11-20 live
-            # log: a docked exotics party at a Britain landing tile sat
-            # forever because the sail intent gated its own disembark.
-            # WITH exotics: land intent only when land leads home - on the
-            # dig ISLE (or a docked pocket) sail stays the intent
-            # (2026-11-20 live (45,16)/(18,44) locks).
-            if gmap is not None and px is not None:
+        """Pure routing doctrine (user ruling 2026-11-21): the transport is a
+        function of WHERE YOU ARE and WHERE YOU'RE GOING - nothing else.
+        Foot-reachable destination -> FOOT. Water between -> SHIP (board a
+        boat you have; capture one only if there is none - those are the
+        board sites' and CAPTURE flow's jobs, not this function's)."""
+        if gmap is not None and px is not None and py is not None:
+            target = self._goal_transport_target(goal_name, party, gmap, px, py)
+            if target is not None:
                 foot_ok = find_2d_step(
-                    gmap, (px, py), {(46, 19)}, Transport.FOOT, party=party
+                    gmap, (px, py), {target}, Transport.FOOT, party=party
                 ) is not None
                 return "FOOT" if foot_ok else "SHIP"
-            return "FOOT"
+        # Legacy fallback for non-portal goals (DIG/whirlpool/capture/exodus).
+        if goal_name in ("SAIL_WHIRLPOOL", "CAPTURE_SHIP", "DIG_EXOTICS", "CONQUER_EXODUS"):
+            return "SHIP"
         return "FOOT"
 
     def _engage_transport_lock(self, desired: str, reason: str = "") -> None:
@@ -2779,8 +2780,22 @@ class AutoPlayController:
                 shore_cache[cache_key] = shore_water
             shore_water = self._safe_shore_water(gmap, party, screen, shore_cache[cache_key])
             if (px, py) in shore_water:
-                return self._emit_key(state_machine, pygame.K_x)
-            if shore_water:
+                # Land ONLY when actually at the TARGET's shore (adjacent to
+                # the portal tile). X-ing at every mid-route coast fired the
+                # foot-fallback board bounce and left the party under pirate
+                # cannon fire (2026-11-21 live: board -> instant disembark).
+                adjacent_target = any(
+                    (px + dx) % gmap.width == target_portal[0]
+                    and (py + dy) % gmap.height == target_portal[1]
+                    for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0))
+                )
+                if adjacent_target:
+                    return self._emit_key(state_machine, pygame.K_x)
+                if shore_water:
+                    return self._move_toward(
+                        state_machine, gmap, party, (px, py), shore_water
+                    )
+            elif shore_water:
                 return self._move_toward(state_machine, gmap, party, (px, py), shore_water)
         return self._move_toward(state_machine, gmap, party, (px, py), {target_portal})
 
