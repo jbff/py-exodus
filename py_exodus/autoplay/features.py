@@ -121,7 +121,9 @@ def extract_macro_features(
         )
     )
 
-    total_food = float(getattr(party, "food", 0))
+    # Living rations only: dead members never eat, and a zeroed dead pouch
+    # must not read as an empty larder (see planner.needs_food).
+    total_food = float(sum(m.food for m in living)) if living else 0.0
     food_runway_turns = min_member_food * 10.0 if living else 0.0
     party_gold = float(getattr(party, "gold", 0))
 

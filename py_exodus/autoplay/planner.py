@@ -57,10 +57,23 @@ def needs_cure(party: Party) -> bool:
 
 
 def needs_food(party: Party) -> bool:
-    """Return True if party food supply or any living member's food is low."""
-    if party.food < 300:
+    """Return True if the party's LIVING members are running low on food.
+
+    Rations are consumed per living member, and a dead member's pouches are
+    not eaten. Counting them (or their zeroed pouches) made crippled parties
+    look permanently starving: BUY_FOOD (900) outranked RESURRECT_DEAD (850)
+    and GRIND (830) forever, so every coin went on food and no one was ever
+    raised. Seed 203 on the fixed transport layer ended at the 160k step cap
+    exactly so: three dead, 43 gold, the survivor carrying 150 food.
+    """
+    living = [m for m in party.members if not m.is_dead()]
+    if not living:
+        return False
+    # 75 rations per living member is the same four-member reserve (300)
+    # the ladder has always used, scaled to who actually eats.
+    if sum(m.food for m in living) < 75 * len(living):
         return True
-    return any(not m.is_dead() and m.food < 75 for m in party.members)
+    return any(m.food < 75 for m in living)
 
 
 _CLERIC_CASTERS = (Profession.CLERIC, Profession.DRUID, Profession.PALADIN, Profession.RANGER)

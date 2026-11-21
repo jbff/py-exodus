@@ -2230,3 +2230,34 @@ def test_cli_seed_flag():
 
 
 
+
+
+def test_needs_food_ignores_dead_members_rations():
+    """Seed 203 (fixed transport layer): three dead, the survivor holding
+    150 food, and needs_food() stayed True forever because it summed all
+    four pouches - BUY_FOOD (900) then outranked resurrect/grind (830/850)
+    and no one was ever raised. Dead members do not eat."""
+    from py_exodus.autoplay.planner import needs_food
+
+    party = _make_party(level=5, gold=43, map_id=0, x=45, y=18)
+    for m in party.members:
+        m.food = 150
+    party.members[0].status = Status.DEAD
+    party.members[1].status = Status.DEAD
+    party.members[2].status = Status.DEAD
+    party.members[0].food = 0
+    party.members[1].food = 0
+    party.members[2].food = 0
+    assert needs_food(party) is False
+
+    # A healthy four-member party still needs feeding below the same reserve.
+    healthy = _make_party(level=5, gold=43, map_id=0, x=45, y=18)
+    for m in healthy.members:
+        m.food = 60
+    assert needs_food(healthy) is True
+    for m in healthy.members:
+        m.food = 150
+    assert needs_food(healthy) is False
+    # One starving member still counts regardless of the total.
+    healthy.members[2].food = 10
+    assert needs_food(healthy) is True

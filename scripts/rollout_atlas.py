@@ -1,6 +1,7 @@
 """Rollout failure atlas: aggregates recorded symbolic autoplay rollouts.
 
 Usage: .venv/bin/python scripts/rollout_atlas.py [--rollout-dir DIR]
+       [--seed-min N] [--seed-max N]
 
 Reads py_exodus/nn/data/rollouts/rollout_*.jsonl.gz (rollout_recorder
 output) and prints the failure analysis used to steer autoplay work:
@@ -14,12 +15,23 @@ import argparse
 import collections
 import gzip
 import json
+import re
+import zlib
 from pathlib import Path
 
 
 def _rows(path: Path) -> list[dict]:
-    opener = gzip.open if path.suffix == ".gz" else open
-    lines = opener(path, "rt").read().splitlines()
+    if path.suffix == ".gz":
+        # Streaming decompress: a recorder killed mid-write leaves a
+        # truncated gzip tail that gzip.open raises EOFError on.
+        d = zlib.decompressobj(16 + zlib.MAX_WBITS)
+        try:
+            text = d.decompress(path.read_bytes()).decode("utf-8", "replace")
+        except Exception:
+            return []
+        lines = text.splitlines()
+    else:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
     out = []
     for line in lines:
         try:
@@ -32,8 +44,22 @@ def _rows(path: Path) -> list[dict]:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--rollout-dir", default="py_exodus/nn/data/rollouts")
+    ap.add_argument("--seed-min", type=int, default=None)
+    ap.add_argument("--seed-max", type=int, default=None)
     args = ap.parse_args()
     base = Path(args.rollout_dir)
+
+    def _seed(path: Path) -> int:
+        m = re.search(r"rollout_(\d+)", path.name)
+        return int(m.group(1)) if m else -1
+
+    def _selected(path: Path) -> bool:
+        s = _seed(path)
+        if args.seed_min is not None and s < args.seed_min:
+            return False
+        if args.seed_max is not None and s > args.seed_max:
+            return False
+        return True
 
     outcomes: collections.Counter = collections.Counter()
     wipe_steps: collections.Counter = collections.Counter()
@@ -41,7 +67,13 @@ def main() -> int:
     wins: list[dict] = []
     n_files = 0
 
-    for f in sorted(base.glob("rollout_*")):
+    dwell_sites: list[tuple[int, int, dict]] = []
+    one_survivor = 0
+    in_town_deaths = 0
+
+    for f in sorted(base.glob("rollout_*"), key=_seed):
+        if not _selected(f):
+            continue
         rows = _rows(f)
         if not rows:
             continue
@@ -57,6 +89,22 @@ def main() -> int:
         states = [r for r in rows if r.get("t") == "s"]
         if rows[-1].get("outcome", "").startswith("WIPED") and states:
             death_rows.append(states[-1])
+            if states[-1].get("living") == 1:
+                one_survivor += 1
+            if states[-1].get("map") not in (0, 13):
+                in_town_deaths += 1
+
+        # Dwell: the recorder writes a state row only when position,
+        # transport or screen changes, and rows carry the loop step, so the
+        # gap between consecutive rows is how long the party stood at the
+        # earlier spot. A huge gap at one tile is a stall, not travel.
+        best = (0, None)
+        for a, b in zip(states, states[1:]):
+            gap = int(b.get("step", 0)) - int(a.get("step", 0))
+            if gap > best[0]:
+                best = (gap, a)
+        if best[0] >= 2000 and best[1] is not None:
+            dwell_sites.append((_seed(f), best[0], best[1]))
 
     print(f"rollouts: {n_files}")
     print(f"outcomes: {dict(outcomes)}")
@@ -86,6 +134,18 @@ def main() -> int:
         for t in (r.get("nearby") or {}):
             threats[t] += 1
     print("threat tiles near death:", dict(threats.most_common(8)))
+    print(f"non-starvation deaths: food>100={sum(1 for r in death_rows if r.get('food', 0) > 100)} "
+          f"inside-town={in_town_deaths} one-survivor={one_survivor}")
+
+    if dwell_sites:
+        dwell_sites.sort(key=lambda t: -t[1])
+        print(f"\nmax-dwell stalls (>=2000 ticks at one spot): {len(dwell_sites)}")
+        for seed, gap, r in dwell_sites[:12]:
+            nbr = ",".join(sorted((r.get("nearby") or {}))[:3])
+            print(f"  seed {seed}: {gap} ticks at map {r.get('map')} "
+                  f"({r.get('x')},{r.get('y')}) goal={r.get('goal')} "
+                  f"transport={r.get('transport')} food={r.get('food')} "
+                  f"gold={r.get('gold')} living={r.get('living')} near=[{nbr}]")
 
     if wins:
         print("\nwinning seeds (teaching examples):")
