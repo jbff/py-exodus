@@ -1735,7 +1735,11 @@ class AutoPlayController:
         pirates = th.pirates if th is not None else []
         near = [p for p in pirates if manhattan(gmap.width, gmap.height, pos, p) <= 12]
         if near:
-            self._capture_wait = 0
+            # A pirate in sight but never reaching us (e.g. across a bay) must
+            # not hold the party forever: patience keeps counting (x3).
+            if self._capture_wait > 3 * _CAPTURE_PATIENCE:
+                self._ban_capture_site(screen, gmap, party, pos)
+                return self._emit_key(state_machine, pygame.K_SPACE)
             engage = {
                 ((p[0] + dx) % gmap.width, (p[1] + dy) % gmap.height)
                 for p in near
@@ -1750,13 +1754,18 @@ class AutoPlayController:
                 return self._move_toward(state_machine, gmap, party, pos, engage)
             return self._emit_key(state_machine, pygame.K_SPACE)
         if self._capture_wait > _CAPTURE_PATIENCE:
-            w, h = gmap.width, gmap.height
-            banned = self._banned_capture.setdefault(self._screen_map_id(screen, party), set())
-            for dx in range(-6, 7):
-                for dy in range(-6, 7):
-                    banned.add(((pos[0] + dx) % w, (pos[1] + dy) % h))
-            self._trip = None
+            self._ban_capture_site(screen, gmap, party, pos)
         return self._emit_key(state_machine, pygame.K_SPACE)
+
+    def _ban_capture_site(self, screen, gmap, party, pos) -> None:
+        """Give up on this stretch of coast for captures and re-plan."""
+        w, h = gmap.width, gmap.height
+        banned = self._banned_capture.setdefault(self._screen_map_id(screen, party), set())
+        for dx in range(-6, 7):
+            for dy in range(-6, 7):
+                banned.add(((pos[0] + dx) % w, (pos[1] + dy) % h))
+        self._capture_wait = 0
+        self._trip = None
 
     # -- local grinding on the mainland ----------------------------------
 
