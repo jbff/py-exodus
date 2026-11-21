@@ -31,6 +31,8 @@ class GameApp:
         headless: bool = False,
         sound_enabled: bool = True,
         autoplay: bool = False,
+        seed: int | None = None,
+        trace: bool = False,
         **kwargs: Any,
     ) -> None:
         self.scale = scale
@@ -79,13 +81,38 @@ class GameApp:
             audio=self.audio,
         )
 
-        self.autoplay = AutoPlayController(enabled=autoplay)
+        from py_exodus.autoplay.tracer import RunTracer
+
+        # --trace: record the autoplay run (starts when autoplay is enabled,
+        # so F9-toggled runs are traced from the toggle on).
+        self.tracer: RunTracer | None = RunTracer(enabled=autoplay, seed=seed) if trace else None
+        self.autoplay = AutoPlayController(enabled=autoplay, tracer=self.tracer)
         self.state_machine.autoplay_enabled = self.autoplay.enabled
         self.state_machine.autoplay_step_interval = self.autoplay.step_interval
         self.clock = pygame.time.Clock()
 
     def run(self, max_frames: int | None = None) -> None:
-        """Execute the main game loop at 60 FPS."""
+        """Execute the main game loop at 60 FPS (closing the trace on exit or crash)."""
+        try:
+            self._run_loop(max_frames)
+        except BaseException as exc:
+            self._end_trace("CRASHED" if not isinstance(exc, KeyboardInterrupt) else "QUIT", exc)
+            raise
+        self._end_trace("QUIT")
+
+    def _end_trace(self, default: str, exc: BaseException | None = None) -> None:
+        if self.tracer is None or self.tracer.path is None:
+            return
+        party = getattr(self.state_machine.current_screen, "party", None)
+        outcome = default
+        if party is not None and getattr(party, "exodus_defeated", 0) > 0:
+            outcome = "WON"
+        elif party is not None and getattr(party, "members", None) and party.is_party_dead():
+            outcome = "WIPED"
+        self.tracer.end(outcome, party=party, exc=exc if outcome == "CRASHED" else None)
+        print(f"[py-exodus] trace written: {self.tracer.path}")
+
+    def _run_loop(self, max_frames: int | None = None) -> None:
         self.running = True
         frame = 0
 
@@ -100,6 +127,8 @@ class GameApp:
                 if event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_F9:
                         self.autoplay.toggle()
+                        if self.autoplay.enabled and self.tracer is not None:
+                            self.tracer.activate()
                         self.state_machine.autoplay_enabled = self.autoplay.enabled
                         continue
                     if self.autoplay.enabled and event.key == pygame.K_LEFTBRACKET:
@@ -168,16 +197,24 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Seed Python's RNG for reproducible runs.",
     )
+    parser.add_argument(
+        "--trace",
+        action="store_true",
+        help="Record the autoplay run to traces/trace_seed<N>_<time>.jsonl.gz.",
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> None:
     """CLI execution entrypoint."""
     args = parse_args(argv)
-    if args.seed is not None:
-        random.seed(args.seed)
+    if args.seed is None:
+        # Always have a printable, rerunnable seed.
+        args.seed = random.SystemRandom().randrange(10_000_000, 99_999_999)
+    random.seed(args.seed)
+    print(f"[py-exodus] seed {args.seed} (rerun with --seed {args.seed})")
     debug.set_debug(args.debug)
-    app = GameApp(autoplay=args.autoplay)
+    app = GameApp(autoplay=args.autoplay, seed=args.seed, trace=args.trace)
     try:
         app.run()
     except KeyboardInterrupt:

@@ -141,8 +141,9 @@ class AutoPlayController:
     MIN_INTERVAL = 0.01
     MAX_INTERVAL = 0.50
 
-    def __init__(self, enabled: bool = False, step_interval: float = 0.08) -> None:
+    def __init__(self, enabled: bool = False, step_interval: float = 0.08, tracer=None) -> None:
         self.enabled = enabled
+        self.tracer = tracer
         self.step_interval = max(self.MIN_INTERVAL, min(self.MAX_INTERVAL, step_interval))
         self._timer: float = 0.0
         self._key_queue: deque[int] = deque()
@@ -214,7 +215,13 @@ class AutoPlayController:
             self._key_queue.append(pygame.K_RETURN)
 
     def step(self, state_machine: StateMachine) -> int | None:
-        """Emit one logical input step for the active screen."""
+        """Emit one logical input step for the active screen (traced when a tracer is set)."""
+        key = self._step(state_machine)
+        if self.tracer is not None:
+            self.tracer.record_step(state_machine, key)
+        return key
+
+    def _step(self, state_machine: StateMachine) -> int | None:
         state_machine.autoplay_enabled = self.enabled
         state_machine.autoplay_step_interval = self.step_interval
         screen = state_machine.current_screen
