@@ -35,7 +35,7 @@ Borrowed in concept from the LairWare port: **`TAB`** (or `F2`) during any battl
 
 **`F9`** (or `--autoplay`) hands the game to `AutoPlayController`, which presses real keys through the live UI, so everything it does goes through the same rules you play by. **`[`** / **`]`** slow it down or speed it up. What it does, in order:
 
-- **Tested party only**: autoplay has been tested and tuned with one party alone, the one it creates: SHADOW, Elf Thief (STR 15, DEX 25, INT 10, WIS 10); GRUMM, Dwarf Fighter (25/15/10/10); SERENA, Bobbit Cleric (15/15/10/25); ZIRCON, Fuzzy Wizard (15/15/25/10). How it fares with any other party is untested.
+- **Tested party only**: autoplay has been tested and tuned with one party alone, the one the headless batches build: SHADOW, Elf Thief (STR 15, DEX 25, INT 10, WIS 10); GRUMM, Dwarf Fighter (25/15/10/10); SERENA, Bobbit Cleric (15/15/10/25); ZIRCON, Fuzzy Wizard (15/15/25/10). How it fares with any other party is untested, including the four Human Fighters it rolls when it starts on an empty roster.
 - **Party & outfitting**: creates a Thief / Fighter / Cleric / Wizard party, buys starter gear and armor upgrades, keeps food and gold balanced across members.
 - **Marks & exotics**: levels for the Mark of Kings, captures a frigate, sails (wind- and pirate-aware) to dig the Exotic weapons and armor, and clears the dungeons for the Marks of Fire, Force and Snake.
 - **Gold**: raids Death Gulch, opening chests safely with APPAR UNEM (waiting in place for MP), routing patiently around the moving townspeople, and bribing guards only where they block the way. With the Cleric dead, the Thief opens chests (then the Fighter, the Wizard last) so the party can still earn the gold to resurrect.
