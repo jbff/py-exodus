@@ -779,7 +779,9 @@ def test_buy_keys_before_ambrosia_and_unlock_locked_door(pygame_setup):
     # open; Grey dropped: a thief plugs its only corridor). Dawn is on the
     # mainland; Devil Guard and Fawn need the trip layer's ship. Inside each town the stand is reachable
     # from the entry point (wandering town people cleared: they move).
-    assert set(_GUILD_TOWNS) == {7, 11, 12}
+    # Grey back (user 2026-11-22): its thief moves and attacks (LW), so it
+    # no longer plugs the only corridor.
+    assert set(_GUILD_TOWNS) == {6, 7, 11, 12}
     for mid in (11,):
         px, py, _ = _GUILD_TOWNS[mid]
         assert find_2d_step(sosaria, (46, 20), (px, py), Transport.FOOT) is not None

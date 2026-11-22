@@ -151,6 +151,8 @@ _SHOP_TOWNS: dict[int, tuple[int, int, tuple[int, int], tuple[int, int]]] = {
 # guild is off the list (user ruling): its only corridor, past the Tap
 # House, is regularly plugged by a thief who never moves out of it.
 _GUILD_TOWNS: dict[int, tuple[int, int, tuple[int, int]]] = {
+    6: (7, 44, (33, 21)),    # Grey, The Guild (back 2026-11-22: its thief now
+                             # moves and attacks, so it no longer plugs the corridor)
     7: (18, 31, (48, 53)),   # Devil Guard, The Thieves Guild
     12: (30, 2, (32, 13)),   # Fawn, Tools of Trade
     11: (37, 53, (34, 21)),  # Dawn (only while open)
