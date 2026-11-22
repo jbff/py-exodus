@@ -176,16 +176,25 @@ SHRINE_PLAN: tuple[tuple[tuple[Profession, ...], str, str, int], ...] = (
     (_DEX_SECOND, "strength", "max_str", 99),
     (_HEALERS, "wisdom", "max_wis", 99),            # bigger MP pools
     (_MAGES, "intelligence", "max_int", 99),
+    # ---- return trips stop here: DEX 40 all, maxed caster MP (user ruling
+    # 2026-11-22); the steps below are bought only with leftover gold.
     (_EVERYONE, "strength", "max_str", 99),
     (_DEX_SECOND, "dexterity", "max_dex", 74),      # chest traps: nicety only
 )
 SHRINE_RESERVE = 150  # gold kept back on every donation
+# Steps worth a dedicated return trip to Ambrosia (through Wizard INT 99).
+RETURN_TRIP_STEPS = 1 + next(
+    i for i, (profs, stat, _c, t) in enumerate(SHRINE_PLAN)
+    if profs == _MAGES and stat == "intelligence" and t == 99
+)
+RETURN_TRIP_MAX_GOLD = 9000  # one trip's budget cap (the Death Gulch raid cap)
 
 
-def next_shrine_goal(party: Party) -> tuple[int, str, str, int] | None:
-    """First unmet step of SHRINE_PLAN: (member index, stat, cap attr,
-    target clamped to the member's race cap), or None when all are met."""
-    for profs, stat_attr, cap_attr, target in SHRINE_PLAN:
+def next_shrine_goal(party: Party, steps: int | None = None) -> tuple[int, str, str, int] | None:
+    """First unmet step of SHRINE_PLAN (or of its first ``steps`` steps):
+    (member index, stat, cap attr, target clamped to the member's race
+    cap), or None when all are met."""
+    for profs, stat_attr, cap_attr, target in SHRINE_PLAN[:steps]:
         for i, m in enumerate(party.members):
             if m.is_dead() or m.profession not in profs:
                 continue
@@ -193,6 +202,46 @@ def next_shrine_goal(party: Party) -> tuple[int, str, str, int] | None:
             if getattr(m, stat_attr, 0) < goal:
                 return (i, stat_attr, cap_attr, goal)
     return None
+
+
+def return_trip_cost(party: Party) -> int:
+    """Gold to finish the return-trip steps of SHRINE_PLAN (100 a point)."""
+    stats = {
+        (i, attr): getattr(m, attr, 0)
+        for i, m in enumerate(party.members)
+        for attr in ("strength", "dexterity", "intelligence", "wisdom")
+    }
+    cost = 0
+    for profs, stat_attr, cap_attr, target in SHRINE_PLAN[:RETURN_TRIP_STEPS]:
+        for i, m in enumerate(party.members):
+            if m.is_dead() or m.profession not in profs:
+                continue
+            goal = min(target, stat_cap(m, cap_attr))
+            if stats[(i, stat_attr)] < goal:
+                cost += (goal - stats[(i, stat_attr)]) * 100
+                stats[(i, stat_attr)] = goal
+    return cost
+
+
+def return_trip_gold(party: Party) -> int:
+    """Gold to hold before a return trip for stats (all cards owned): the
+    rest of the return-trip steps (at most one trip's cap) plus the reserve
+    and the food still to buy. 0 when no return trip is wanted."""
+    cost = return_trip_cost(party)
+    if cost == 0:
+        return 0
+    living = [m for m in party.members if not m.is_dead()]
+    food_gold = sum(max(0, AMBROSIA_ENTRY_FOOD - m.food) for m in living) * 6 // 5
+    # Capped below the raid cap, so raiding can always reach it.
+    return min(cost + SHRINE_RESERVE + food_gold, RETURN_TRIP_MAX_GOLD - 500)
+
+
+def gold_has_a_use(party: Party) -> bool:
+    """Raid for gold only while it will be spent: cards still to fetch, or
+    return trips for stats still pending (user ruling 2026-11-22)."""
+    living = [m for m in party.members if not m.is_dead()]
+    has_all_cards = all(any(m.cards[i] > 0 for m in living) for i in range(4))
+    return not has_all_cards or return_trip_cost(party) > 0
 
 
 def needs_shrine_stats(party: Party) -> bool:
@@ -377,6 +426,19 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
         if needs_shrine_stats(party):
             return Goal.AMBROSIA_CARDS_SHRINES
         return Goal.EXIT_AMBROSIA
+
+    # Return trips for stats (user ruling 2026-11-22): with the gold for the
+    # rest of the plan (one trip's worth at most), sail back to Ambrosia.
+    trip_gold = return_trip_gold(party)
+    if (
+        cur_map_id not in (12, 2)
+        and trip_gold
+        and len(living) == len(party.members)
+        and party.gold >= trip_gold
+    ):
+        if any(m.food < AMBROSIA_ENTRY_FOOD for m in living):
+            return Goal.BUY_FOOD
+        return Goal.SAIL_WHIRLPOOL
 
     if cur_map_id != 12 and min(m.level for m in living) < 25:
         return Goal.GRIND_AND_LEVEL

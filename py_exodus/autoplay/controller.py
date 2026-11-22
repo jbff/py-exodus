@@ -25,6 +25,7 @@ from py_exodus.autoplay.planner import (
     evaluate_goal,
     SHRINE_RESERVE,
     alcort_wisdom_gap,
+    gold_has_a_use,
     next_shrine_goal,
     needs_heal,
     prefer_ranged_weapons,
@@ -706,6 +707,7 @@ class AutoPlayController:
                 or (goal == Goal.CURE_POISON and can_alcort)
             )
             and party.gold < _DEATH_GULCH_GOLD_CAP
+            and gold_has_a_use(party)
             and party.food >= 40
             and all(not m.is_dead() and m.hp > 100 for m in party.members)
             # User report (2026-11-21): G with a low-dex Thief once the MP
@@ -1563,6 +1565,8 @@ class AutoPlayController:
             # at 4500 left parties short of 4500 + food + keys, grinding
             # slowly (user ruling 2026-11-22: amass more gold first).
             and 400 <= party.gold < _DEATH_GULCH_GOLD_CAP
+            # Never raid for gold nothing will spend (user ruling 2026-11-22).
+            and gold_has_a_use(party)
             and sum(m.keys for m in living) >= 4
         )
 

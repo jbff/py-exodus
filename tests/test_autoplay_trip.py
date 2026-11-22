@@ -790,3 +790,41 @@ def test_shrine_donation_stops_at_the_plan_target(pygame_setup, asset_mgr):
         ctrl.step(sm)
     assert cleric.wisdom == 35
     assert cleric.gold == 1500
+
+
+def test_return_trips_for_stats_and_no_pointless_raids():
+    """User ruling 2026-11-22: with all cards, raid Death Gulch and sail
+    back to Ambrosia for the plan's return-trip steps (DEX 40 all, caster
+    MP maxed, in plan order); once those are bought, stop raiding."""
+    from py_exodus.autoplay import batch
+    from py_exodus.autoplay.planner import (
+        RETURN_TRIP_STEPS,
+        SHRINE_PLAN,
+        gold_has_a_use,
+        next_shrine_goal,
+        return_trip_gold,
+    )
+
+    party = batch.build_party()
+    for m in party.members:
+        m.level, m.food, m.keys = 20, 300, 2
+        m.marks, m.cards = [1, 1, 1, 1], [1, 1, 1, 1]
+        m.weapon, m.armor = WeaponType.EXOTIC, ArmorType.EXOTIC
+        m.gold = 0
+    assert gold_has_a_use(party)
+    need = return_trip_gold(party)
+    assert 0 < need <= 8500  # always reachable under the 9000 raid cap
+    party.members[0].gold = need - 1
+    assert evaluate_goal(party, 0) == Goal.GRIND_AND_LEVEL
+    party.members[0].gold = need
+    assert evaluate_goal(party, 0) == Goal.SAIL_WHIRLPOOL
+    for m in party.members:
+        m.food = 100
+    assert evaluate_goal(party, 0) == Goal.BUY_FOOD
+    # Buy every return-trip step: no more trips, no more raiding.
+    while (g := next_shrine_goal(party, RETURN_TRIP_STEPS)) is not None:
+        setattr(party.members[g[0]], g[1], g[3])
+    assert return_trip_gold(party) == 0
+    assert not gold_has_a_use(party)
+    assert evaluate_goal(party, 0) == Goal.GRIND_AND_LEVEL  # levels, not stats
+    assert SHRINE_PLAN[RETURN_TRIP_STEPS - 1][1:] == ("intelligence", "max_int", 99)
