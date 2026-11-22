@@ -25,6 +25,7 @@ from py_exodus.autoplay.nav import (
     reachable_2d,
 )
 from py_exodus.autoplay.planner import (
+    AMBROSIA_ENTRY_FOOD,
     DEATH_GULCH_BRIBE_GOLD,
     DEATH_GULCH_KEYS,
     Goal,
@@ -35,6 +36,8 @@ from py_exodus.autoplay.planner import (
     next_shrine_goal,
     needs_heal,
     prefer_ranged_weapons,
+    raid_gold_target,
+    return_trip_gold,
 )
 from py_exodus.autoplay.threats import (
     SEA_MONSTERS,
@@ -737,7 +740,7 @@ class AutoPlayController:
                 goal in (Goal.GRIND_AND_LEVEL, Goal.BUY_KEYS)
                 or (goal == Goal.CURE_POISON and can_alcort)
             )
-            and party.gold < _DEATH_GULCH_GOLD_CAP
+            and party.gold < raid_gold_target(party, _DEATH_GULCH_GOLD_CAP)
             and gold_has_a_use(party)
             and party.food >= 40
             and all(not m.is_dead() and m.hp > 100 for m in party.members)
@@ -938,7 +941,15 @@ class AutoPlayController:
                 total_gold = party.gold
                 food_price = {1: 20, 3: 25, 4: 20, 6: 30, 11: 25}.get(map_id, 30)
                 if goal == Goal.BUY_FOOD and getattr(self, "_food_shop_target", None) is None:
-                    if total_gold >= 1500:
+                    trip_gold = return_trip_gold(party)
+                    if trip_gold and total_gold >= trip_gold:
+                        # Stocking for a return trip: only the entry food
+                        # the trip's gold target counts. Filling to 400
+                        # dropped a party under the target and back to
+                        # raiding (user live trace 2026-11-22,
+                        # trace_20261122-154730: 1,752 -> 762 gold).
+                        self._food_shop_target = AMBROSIA_ENTRY_FOOD
+                    elif total_gold >= 1500:
                         self._food_shop_target = 400
                     elif total_gold >= 700:
                         # >= AMBROSIA_ENTRY_FOOD, so a pre-Ambrosia food run
@@ -1628,7 +1639,7 @@ class AutoPlayController:
             # slowly (user ruling 2026-11-22: amass more gold first). The
             # 400 floor is the guards' bribes (user 2026-11-22): a raid
             # needs keys AND gold.
-            and DEATH_GULCH_BRIBE_GOLD <= party.gold < _DEATH_GULCH_GOLD_CAP
+            and DEATH_GULCH_BRIBE_GOLD <= party.gold < raid_gold_target(party, _DEATH_GULCH_GOLD_CAP)
             # Never raid for gold nothing will spend (user ruling 2026-11-22).
             and gold_has_a_use(party)
             and sum(m.keys for m in living) >= DEATH_GULCH_KEYS

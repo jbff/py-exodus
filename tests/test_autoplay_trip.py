@@ -1104,3 +1104,77 @@ def test_a_finished_party_short_of_stat_gold_buys_keys_and_raids(pygame_setup):
     assert evaluate_goal(party, 0) == Goal.GRIND_AND_LEVEL
     party.members[0].gold = 450
     assert evaluate_goal(party, 0) == Goal.BUY_KEYS
+
+
+def test_return_trip_raids_only_for_what_the_stats_cost(pygame_setup):
+    """User live run 2026-11-22: 11 INT points (1,100 gold) short of the
+    plan, 4,000 gold in hand, still raiding Death Gulch toward 8,500. The
+    raid stops at what the rest of the plan costs, and buying the trip's
+    keys doesn't drop the party back under that."""
+    from py_exodus.autoplay import batch
+    from py_exodus.autoplay.controller import _DEATH_GULCH_GOLD_CAP, AutoPlayController
+    from py_exodus.autoplay.planner import (
+        raid_gold_target, return_trip_cost, return_trip_gold, stat_cap,
+    )
+
+    party = batch.build_party()
+    for m in party.members:
+        m.level, m.food, m.keys, m.gold = 25, 300, 0, 0
+        m.marks, m.cards = [1, 1, 1, 1], [1, 1, 1, 1]
+        m.weapon, m.armor = WeaponType.EXOTIC, ArmorType.EXOTIC
+        for attr, cap in (("strength", "max_str"), ("dexterity", "max_dex"),
+                          ("intelligence", "max_int"), ("wisdom", "max_wis")):
+            setattr(m, attr, stat_cap(m, cap))
+    wizard = party.members[3]
+    wizard.intelligence -= 11
+    assert return_trip_cost(party) == 1100
+    party.members[0].keys = 4
+    party.members[0].gold = 4000
+    target = return_trip_gold(party)
+    assert target < 2000
+    assert raid_gold_target(party, _DEATH_GULCH_GOLD_CAP) == target
+    living = list(party.members)
+    ctrl = AutoPlayController(enabled=True)
+    assert not ctrl._wants_death_gulch(party, living, 0, Goal.GRIND_AND_LEVEL)
+    # Short of keys: buys them, and the purchase keeps it over the target.
+    assert evaluate_goal(party, 0) == Goal.BUY_KEYS
+    party.members[0].keys = 8
+    party.members[0].gold -= 200
+    assert party.gold >= return_trip_gold(party)
+    assert evaluate_goal(party, 0) != Goal.GRIND_AND_LEVEL
+
+
+def test_return_trip_food_run_stays_over_the_trip_gold(pygame_setup):
+    """User live trace 2026-11-22 (trace_20261122-154730): 1,752 gold was
+    enough for the last return trip, but the food run filled everyone to
+    400 and left 762, so the party went back to Death Gulch. A return-trip
+    food run buys only the entry food the target counts."""
+    from py_exodus.autoplay import batch
+    from py_exodus.autoplay.planner import AMBROSIA_ENTRY_FOOD, return_trip_gold, stat_cap
+    from py_exodus.screens.town import TownScreen
+
+    am = AssetManager("data")
+    am.load_all()
+    party = batch.build_party()
+    for m in party.members:
+        m.level, m.food, m.keys, m.gold = 25, 150, 2, 0
+        m.marks, m.cards = [1, 1, 1, 1], [1, 1, 1, 1]
+        m.weapon, m.armor = WeaponType.EXOTIC, ArmorType.EXOTIC
+        for attr, cap in (("strength", "max_str"), ("dexterity", "max_dex"),
+                          ("intelligence", "max_int"), ("wisdom", "max_wis")):
+            setattr(m, attr, stat_cap(m, cap))
+    party.members[3].intelligence -= 11
+    party.members[0].gold = return_trip_gold(party) + 100
+    assert evaluate_goal(party, 3) == Goal.BUY_FOOD
+
+    sm = StateMachine(asset_mgr=am, audio=None)
+    ts = TownScreen(party=party, asset_mgr=am, map_id=3, start_x=48, start_y=49)
+    sm.set_screen(ts)
+    ctrl = AutoPlayController(enabled=True)
+    for _ in range(300):
+        ctrl.step(sm)
+        if evaluate_goal(party, 3) != Goal.BUY_FOOD:
+            break
+    assert all(m.food >= AMBROSIA_ENTRY_FOOD for m in party.members)
+    assert all(m.food < AMBROSIA_ENTRY_FOOD + 50 for m in party.members)
+    assert party.gold >= return_trip_gold(party)

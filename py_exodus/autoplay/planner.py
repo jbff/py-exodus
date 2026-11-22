@@ -297,8 +297,22 @@ def return_trip_gold(party: Party) -> int:
         return 0
     living = [m for m in party.members if not m.is_dead()]
     food_gold = sum(max(0, AMBROSIA_ENTRY_FOOD - m.food) for m in living) * 6 // 5
-    # Capped below the raid cap, so raiding can always reach it.
-    return min(cost + SHRINE_RESERVE + food_gold, RETURN_TRIP_MAX_GOLD - 500)
+    # The keys still to buy are in the target too, so buying them never
+    # drops the party back under it (and back to raiding).
+    keys_gold = 50 * max(0, AMBROSIA_RETURN_KEYS - sum(m.keys for m in living))
+    extras = SHRINE_RESERVE + food_gold + keys_gold
+    # The stats are capped so the whole target stays below the raid cap.
+    return min(cost, RETURN_TRIP_MAX_GOLD - 500 - extras) + extras
+
+
+def raid_gold_target(party: Party, cap: int) -> int:
+    """Gold a Death Gulch raid stops at. On return trips for stats, just
+    what the rest of the plan costs (user 2026-11-22: a party 1,100 gold
+    short of its last INT points raided on to 8,500); otherwise ``cap``."""
+    living = [m for m in party.members if not m.is_dead()]
+    has_all_cards = all(any(m.cards[i] > 0 for m in living) for i in range(4))
+    trip = return_trip_gold(party) if has_all_cards else 0
+    return min(trip, cap) if trip else cap
 
 
 def gold_has_a_use(party: Party) -> bool:
