@@ -374,7 +374,10 @@ def test_evaluate_goal_progression():
         weapon=WeaponType.EXOTIC,
         armor=ArmorType.EXOTIC,
     )
-    # Stats not yet bought: no castle (user ruling 2026-11-22).
+    # Stats not yet bought: no castle (user ruling 2026-11-22). Keys for
+    # the Death Gulch raid first, then grind (raid) for the gold.
+    assert evaluate_goal(ready_exodus) == Goal.BUY_KEYS
+    ready_exodus.members[0].keys = 4
     assert evaluate_goal(ready_exodus) == Goal.GRIND_AND_LEVEL
     _max_shrine_stats(ready_exodus)
     assert evaluate_goal(ready_exodus) == Goal.CONQUER_EXODUS
@@ -2145,6 +2148,7 @@ def test_no_castle_until_the_stat_plan_is_bought():
     _max_shrine_stats(party)
     fighter = next(m for m in party.members if m.profession == Profession.FIGHTER)
     fighter.strength = 39
+    party.members[0].keys = 4  # the Death Gulch raid's keys (else BUY_KEYS)
     assert evaluate_goal(party, map_id=0) == Goal.GRIND_AND_LEVEL
     fighter.strength = 99
     _max_shrine_stats(party)

@@ -25,6 +25,7 @@ from py_exodus.autoplay.nav import (
     reachable_2d,
 )
 from py_exodus.autoplay.planner import (
+    DEATH_GULCH_KEYS,
     Goal,
     evaluate_goal,
     SHRINE_RESERVE,
@@ -1623,11 +1624,13 @@ class AutoPlayController:
             and len(living) == len(party.members)
             # Raid until the Ambrosia trip is paid for and beyond: stopping
             # at 4500 left parties short of 4500 + food + keys, grinding
-            # slowly (user ruling 2026-11-22: amass more gold first).
-            and 400 <= party.gold < _DEATH_GULCH_GOLD_CAP
+            # slowly (user ruling 2026-11-22: amass more gold first). No
+            # floor: a broke party is the one that needs the raid most
+            # (the old 400 floor left it grinding for nothing).
+            and party.gold < _DEATH_GULCH_GOLD_CAP
             # Never raid for gold nothing will spend (user ruling 2026-11-22).
             and gold_has_a_use(party)
-            and sum(m.keys for m in living) >= 4
+            and sum(m.keys for m in living) >= DEATH_GULCH_KEYS
         )
 
     def _portal_dest(self, state_machine, screen, portals, label: str):

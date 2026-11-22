@@ -1068,3 +1068,31 @@ def test_one_laggard_does_not_hold_the_party_from_the_mark_of_kings(pygame_setup
     assert evaluate_goal(party, 0) in (Goal.GET_MARK_KINGS, Goal.BUY_GEMS, Goal.BUY_TORCHES)
     party.members[0].level = 4  # two below 5: keep grinding
     assert evaluate_goal(party, 0) == Goal.GRIND_AND_LEVEL
+
+
+def test_a_finished_party_short_of_stat_gold_buys_keys_and_raids(pygame_setup):
+    """User live trace 2026-11-22 (trace_20261122-151023): all cards and
+    marks, level 25+, 3 keys. Death Gulch needs 4, so it never raided again;
+    the return trip needed more gold and the castle waits for the stat plan,
+    so 5,549 gold went on food until the party was broke."""
+    from py_exodus.autoplay import batch
+    from py_exodus.autoplay.controller import AutoPlayController
+    from py_exodus.autoplay.planner import return_trip_cost, return_trip_gold
+
+    party = batch.build_party()
+    for m in party.members:
+        m.level, m.food, m.keys, m.gold = 25, 300, 0, 0
+        m.marks, m.cards = [1, 1, 1, 1], [1, 1, 1, 1]
+        m.weapon, m.armor = WeaponType.EXOTIC, ArmorType.EXOTIC
+    assert return_trip_cost(party) > 0
+    party.members[0].keys = 3
+    party.members[0].gold = 2000
+    assert party.gold < return_trip_gold(party)
+    assert evaluate_goal(party, 0) == Goal.BUY_KEYS
+    party.members[0].keys = 4
+    assert evaluate_goal(party, 0) == Goal.GRIND_AND_LEVEL
+    living = list(party.members)
+    ctrl = AutoPlayController(enabled=True)
+    assert ctrl._wants_death_gulch(party, living, 0, Goal.GRIND_AND_LEVEL)
+    party.members[0].gold = 29  # broke: raid all the more
+    assert ctrl._wants_death_gulch(party, living, 0, Goal.GRIND_AND_LEVEL)

@@ -69,6 +69,8 @@ AMBROSIA_ABORT_FOOD = 80
 # kept for the way out.
 AMBROSIA_RETURN_KEYS = 8
 AMBROSIA_EXIT_KEYS = 1
+# Keys a Death Gulch raid needs for its locked doors.
+DEATH_GULCH_KEYS = 4
 # Card trips budget the same 8 (user live trace 2026-11-22): the Moons card
 # alone sits behind (45,17), (50,6) and (11,6), and the exit rule fires on
 # the last key, so the old needed+2 budget (4 keys) turned back five tiles
@@ -528,6 +530,12 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
     # 70/75 caster MP lost a member in Castle Exodus. Grinding here raids
     # Death Gulch for the gold, and the return-trip goal above sails.
     if cur_map_id != 2 and return_trip_cost(party) > 0:
+        # The gold comes from Death Gulch, and the raid needs 4 keys for its
+        # doors (user live trace 2026-11-22, trace_20261122-151023: all
+        # cards and marks, level 25+, 3 keys: no raid after step 53,837, and
+        # 5,549 gold went on food until the party was broke).
+        if sum(m.keys for m in living) < DEATH_GULCH_KEYS and party.gold >= 50:
+            return Goal.BUY_KEYS
         return Goal.GRIND_AND_LEVEL
 
     return Goal.CONQUER_EXODUS
