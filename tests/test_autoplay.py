@@ -772,12 +772,12 @@ def test_buy_keys_before_ambrosia_and_unlock_locked_door(pygame_setup):
     am = AssetManager("data")
     am.load_all()
     sosaria = load_map(0, am)
-    # User rule (2026-11-21): guilds at Grey, Devil Guard and Fawn (Dawn only
-    # while open). Grey and Dawn are on the mainland; Devil Guard and Fawn
-    # need the trip layer's ship. Inside each town the stand is reachable
+    # User rule (2026-11-21): guilds at Devil Guard and Fawn (Dawn only while
+    # open; Grey dropped: a thief plugs its only corridor). Dawn is on the
+    # mainland; Devil Guard and Fawn need the trip layer's ship. Inside each town the stand is reachable
     # from the entry point (wandering town people cleared: they move).
-    assert set(_GUILD_TOWNS) == {6, 7, 11, 12}
-    for mid in (6, 11):
+    assert set(_GUILD_TOWNS) == {7, 11, 12}
+    for mid in (11,):
         px, py, _ = _GUILD_TOWNS[mid]
         assert find_2d_step(sosaria, (46, 20), (px, py), Transport.FOOT) is not None
     for mid, (px, py, guild_xy) in _GUILD_TOWNS.items():
@@ -794,9 +794,9 @@ def test_buy_keys_before_ambrosia_and_unlock_locked_door(pygame_setup):
     )
     assert evaluate_goal(party) == Goal.BUY_KEYS
 
-    # In Grey (map 6) at the Guild stand (33, 21), buys Keys up to 4
+    # In Fawn (map 12) at the Guild stand (32, 13), buys Keys up to 4
     sm = StateMachine(asset_mgr=am, audio=None)
-    ts = TownScreen(party=party, asset_mgr=am, map_id=6, start_x=33, start_y=21)
+    ts = TownScreen(party=party, asset_mgr=am, map_id=12, start_x=32, start_y=13)
     sm.set_screen(ts)
     ctrl = AutoPlayController(enabled=True)
     for _ in range(80):

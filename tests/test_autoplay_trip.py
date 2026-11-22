@@ -459,3 +459,17 @@ def test_squid_fought_on_foot_when_healthy(pygame_setup, asset_mgr):
     party.members[0].status = Status.POISONED
     ctrl._threat_escape(sm, ow, party, party.x, party.y)
     assert ctrl._threats.squid_engage
+
+
+def test_chest_in_a_lane_is_looted_before_escaping(pygame_setup, asset_mgr):
+    """User report (2026-11-21): stepping onto a chest in a pirate lane, the
+    party stepped off before looting and walked back in, forever. Now it
+    loots first."""
+    party = _make_party(level=5)
+    sm, ow = _overworld(asset_mgr, party)
+    party.dynamic_objects.append({"tile": "chest", "x": party.x, "y": party.y})
+    ow.creatures = [_pirate(party.x + 3, party.y)]
+    for m in party.members:
+        m.mp = 0  # no APPAR_UNEM: plain Get
+    ctrl = AutoPlayController(enabled=True)
+    assert ctrl.step(sm) == pygame.K_g

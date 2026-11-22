@@ -140,9 +140,10 @@ _SHOP_TOWNS: dict[int, tuple[int, int, tuple[int, int], tuple[int, int]]] = {
 # Towns with Guild shops reachable on foot: map_id -> (portal_x, portal_y, guild_stand_xy)
 # Every guild sells a torches, b gems, c keys, d powder; the stand is two
 # tiles in front of the keeper, across the sign row. User rule (2026-11-21):
-# buy at Grey / Devil Guard / Fawn; Dawn only when it happens to be open.
+# buy at Devil Guard / Fawn; Dawn only when it happens to be open. Grey's
+# guild is off the list (user ruling): its only corridor, past the Tap
+# House, is regularly plugged by a thief who never moves out of it.
 _GUILD_TOWNS: dict[int, tuple[int, int, tuple[int, int]]] = {
-    6: (7, 44, (33, 21)),    # Grey, The Guild
     7: (18, 31, (48, 53)),   # Devil Guard, The Thieves Guild
     12: (30, 2, (32, 13)),   # Fawn, Tools of Trade
     11: (37, 53, (34, 21)),  # Dawn (only while open)
@@ -1049,6 +1050,22 @@ class AutoPlayController:
 
         if not th.unsafe_end(pos):
             return None
+
+        # Standing on a chest under fire: take it now (one action), then the
+        # usual rule (fight or leave). Stepping off first made the party walk
+        # back in for it, again and again (user report 2026-11-21).
+        if not on_ship and any(
+            str(o.get("tile", "")).lower() == "chest" and (o.get("x"), o.get("y")) == pos
+            for o in getattr(party, "dynamic_objects", ()) or ()
+        ):
+            caster = self._find_caster(
+                party, (Profession.CLERIC, Profession.PALADIN, Profession.DRUID), min_mp=5
+            )
+            if caster is not None:
+                self._queue_text(f"{caster[0]}b", enter=False)
+                return self._emit_key(state_machine, pygame.K_c, guarded=False)
+            self._queue_text("1", enter=False)
+            return self._emit_key(state_machine, pygame.K_g, guarded=False)
 
         has_key = any(not m.is_dead() and m.keys > 0 for m in party.members)
         if on_ship:
