@@ -104,6 +104,7 @@ def party_has_low_hp(party) -> bool:
     return any(not m.is_dead() and m.max_hp > 0 and m.hp * 10 < m.max_hp * 4 for m in party.members)
 
 _MAP_SOSARIA = 0
+_DEATH_GULCH_GOLD_CAP = 9000  # same cap as the raid inside
 # A party this strong walks up to pirates and fights them from land.
 _PIRATE_HUNT_MIN_LEVEL = 8
 _PIRATE_HUNT_RANGE = 10
@@ -717,7 +718,7 @@ class AutoPlayController:
                 goal in (Goal.GRIND_AND_LEVEL, Goal.BUY_KEYS)
                 or (goal == Goal.CURE_POISON and can_alcort)
             )
-            and party.gold < 9000
+            and party.gold < _DEATH_GULCH_GOLD_CAP
             and party.food >= 40
             and all(not m.is_dead() and m.hp > 100 for m in party.members)
             # User report (2026-11-21): G with a low-dex Thief once the MP
@@ -1571,7 +1572,10 @@ class AutoPlayController:
             )
             and all(any(m.marks[i] > 0 for m in living) for i in (1, 2, 3))
             and len(living) == len(party.members)
-            and 400 <= party.gold < 4500
+            # Raid until the Ambrosia trip is paid for and beyond: stopping
+            # at 4500 left parties short of 4500 + food + keys, grinding
+            # slowly (user ruling 2026-11-22: amass more gold first).
+            and 400 <= party.gold < _DEATH_GULCH_GOLD_CAP
             and sum(m.keys for m in living) >= 4
         )
 

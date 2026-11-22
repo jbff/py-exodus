@@ -60,6 +60,7 @@ def needs_cure(party: Party) -> bool:
 # moves (Party.consume_food, decr_interval 40 vs 400 submorsels); a visit
 # runs ~1500-2500 moves, and finding a pirate and sailing out ~500-800.
 AMBROSIA_ENTRY_FOOD = 200
+AMBROSIA_SHRINE_BUDGET = 4500
 AMBROSIA_ABORT_FOOD = 80
 # Keys beyond the card doors: the door east of the arrival point and the
 # water door between the east basin and the whirlpool bay.
@@ -90,28 +91,24 @@ def alcort_wisdom_gap(party: Party) -> int | None:
 def ambrosia_trip_gold(party: Party, needed_keys: int) -> int:
     """Gold the party should hold before sailing for Ambrosia.
 
-    User ruling (2026-11-21): the first trip is early and cheap, just the
-    wisdom a Cleric needs for ALCORT (it ends the healer runs that eat the
-    gold); the 4500 shrine budget comes after ALCORT. The target also
-    covers the food and keys still to buy, so buying them never drops the
-    party back under it.
+    User ruling (2026-11-22): save the full shrine budget for the first
+    trip. The early cheap ALCORT trip (2026-11-21) was for the poisoning,
+    which turned out to be Death Gulch chest traps (now opened safely), and
+    it bought only ~11 wisdom. The target also covers the food and keys
+    still to buy, so buying them never drops the party back under it.
     """
     living = [m for m in party.members if not m.is_dead()]
-    gap = alcort_wisdom_gap(party)
-    if gap:
-        shrine_gold = gap * 100 + 200  # the shrine keeps a 150 reserve
-    else:
-        any_below_cap = any(
-            member_needs_shrine_stat(m, stat_attr, cap_attr)
-            for m in living
-            for stat_attr, cap_attr in (
-                ("strength", "max_str"),
-                ("dexterity", "max_dex"),
-                ("wisdom", "max_wis"),
-                ("intelligence", "max_int"),
-            )
+    any_below_cap = any(
+        member_needs_shrine_stat(m, stat_attr, cap_attr)
+        for m in living
+        for stat_attr, cap_attr in (
+            ("strength", "max_str"),
+            ("dexterity", "max_dex"),
+            ("wisdom", "max_wis"),
+            ("intelligence", "max_int"),
         )
-        shrine_gold = 4500 if any_below_cap else 1500
+    )
+    shrine_gold = AMBROSIA_SHRINE_BUDGET if any_below_cap else 1500
     food_gold = sum(max(0, AMBROSIA_ENTRY_FOOD - m.food) for m in living) * 6 // 5
     keys_short = max(0, needed_keys + AMBROSIA_SPARE_KEYS - sum(m.keys for m in living))
     return shrine_gold + food_gold + 50 * keys_short

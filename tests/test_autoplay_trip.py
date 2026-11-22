@@ -549,10 +549,10 @@ def test_poisoned_party_without_alcort_does_not_rest_in_town(pygame_setup, asset
     assert ctrl._can_rest_indoors(party, evaluate_goal(party, 4))
 
 
-def test_early_ambrosia_trip_targets_alcort_wisdom(pygame_setup):
-    """User ruling (2026-11-21): before ALCORT the Ambrosia gold target is
-    the Cleric's missing wisdom (100 gold a point) plus food and keys still
-    to buy; the 4500 shrine budget only after ALCORT."""
+def test_first_ambrosia_trip_saves_the_full_shrine_budget(pygame_setup):
+    """User ruling (2026-11-22, replacing the early ALCORT trip of
+    2026-11-21): the first trip waits for the 4500 shrine budget plus the
+    food and keys still to buy; with every stat capped, 1500."""
     from py_exodus.autoplay.planner import alcort_wisdom_gap, ambrosia_trip_gold
     from py_exodus.constants import Profession
 
@@ -564,13 +564,15 @@ def test_early_ambrosia_trip_targets_alcort_wisdom(pygame_setup):
         m.food = 300
         m.keys = 2
     assert alcort_wisdom_gap(party) == 10
-    assert ambrosia_trip_gold(party, 2) == 10 * 100 + 200
+    assert ambrosia_trip_gold(party, 2) == 4500
     for m in party.members:
         m.food = 100  # 4 x 100 food still to buy at ~1.2 gp
-    assert ambrosia_trip_gold(party, 2) == 1200 + 480
-    cleric.wisdom = 35
-    assert alcort_wisdom_gap(party) == 0
-    assert ambrosia_trip_gold(party, 2) >= 1500
+    assert ambrosia_trip_gold(party, 2) == 4500 + 480
+    for m in party.members:
+        m.food = 300
+        for stat in ("strength", "dexterity", "intelligence", "wisdom"):
+            setattr(m, stat, getattr(m, "max_" + stat[:3], 99))
+    assert ambrosia_trip_gold(party, 2) == 1500
 
 
 def test_chest_opener_never_risks_a_trap_when_it_can_avoid_it(pygame_setup):
