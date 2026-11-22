@@ -2357,7 +2357,7 @@ class AutoPlayController:
                 self._wear_item_letter = chr(ord("a") + list(ArmorType).index(better_a))
                 return self._emit_key(state_machine, pygame.K_w)
 
-        transfer = best_hand_transfer(party)
+        transfer = best_hand_transfer(party, prefer_ranged)
         if transfer is not None:
             self._hand_from_idx, self._hand_to_idx = transfer
             return self._emit_key(state_machine, pygame.K_h)

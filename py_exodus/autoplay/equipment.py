@@ -190,7 +190,7 @@ def best_owned_armor(member: Character) -> ArmorType | None:
     return best
 
 
-def best_hand_transfer(party: Party) -> tuple[int, int] | None:
+def best_hand_transfer(party: Party, prefer_ranged: bool = True) -> tuple[int, int] | None:
     """Find a useful ``H`` (Hand Equipment) transfer from one member to another.
 
     Mirrors ``_prompt_hand_equipment`` selection order: first unequipped weapon
@@ -203,7 +203,7 @@ def best_hand_transfer(party: Party) -> tuple[int, int] | None:
         if m1.is_dead():
             continue
         # If m1 wants to equip something they already hold, let R/W run first.
-        if best_owned_weapon(m1) is not None or best_owned_armor(m1) is not None:
+        if best_owned_weapon(m1, prefer_ranged) is not None or best_owned_armor(m1) is not None:
             continue
 
         picked_w: WeaponType | None = None
@@ -213,7 +213,11 @@ def best_hand_transfer(party: Party) -> tuple[int, int] | None:
                 break
 
         if picked_w is not None:
-            w_rank = WEAPON_RANK.get(picked_w, 0)
+            # Scored the way the receiver will choose what to ready: by raw
+            # rank, a spare Exotic went to a bow-armed Fighter on a ship,
+            # who kept the bow, so it went back, every step (batch 1c7525f
+            # seed 17: 16,500 steps parked handing it to and fro, starved).
+            w_rank = _weapon_score(picked_w, prefer_ranged)
             for j, m2 in enumerate(party.members):
                 if j == i or m2.is_dead():
                     continue
@@ -222,7 +226,7 @@ def best_hand_transfer(party: Party) -> tuple[int, int] | None:
                 # (the dig-site loop: dig exotic, hand it on, dig again...).
                 if m2.weapons.get(picked_w, 0) > 0 or m2.weapon == picked_w:
                     continue
-                if can_use_weapon(m2, picked_w) and w_rank > WEAPON_RANK.get(m2.weapon, 0):
+                if can_use_weapon(m2, picked_w) and w_rank > _weapon_score(m2.weapon, prefer_ranged):
                     return (i + 1, j + 1)
             continue
 

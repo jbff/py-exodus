@@ -412,6 +412,43 @@ def test_hand_transfer_never_gives_a_duplicate():
     assert transfer is None or transfer[1] != 2
 
 
+def test_hand_transfer_never_ping_pongs_a_spare():
+    """Batch 1c7525f seed 17: on a ship (ranged preferred) a spare Exotic
+    went Thief -> Fighter -> Thief every step for 16,500 steps; both kept
+    their bows, the party sat still and starved. The hand-off scores the
+    weapon the way the receiver will choose what to ready."""
+    from py_exodus.autoplay.equipment import best_hand_transfer, best_owned_weapon
+
+    for prefer_ranged in (True, False):
+        p = _make_party(level=12)
+        thief, fighter = p.members[0], p.members[1]
+        thief.weapons.clear()
+        thief.weapons[WeaponType.EXOTIC] = 1
+        thief.weapon = WeaponType.BOW
+        fighter.weapons.clear()
+        fighter.weapon = WeaponType.BOW
+        for m in p.members[2:]:
+            m.weapons.clear()
+            m.weapon = WeaponType.EXOTIC
+        seen = []
+        for _ in range(6):
+            for m in p.members:
+                best = best_owned_weapon(m, prefer_ranged)
+                if best is not None:  # R: ready it, old weapon to the pack
+                    m.weapons[m.weapon] = m.weapons.get(m.weapon, 0) + 1
+                    m.weapons[best] -= 1
+                    m.weapon = best
+            t = best_hand_transfer(p, prefer_ranged)
+            if t is None:
+                break
+            giver, taker = p.members[t[0] - 1], p.members[t[1] - 1]
+            w = next(w for w, c in giver.weapons.items() if c > 0 and w != giver.weapon)
+            giver.weapons[w] -= 1
+            taker.weapons[w] = taker.weapons.get(w, 0) + 1
+            seen.append(t)
+        assert len(seen) <= 1, (prefer_ranged, seen)
+
+
 # ---------------------------------------------------------------------------
 # Being chased (user rule 2026-11-21): outrun a deadly fight to a town, else
 # fight; never dodge in circles.
