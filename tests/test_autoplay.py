@@ -1489,10 +1489,13 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
     ctrl._key_queue.clear()
     for _m in p_cap2.members:  # Ambrosia entry budget (user rule 2026-11-21)
         _m.food = max(_m.food, 300)
+    # A caster with APPAR UNEM mana: the chest can be opened safely (a weak
+    # party with no safe opener leaves chests alone, _chest_too_risky).
+    p_cap2.members[2].mp = p_cap2.members[2].max_mp = 25
     assert evaluate_goal(p_cap2) == Goal.SAIL_WHIRLPOOL
     assert ctrl.step(sm) == pygame.K_DOWN
 
-    # Broadsides do not fire across non-wrapping map borders (e.g. x=1 -> x=63)
+    # LairWare's cannon wraps round Sosaria's edge (MapConstrain): x=1 fires west at x=63
     p_edge = _make_party(level=5, exp=500, gold=0, food=500, marks=[1, 0, 0, 0], transport=Transport.SHIP)
     for m in p_edge.members:
         m.weapon = WeaponType.EXOTIC
@@ -1501,18 +1504,17 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
         m.armors[ArmorType.EXOTIC] = 1
     p_edge.x, p_edge.y = 1, 37
     ow_ed = OverworldScreen(party=p_edge, asset_mgr=am, random_encounters=False)
-    ow_ed.heading = Direction.NORTH
     ow_ed.creatures = [{"x": 63, "y": 37, "tile_name": "serpent"}]
     sm.set_screen(ow_ed)
     ctrl._key_queue.clear()
-    assert ctrl.step(sm) != pygame.K_f
+    assert ctrl.step(sm) == pygame.K_f
+    assert ctrl._key_queue[0] == pygame.K_LEFT
 
     # Ship in DIG_EXOTICS avoids pirate broadside lane at distance 3 (steps perpendicular out of lane)
     p_lane = _make_party(level=5, exp=500, gold=0, food=500, marks=[1, 0, 0, 0], transport=Transport.SHIP)
     p_lane.x, p_lane.y = 52, 15
     p_lane.wind_direction = Direction.NORTH
     ow_pl = OverworldScreen(party=p_lane, asset_mgr=am, random_encounters=False)
-    ow_pl.heading = Direction.EAST
     ow_pl.creatures = [{"x": 55, "y": 15, "tile_name": "pirate"}]  # 3 tiles East in broadside lane
     sm.set_screen(ow_pl)
     ctrl._key_queue.clear()
@@ -2119,29 +2121,29 @@ def test_kx_landing_refuses_pirate_lane_when_alternate_exists(pygame_setup):
 
 
 def test_broadsides_permitted_at_critical_hull(pygame_setup):
-    """Ship with hull <= 30 and a pirate lined up at distance 2: it sails out of the lane when
-    its heading allows, and fires the broadside only when it cannot leave this turn."""
+    """A battered ship (hull below 20) with a pirate lined up at distance 2: it sails
+    out of the lane when it can, and fires (LairWare: any direction) only when it
+    cannot sail. A sound ship closes in to fight instead (user rule 2026-11-21)."""
     gmap = _make_stub_grid(10, 10, {}, default="water", map_id=0)
     party = _make_party(
         level=10, exp=1000, gold=100, food=500, marks=[1, 1, 1, 1],
         weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC, transport=Transport.SHIP,
     )
     party.x, party.y = 4, 4
-    party.ship_hull = 30
+    party.ship_hull = 15
     sm = StateMachine(asset_mgr=None, audio=None)
     screen = _stub_screen(
         game_map=gmap,
         creatures=[{"x": 6, "y": 4, "tile_name": "pirate"}],
         party=party,
-        heading=Direction.NORTH,
-        ship_hull=30,
+        ship_hull=15,
     )
     sm.set_screen(screen)
     ctrl = AutoPlayController(enabled=True)
-    party.wind_direction = Direction.NORTH  # sailing north is allowed: leave the lane
-    assert ctrl.step(sm) == pygame.K_UP
+    party.wind_direction = Direction.NORTH
+    assert ctrl.step(sm) in (pygame.K_UP, pygame.K_DOWN)  # out of the pirate's row
     party.x, party.y = 4, 4
-    party.wind_direction = Direction.SOUTH  # north blocked: shoot back at the pirate to the east
+    party.wind_direction = None  # becalmed: shoot back at the pirate to the east
     ctrl._key_queue.clear()
     assert ctrl.step(sm) == pygame.K_f
     assert ctrl._key_queue[0] == pygame.K_RIGHT

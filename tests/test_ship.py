@@ -165,16 +165,6 @@ class TestHullLifecycle:
         assert not sample_party.is_party_dead()
         assert not any("sinks" in m for m in overworld.text_log.history)
 
-    def test_cannon_damages_empty_frigate(self, overworld, sample_party):
-        """Utils.fireAt (Utils.java:540-546): an empty frigate in the path is
-        a hit and takes 10 hull damage, stopping the trace."""
-        sample_party.transport = Transport.SHIP
-        overworld.heading = Direction.NORTH
-        frigate = {"tile": "frigate", "x": 11, "y": 10, "hull": 50}
-        sample_party.dynamic_objects.append(frigate)
-        overworld._fire_cannons(Direction.EAST)
-        assert frigate["hull"] == 40
-
 
 class TestExactFrigateNameMatch:
     """Java matches the exact tile name: ``"frigate".equals(
@@ -270,53 +260,6 @@ class TestCombatRoundEndTurn:
         assert sample_party.members[0].submorsels == 45
         assert sample_party.members[0].food == 10
         assert sample_party.members[0].hp == sample_party.members[0].max_hp
-
-
-class TestSailingFacing:
-    """GameScreen.java:461-529 — on a ship an arrow first turns the ship
-    (turn consumed, no motion); a matching arrow moves. Horses do not turn."""
-
-    def test_arrow_first_turns_ship(self, overworld, sample_party):
-        sample_party.transport = Transport.SHIP
-        overworld.heading = Direction.NORTH
-        key(overworld, pygame.K_RIGHT)  # EAST
-        assert overworld.heading == Direction.EAST
-        assert sample_party.x == 10 and sample_party.y == 10  # did not move
-        assert sample_party.moves == 1  # turn consumed
-
-    def test_second_press_moves(self, overworld, sample_party):
-        sample_party.transport = Transport.SHIP
-        overworld.heading = Direction.NORTH
-        key(overworld, pygame.K_RIGHT)  # turn only
-        key(overworld, pygame.K_RIGHT)  # now move
-        assert (sample_party.x, sample_party.y) == (11, 10)
-        assert sample_party.moves == 2
-
-    def test_matching_direction_moves_immediately(self, overworld, sample_party):
-        sample_party.transport = Transport.SHIP
-        overworld.heading = Direction.EAST
-        key(overworld, pygame.K_RIGHT)
-        assert (sample_party.x, sample_party.y) == (11, 10)
-        assert sample_party.moves == 1
-
-    def test_horse_moves_without_facing(self, overworld, sample_party):
-        sample_party.transport = Transport.HORSE
-        overworld.heading = Direction.NORTH
-        key(overworld, pygame.K_RIGHT)
-        assert (sample_party.x, sample_party.y) == (11, 10)
-        assert sample_party.moves == 1
-
-    def test_foot_moves_without_facing(self, overworld, sample_party):
-        overworld.heading = Direction.NORTH
-        key(overworld, pygame.K_RIGHT)
-        assert (sample_party.x, sample_party.y) == (11, 10)
-
-    def test_facings_are_independent_per_screen(self, overworld, sample_party):
-        """Facing persists from foot movement, is not reset by boarding."""
-        key(overworld, pygame.K_RIGHT)  # foot move east, heading → EAST
-        sample_party.transport = Transport.SHIP
-        key(overworld, pygame.K_RIGHT)  # already facing east: moves
-        assert (sample_party.x, sample_party.y) == (12, 10)
 
 
 class TestWindRules:
@@ -415,29 +358,6 @@ class TestCannonTraceStopsAtMapEdge:
     the trace before it is used. Cannonballs never wrap across a map seam,
     on either the avatar's or the pirate's volley."""
 
-    def test_player_broadside_does_not_wrap_across_west_seam(self, overworld, sample_party):
-        sample_party.transport = Transport.SHIP
-        sample_party.x = 2
-        sample_party.y = 10
-        overworld.heading = Direction.SOUTH  # broadside: WEST is valid
-        frigate = {"tile": "frigate", "x": 63, "y": 10, "hull": 50}
-        sample_party.dynamic_objects.append(frigate)
-        overworld._fire_cannons(Direction.WEST)
-        # Wrap would place step 3 on x=63; Java breaks the trace at x=-1.
-        assert frigate["hull"] == 50
-        assert frigate in sample_party.dynamic_objects
-
-    def test_player_broadside_does_not_wrap_across_east_seam(self, overworld, sample_party):
-        sample_party.transport = Transport.SHIP
-        sample_party.x = 62
-        sample_party.y = 10
-        overworld.heading = Direction.SOUTH  # broadside: EAST is valid
-        frigate = {"tile": "frigate", "x": 0, "y": 10, "hull": 50}
-        sample_party.dynamic_objects.append(frigate)
-        overworld._fire_cannons(Direction.EAST)
-        # Wrap would place step 3 on x=0; Java breaks the trace past x=63.
-        assert frigate["hull"] == 50
-        assert frigate in sample_party.dynamic_objects
 
     def test_enemy_broadside_does_not_wrap_across_west_seam(self, overworld, sample_party):
         sample_party.x, sample_party.y = 30, 30
@@ -465,24 +385,6 @@ class TestSunkFrigateRemoved:
     an unmanned frigate with hull <= 0 removes it from the map
     (``map.removeObject``). A sunk hull is not left boardable."""
 
-    def test_player_broadside_removes_sunk_frigate(self, overworld, sample_party):
-        sample_party.transport = Transport.SHIP
-        overworld.heading = Direction.NORTH
-        frigate = {"tile": "frigate", "x": 11, "y": 10, "hull": 10}
-        sample_party.dynamic_objects.append(frigate)
-        overworld._fire_cannons(Direction.EAST)
-        assert frigate["hull"] == 0
-        assert frigate not in sample_party.dynamic_objects
-
-    def test_player_broadside_keeps_damaged_frigate(self, overworld, sample_party):
-        sample_party.transport = Transport.SHIP
-        overworld.heading = Direction.NORTH
-        frigate = {"tile": "frigate", "x": 11, "y": 10, "hull": 50}
-        sample_party.dynamic_objects.append(frigate)
-        overworld._fire_cannons(Direction.EAST)
-        assert frigate["hull"] == 40
-        # A frigate with hull left stays on the map (and boardable).
-        assert frigate in sample_party.dynamic_objects
 
     def test_enemy_broadside_removes_sunk_frigate(self, overworld, sample_party):
         sample_party.x, sample_party.y = 30, 30
@@ -493,35 +395,12 @@ class TestSunkFrigateRemoved:
         assert frigate["hull"] == 0
         assert frigate not in sample_party.dynamic_objects
 
-    def test_sunk_frigate_cannot_be_boarded_after_removal(self, overworld, sample_party):
-        """After the removal the tile is empty: "Board What?" (no hull reset
-        path can resurrect a sunken frigate object)."""
-        sample_party.transport = Transport.SHIP
-        overworld.heading = Direction.NORTH
-        frigate = {"tile": "frigate", "x": 11, "y": 10, "hull": 10}
-        sample_party.dynamic_objects.append(frigate)
-        overworld._fire_cannons(Direction.EAST)
-        sample_party.transport = Transport.FOOT
-        sample_party.x, sample_party.y = 11, 10
-        key(overworld, pygame.K_b)
-        assert sample_party.transport == Transport.FOOT
-        assert any(m == "Board What?" for m in overworld.text_log.history)
-
 
 class TestStackedFrigateLastMatch:
     """util/Utils.java:536-547 fireAt — scans all objects without early
     break, so the last matching ``frigate`` on the target tile takes 10
     hull damage while earlier stacked frigates remain untouched."""
 
-    def test_player_broadside_damages_last_stacked_frigate(self, overworld, sample_party):
-        sample_party.transport = Transport.SHIP
-        overworld.heading = Direction.NORTH
-        frigate_first = {"tile": "frigate", "x": 11, "y": 10, "hull": 50}
-        frigate_last = {"tile": "frigate", "x": 11, "y": 10, "hull": 50}
-        sample_party.dynamic_objects.extend([frigate_first, frigate_last])
-        overworld._fire_cannons(Direction.EAST)
-        assert frigate_first["hull"] == 50
-        assert frigate_last["hull"] == 40
 
     def test_enemy_broadside_damages_last_stacked_frigate(self, overworld, sample_party):
         sample_party.x, sample_party.y = 30, 30
@@ -532,68 +411,6 @@ class TestStackedFrigateLastMatch:
         overworld._enemy_fire_cannons(pirate, Direction.EAST)
         assert frigate_first["hull"] == 50
         assert frigate_last["hull"] == 40
-
-
-class TestPlayerCannonShorelineWhirlpoolAndHitRoll:
-    """util/Utils.java:423-444 (avatarfireCannon), 471 (getDirectionalActionPath
-    with isCannonBall=true), 551-569 (fireAt whirlpool skip & 1-in-3 hit)."""
-
-    def test_player_broadside_fires_past_intervening_land_tile(
-        self, overworld, sample_party, asset_mgr, monkeypatch
-    ):
-        sample_party.transport = Transport.SHIP
-        overworld.heading = Direction.NORTH
-        mountain = asset_mgr.get_tile_by_name("mountains")
-        assert mountain is not None and not mountain.walkable and not mountain.sailable
-        monkeypatch.setattr(
-            overworld.game_map,
-            "get_tile",
-            lambda x, y: mountain if (x, y) == (11, 10) else asset_mgr.get_tile_by_name("water"),
-        )
-        frigate = {"tile": "frigate", "x": 12, "y": 10, "hull": 50}
-        sample_party.dynamic_objects.append(frigate)
-        overworld._fire_cannons(Direction.EAST)
-        assert frigate["hull"] == 40
-
-    def test_player_broadside_skips_whirlpool_and_hits_beyond(
-        self, overworld, sample_party, monkeypatch
-    ):
-        monkeypatch.setattr("py_exodus.screens.overworld.random.randint", lambda a, b: 0)
-        sample_party.transport = Transport.SHIP
-        overworld.heading = Direction.NORTH
-        whirlpool = {"tile_name": "whirlpool", "tile": "whirlpool", "x": 11, "y": 10, "hp": 50}
-        serpent = {"tile_name": "serpent", "tile": "serpent", "x": 12, "y": 10, "hp": 50}
-        overworld.creatures = [whirlpool, serpent]
-        overworld._fire_cannons(Direction.EAST)
-        assert whirlpool in overworld.creatures
-        assert whirlpool["hp"] == 50
-        assert serpent not in overworld.creatures
-
-    def test_player_broadside_creature_hits_on_roll_zero(
-        self, overworld, sample_party, monkeypatch
-    ):
-        monkeypatch.setattr("py_exodus.screens.overworld.random.randint", lambda a, b: 0)
-        sample_party.transport = Transport.SHIP
-        overworld.heading = Direction.NORTH
-        serpent = {"tile_name": "serpent", "tile": "serpent", "x": 11, "y": 10, "hp": 99}
-        overworld.creatures = [serpent]
-        overworld._fire_cannons(Direction.EAST)
-        assert serpent not in overworld.creatures
-
-    def test_player_broadside_creature_misses_on_nonzero_roll_and_stops_trace(
-        self, overworld, sample_party, monkeypatch
-    ):
-        monkeypatch.setattr("py_exodus.screens.overworld.random.randint", lambda a, b: 1)
-        sample_party.transport = Transport.SHIP
-        overworld.heading = Direction.NORTH
-        serpent = {"tile_name": "serpent", "tile": "serpent", "x": 11, "y": 10, "hp": 50}
-        frigate_behind = {"tile": "frigate", "x": 12, "y": 10, "hull": 50}
-        overworld.creatures = [serpent]
-        sample_party.dynamic_objects.append(frigate_behind)
-        overworld._fire_cannons(Direction.EAST)
-        assert serpent in overworld.creatures
-        # fireAt returns MISS (!= NONE), so avatarfireCannon stops the trace.
-        assert frigate_behind["hull"] == 50
 
 
 class TestFrigateRendering:
@@ -688,83 +505,5 @@ class TestFrigateNoStacking:
 
         assert overworld.party.transport == Transport.SHIP
         assert any("shoreline" in msg.lower() for msg in overworld.text_log.lines)
-
-
-class TestOverworldCannonFX:
-    """Visual cannonball projectile & hit/splash FX in OverworldScreen."""
-
-    def test_fire_cannons_air_records_fx_renders_and_clears(self, overworld):
-        overworld.party.x, overworld.party.y = 20, 20
-        overworld.party.transport = Transport.SHIP
-        overworld.heading = Direction.NORTH
-        overworld.creatures.clear()
-
-        surf_before = pygame.Surface((176, 176))
-        overworld.render(surf_before)
-        before_bytes = pygame.image.tobytes(surf_before, "RGB")
-
-        overworld._fire_cannons(Direction.EAST)
-        assert len(overworld.cannon_fx) == 1
-        fx = overworld.cannon_fx[0]
-        assert fx["start_pos"] == (20, 20)
-        assert len(fx["path"]) == 4
-        assert fx["path"] == [(21, 20), (22, 20), (23, 20), (24, 20)]
-        assert fx["target_pos"] == (24, 20)
-        assert fx["hit"] is False
-
-        # Advance slightly so the projectile is mid-flight over the path tiles.
-        overworld.update(0.15)
-        assert len(overworld.cannon_fx) == 1
-
-        surf_during = pygame.Surface((176, 176))
-        overworld.render(surf_during)
-        during_bytes = pygame.image.tobytes(surf_during, "RGB")
-        assert during_bytes != before_bytes
-
-        # Advance past duration (0.35s) to clear expired FX.
-        overworld.update(0.40)
-        assert overworld.cannon_fx == []
-
-    def test_fire_cannons_hit_stops_path_and_sets_hit_true(self, overworld, monkeypatch):
-        overworld.party.x, overworld.party.y = 20, 20
-        overworld.party.transport = Transport.SHIP
-        overworld.heading = Direction.NORTH
-        overworld.creatures = [{"tile_name": "pirate", "x": 22, "y": 20}]
-        monkeypatch.setattr(overworld_module.random, "randint", lambda a, b: 0)
-
-        overworld._fire_cannons(Direction.EAST)
-        assert len(overworld.cannon_fx) == 1
-        fx = overworld.cannon_fx[0]
-        assert fx["path"] == [(21, 20), (22, 20)]
-        assert fx["target_pos"] == (22, 20)
-        assert fx["hit"] is True
-
-    def test_fire_cannons_hit_unmanned_frigate_records_fx(self, overworld):
-        overworld.party.x, overworld.party.y = 20, 20
-        overworld.party.transport = Transport.SHIP
-        overworld.heading = Direction.NORTH
-        overworld.party.dynamic_objects.append({"tile": "frigate", "x": 22, "y": 20, "hull": 50})
-
-        overworld._fire_cannons(Direction.EAST)
-        assert len(overworld.cannon_fx) == 1
-        fx = overworld.cannon_fx[0]
-        assert fx["path"] == [(21, 20), (22, 20)]
-        assert fx["target_pos"] == (22, 20)
-        assert fx["hit"] is True
-
-    def test_enemy_fire_cannons_records_fx_from_pirate(self, overworld, monkeypatch):
-        overworld.party.x, overworld.party.y = 20, 20
-        overworld.party.transport = Transport.SHIP
-        pirate = {"tile_name": "pirate", "x": 23, "y": 20}
-        monkeypatch.setattr(overworld_module.random, "randint", lambda a, b: 0)
-
-        overworld._enemy_fire_cannons(pirate, Direction.WEST)
-        assert len(overworld.cannon_fx) == 1
-        fx = overworld.cannon_fx[0]
-        assert fx["start_pos"] == (23, 20)
-        assert fx["path"] == [(22, 20), (21, 20), (20, 20)]
-        assert fx["target_pos"] == (20, 20)
-        assert fx["hit"] is True
-
 
 

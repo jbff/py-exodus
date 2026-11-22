@@ -1116,7 +1116,6 @@ class AutoPlayController:
                 gmap,
                 party,
                 pos,
-                getattr(screen, "heading", Direction.NORTH),
                 th,
                 lambda x, y: can_move_to(gmap, x, y, Transport.SHIP, party=party)
                 or (has_key and self._is_locked_door(gmap, x, y)
@@ -1208,8 +1207,6 @@ class AutoPlayController:
             return key
         party = screen.party
         d = _KEY_TO_DIR[key]
-        if party.transport == Transport.SHIP and getattr(screen, "heading", d) != d:
-            return key  # a turn: the ship stays on its (already safe) tile
         gmap = screen.game_map
         dest = ((party.x + d.dx) % gmap.width, (party.y + d.dy) % gmap.height)
         here = (party.x, party.y)
@@ -1366,22 +1363,21 @@ class AutoPlayController:
         # lane rule: escape at 2-3, attack at 1). Squids are cannon targets
         # until the party can cure their poison (ALCORT).
         if cur_map_id in _PIRATE_SEA_MAPS and party.transport == Transport.SHIP:
-            heading = getattr(screen, "heading", Direction.EAST)
-            broadsides_horiz = heading in (Direction.NORTH, Direction.SOUTH)
+            # LairWare Fire: any of the four directions, three tiles, wrapping.
+            w, h = gmap.width, gmap.height
             for c in getattr(screen, "creatures", []):
                 tname = creature_name(c)
                 if tname not in _CANNON_TARGETS or "x" not in c or "y" not in c:
                     continue
-                # The cannon trace does not wrap (overworld _fire_cannons).
-                dx = c["x"] - px
-                dy = c["y"] - py
+                dx = (c["x"] - px + w // 2) % w - w // 2
+                dy = (c["y"] - py + h // 2) % h - h // 2
                 if getattr(self, "_last_cannon_state", None) == (px, py, party.moves):
                     break
-                if broadsides_horiz and dy == 0 and 1 <= abs(dx) <= 3:
+                if dy == 0 and 1 <= abs(dx) <= 3:
                     self._last_cannon_state = (px, py, party.moves)
                     self._key_queue.append(pygame.K_RIGHT if dx > 0 else pygame.K_LEFT)
                     return self._emit_key(state_machine, pygame.K_f)
-                if not broadsides_horiz and dx == 0 and 1 <= abs(dy) <= 3:
+                if dx == 0 and 1 <= abs(dy) <= 3:
                     self._last_cannon_state = (px, py, party.moves)
                     self._key_queue.append(pygame.K_DOWN if dy > 0 else pygame.K_UP)
                     return self._emit_key(state_machine, pygame.K_f)

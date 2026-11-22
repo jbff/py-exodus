@@ -381,8 +381,6 @@ class OverworldScreen(BaseScreen):
         self.stats_panel = StatsPanel(asset_mgr=self.asset_mgr)
         self.text_log = TextLog(max_lines=5, wrap_width=64)
 
-        # Heading / facing direction (for broadside cannon checks)
-        self.heading: Direction = Direction.NORTH
         self.cannon_fx: list[dict[str, Any]] = []
 
 
@@ -682,12 +680,12 @@ class OverworldScreen(BaseScreen):
         elif event.key == pygame.K_e:
             self._enter_portal()
         elif event.key == pygame.K_f:
-            # Java GameScreen.java:531-536 — F is only the cannon prompt on a
-            # ship; any other state reaches the keyUp tail SILENTLY (no
-            # message) and still consumes a turn.
+            # LairWare Fire (UltimaMain.c:1523-1528): only aboard a ship;
+            # otherwise "Fire <-WHAT?" (What2), and the turn passes.
             if self.party.transport == Transport.SHIP:
                 self._prompt_fire_cannons()
             else:
+                self.text_log.add_message("Fire <-WHAT?")
                 self._consume_pass_turn()
         elif event.key == pygame.K_g:
             self._get_chest()
@@ -1461,15 +1459,8 @@ class OverworldScreen(BaseScreen):
         if self.game_map is None:
             return
 
-        # Ships must first face the direction before moving that way — the
-        # turning press consumes the whole turn (finishTurn on the current
-        # tile), the second press moves. Java truth:
-        # ``exodus/GameScreen.java:461-529`` (``avatarDirection + 1 !=
-        # Direction.<D>.getVal()`` branch; horses and foot move at once).
-        if self.party.transport == Transport.SHIP and self.heading != direction:
-            self.heading = direction
-            self._finish_turn(self.game_map.get_tile(self.party.x, self.party.y))
-            return
+        # LairWare ships sail straight off in any direction the wind allows
+        # (UltimaMain.c North()/ValidTrans): no turn-to-face press, no heading.
 
         # Frigate sailing rules
         if self.party.transport == Transport.SHIP:
@@ -1504,9 +1495,6 @@ class OverworldScreen(BaseScreen):
             # Java exploration movement is never slowed (slowedByTile's only
             # caller is CombatScreen.java:937, combat creatures only) — no
             # speed roll on the 2D move paths.
-            # Java updates the avatar's facing after a successful move only
-            # (GameScreen.java:478, 495, 512, 529); a blocked turn leaves it.
-            self.heading = direction
             self.party.x = nx
             self.party.y = ny
             if self.audio is not None:
@@ -1697,7 +1685,7 @@ class OverworldScreen(BaseScreen):
                 return
             self._fire_cannons(d)
 
-        self.text_log.prompt("Fire cannon direction? (N,S,E,W):", callback=_on_dir, single_char=True)
+        self.text_log.prompt("Fire Direct-", callback=_on_dir, single_char=True)
 
     def _damage_unmanned_frigate_at(self, tx: int, ty: int, message: str) -> bool:
         """Damage the last unmanned ``frigate`` at ``(tx, ty)`` by 10 hull.
@@ -1725,64 +1713,39 @@ class OverworldScreen(BaseScreen):
         return True
 
     def _fire_cannons(self, direction: Direction) -> None:
-        if self.party.transport == Transport.SHIP:
-            if self.heading in (Direction.NORTH, Direction.SOUTH):
-                valid_dirs = (Direction.WEST, Direction.EAST)
-            else:
-                valid_dirs = (Direction.NORTH, Direction.SOUTH)
-            if direction not in valid_dirs:
-                self.text_log.add_message("Broadsides only!")
-                return
+        """LairWare Fire (UltimaMain.c:1523-1580): the shot flies up to three
+        tiles in any direction, wrapping round the map, and stops at the
+        first monster: half the time it misses silently (a Balron shrugs it
+        off half again), otherwise the monster is destroyed. Empty ships
+        and terrain don't stop it."""
+        from py_exodus.world.monster_variants import plural_name
 
         if self.audio is not None:
             self.audio.play_sfx("cannon") or self.audio.play_sfx("enemy_magic_proj")
-
-        self.text_log.add_message(f"BOOM! Broadside fired {direction.name}!")
-
-        # Trace cannonball up to 4 tiles (Java truth: util/Utils.java
-        # getDirectionalActionPath, min 1 max 4, called from avatarfireCannon
-        # and enemyfireCannon). The trace does NOT wrap: each traced tile is
-        # bounds-checked first (Utils.java:484-490) and an off-map tile
-        # breaks the trace.
         if self.game_map is None:
             return
         cx, cy = self.party.x, self.party.y
         path: list[tuple[int, int]] = []
         hit = False
-        for step in range(1, 5):
-            tx = cx + direction.dx * step
-            ty = cy + direction.dy * step
-            if tx < 0 or tx >= self.game_map.width or ty < 0 or ty >= self.game_map.height:
-                break
+        for step in range(1, 4):
+            tx = (cx + direction.dx * step) % self.game_map.width
+            ty = (cy + direction.dy * step) % self.game_map.height
             path.append((tx, ty))
-
-            # Empty frigate in the path: hit, 10 hull damage, trace stops.
-            if self._damage_unmanned_frigate_at(tx, ty, "Direct hit on an unmanned frigate!"):
-                hit = True
+            target = next(
+                (c for c in self.creatures if c.get("x") == tx and c.get("y") == ty), None
+            )
+            if target is None:
+                continue
+            tile_name = str(target.get("tile_name") or target.get("tile") or "").lower()
+            if tile_name == "balron" and random.randint(0, 255) < 128:
                 break
-
-            # Check creature hit (Utils.java:551-569): whirlpools are
-            # skipped (AttackResult.NONE, trace continues); any other
-            # creature is a 1-in-3 hit (removed on hit) and stops the
-            # trace on both HIT and MISS (Utils.java:434-436: res != NONE).
-            hit_creature = None
-            for c in list(self.creatures):
-                if c.get("x") == tx and c.get("y") == ty:
-                    hit_creature = c
-                    break
-
-            if hit_creature is not None:
-                tile_name = str(hit_creature.get("tile_name") or hit_creature.get("tile") or "")
-                if tile_name.lower() == "whirlpool":
-                    continue
-                c_name = (tile_name or "creature").capitalize()
-                if random.randint(0, 2) == 0:
-                    self.creatures.remove(hit_creature)
-                    self.text_log.add_message(f"Direct hit! The {c_name} sinks into the sea!")
-                    hit = True
-                else:
-                    self.text_log.add_message("The cannonball splashes down!")
+            if random.randint(0, 255) < 128:
                 break
+            self.creatures.remove(target)
+            name = plural_name(tile_name, int(target.get("variant", 0) or 0))
+            self.text_log.add_message(f"{name} destroyed!")
+            hit = True
+            break
 
         if path:
             self.cannon_fx.append(
@@ -2634,7 +2597,6 @@ class OverworldScreen(BaseScreen):
                     center_y=self.party.y,
                     anim_frame=self.anim_frame,
                     party=self.party,
-                    heading=self.heading,
                     dest_pos=(0, 0),
                     monsters=self.creatures,
                     # moongate model per refs (GBC funcs5.c:1134-1152; LW
@@ -2668,7 +2630,6 @@ class OverworldScreen(BaseScreen):
                     center_y=self.party.y,
                     anim_frame=self.anim_frame,
                     party=self.party,
-                    heading=self.heading,
                     dest_pos=(0, 0),
                     monsters=self.creatures,
                     # Same SLOW-phase gate visibility contract as above.

@@ -387,20 +387,6 @@ def test_overworld_screen_movement(pygame_setup, asset_mgr, sample_party):
     assert sample_party.moves >= initial_moves
 
 
-def test_overworld_screen_frigate_cannons(pygame_setup, asset_mgr, sample_party):
-    sample_party.transport = Transport.SHIP
-    ow = OverworldScreen(party=sample_party, map_id=0, asset_mgr=asset_mgr)
-    ow.heading = Direction.EAST
-
-    ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_f))
-    assert ow.text_log.is_waiting_for_input
-
-    # Type direction 'N' and Enter
-    ow.text_log.handle_char("N")
-    ow.text_log.handle_enter()
-    assert any("Broadside fired NORTH" in msg for msg in ow.text_log.history)
-
-
 def test_overworld_screen_transport_toggle(pygame_setup, asset_mgr, sample_party):
     """B is gated by boardable objects (Java GameScreen.java:945-979):
     nothing on the tile → "Board What?" and no auto-mount; while mounted →
@@ -1040,7 +1026,6 @@ def test_transact_talk_empty_direction_no_response(pygame_setup, asset_mgr, samp
     # Face South (empty doorway/exit)
     town.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_DOWN))
     assert any("Funny, no response!" in msg for msg in town.text_log.history)
-
 
 
 def test_overworld_commands_cast_ztats_get_chest_pass(pygame_setup, asset_mgr, sample_party):

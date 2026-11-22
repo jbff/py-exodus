@@ -163,18 +163,17 @@ def ship_escape(
     gmap,
     party,
     pos: tuple[int, int],
-    heading: Direction,
     threats: Threats,
     can_sail,
     prefer_engage: bool,
 ) -> Move:
     """Choose this turn's action when a ship sits in a pirate lane.
 
-    A ship moves only along its heading; any other direction spends the turn
-    turning (overworld ``_move_avatar``), and the wind blocks sailing into
-    it. Preference: sail to a safe tile along the heading (closing to an
-    engagement tile counts as safe); otherwise fire the broadside at a lane
-    pirate it bears on; otherwise turn toward a direction that leads out.
+    LairWare ships sail straight off in any direction the wind allows and
+    fire in any of the four directions, three tiles, wrapping (UltimaMain.c
+    North()/ValidTrans, Fire). Preference: sail to a safe tile (closing on a
+    lane pirate first when the party can take it); otherwise fire at a lane
+    pirate in line; otherwise sail where the danger is least; else wait.
     """
     w, h = threats.width, threats.height
     wind = getattr(party, "wind_direction", None)
@@ -184,57 +183,50 @@ def ship_escape(
     def dest(d: Direction) -> tuple[int, int]:
         return ((pos[0] + d.dx) % w, (pos[1] + d.dy) % h)
 
-    # 1. Sail straight on (no turn needed) to a safe tile.
-    if wind is not None and heading != blocked:
-        n = dest(heading)
-        if can_sail(*n) and not threats.unsafe_end(n):
-            dmin = min((manhattan(w, h, n, p) for p in lane_p), default=99)
-            if dmin != 1 or prefer_engage:
-                return Move("move", heading)
-    # 1b. Commit: the heading points straight at a lane pirate (same line,
-    # ahead of the bow). Sailing on closes to distance 1 and the battle
-    # (that is how a ship is taken) within two ticks; user rule: in a lane,
-    # keep advancing to fight or leave, never sit under fire.
-    if prefer_engage and wind is not None and heading != blocked:
-        n = dest(heading)
-        if can_sail(*n) and n not in threats.squid_engage:
+    open_dirs = [] if wind is None else [
+        d for d in _CARDINALS if d != blocked and can_sail(*dest(d))
+    ]
+
+    # 1. Commit (a ship that can take the fire): close on a lane pirate in line (battle at distance 1 is how
+    # a ship is taken); user rule: in a lane, advance to fight or leave.
+    if prefer_engage:
+        for d in open_dirs:
+            n = dest(d)
+            if n in threats.squid_engage:
+                continue
             for p in lane_p:
-                d_now = manhattan(w, h, pos, p)
-                d_next = manhattan(w, h, n, p)
                 same_line = (n[0] == p[0]) or (n[1] == p[1])
-                if same_line and d_next < d_now:
-                    return Move("move", heading)
-    # 2. Fire the broadside at a lane pirate it bears on (the cannon trace
-    # stops at the map edge; it does not wrap).
-    horiz = heading in (Direction.NORTH, Direction.SOUTH)
-    for p in lane_p:
-        dx = p[0] - pos[0]
-        dy = p[1] - pos[1]
-        if horiz and dy == 0 and 1 <= abs(dx) <= 3:
-            return Move("fire", Direction.EAST if dx > 0 else Direction.WEST)
-        if not horiz and dx == 0 and 1 <= abs(dy) <= 3:
-            return Move("fire", Direction.SOUTH if dy > 0 else Direction.NORTH)
-    # 3. Turn toward a direction whose next tile is safe (move next turn).
-    best: tuple[tuple, Direction] | None = None
-    for d in _CARDINALS:
-        if d == heading or d == blocked:
-            continue
+                if same_line and manhattan(w, h, n, p) < manhattan(w, h, pos, p):
+                    return Move("move", d)
+    # 2. Sail to a safe tile, the one farthest from the lane pirates.
+    safe: tuple[int, Direction] | None = None
+    for d in open_dirs:
         n = dest(d)
-        if not can_sail(*n):
+        if threats.unsafe_end(n):
             continue
+        dmin = min((manhattan(w, h, n, p) for p in lane_p), default=99)
+        if (dmin != 1 or prefer_engage) and (safe is None or dmin > safe[0]):
+            safe = (dmin, d)
+    if safe is not None:
+        return Move("move", safe[1])
+    # 3. Fire at a lane pirate in line, up to three tiles, wrapping.
+    for p in lane_p:
+        dx = (p[0] - pos[0] + w // 2) % w - w // 2
+        dy = (p[1] - pos[1] + h // 2) % h - h // 2
+        if dy == 0 and 1 <= abs(dx) <= 3:
+            return Move("fire", Direction.EAST if dx > 0 else Direction.WEST)
+        if dx == 0 and 1 <= abs(dy) <= 3:
+            return Move("fire", Direction.SOUTH if dy > 0 else Direction.NORTH)
+    # 4. Never sit under fire: sail where the danger is least.
+    best: tuple[tuple, Direction] | None = None
+    for d in open_dirs:
+        n = dest(d)
         dmin = min((manhattan(w, h, n, p) for p in lane_p), default=99)
         score = (threats.unsafe_end(n), -dmin)
         if best is None or score < best[0]:
             best = (score, d)
     if best is not None:
         return Move("move", best[1])
-    # 4. Nothing safe: never sit under fire. Sail on along the heading even
-    # through the lane; distance at least gains time. Batch be64d73 seed 0:
-    # a ship in Ambrosia's water door (walls north and south), the pirate
-    # astern upwind, the only open tile still in its lane; waiting let the
-    # pirate sink it from hull 50 to 0 with the party aboard.
-    if wind is not None and heading != blocked and can_sail(*dest(heading)):
-        return Move("move", heading)
     return Move("wait")
 
 

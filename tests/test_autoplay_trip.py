@@ -123,30 +123,31 @@ def test_foot_escape_attacks_an_adjacent_pirate():
     assert move.key == "attack" and move.direction == Direction.NORTH
 
 
-def test_ship_escape_sails_on_when_heading_leads_out():
+def test_ship_escape_sails_out_of_the_lane_any_open_way():
+    """LairWare ships have no heading: any direction the wind allows."""
     party = _make_party(level=5, transport=Transport.SHIP)
     party.wind_direction = Direction.WEST  # blows west -> can't sail east
     th = compute_threats(_Grid, party, [_pirate(10, 10)])
-    move = ship_escape(_Grid, party, (13, 10), Direction.NORTH, th, lambda x, y: True, prefer_engage=False)
-    assert move.key == "move" and move.direction == Direction.NORTH
+    move = ship_escape(_Grid, party, (13, 10), th, lambda x, y: True, prefer_engage=False)
+    assert move.key == "move" and move.direction in (Direction.NORTH, Direction.SOUTH)
+    assert not th.unsafe_end(((13 + move.direction.dx), 10 + move.direction.dy))
 
 
-def test_ship_escape_fires_back_when_it_cannot_leave_this_turn():
+def test_ship_escape_fires_when_becalmed():
+    """A becalmed ship can't sail; LairWare fires any of four directions."""
     party = _make_party(level=5, transport=Transport.SHIP)
-    party.wind_direction = Direction.SOUTH  # blocks NORTH
+    party.wind_direction = None
     th = compute_threats(_Grid, party, [_pirate(10, 10)])
-    # Heading north (blocked by wind): broadside faces east/west, the pirate is west.
-    move = ship_escape(_Grid, party, (13, 10), Direction.NORTH, th, lambda x, y: True, prefer_engage=False)
+    move = ship_escape(_Grid, party, (13, 10), th, lambda x, y: True, prefer_engage=False)
     assert move.key == "fire" and move.direction == Direction.WEST
 
 
-def test_ship_escape_turns_when_nothing_else_works():
+def test_ship_escape_fires_along_any_line_when_boxed_in():
     party = _make_party(level=5, transport=Transport.SHIP)
-    party.wind_direction = Direction.EAST  # blocks WEST
-    th = compute_threats(_Grid, party, [_pirate(10, 10)])
-    # Heading west (blocked), pirate west in the same row: broadside (N/S) can't bear.
-    move = ship_escape(_Grid, party, (13, 10), Direction.WEST, th, lambda x, y: True, prefer_engage=False)
-    assert move.key == "move" and move.direction in (Direction.NORTH, Direction.SOUTH)
+    party.wind_direction = Direction.EAST
+    th = compute_threats(_Grid, party, [_pirate(13, 8)])  # due north, 2 tiles
+    move = ship_escape(_Grid, party, (13, 10), th, lambda x, y: False, prefer_engage=False)
+    assert move.key == "fire" and move.direction == Direction.NORTH
 
 
 # ---------------------------------------------------------------------------
@@ -892,7 +893,9 @@ def test_ship_escape_sails_on_through_the_lane_rather_than_sit_under_fire():
     th = compute_threats(_Grid, party, [_pirate(12, 10)])
     pos = (10, 10)
     open_water = {(9, 10), (11, 10)}  # walls north and south
-    move = ship_escape(_Grid, party, pos, Direction.WEST, th, lambda x, y: (x, y) in open_water,
+    move = ship_escape(_Grid, party, pos, th, lambda x, y: (x, y) in open_water,
                        prefer_engage=True)
     assert th.unsafe_end((9, 10))  # the only way out is still in the lane
-    assert move.key == "move" and move.direction == Direction.WEST
+    # Never wait under fire: LairWare's cannon bears on the pirate astern
+    # (any direction), so the ship shoots back rather than sit.
+    assert move.key == "fire" and move.direction == Direction.EAST

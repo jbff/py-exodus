@@ -53,3 +53,20 @@ def variant_name(tile: str, variant: int, plural: bool = False) -> str | None:
     if not names or variant not in (1, 2):
         return None
     return names[variant - 1]
+
+
+# LairWare TilesPlural.plist names for the overworld's other monsters.
+BASE_PLURALS: dict[str, str] = {
+    "whirlpool": "Whirlpools", "serpent": "Serpents", "squid": "Man-O-Wars",
+    "pirate": "Pirates", "thief": "Thieves", "orc": "Orcs",
+    "skeleton": "Skeletons", "giant": "Giants", "daemon": "Daemons",
+    "pincher": "Pinchers", "dragon": "Dragons", "balron": "Balrons",
+}
+
+
+def plural_name(tile: str, variant: int = 0) -> str:
+    """LairWare PrintMonster(which, plural=true, variant): the group name."""
+    tile = str(tile).lower()
+    return variant_name(tile, variant, plural=True) or BASE_PLURALS.get(
+        tile, tile.capitalize() + "s"
+    )

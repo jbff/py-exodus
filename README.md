@@ -17,6 +17,7 @@ A Python 3 / Pygame-CE reimplementation of *Ultima III: Exodus*, with **Auto-Com
   - **Monsters move and attack diagonally** on Sosaria (the party still can't).
   - **Chest traps** are dodged by DEX, with a big bonus for Thieves; nobody is trap-proof.
   - **UNSPEAKABLE** kills like ZXKUQYB: each monster has a 75% chance to die outright.
+  - **Ship cannons** (`F`, aboard ship): any of the four directions, up to 3 tiles, wrapping round the map; the first monster in the path is destroyed half the time (a Balron a quarter). No heading, no broadsides-only rule.
   - **Monster variants**: half of Sosaria's wanderers come as a named variant: Brigands and Cutpurses, Goblins and Trolls, Ghouls and Zombies, Golems and Titans, Gargoyles and Manes, Snatches and Bradles, Griffons and Wyverns, Orcuses and Devils. Same stats, new name, their own art.
 - **Other classic references**: the Game Boy Color port (`u3gbc`) for moongate routing, ship-battle cannon barrages, meal-crossing starvation/regen and the `QUICKNESS` aura; the NES `MoonGateTbl` for the 8-site moongate table.
 
@@ -46,7 +47,7 @@ Borrowed in concept from the LairWare port: **`TAB`** (or `F2`) during any battl
 
 ## Controls & Hotkeys
 
-- **Movement**: arrow keys or numpad (a ship must first face its heading; in dungeons `DOWN` steps backward). **Enter** / **Space** confirm and advance; **Esc** cancels.
+- **Movement**: arrow keys or numpad (ships sail straight off in any direction the wind allows; in dungeons `DOWN` steps backward). **Enter** / **Space** confirm and advance; **Esc** cancels.
 - **`F1`**: Book of Lore, spell books and command reference, from any screen.
 - **`TAB`** (or **`F2`**): Auto-Combat on/off in battle.
 - **`F9`**: Full Autoplay on/off (**`[`** slower, **`]`** faster).

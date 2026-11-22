@@ -727,20 +727,3 @@ class TestHandDialog:
         assert not any("handed" in m for m in ow.text_log.history)
 
 
-class TestCannonTrace:
-    """Cannon broadsides trace 4 tiles (Java Utils.java:539-546, 403-421)."""
-
-    def test_broadside_hits_creature_at_4_tiles(self, ow, sample_party, monkeypatch):
-        monkeypatch.setattr("py_exodus.screens.overworld.random.randint", lambda a, b: 0)
-        sample_party.transport = Transport.SHIP
-        ow.heading = Direction.NORTH  # broadside fires EAST/WEST
-        ow.creatures.append({"tile_name": "squid", "tile": "squid", "x": 14, "y": 10})
-        ow._fire_cannons(Direction.EAST)
-        assert any("Direct hit" in m for m in ow.text_log.history)
-
-    def test_broadside_stops_at_4_tiles(self, ow, sample_party):
-        sample_party.transport = Transport.SHIP
-        ow.heading = Direction.NORTH
-        ow.creatures.append({"tile_name": "squid", "tile": "squid", "x": 15, "y": 10})
-        ow._fire_cannons(Direction.EAST)
-        assert not any("Direct hit" in m for m in ow.text_log.history)
