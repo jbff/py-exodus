@@ -192,8 +192,16 @@ class Race(str, Enum):
     HUMAN = "human"
     ELF = "elf"
     DWARF = "dwarf"
-    BOBIT = "bobit"
+    BOBBIT = "bobbit"
     FUZZY = "fuzzy"
+
+    @classmethod
+    def _missing_(cls, value):
+        """Saves written before 2026-11-22 spell the race "bobit" (a Java
+        port typo; the game's name is Bobbit). Load them as BOBBIT."""
+        if isinstance(value, str) and value.strip().lower() == "bobit":
+            return cls.BOBBIT
+        return None
 
     @property
     def code(self) -> str:
@@ -201,7 +209,7 @@ class Race(str, Enum):
             Race.HUMAN: "H",
             Race.ELF: "E",
             Race.DWARF: "D",
-            Race.BOBIT: "B",
+            Race.BOBBIT: "B",
             Race.FUZZY: "F",
         }
         return codes[self]
@@ -212,7 +220,7 @@ class Race(str, Enum):
             Race.HUMAN: 75,
             Race.ELF: 75,
             Race.DWARF: 99,
-            Race.BOBIT: 75,
+            Race.BOBBIT: 75,
             Race.FUZZY: 25,
         }
         return caps[self]
@@ -223,7 +231,7 @@ class Race(str, Enum):
             Race.HUMAN: 75,
             Race.ELF: 99,
             Race.DWARF: 75,
-            Race.BOBIT: 50,
+            Race.BOBBIT: 50,
             Race.FUZZY: 99,
         }
         return caps[self]
@@ -234,7 +242,7 @@ class Race(str, Enum):
             Race.HUMAN: 75,
             Race.ELF: 75,
             Race.DWARF: 50,
-            Race.BOBIT: 75,
+            Race.BOBBIT: 75,
             Race.FUZZY: 99,
         }
         return caps[self]
@@ -245,7 +253,7 @@ class Race(str, Enum):
             Race.HUMAN: 75,
             Race.ELF: 50,
             Race.DWARF: 75,
-            Race.BOBIT: 99,
+            Race.BOBBIT: 99,
             Race.FUZZY: 75,
         }
         return caps[self]
@@ -256,7 +264,7 @@ class Race(str, Enum):
             "H": cls.HUMAN,
             "E": cls.ELF,
             "D": cls.DWARF,
-            "B": cls.BOBIT,
+            "B": cls.BOBBIT,
             "F": cls.FUZZY,
         }
         c = code.strip().upper()

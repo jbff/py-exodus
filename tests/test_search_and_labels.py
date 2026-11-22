@@ -25,7 +25,7 @@ def party_four():
     members = [
         PartyMember(Character("Fighter", "M", Race.HUMAN, Profession.FIGHTER, hp=100)),
         PartyMember(Character("Cleric", "M", Race.HUMAN, Profession.CLERIC, hp=100)),
-        PartyMember(Character("Wizard", "M", Race.BOBIT, Profession.WIZARD, hp=100)),
+        PartyMember(Character("Wizard", "M", Race.BOBBIT, Profession.WIZARD, hp=100)),
         PartyMember(Character("Thief", "M", Race.FUZZY, Profession.THIEF, hp=100)),
     ]
     return Party(members, x=79, y=176, gold=500, transport=Transport.FOOT)

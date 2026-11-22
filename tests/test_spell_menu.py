@@ -79,7 +79,7 @@ def _cheats(**flags):
 
 
 def _cleric(mp=99):
-    c = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC)
+    c = Character("Cleric", "F", Race.BOBBIT, Profession.CLERIC)
     c.mp = mp
     return c
 
@@ -166,7 +166,7 @@ def test_full_mp_cheat_never_reshapes_the_list():
 
     assert entries("cleric") == entries("cleric")  # trivially fixed
     # the cheat only relaxes the attempt-time gate, not the list:
-    broke = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC)
+    broke = Character("Cleric", "F", Race.BOBBIT, Profession.CLERIC)
     broke.mp = 0
     assert dbg.CHEATS.full_mp is False  # the refusal path is live by default
 

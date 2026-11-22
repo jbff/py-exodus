@@ -527,7 +527,7 @@ def test_autoplay_outfits_fresh_l1_party_in_britain(pygame_setup):
     party = Party()
     party.add_member(Character("SHADOW", "M", Race.ELF, Profession.THIEF, strength=15, dexterity=25, gold=150))
     party.add_member(Character("GRUMM", "M", Race.DWARF, Profession.FIGHTER, strength=25, dexterity=15, gold=150))
-    party.add_member(Character("SERENA", "F", Race.BOBIT, Profession.CLERIC, wisdom=25, strength=15, gold=150))
+    party.add_member(Character("SERENA", "F", Race.BOBBIT, Profession.CLERIC, wisdom=25, strength=15, gold=150))
     party.add_member(Character("ZIRCON", "M", Race.FUZZY, Profession.WIZARD, intelligence=25, strength=15, gold=150))
     party.x, party.y = 44, 20
 
@@ -562,7 +562,7 @@ def test_autoplay_loots_dropped_chest_on_sosaria(pygame_setup):
     party = Party()
     party.add_member(Character("SHADOW", "M", Race.ELF, Profession.THIEF, dexterity=25, gold=0))
     party.add_member(Character("GRUMM", "M", Race.DWARF, Profession.FIGHTER, strength=25, gold=0))
-    party.add_member(Character("SERENA", "F", Race.BOBIT, Profession.CLERIC, wisdom=25, mp=10, max_mp=25, gold=0))
+    party.add_member(Character("SERENA", "F", Race.BOBBIT, Profession.CLERIC, wisdom=25, mp=10, max_mp=25, gold=0))
     party.add_member(Character("ZIRCON", "M", Race.FUZZY, Profession.WIZARD, intelligence=25, gold=0))
     party.x, party.y = 43, 21
     party.dynamic_objects.append({"tile": "chest", "x": 45, "y": 21})
@@ -672,7 +672,7 @@ def test_equipment_upgrades_hand_and_dawn(pygame_setup):
     party = Party()
     party.add_member(Character("SHADOW", "M", Race.ELF, Profession.THIEF, weapon=WeaponType.SLING, armor=ArmorType.CLOTH, gold=0))
     party.add_member(Character("GRUMM", "M", Race.DWARF, Profession.FIGHTER, weapon=WeaponType.MACE, armor=ArmorType.CLOTH, gold=0))
-    party.add_member(Character("SERENA", "F", Race.BOBIT, Profession.CLERIC, weapon=WeaponType.MACE, armor=ArmorType.CLOTH, gold=0))
+    party.add_member(Character("SERENA", "F", Race.BOBBIT, Profession.CLERIC, weapon=WeaponType.MACE, armor=ArmorType.CLOTH, gold=0))
     party.add_member(Character("ZIRCON", "M", Race.FUZZY, Profession.WIZARD, weapon=WeaponType.DAGGER, armor=ArmorType.CLOTH, gold=0))
     # ZIRCON (Wizard, cannot wear Chain) finds Chain Mail in a chest
     party.members[3].armors[ArmorType.CHAIN] = 1
@@ -736,7 +736,7 @@ def test_profession_equipment_tables_match_xml_and_town_join_gold(pygame_setup):
     party = Party()
     party.add_member(Character("SHADOW", "M", Race.ELF, Profession.THIEF, weapon=WeaponType.SLING, armor=ArmorType.CLOTH, gold=100))
     party.add_member(Character("GRUMM", "M", Race.DWARF, Profession.FIGHTER, weapon=WeaponType.MACE, armor=ArmorType.CLOTH, gold=50))
-    party.add_member(Character("SERENA", "F", Race.BOBIT, Profession.CLERIC, weapon=WeaponType.MACE, armor=ArmorType.CLOTH, gold=100))
+    party.add_member(Character("SERENA", "F", Race.BOBBIT, Profession.CLERIC, weapon=WeaponType.MACE, armor=ArmorType.CLOTH, gold=100))
     party.add_member(Character("ZIRCON", "M", Race.FUZZY, Profession.WIZARD, weapon=WeaponType.DAGGER, armor=ArmorType.CLOTH, gold=0))
 
     sm = StateMachine(asset_mgr=am, audio=None)

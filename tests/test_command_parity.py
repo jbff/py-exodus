@@ -52,7 +52,7 @@ def sample_party():
             Character("Mage", "F", Race.ELF, Profession.WIZARD, strength=15, dexterity=20, hp=70)
         ),
         PartyMember(
-            Character("Druid", "F", Race.BOBIT, Profession.DRUID, strength=18, dexterity=20, hp=80)
+            Character("Druid", "F", Race.BOBBIT, Profession.DRUID, strength=18, dexterity=20, hp=80)
         ),
     ]
     return Party(members, x=10, y=10, transport=Transport.FOOT)

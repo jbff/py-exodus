@@ -36,7 +36,7 @@ def reset_new_game(saves_dir: Path | None = None) -> None:
             strength=25, dexterity=15, intelligence=5, wisdom=5,
         ),
         Character(
-            "SERENA", Sex.FEMALE, Race.BOBIT, Profession.CLERIC,
+            "SERENA", Sex.FEMALE, Race.BOBBIT, Profession.CLERIC,
             strength=15, dexterity=5, intelligence=5, wisdom=25,
         ),
         Character(

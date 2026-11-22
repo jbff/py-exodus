@@ -443,7 +443,7 @@ def test_stats_panel_active_marker_and_status():
     """Verify active member marker and status abbreviations (G, P, D, A)."""
     party = Party()
     c1 = Character("Pal", "M", Race.HUMAN, Profession.PALADIN, hp=120, mp=20, status=Status.GOOD)
-    c2 = Character("Wiz", "M", Race.BOBIT, Profession.WIZARD, hp=80, mp=80, status=Status.POISONED)
+    c2 = Character("Wiz", "M", Race.BOBBIT, Profession.WIZARD, hp=80, mp=80, status=Status.POISONED)
     c3 = Character("Thf", "F", Race.FUZZY, Profession.THIEF, hp=0, mp=0, status=Status.DEAD)
     c4 = Character("Clr", "F", Race.DWARF, Profession.CLERIC, hp=0, mp=0, status=Status.ASH)
     party.add_member(c1)

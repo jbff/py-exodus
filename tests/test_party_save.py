@@ -81,7 +81,7 @@ def test_character_creation_and_attributes():
     assert wiz.max_mp == 25
 
     # Check Cleric MP formula: WIS
-    clr = Character(name="Jaana", race=Race.BOBIT, profession=Profession.CLERIC, wisdom=25)
+    clr = Character(name="Jaana", race=Race.BOBBIT, profession=Profession.CLERIC, wisdom=25)
     assert clr.max_mp == 25
 
     # Check Fighter MP formula: 0
@@ -194,7 +194,7 @@ def test_party_membership_and_swapping():
     c1 = Character(name="C1", race=Race.HUMAN, profession=Profession.FIGHTER)
     c2 = Character(name="C2", race=Race.ELF, profession=Profession.WIZARD)
     c3 = Character(name="C3", race=Race.DWARF, profession=Profession.CLERIC)
-    c4 = Character(name="C4", race=Race.BOBIT, profession=Profession.THIEF)
+    c4 = Character(name="C4", race=Race.BOBBIT, profession=Profession.THIEF)
     c5 = Character(name="C5", race=Race.FUZZY, profession=Profession.DRUID)
 
     p.add_member(c1)

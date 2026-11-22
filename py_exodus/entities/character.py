@@ -75,7 +75,9 @@ class Character(metaclass=CharacterMeta):
             self.race = race
         else:
             r = _builtin_str(race).strip()
-            if r.upper() in Race.__members__:
+            if r.upper() == "BOBIT":  # pre-2026-11-22 saves (Java typo)
+                self.race = Race.BOBBIT
+            elif r.upper() in Race.__members__:
                 self.race = Race[r.upper()]
             elif len(r) == 1:
                 self.race = Race.from_code(r)

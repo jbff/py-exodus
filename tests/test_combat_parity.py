@@ -1368,7 +1368,7 @@ def test_group_damage_spells_emit_per_kill_lines(asset_mgr, conflict_map, monkey
     assert any("Noxum blasts 3 monsters" in line for line in lines)
 
     # 2. ZXKUQYB: 2 monsters killed
-    cleric = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC, wisdom=75, mp=99)
+    cleric = Character("Cleric", "F", Race.BOBBIT, Profession.CLERIC, wisdom=75, mp=99)
     party_z = Party()
     party_z.add_member(cleric)
     arena_z = CombatArena(

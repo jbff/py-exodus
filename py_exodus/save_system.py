@@ -238,12 +238,12 @@ class SaveSystem:
             ord("H"): Race.HUMAN,
             ord("E"): Race.ELF,
             ord("D"): Race.DWARF,
-            ord("B"): Race.BOBIT,
+            ord("B"): Race.BOBBIT,
             ord("F"): Race.FUZZY,
             0: Race.HUMAN,
             1: Race.ELF,
             2: Race.DWARF,
-            3: Race.BOBIT,
+            3: Race.BOBBIT,
             4: Race.FUZZY,
         }
         race = race_map.get(b_race, Race.HUMAN)

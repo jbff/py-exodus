@@ -21,3 +21,4 @@ refs/
 
 # autoplay traces (batch + live --trace)
 traces/
+.superpowers/

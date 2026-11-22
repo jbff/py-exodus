@@ -86,12 +86,12 @@ def test_professions():
 def test_races():
     assert len(Race) == 5
     names = {r.name for r in Race}
-    assert names == {"HUMAN", "ELF", "DWARF", "BOBIT", "FUZZY"}
+    assert names == {"HUMAN", "ELF", "DWARF", "BOBBIT", "FUZZY"}
     assert Race.HUMAN.code == "H"
     assert Race.HUMAN.max_str == 75
     assert Race.ELF.max_dex == 99
     assert Race.DWARF.max_str == 99
-    assert Race.BOBIT.max_wis == 99
+    assert Race.BOBBIT.max_wis == 99
     assert Race.FUZZY.max_int == 99
 
 
@@ -127,3 +127,18 @@ def test_status():
     assert Status.POISONED.value == "P"
     assert Status.ASH.value == "A"
     assert Status.DEAD.value == "D"
+
+
+def test_race_is_spelled_bobbit_and_old_saves_still_load():
+    """LairWare's race list (and the original manual) reads Bobbit; the Java
+    port's "Bobit" was a typo (user ruling 2026-11-22). Saves written with
+    the old spelling still load."""
+    from py_exodus.constants import Race
+    from py_exodus.entities.character import Character
+
+    assert Race.BOBBIT.value == "bobbit"
+    assert Race("bobit") is Race.BOBBIT
+    assert Character("Old", "F", "bobit").race is Race.BOBBIT
+    assert Character("Old", "F", "BOBIT").race is Race.BOBBIT
+    restored = Character.from_dict(Character("Old", "F", Race.BOBBIT).to_dict() | {"race": "bobit"})
+    assert restored.race is Race.BOBBIT

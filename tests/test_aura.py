@@ -57,7 +57,7 @@ def test_aura_decrements_to_none():
 
 def _negated_cast_setup(asset_mgr, conflict_map):
     party = Party()
-    cleric = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC, wisdom=75, mp=50)
+    cleric = Character("Cleric", "F", Race.BOBBIT, Profession.CLERIC, wisdom=75, mp=50)
     party.add_member(cleric)
     return party, party.members[0]
 

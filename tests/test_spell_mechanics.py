@@ -391,7 +391,7 @@ def test_lib_rec_teleports_within_level(cleric_party):
 
 def test_sequitu_exits_with_label_log(cleric_party):
     """spellXit logs "Leaving " + label and transitions the screen (501-509)."""
-    party = Party([PartyMember(Character("C", "F", Race.BOBIT, Profession.CLERIC, mp=60))])
+    party = Party([PartyMember(Character("C", "F", Race.BOBBIT, Profession.CLERIC, mp=60))])
     state = _dungeon(party, z=4)
     state.dmap.name = "Doom"
     res = cast_spell(

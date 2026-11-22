@@ -445,7 +445,7 @@ class RosterScreen(BaseScreen):
                 "H": Race.HUMAN,
                 "E": Race.ELF,
                 "D": Race.DWARF,
-                "B": Race.BOBIT,
+                "B": Race.BOBBIT,
                 "F": Race.FUZZY,
             }
             code = race_str.strip().upper()[:1]

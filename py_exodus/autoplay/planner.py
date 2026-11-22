@@ -130,7 +130,7 @@ _WIZARD_CASTERS = (
 
 def stat_cap(member, cap_attr: str) -> int:
     """The member's shrine cap for a stat: it belongs to the RACE
-    (``Race.max_str`` etc.; Human 75, Bobit WIS 99, Fuzzy INT 99...).
+    (``Race.max_str`` etc.; Human 75, Bobbit WIS 99, Fuzzy INT 99...).
     Reading ``member.max_str`` (absent) defaulted every cap to 99, so a
     capped member kept paying 100 gold a point for nothing."""
     race = getattr(member, "race", None)

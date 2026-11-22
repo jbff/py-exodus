@@ -755,8 +755,8 @@ def test_shrine_caps_come_from_the_members_race():
     cleric = Character("C", None, Race.HUMAN, Profession.CLERIC, strength=15, dexterity=15, intelligence=15, wisdom=75)
     assert stat_cap(cleric, "max_wis") == 75
     assert not member_needs_shrine_stat(cleric, "wisdom", "max_wis")
-    bobit = Character("B", None, Race.BOBIT, Profession.CLERIC, strength=15, dexterity=15, intelligence=15, wisdom=75)
-    assert member_needs_shrine_stat(bobit, "wisdom", "max_wis")
+    bobbit = Character("B", None, Race.BOBBIT, Profession.CLERIC, strength=15, dexterity=15, intelligence=15, wisdom=75)
+    assert member_needs_shrine_stat(bobbit, "wisdom", "max_wis")
     thief = Character("T", None, Race.HUMAN, Profession.THIEF, strength=15, dexterity=25, intelligence=15, wisdom=15)
     assert stat_cap(thief, "max_dex") >= 74
 
@@ -769,7 +769,7 @@ def test_shrine_plan_order_for_the_batch_party():
     from py_exodus.autoplay import batch
     from py_exodus.autoplay.planner import next_shrine_goal
 
-    party = batch.build_party()  # Elf Thief, Dwarf Fighter, Bobit Cleric, Fuzzy Wizard
+    party = batch.build_party()  # Elf Thief, Dwarf Fighter, Bobbit Cleric, Fuzzy Wizard
     steps = []
     while (g := next_shrine_goal(party)) is not None:
         idx, stat, _cap, target = g

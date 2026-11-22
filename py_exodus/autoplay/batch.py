@@ -32,7 +32,7 @@ FRAME_DT = 1.0 / 60.0
 PARTY_SETUP = (
     ("SHADOW", "M", "ELF", "THIEF", 15, 25, 10, 10),
     ("GRUMM", "M", "DWARF", "FIGHTER", 25, 15, 10, 10),
-    ("SERENA", "F", "BOBIT", "CLERIC", 15, 15, 10, 25),
+    ("SERENA", "F", "BOBBIT", "CLERIC", 15, 15, 10, 25),
     ("ZIRCON", "M", "FUZZY", "WIZARD", 15, 15, 25, 10),
 )
 

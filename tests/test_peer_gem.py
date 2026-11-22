@@ -366,7 +366,7 @@ def cast_party():
             Character("Hero", "M", Race.HUMAN, Profession.FIGHTER, strength=20, dexterity=20, hp=100)
         ),
         PartyMember(
-            Character("Cleric", "F", Race.BOBIT, Profession.CLERIC, wisdom=50, mp=60, hp=80)
+            Character("Cleric", "F", Race.BOBBIT, Profession.CLERIC, wisdom=50, mp=60, hp=80)
         ),
     ]
     return Party(members, x=10, y=10, transport=Transport.FOOT)
@@ -459,7 +459,7 @@ def test_vieda_cast_in_town_opens_peer_gem_view(asset_mgr):
             Character("Hero", "M", Race.HUMAN, Profession.FIGHTER, strength=20, dexterity=20, hp=100)
         ),
         PartyMember(
-            Character("Cleric", "F", Race.BOBIT, Profession.CLERIC, wisdom=50, mp=60, hp=80)
+            Character("Cleric", "F", Race.BOBBIT, Profession.CLERIC, wisdom=50, mp=60, hp=80)
         ),
     ]
     party = Party(members, x=10, y=10, transport=Transport.FOOT)

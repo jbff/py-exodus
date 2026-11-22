@@ -69,7 +69,7 @@ def _build_test_party() -> Party:
     specs = [
         ("Fighter", Sex.MALE, Race.HUMAN, Profession.PALADIN, 20, 15, 10, 15, 150,
          WeaponType.SWORD, ArmorType.LEATHER, 50, 100),
-        ("Cleric", Sex.FEMALE, Race.BOBIT, Profession.CLERIC, 12, 14, 10, 24, 100,
+        ("Cleric", Sex.FEMALE, Race.BOBBIT, Profession.CLERIC, 12, 14, 10, 24, 100,
          WeaponType.MACE, ArmorType.CLOTH, 50, 100),
         ("Wizard", Sex.MALE, Race.ELF, Profession.WIZARD, 10, 14, 25, 11, 100,
          WeaponType.DAGGER, ArmorType.CLOTH, 50, 100),

@@ -44,7 +44,7 @@ def seeded_random_state(seed):
 
 def test_heal_spell():
     """Step 1 from Task 9 brief: Cleric casting SANCTU."""
-    c = Character("Cleric1", "F", Race.BOBIT, Profession.CLERIC)
+    c = Character("Cleric1", "F", Race.BOBBIT, Profession.CLERIC)
     c.mp = 20
     c.hp = 50
     c.max_hp = 100
@@ -75,7 +75,7 @@ def test_profession_validation():
 
 def test_cleric_cure_poison():
     """ALCORT (and alias PURITU) cures poisoned status."""
-    c = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC)
+    c = Character("Cleric", "F", Race.BOBBIT, Profession.CLERIC)
     c.mp = 50
 
     target = Character("Target", "M", Race.HUMAN, Profession.FIGHTER, status=Status.POISONED)
@@ -98,7 +98,7 @@ def test_cleric_major_heal():
     to max HP; the heal is randint(0,80)+20 clamped at missing HP (GBC
     menucmd.c:1337-1420; LW UltimaSpellCombat.c:277-348).
     """
-    c = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC)
+    c = Character("Cleric", "F", Race.BOBBIT, Profession.CLERIC)
     c.mp = 60
 
     target = Character("Target", "M", Race.HUMAN, Profession.FIGHTER, hp=20, max_hp=150)
@@ -118,7 +118,7 @@ def test_cleric_resurrection():
     """
     import py_exodus.combat.magic as magic
 
-    c = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC)
+    c = Character("Cleric", "F", Race.BOBBIT, Profession.CLERIC)
     c.mp = 75
 
     target = Character("Target", "M", Race.HUMAN, Profession.FIGHTER, hp=0, status=Status.DEAD)
@@ -132,7 +132,7 @@ def test_cleric_resurrection():
 
 def test_cleric_recall_ashes():
     """ANJU_SERMANI recalls ASHES to GOOD and deducts 5 wisdom from caster."""
-    c = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC, wisdom=50)
+    c = Character("Cleric", "F", Race.BOBBIT, Profession.CLERIC, wisdom=50)
     c.mp = 80
 
     target = Character("Target", "M", Race.HUMAN, Profession.FIGHTER, hp=0, status=Status.ASHES)
@@ -277,7 +277,7 @@ def test_masskill_flag_rolls_50pct_at_battle_init(asset_mgr, conflict_map, monke
     import py_exodus.combat.arena as arena_mod
 
     party = Party()
-    cleric = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC, wisdom=50, mp=50)
+    cleric = Character("Cleric", "F", Race.BOBBIT, Profession.CLERIC, wisdom=50, mp=50)
     party.add_member(cleric)
 
     seen = []
@@ -297,7 +297,7 @@ def test_pontori_kills_nothing_without_masskill_flag(asset_mgr, conflict_map, mo
     import py_exodus.combat.magic as magic
 
     party, arena = _spawn_arena(asset_mgr, conflict_map, "skeleton", 2, masskill=False)
-    cleric = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC, wisdom=50, mp=50)
+    cleric = Character("Cleric", "F", Race.BOBBIT, Profession.CLERIC, wisdom=50, mp=50)
     party.add_member(cleric)
 
     # If the spell still rolled (old ladder / new kill roll), 7 passes the kill
@@ -342,7 +342,7 @@ def test_spell_result_executed_classification(asset_mgr, conflict_map):
     assert poor.mp == 0  # mana never moved
 
     # Successful effect cast: executed=True by default
-    rich = Character("Rich", "F", Race.BOBIT, Profession.CLERIC, wisdom=50, mp=50)
+    rich = Character("Rich", "F", Race.BOBBIT, Profession.CLERIC, wisdom=50, mp=50)
     party = Party()
     party.add_member(rich)
     arena2 = CombatArena(
@@ -361,7 +361,7 @@ def test_pontori_against_undead(asset_mgr, conflict_map, monkeypatch):
     import py_exodus.combat.magic as magic
 
     party, arena = _spawn_arena(asset_mgr, conflict_map, "skeleton", 2, masskill=True)
-    cleric = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC, wisdom=50, mp=50, level=20)
+    cleric = Character("Cleric", "F", Race.BOBBIT, Profession.CLERIC, wisdom=50, mp=50, level=20)
     party.add_member(cleric)
     # Rolled HP above basehp: the kill must not depend on take_damage(basehp)
     for monster in arena.monsters:
@@ -381,7 +381,7 @@ def test_masskill_kill_roll_is_75pct_per_monster(asset_mgr, conflict_map, monkey
     import py_exodus.combat.magic as magic
 
     party, arena = _spawn_arena(asset_mgr, conflict_map, "skeleton", 2, masskill=True)
-    cleric = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC, wisdom=50, mp=50)
+    cleric = Character("Cleric", "F", Race.BOBBIT, Profession.CLERIC, wisdom=50, mp=50)
     party.add_member(cleric)
 
     monkeypatch.setattr(magic.random, "randrange", lambda n: 0)
@@ -391,7 +391,7 @@ def test_masskill_kill_roll_is_75pct_per_monster(asset_mgr, conflict_map, monkey
 
     # Fresh battle: same flag, but every roll passes (5 & 0x03 != 0)
     party2, arena2 = _spawn_arena(asset_mgr, conflict_map, "skeleton", 2, masskill=True)
-    cleric2 = Character("Cleric2", "F", Race.BOBIT, Profession.CLERIC, wisdom=50, mp=50)
+    cleric2 = Character("Cleric2", "F", Race.BOBBIT, Profession.CLERIC, wisdom=50, mp=50)
     party2.add_member(cleric2)
     monkeypatch.setattr(magic.random, "randrange", lambda n: 5)
     res2 = cast_spell(Spell.PONTORI, caster=cleric2, arena=arena2)
@@ -410,7 +410,7 @@ def test_masskill_75pct_level_independent_seeded(asset_mgr, conflict_map):
         for level in (1, 20):
             party = Party()
             cleric = Character(
-                "Cleric", "F", Race.BOBIT, Profession.CLERIC, wisdom=50, mp=50, level=level
+                "Cleric", "F", Race.BOBBIT, Profession.CLERIC, wisdom=50, mp=50, level=level
             )
             party.add_member(cleric)
             arena = CombatArena(
@@ -515,7 +515,7 @@ def test_exploration_spells_outside_combat():
     mutated outside a dungeon (old torch_duration / dungeon_level writes are
     gone)."""
     party = Party()
-    cleric = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC, wisdom=75, mp=80, food=10)
+    cleric = Character("Cleric", "F", Race.BOBBIT, Profession.CLERIC, wisdom=75, mp=80, food=10)
     wizard = Character("Wiz", "M", Race.FUZZY, Profession.WIZARD, intelligence=75, mp=80, food=10)
     party.add_member(cleric)
     party.add_member(wizard)
@@ -607,7 +607,7 @@ def test_incapacitated_caster_cannot_cast():
 
 def test_targeted_spells_validation_failures():
     """Restorative and life spells validate target condition before MP spend."""
-    cleric = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC, wisdom=50, mp=90)
+    cleric = Character("Cleric", "F", Race.BOBBIT, Profession.CLERIC, wisdom=50, mp=90)
     healthy = Character("Healthy", "M", Race.HUMAN, Profession.FIGHTER, hp=100, max_hp=100)
     dead_char = Character("DeadChar", "M", Race.HUMAN, Profession.FIGHTER, hp=0, status=Status.DEAD)
     ash_char = Character("AshChar", "M", Race.HUMAN, Profession.FIGHTER, hp=0, status=Status.ASHES)
@@ -641,7 +641,7 @@ def test_targeted_spells_validation_failures():
 
 def test_hybrid_professions_casting():
     """Druid, Paladin, Lark have specific casting permissions."""
-    druid = Character("Druid", "M", Race.BOBIT, Profession.DRUID, wisdom=40, intelligence=40, mp=40)
+    druid = Character("Druid", "M", Race.BOBBIT, Profession.DRUID, wisdom=40, intelligence=40, mp=40)
     paladin = Character("Paladin", "M", Race.HUMAN, Profession.PALADIN, wisdom=40, mp=40)
     lark = Character("Lark", "M", Race.ELF, Profession.LARK, intelligence=40, mp=40)
 
@@ -666,7 +666,7 @@ def test_hybrid_professions_casting():
 def test_excuun_cleric_death_bolt_in_combat(asset_mgr, conflict_map):
     """Cleric EXCUUN deals 64-255 directional damage."""
     party = Party()
-    cleric = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC, wisdom=75, mp=75)
+    cleric = Character("Cleric", "F", Race.BOBBIT, Profession.CLERIC, wisdom=75, mp=75)
     party.add_member(cleric)
 
     arena = CombatArena(party, conflict_map, creature_tile="orc", asset_mgr=asset_mgr, monster_count=1)
@@ -683,7 +683,7 @@ def test_excuun_cleric_death_bolt_in_combat(asset_mgr, conflict_map):
 
 def test_unknown_spell_handling():
     """Unknown spell strings fail gracefully."""
-    c = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC, wisdom=50, mp=50)
+    c = Character("Cleric", "F", Race.BOBBIT, Profession.CLERIC, wisdom=50, mp=50)
     res = cast_spell("NOT_A_REAL_SPELL", caster=c)
     assert not res.success
     assert "unknown spell" in res.message.lower()
@@ -705,7 +705,7 @@ def test_spell_letter_code_resolution_by_discipline(asset_mgr, conflict_map):
     assert resolve_spell("A", spell_type="wizard") == Spell.REPOND
 
     # Resolution inferred from caster
-    cleric_char = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC, wisdom=50, mp=50)
+    cleric_char = Character("Cleric", "F", Race.BOBBIT, Profession.CLERIC, wisdom=50, mp=50)
     wiz_char = Character("Mage", "M", Race.FUZZY, Profession.WIZARD, intelligence=50, mp=50)
     assert resolve_spell("A", caster=cleric_char) == Spell.PONTORI
     assert resolve_spell("A", caster=wiz_char) == Spell.REPOND
@@ -727,9 +727,9 @@ def test_prompt_cast_party_flow():
     from py_exodus.ui.text_log import TextLog
 
     party = Party()
-    cleric = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC, wisdom=50, mp=50, hp=100, max_hp=100)
+    cleric = Character("Cleric", "F", Race.BOBBIT, Profession.CLERIC, wisdom=50, mp=50, hp=100, max_hp=100)
     fighter = Character("Fighter", "M", Race.HUMAN, Profession.FIGHTER, strength=50, hp=30, max_hp=100)
-    druid = Character("Druid", "M", Race.BOBIT, Profession.DRUID, wisdom=50, intelligence=50, mp=50)
+    druid = Character("Druid", "M", Race.BOBBIT, Profession.DRUID, wisdom=50, intelligence=50, mp=50)
     party.add_member(cleric)
     party.add_member(fighter)
     party.add_member(druid)
@@ -781,7 +781,7 @@ def test_vieda_result_requests_gem_view_and_fal_divi_requests_cleric_menu():
     FAL_DIVI's result asks for one re-entry into the cleric cast prompt
     (GBC menucmd.c:1519-1530 — the wizard temporarily re-dispatches through the
     cleric spell menu)."""
-    caster_cleric = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC, mp=60)
+    caster_cleric = Character("Cleric", "F", Race.BOBBIT, Profession.CLERIC, mp=60)
     caster_wizard = Character("Mage", "M", Race.FUZZY, Profession.WIZARD, intelligence=60, mp=60)
 
     vieda_res = cast_spell(Spell.VIEDA, caster=caster_cleric)
@@ -876,7 +876,7 @@ def test_vieda_outside_combat_view_only_for_non_combat_sites():
     from py_exodus.ui.text_log import TextLog
 
     party = Party()
-    cleric = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC, wisdom=50, mp=60)
+    cleric = Character("Cleric", "F", Race.BOBBIT, Profession.CLERIC, wisdom=50, mp=60)
     party.add_member(cleric)
 
     log = TextLog()
@@ -894,7 +894,7 @@ def test_vieda_outside_combat_view_only_for_non_combat_sites():
 def test_appar_unem_disarms_and_gets_chest():
     """Verify APPAR_UNEM safely opens, gets gold, and removes chest without requiring 'G'."""
     party = Party(x=10, y=10, gold=100)
-    cleric = Character("Bishop", "M", Race.BOBIT, Profession.CLERIC, wisdom=50, mp=50)
+    cleric = Character("Bishop", "M", Race.BOBBIT, Profession.CLERIC, wisdom=50, mp=50)
     party.add_member(cleric)
 
     # Place a chest at the party's own tile (Java getChest scans exactly cx == x && cy == y)
@@ -928,7 +928,7 @@ def test_appar_unem_gbc_25pct_failure_seeded():
     dogetchest, menucmd.c:1309)."""
     party = Party(x=10, y=10, gold=100)
     cleric = Character(
-        "Bishop", "M", Race.BOBIT, Profession.CLERIC, wisdom=50, mp=50, hp=100, max_hp=100
+        "Bishop", "M", Race.BOBBIT, Profession.CLERIC, wisdom=50, mp=50, hp=100, max_hp=100
     )
     party.add_member(cleric)
 
@@ -979,7 +979,7 @@ def test_appar_unem_prompt_flow_never_asks_direction():
     from py_exodus.ui.text_log import TextLog
 
     party = Party(x=10, y=10, gold=100)
-    cleric = Character("Bishop", "M", Race.BOBIT, Profession.CLERIC, wisdom=50, mp=50)
+    cleric = Character("Bishop", "M", Race.BOBBIT, Profession.CLERIC, wisdom=50, mp=50)
     party.add_member(cleric)
     party.dynamic_objects.append({"tile": "chest", "x": 10, "y": 10})
 
@@ -1008,7 +1008,7 @@ def test_sanctu_heals_java_range():
     UltimaSpellCombat.c:277-348)."""
     import py_exodus.combat.magic as magic
 
-    c = Character("Cleric1", "F", Race.BOBIT, Profession.CLERIC, mp=20, hp=50, max_hp=200)
+    c = Character("Cleric1", "F", Race.BOBBIT, Profession.CLERIC, mp=20, hp=50, max_hp=200)
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(magic.random, "randint", lambda a, b: b)  # 20 → +10 = 30
         res = cast_spell(Spell.SANCTU, caster=c, party=None, target_member=c)
@@ -1016,14 +1016,14 @@ def test_sanctu_heals_java_range():
         assert res.healed == 30
         assert c.hp == 80
 
-    c2 = Character("Cleric2", "F", Race.BOBIT, Profession.CLERIC, mp=20, hp=50, max_hp=200)
+    c2 = Character("Cleric2", "F", Race.BOBBIT, Profession.CLERIC, mp=20, hp=50, max_hp=200)
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(magic.random, "randint", lambda a, b: a)  # 0 → +10 = 10
         cast_spell(Spell.SANCTU, caster=c2, party=None, target_member=c2)
         assert c2.hp == 60  # 50 + 10
 
     # Capped at missing health
-    c3 = Character("Cleric3", "F", Race.BOBIT, Profession.CLERIC, mp=20, hp=95, max_hp=100)
+    c3 = Character("Cleric3", "F", Race.BOBBIT, Profession.CLERIC, mp=20, hp=95, max_hp=100)
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(magic.random, "randint", lambda a, b: b)
         cast_spell(Spell.SANCTU, caster=c3, party=None, target_member=c3)
@@ -1109,7 +1109,7 @@ def test_zxkuqyb_kill_roll_per_monster(asset_mgr, conflict_map, monkeypatch):
     import py_exodus.combat.magic as magic
 
     party = Party()
-    cleric = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC, wisdom=75, mp=75)
+    cleric = Character("Cleric", "F", Race.BOBBIT, Profession.CLERIC, wisdom=75, mp=75)
     party.add_member(cleric)
 
     arena = CombatArena(party, conflict_map, creature_tile="orc", asset_mgr=asset_mgr, monster_count=2)
@@ -1147,7 +1147,7 @@ def test_zxkuqyb_seeded_trials_kill_share(asset_mgr, conflict_map, monkeypatch):
     kills_low = 0
     for _ in range(50):
         party = Party()
-        cleric = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC, wisdom=75, mp=75)
+        cleric = Character("Cleric", "F", Race.BOBBIT, Profession.CLERIC, wisdom=75, mp=75)
         party.add_member(cleric)
         arena = CombatArena(party, conflict_map, creature_tile="orc", asset_mgr=asset_mgr, monster_count=2)
         arena.monsters[0].hp = 100
@@ -1200,7 +1200,7 @@ def test_pabulum_food_deterministic(monkeypatch):
     import py_exodus.combat.magic as magic
 
     party = Party()
-    c1 = Character("A", "F", Race.BOBIT, Profession.WIZARD, mp=50, food=0)
+    c1 = Character("A", "F", Race.BOBBIT, Profession.WIZARD, mp=50, food=0)
     c2 = Character("B", "M", Race.HUMAN, Profession.WIZARD, mp=50, food=0)
     party.add_member(c1)
     party.add_member(c2)
@@ -1324,7 +1324,7 @@ def test_dag_acron_rejected_off_the_world_map():
 
 def test_sanctu_heal_band_10_to_30():
     """SANCTU heals randint(0,20)+10 = 10..30, never clamped when missing >= 30."""
-    caster = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC, mp=9999, max_mp=9999)
+    caster = Character("Cleric", "F", Race.BOBBIT, Profession.CLERIC, mp=9999, max_mp=9999)
     amounts = []
     with seeded_random_state(7):
         for _ in range(300):
@@ -1340,7 +1340,7 @@ def test_sanctu_heal_band_10_to_30():
 
 def test_sanctu_heal_clamped_to_missing_hp():
     """SANCTU still clamps to missing HP (missing 5 → at most +5)."""
-    caster = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC, mp=9999, max_mp=9999)
+    caster = Character("Cleric", "F", Race.BOBBIT, Profession.CLERIC, mp=9999, max_mp=9999)
     with seeded_random_state(11):
         for _ in range(50):
             target = Character("Target", "M", Race.HUMAN, Profession.FIGHTER, hp=95, max_hp=100)
@@ -1352,7 +1352,7 @@ def test_sanctu_heal_clamped_to_missing_hp():
 
 def test_sanctum_mani_band_20_to_100():
     """SANCTU_MANI heals randint(0,80)+20 = 20..100, capped at max HP."""
-    caster = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC, mp=9999, max_mp=9999)
+    caster = Character("Cleric", "F", Race.BOBBIT, Profession.CLERIC, mp=9999, max_mp=9999)
     amounts = []
     with seeded_random_state(13):
         for _ in range(300):
@@ -1369,7 +1369,7 @@ def test_sanctum_mani_band_20_to_100():
 
 def test_sanctum_mani_clamped_to_missing_hp():
     """SANCTU_MANI clamps at max HP (missing 10 → at most +10)."""
-    caster = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC, mp=9999, max_mp=9999)
+    caster = Character("Cleric", "F", Race.BOBBIT, Profession.CLERIC, mp=9999, max_mp=9999)
     with seeded_random_state(17):
         for _ in range(50):
             target = Character("Target", "M", Race.HUMAN, Profession.FIGHTER, hp=90, max_hp=100)
@@ -1384,7 +1384,7 @@ def test_surmandum_success_good_hp_one(monkeypatch):
     import py_exodus.combat.magic as magic
 
     monkeypatch.setattr(magic.random, "random", lambda: 0.5)
-    caster = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC, mp=75)
+    caster = Character("Cleric", "F", Race.BOBBIT, Profession.CLERIC, mp=75)
     target = Character("Target", "M", Race.HUMAN, Profession.FIGHTER, hp=0, status=Status.DEAD)
     res = cast_spell(Spell.SURMANDUM, caster=caster, target_member=target)
     assert res.success
@@ -1397,7 +1397,7 @@ def test_surmandum_failure_ashes_no_resurrect(monkeypatch):
     import py_exodus.combat.magic as magic
 
     monkeypatch.setattr(magic.random, "random", lambda: 0.99)
-    caster = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC, mp=75)
+    caster = Character("Cleric", "F", Race.BOBBIT, Profession.CLERIC, mp=75)
     target = Character("Target", "M", Race.HUMAN, Profession.FIGHTER, hp=0, status=Status.DEAD)
     res = cast_spell(Spell.SURMANDUM, caster=caster, target_member=target)
     assert not res.success
@@ -1410,7 +1410,7 @@ def test_surmandum_failure_ashes_no_resurrect(monkeypatch):
 
 def test_surmandum_success_rate_seeded():
     """Seeded runs: 75% of SURMANDUM casts succeed."""
-    caster = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC, mp=9999, max_mp=9999)
+    caster = Character("Cleric", "F", Race.BOBBIT, Profession.CLERIC, mp=9999, max_mp=9999)
     successes = 0
     runs = 400
     with seeded_random_state(23):

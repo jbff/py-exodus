@@ -377,7 +377,7 @@ def test_final_screen_card_from_any_party_member():
     """Verify any party member carrying a card can insert it via key event."""
     p = Party()
     c1 = Character("Fighter", "M", Race.HUMAN, Profession.FIGHTER)
-    c2 = Character("Cleric", "F", Race.BOBIT, Profession.CLERIC)
+    c2 = Character("Cleric", "F", Race.BOBBIT, Profession.CLERIC)
     # c1 has no cards, c2 has the Love card (cards[3], Party.java:711)
     c1.cards = [0, 0, 0, 0]
     c2.cards = [0, 0, 0, 1]
