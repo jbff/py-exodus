@@ -16,9 +16,13 @@ Search space: Dijkstra over ``(x, y, mode)`` with ``mode`` in {FOOT, SHIP}.
 - B: FOOT -> SHIP on a frigate tile.
 - X: SHIP -> FOOT on a water tile with an orthogonal walkable land neighbour
   (the engine's "Not on shoreline!" rule, overworld.py ``_exit_transport``).
-- CAPTURE: FOOT on a coast land tile -> SHIP on the adjacent water. The
-  follower waits there (outside pirate firing lanes) for a pirate and fights
-  it; the defeated pirate leaves a frigate, which triggers a re-plan.
+- CAPTURE: FOOT on a coast land tile -> SHIP on the adjacent water. With
+  live ``pirates`` given, only coasts of a body of water holding a pirate
+  qualify (cost grows with the distance to the nearest one); the follower
+  hunts that pirate along the coast and fights it from land, and the
+  defeated pirate leaves a frigate, which triggers a re-plan. Where pirates
+  can still spawn (Sosaria), any coast is a patrol capture at a surcharge:
+  the follower walks the coast until one shows up. Never a wait.
 - GATE: FOOT on moongate site ``s`` -> FOOT on site ``d``. Phases follow
   ``moon_phase`` 0..23 (trammel = p // 3, felucca = p % 8), so site ``s``
   reaches ``{(3s + k) % 8 for k in 0..2}``. A full moon cycle is 96 surface
@@ -30,6 +34,7 @@ import heapq
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from py_exodus.autoplay.nav import locked_door_passable
 from py_exodus.constants import Transport
 from py_exodus.ui.renderer import can_move_to
 from py_exodus.world import tile_effects
@@ -50,6 +55,7 @@ BOARD_COST = 1.0
 EXIT_COST = 1.0
 GATE_COST = 50.0
 CAPTURE_COST = 250.0
+PATROL_CAPTURE_EXTRA = 250.0
 CRITICAL_SHIP_BOARD_PENALTY = 300.0
 REVERSE_TRANSITION_PENALTY = 200.0
 
@@ -123,9 +129,15 @@ class _Terrain:
                 name = str(getattr(t, "name", "")).lower()
                 if can_move_to(gmap, x, y, SHIP, party=None):
                     sea.add((x, y))
-                if not getattr(t, "walkable", False) and not getattr(t, "dispelable", False):
-                    if has_key and name == "locked_door":
+                if has_key and name == "locked_door":
+                    # Unlock opens it into the tile west of it on the surface
+                    # (Ambrosia's water door admits ships only).
+                    if locked_door_passable(gmap, x, y, FOOT, party):
                         foot.add((x, y))
+                    if locked_door_passable(gmap, x, y, SHIP, None):
+                        sea.add((x, y))
+                    continue
+                if not getattr(t, "walkable", False) and not getattr(t, "dispelable", False):
                     continue
                 if name in ("lava", "fire") and not has_fire:
                     continue
@@ -136,6 +148,24 @@ class _Terrain:
         self.foot = frozenset(foot)
         self.sea = frozenset(sea)
         # Water tiles where X works: a walkable land neighbour.
+        # Connected bodies of water (4-neighbour), for "which pirate can I
+        # reach from this coast".
+        comp: dict[tuple[int, int], int] = {}
+        cid = -1
+        for t0 in sorted(sea):
+            if t0 in comp:
+                continue
+            cid += 1
+            stack = [t0]
+            comp[t0] = cid
+            while stack:
+                cx, cy = stack.pop()
+                for dx, dy in _NEIGHBOURS:
+                    n = self.wrap(cx + dx, cy + dy)
+                    if n is not None and n in sea and n not in comp:
+                        comp[n] = cid
+                        stack.append(n)
+        self.sea_comp = comp
         self.landing = frozenset(
             (x, y)
             for (x, y) in sea
@@ -208,6 +238,8 @@ def plan_trip(
     turn: int = 0,
     gate_blocked: frozenset[tuple[int, int]] = frozenset(),
     danger: dict[tuple[int, int], float] | None = None,
+    pirates: frozenset[tuple[int, int]] | None = None,
+    pirates_spawn: bool = True,
 ) -> TripPlan | None:
     """Cheapest trip from ``(start, mode)`` to ``dest``, or None.
 
@@ -218,6 +250,25 @@ def plan_trip(
     """
     danger = danger or {}
     terr = terrain_for(gmap, party, map_id)
+    # Pirates by body of water (None: legacy "any coast" captures).
+    pirate_comp: dict[int, list[tuple[int, int]]] = {}
+    for p in pirates or ():
+        cid = terr.sea_comp.get(p)
+        if cid is not None:
+            pirate_comp.setdefault(cid, []).append(p)
+
+    def capture_cost(n: tuple[int, int]) -> float | None:
+        if pirates is None:
+            return CAPTURE_COST
+        ps = pirate_comp.get(terr.sea_comp.get(n, -1))
+        if ps:
+            w, h = terr.width, terr.height
+            near = min(
+                min(abs(n[0] - p[0]), w - abs(n[0] - p[0])) + min(abs(n[1] - p[1]), h - abs(n[1] - p[1]))
+                for p in ps
+            )
+            return CAPTURE_COST + near
+        return CAPTURE_COST + PATROL_CAPTURE_EXTRA if pirates_spawn else None
     goal_tiles = dest.tiles
     if not goal_tiles:
         return None
@@ -297,7 +348,9 @@ def plan_trip(
             if allow_capture and not on_water and (x, y) not in banned_capture:
                 for n in terr.neighbours(x, y):
                     if n in terr.sea and n not in frigates:
-                        push(st, (n[0], n[1], SHIP), cost + CAPTURE_COST, ("CAPTURE", (x, y)))
+                        cc = capture_cost(n)
+                        if cc is not None:
+                            push(st, (n[0], n[1], SHIP), cost + cc, ("CAPTURE", (x, y)))
             if (x, y) in gate_sites:
                 s = gate_sites[(x, y)]
                 for d in hops.get(s, ()):

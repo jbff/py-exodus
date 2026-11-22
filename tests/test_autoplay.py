@@ -1447,6 +1447,12 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
     ow_pl.creatures = [{"x": 55, "y": 15, "tile_name": "pirate"}]  # 3 tiles East in broadside lane
     sm.set_screen(ow_pl)
     ctrl._key_queue.clear()
+    # User rule (2026-11-21): in a lane, advance to fight when the ship can
+    # take the fire (bow on the pirate: distance 1 and the battle in two
+    # ticks); only a battered ship turns out of the lane.
+    assert ctrl.step(sm) == pygame.K_RIGHT
+    p_lane.ship_hull = 10
+    ctrl._key_queue.clear()
     assert ctrl.step(sm) != pygame.K_RIGHT
 
     # On SOL island (45, 52) in EXIT_AMBROSIA, heads toward parked frigate (43, 58) instead of vantage_tiles

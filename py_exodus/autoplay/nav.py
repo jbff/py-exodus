@@ -23,6 +23,26 @@ _LADDER_DOWN_TILES = frozenset({DungeonTile.LADDER_DOWN, DungeonTile.LADDER_UP_D
 _LADDER_UP_TILES = frozenset({DungeonTile.LADDER_UP, DungeonTile.LADDER_UP_DOWN})
 
 
+def locked_door_passable(game_map, x: int, y: int, transport: Transport, party=None) -> bool:
+    """Can ``transport`` pass the locked door at (x, y) once it is unlocked?
+
+    On the surface (Sosaria 0, Ambrosia 13) LairWare turns an unlocked door
+    into the tile WEST of it (UltimaMain.c:2428-2433; the overworld U command
+    mirrors it), so the door is as passable as that tile: Ambrosia's door in
+    the water channel (39, 61) opens for a ship, not for walkers. Elsewhere
+    (towns) an unlocked door is a walkable door.
+    """
+    if getattr(game_map, "id", None) in (0, 13):
+        wx = (x - 1) % game_map.width
+        west = game_map.get_tile(wx, y)
+        if west is None or str(getattr(west, "name", "")).lower() == "locked_door":
+            return False
+        if getattr(west, "index", 99) > 8:
+            return transport == Transport.FOOT  # opens to grass
+        return can_move_to(game_map, wx, y, transport=transport, party=party)
+    return transport == Transport.FOOT
+
+
 def find_2d_step_and_cost(
     game_map: GameMap,
     start: tuple[int, int],
@@ -88,8 +108,8 @@ def find_2d_step_and_cost(
             return False
         if can_move_to(game_map, nx, ny, transport=transport, party=party):
             return True
-        if allow_locked_doors and transport == Transport.FOOT:
-            return t is not None and tname == "locked_door"
+        if allow_locked_doors and t is not None and tname == "locked_door":
+            return locked_door_passable(game_map, nx, ny, transport, party)
         return False
 
     if prefer_paths:

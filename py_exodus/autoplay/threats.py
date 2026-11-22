@@ -189,6 +189,19 @@ def ship_escape(
             dmin = min((manhattan(w, h, n, p) for p in lane_p), default=99)
             if dmin != 1 or prefer_engage:
                 return Move("move", heading)
+    # 1b. Commit: the heading points straight at a lane pirate (same line,
+    # ahead of the bow). Sailing on closes to distance 1 and the battle
+    # (that is how a ship is taken) within two ticks; user rule: in a lane,
+    # keep advancing to fight or leave, never sit under fire.
+    if prefer_engage and wind is not None and heading != blocked:
+        n = dest(heading)
+        if can_sail(*n) and n not in threats.squid_engage:
+            for p in lane_p:
+                d_now = manhattan(w, h, pos, p)
+                d_next = manhattan(w, h, n, p)
+                same_line = (n[0] == p[0]) or (n[1] == p[1])
+                if same_line and d_next < d_now:
+                    return Move("move", heading)
     # 2. Fire the broadside at a lane pirate it bears on (the cannon trace
     # stops at the map edge; it does not wrap).
     horiz = heading in (Direction.NORTH, Direction.SOUTH)

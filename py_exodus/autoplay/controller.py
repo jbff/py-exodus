@@ -1,6 +1,7 @@
 """Live input-driver AutoPlayController for Full Autoplay ("Watch Mode")."""
 from __future__ import annotations
 
+import random
 from collections import deque
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -17,6 +18,7 @@ from py_exodus.autoplay.nav import (
     find_2d_step,
     find_2d_step_and_cost,
     find_dungeon_step,
+    locked_door_passable,
 )
 from py_exodus.autoplay.planner import (
     Goal,
@@ -70,7 +72,7 @@ _KEY_TO_DIR: dict[int, Direction] = {v: k for k, v in _DIR_TO_KEY.items()}
 _ARRIVED = object()
 _TRIP_REPLAN_TURNS = 300
 _TRIP_STUCK_TURNS = 30
-_CAPTURE_PATIENCE = 600
+_NEIGHBOURS4 = ((0, -1), (0, 1), (-1, 0), (1, 0))
 _SQUID_PATIENCE = 150
 _LANE_PATIENCE = 20
 # Planning cost for entering a tile under threat when the trip is planned.
@@ -231,10 +233,9 @@ class AutoPlayController:
         self._trip_planned_at = 0
         self._trip_stuck = 0
         self._trip_last_pos: tuple[int, int] | None = None
-        self._capture_wait = 0
-        self._capture_site: tuple[int, int] | None = None
+        self._patrol_target: tuple[int, int] | None = None
+        self._reach_cache = None
         # Coast tiles where a capture wait timed out, per map id.
-        self._banned_capture: dict[int, set[tuple[int, int]]] = {}
         self._last_transition: Transition | None = None
         self._ow_turn = 0
         self._squid_blocked = 0
@@ -1027,6 +1028,7 @@ class AutoPlayController:
         if not th.unsafe_end(pos):
             return None
 
+        has_key = any(not m.is_dead() and m.keys > 0 for m in party.members)
         if on_ship:
             hull = getattr(party, "ship_hull", 50)
             move = ship_escape(
@@ -1035,7 +1037,9 @@ class AutoPlayController:
                 pos,
                 getattr(screen, "heading", Direction.NORTH),
                 th,
-                lambda x, y: can_move_to(gmap, x, y, Transport.SHIP, party=party),
+                lambda x, y: can_move_to(gmap, x, y, Transport.SHIP, party=party)
+                or (has_key and self._is_locked_door(gmap, x, y)
+                    and locked_door_passable(gmap, x, y, Transport.SHIP, party)),
                 prefer_engage=hull >= 20 and not party_has_low_hp(party),
             )
         else:
@@ -1053,8 +1057,22 @@ class AutoPlayController:
             self._key_queue.append(_DIR_TO_KEY[move.direction])
             return self._emit_key(state_machine, pygame.K_f, guarded=False)
         if move.key == "move" and move.direction is not None:
-            return self._emit_key(state_machine, _DIR_TO_KEY[move.direction], guarded=False)
+            d = move.direction
+            nx, ny = (px + d.dx) % gmap.width, (py + d.dy) % gmap.height
+            if has_key and self._is_locked_door(gmap, nx, ny):
+                # Advancing through a door (Ambrosia's water door): unlock it.
+                key_idx = next(
+                    i + 1 for i, m in enumerate(party.members) if not m.is_dead() and m.keys > 0
+                )
+                self._queue_text(f"{key_idx}{d.name[0].lower()}", enter=False)
+                return self._emit_key(state_machine, pygame.K_u, guarded=False)
+            return self._emit_key(state_machine, _DIR_TO_KEY[d], guarded=False)
         return self._emit_key(state_machine, pygame.K_SPACE, guarded=False)
+
+    @staticmethod
+    def _is_locked_door(gmap, x: int, y: int) -> bool:
+        t = gmap.get_tile(x, y)
+        return t is not None and str(getattr(t, "name", "")).lower() == "locked_door"
 
     def _attack(self, state_machine: StateMachine, d: Direction) -> int:
         self._queue_text(d.name[0].lower(), enter=False)
@@ -1601,7 +1619,8 @@ class AutoPlayController:
             dest,
             frig,
             hull_critical=(mode == Transport.SHIP and self._is_hull_critical(party, screen)),
-            banned_capture=frozenset(self._banned_capture.get(map_id, ())),
+            pirates=frozenset(th.pirates) if th is not None else frozenset(),
+            pirates_spawn=(map_id == 0),
             last_transition=self._last_transition,
             turn=self._ow_turn,
             danger=danger,
@@ -1688,7 +1707,7 @@ class AutoPlayController:
             self._trip_frigates = frig_sig | {pos}
             return self._emit_key(state_machine, pygame.K_x)
         if leg.action == "CAPTURE":
-            return self._drive_capture(state_machine, screen, gmap, party, pos)
+            return self._drive_capture(state_machine, screen, gmap, party, pos, leg, map_id)
         return None
 
     @staticmethod
@@ -1721,51 +1740,79 @@ class AutoPlayController:
         }
         return self._move_toward(state_machine, gmap, party, pos, adjacent)
 
-    def _drive_capture(self, state_machine, screen, gmap, party, pos) -> int:
-        """Wait on the coast for a pirate to come within reach, then fight it.
+    def _drive_capture(self, state_machine, screen, gmap, party, pos, leg: Leg, map_id: int) -> int:
+        """Hunt a pirate from land, or patrol the coast until one appears.
 
-        Patience is counted per capture site and survives periodic re-plans.
+        User rule (2026-11-21, "no dicking around"): never sit on one shore
+        waiting. With a pirate in the planned body of water: attack it when
+        orthogonally adjacent, else walk to a free tile next to it (outside
+        firing lanes), else close in to the reachable coast nearest to it (it
+        homes in on the party). With none there (Sosaria only; pirates spawn
+        there): walk the coast to a far tile of that water, then another,
+        meeting and fighting whatever comes.
         """
         self._trip_stuck = 0
-        if self._capture_site != pos:
-            self._capture_site = pos
-            self._capture_wait = 0
-        self._capture_wait += 1
-        th = self._threats
-        pirates = th.pirates if th is not None else []
-        near = [p for p in pirates if manhattan(gmap.width, gmap.height, pos, p) <= 12]
-        if near:
-            # A pirate in sight but never reaching us (e.g. across a bay) must
-            # not hold the party forever: patience keeps counting (x3).
-            if self._capture_wait > 3 * _CAPTURE_PATIENCE:
-                self._ban_capture_site(screen, gmap, party, pos)
-                return self._emit_key(state_machine, pygame.K_SPACE)
-            engage = {
-                ((p[0] + dx) % gmap.width, (p[1] + dy) % gmap.height)
-                for p in near
-                for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0))
-            }
-            engage = {
-                t for t in engage
-                if can_move_to(gmap, t[0], t[1], Transport.FOOT, party=party)
-                and not (th is not None and th.unsafe_end(t))
-            }
-            if engage and find_2d_step(gmap, pos, engage, Transport.FOOT, party=party, avoid_tiles=self._overworld_avoid) is not None:
-                return self._move_toward(state_machine, gmap, party, pos, engage)
-            return self._emit_key(state_machine, pygame.K_SPACE)
-        if self._capture_wait > _CAPTURE_PATIENCE:
-            self._ban_capture_site(screen, gmap, party, pos)
-        return self._emit_key(state_machine, pygame.K_SPACE)
-
-    def _ban_capture_site(self, screen, gmap, party, pos) -> None:
-        """Give up on this stretch of coast for captures and re-plan."""
         w, h = gmap.width, gmap.height
-        banned = self._banned_capture.setdefault(self._screen_map_id(screen, party), set())
-        for dx in range(-6, 7):
-            for dy in range(-6, 7):
-                banned.add(((pos[0] + dx) % w, (pos[1] + dy) % h))
-        self._capture_wait = 0
-        self._trip = None
+        terr = terrain_for(gmap, party, map_id)
+        comps = {
+            terr.sea_comp[n] for n in terr.neighbours(*leg.end) if n in terr.sea_comp
+        }
+        th = self._threats
+        pirates = [p for p in (th.pirates if th is not None else []) if terr.sea_comp.get(p) in comps]
+        for d in (Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST):
+            if ((pos[0] + d.dx) % w, (pos[1] + d.dy) % h) in pirates:
+                return self._attack(state_machine, d)
+        reach = self._foot_reachable(gmap, party, pos)
+        if pirates:
+            engage = {
+                ((p[0] + dx) % w, (p[1] + dy) % h)
+                for p in pirates
+                for dx, dy in _NEIGHBOURS4
+            }
+            engage = {t for t in engage if t in reach and not (th is not None and th.unsafe_end(t))}
+            if engage:
+                return self._move_toward(state_machine, gmap, party, pos, engage)
+            coast = [
+                t for t in reach
+                if any(terr.sea_comp.get(n) in comps for n in terr.neighbours(*t))
+                and not (th is not None and th.unsafe_end(t))
+            ]
+            if coast:
+                best = min(min(manhattan(w, h, t, p) for p in pirates) for t in coast)
+                closest = {t for t in coast if min(manhattan(w, h, t, p) for p in pirates) == best}
+                if pos not in closest:
+                    return self._move_toward(state_machine, gmap, party, pos, closest)
+            # As close as land allows: it is coming (pirates home in).
+            return self._emit_key(state_machine, pygame.K_SPACE)
+        # Patrol: a far reachable coast tile of this water, re-picked on arrival.
+        if self._patrol_target is None or pos == self._patrol_target or self._patrol_target not in reach:
+            coast = [
+                t for t in reach
+                if any(terr.sea_comp.get(n) in comps for n in terr.neighbours(*t))
+            ]
+            far = [t for t in coast if manhattan(w, h, t, pos) >= 12] or coast
+            self._patrol_target = random.choice(far) if far else None
+        if self._patrol_target is None:
+            return self._emit_key(state_machine, pygame.K_SPACE)
+        return self._move_toward(state_machine, gmap, party, pos, {self._patrol_target})
+
+    def _foot_reachable(self, gmap, party, pos) -> frozenset[tuple[int, int]]:
+        """Land tiles reachable on foot from ``pos`` (cached per map/turn)."""
+        key = (id(gmap), pos, self._ow_turn)
+        if self._reach_cache is not None and self._reach_cache[0] == key:
+            return self._reach_cache[1]
+        terr = terrain_for(gmap, party, getattr(gmap, "id", 0))
+        seen = {pos}
+        stack = [pos]
+        while stack:
+            cur = stack.pop()
+            for n in terr.neighbours(*cur):
+                if n not in seen and n in terr.foot:
+                    seen.add(n)
+                    stack.append(n)
+        out = frozenset(seen)
+        self._reach_cache = (key, out)
+        return out
 
     # -- local grinding on the mainland ----------------------------------
 
@@ -1917,7 +1964,7 @@ class AutoPlayController:
             party=party,
             wind_direction=wind,
             avoid_tiles=avoid,
-            allow_locked_doors=(has_key and party.transport == Transport.FOOT),
+            allow_locked_doors=has_key,
         )
         if (
             starving_buy_food
@@ -1933,7 +1980,7 @@ class AutoPlayController:
                 party=party,
                 wind_direction=wind,
                 avoid_tiles=avoid,
-                allow_locked_doors=(has_key and party.transport == Transport.FOOT),
+                allow_locked_doors=has_key,
             )
         if (
             party.transport == Transport.SHIP
@@ -1971,7 +2018,7 @@ class AutoPlayController:
                 party=party,
                 wind_direction=wind,
                 avoid_tiles=hard or None,
-                allow_locked_doors=(has_key and party.transport == Transport.FOOT),
+                allow_locked_doors=has_key,
             )
             if d is None and hard:
                 # Walled in by threats: take the plain route; _lane_guard holds
@@ -1983,7 +2030,7 @@ class AutoPlayController:
                     transport=party.transport,
                     party=party,
                     wind_direction=wind,
-                    allow_locked_doors=(has_key and party.transport == Transport.FOOT),
+                    allow_locked_doors=has_key,
                 )
         if d is not None:
             nx = start[0] + d.dx
