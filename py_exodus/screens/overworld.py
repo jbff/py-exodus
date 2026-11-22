@@ -258,12 +258,7 @@ def has_ship_object_at(party, x: int, y: int) -> bool:
 # icons become clipped circle-with-shadow EGA glyphs and the wind/aura text
 # keeps the port's font-drawn text style. Hull is NOT duplicated here — the
 # stats panel transport row already carries "SHIP (HULL:n)".
-WIND_ARROWS: dict[Direction, str] = {
-    Direction.NORTH: "^",
-    Direction.SOUTH: "v",
-    Direction.EAST: ">",
-    Direction.WEST: "<",
-}
+# User ruling 2026-11-22: the wind reads "Wind NORTH" etc., no arrow glyph.
 
 # The 5 wind outcomes of a re-roll (4 directions + the becalmed None):
 # GBC menucmd3.c:1449-1467 picks among directions plus calm and never
@@ -293,7 +288,7 @@ def sky_strip_texts(
     if wind_direction is None:
         texts.append("Wind CALM")
     else:
-        texts.append(f"Wind {wind_direction.name} {WIND_ARROWS[wind_direction]}")
+        texts.append(f"Wind {wind_direction.name}")
     return texts
 
 
@@ -439,8 +434,16 @@ class OverworldScreen(BaseScreen):
 
     @property
     def sky_strip_active(self) -> bool:
-        """Sosaria only (Java GameScreen.java:186 gates the moon/wind HUD on
-        Maps.SOSARIA.getId()); Ambrosia and other overworld maps get nothing."""
+        """Sosaria and Ambrosia. LairWare ShowWind (UltimaMain.c:3305-3340)
+        hides the wind only in dungeons and combat, and ValidTrans applies it
+        to every ship, Ambrosia included (user report 2026-11-22: the wind
+        steered there unseen). Java gated the HUD on Sosaria only."""
+        return str(self.map_id) in ("0", "13")
+
+    @property
+    def moons_shown(self) -> bool:
+        """Sosaria only: LairWare MoonGateUpdate (UltimaMisc.c:1489-1491)
+        runs only on the surface."""
         return str(self.map_id) == "0"
 
     def sky_strip_texts(self) -> list[str]:
@@ -481,13 +484,15 @@ class OverworldScreen(BaseScreen):
         wind_txt = (
             "Wind CALM"
             if wind is None
-            else f"Wind {wind.name} {WIND_ARROWS[wind]}"
+            else f"Wind {wind.name}"
         )
         surface.blit(f.render(wind_txt, False, EGA_LIGHT_GRAY), (margin, y))
 
         size = 2 * radius + 3
         gx2 = pane_right - margin - radius - 2
         gx1 = gx2 - radius - 1 - size
+        if not self.moons_shown:
+            return
         cy = y + f.get_linesize() // 2
         draw_moon_glyph(surface, gx1, cy, radius, self.trammel_phase)
         draw_moon_glyph(surface, gx2, cy, radius, self.felucca_phase)

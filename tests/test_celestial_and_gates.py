@@ -257,26 +257,28 @@ class TestSkyStrip:
     copies of them.
     """
 
-    def test_strip_is_sosaria_only(self, asset_mgr, party):
+    def test_strip_on_sosaria_and_ambrosia_moons_on_sosaria(self, asset_mgr, party):
         from py_exodus.screens.overworld import OverworldScreen as OW
 
         ow0 = OW(party=party, map_id=0, asset_mgr=asset_mgr, start_x=45, start_y=19)
         assert ow0.sky_strip_active is True
         ow13 = OW(party=party, map_id=13, asset_mgr=asset_mgr, start_x=32, start_y=57)
-        assert ow13.sky_strip_active is False
+        # LairWare shows the wind on Ambrosia (it steers ships there too).
+        assert ow13.sky_strip_active is True
+        assert ow0.moons_shown is True and ow13.moons_shown is False
 
-    def test_strip_texts_wind_arrow_and_moons(self, asset_mgr, party):
+    def test_strip_texts_wind_and_moons(self, asset_mgr, party):
         from py_exodus.aura import AuraType
         from py_exodus.screens.overworld import sky_strip_texts
 
         texts = sky_strip_texts(Direction.NORTH, 3, 0)
-        assert "Wind NORTH ^" in texts
+        assert "Wind NORTH" in texts
         assert not any(t.startswith("T:") for t in texts)
 
-        # Arrow tracks the direction; the moon counters are Trammel/Felucca.
-        assert "Wind SOUTH v" in sky_strip_texts(Direction.SOUTH, 0, 7)
-        assert "Wind EAST >" in sky_strip_texts(Direction.EAST, 1, 1)
-        assert "Wind WEST <" in sky_strip_texts(Direction.WEST, 7, 4)
+        # User ruling 2026-11-22: the direction in words, no arrow glyph.
+        assert "Wind SOUTH" in sky_strip_texts(Direction.SOUTH, 0, 7)
+        assert "Wind EAST" in sky_strip_texts(Direction.EAST, 1, 1)
+        assert "Wind WEST" in sky_strip_texts(Direction.WEST, 7, 4)
 
         # Aura label appears only when an aura is active.
         assert "QUICKNESS" in sky_strip_texts(Direction.NORTH, 0, 0, aura=AuraType.QUICKNESS)
