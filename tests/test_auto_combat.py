@@ -569,32 +569,8 @@ def _cleric_arena(asset_mgr, level: int, hp: int = 150):
     return arena, cleric
 
 
-def test_a_low_level_cleric_stays_back_while_others_fight(asset_mgr):
-    """Batch 775884a: the Cleric died first in 26 of 34 early wipes, a level
-    behind the rest; autocombat walked it into melee like a fighter."""
-    arena, _ = _cleric_arena(asset_mgr, level=2)
-    arena.monsters[0].x, arena.monsters[0].y = 9, 8
-    assert choose_auto_combat_action(arena, 1, asset_mgr=asset_mgr).type == ActionType.PASS
-    # It still fights what reaches it.
-    arena.monsters[0].x, arena.monsters[0].y = 6, 8
-    action = choose_auto_combat_action(arena, 1, asset_mgr=asset_mgr)
-    assert action.type == ActionType.ATTACK and action.direction == Direction.EAST
-    # At level 5 it advances like everyone else.
-    arena, _ = _cleric_arena(asset_mgr, level=5)
-    arena.monsters[0].x, arena.monsters[0].y = 9, 8
-    assert choose_auto_combat_action(arena, 1, asset_mgr=asset_mgr).type == ActionType.MOVE
-
-
 def test_a_low_level_cleric_steps_away_at_half_hp(asset_mgr):
     arena, _ = _cleric_arena(asset_mgr, level=2, hp=120)  # of 250
     arena.monsters[0].x, arena.monsters[0].y = 6, 8
     action = choose_auto_combat_action(arena, 1, asset_mgr=asset_mgr)
     assert action.type == ActionType.MOVE and action.direction != Direction.EAST
-
-
-def test_a_lone_cleric_fights(asset_mgr):
-    arena, _ = _cleric_arena(asset_mgr, level=2)
-    arena.party.members[0].hp = 0
-    arena.party.members[0].status = Status.DEAD
-    arena.monsters[0].x, arena.monsters[0].y = 9, 8
-    assert choose_auto_combat_action(arena, 1, asset_mgr=asset_mgr).type == ActionType.MOVE

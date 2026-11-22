@@ -98,8 +98,9 @@ def _is_walkable_unoccupied(
 
 # A Cleric below this level is the party's healer and its weakest body:
 # batch 775884a's early wipes lost the Cleric first in 26 of 34, often a
-# level behind with 200 fewer max HP. It stays back while someone else can
-# fight and steps away at half HP.
+# level behind with 200 fewer max HP. It steps away at half HP. (Holding it
+# out of melee entirely, 243d2e9, starved it of kills: batch 3bb71ce b1 sat
+# at levels 5/5/2/5 until it starved.)
 HEALER_BACK_LEVEL = 5
 
 
@@ -365,11 +366,6 @@ def choose_auto_combat_action(
         )
         if ranged_dir is not None:
             return Action.attack(ranged_dir)
-
-    # A low-level Cleric holds its ground: it heals (above) and fights what
-    # reaches it, but never walks into melee while others can.
-    if _held_back_healer(arena, member):
-        return Action.pass_turn()
 
     # Advance toward nearest visible living monster.
     # For melee fighters, prefer BFS shortest path first so obstacles (like ship masts)

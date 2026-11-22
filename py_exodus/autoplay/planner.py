@@ -447,7 +447,12 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
     ):
         return Goal.OUTFIT_BRITAIN
 
-    if min(m.level for m in living) < 5:
+    # One laggard may trail: past level 5 needs the Mark of Kings, so the
+    # rest can't gain anything more until it is fetched, and the laggard
+    # (usually the Cleric, whose kills are rare) levels in the dungeon.
+    # Batch 3bb71ce b1: waiting for all four, 9 of 10 seeds starved at
+    # levels 5/5/2/5.
+    if sorted(m.level for m in living)[min(1, len(living) - 1)] < 5:
         return Goal.GRIND_AND_LEVEL
 
     if not all(m.marks[0] > 0 for m in party.members):

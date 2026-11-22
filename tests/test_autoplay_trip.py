@@ -1047,3 +1047,15 @@ def test_a_cleric_who_can_alcort_cures_poison_instead_of_the_healer(pygame_setup
     victim.hp = 200
     cleric.max_mp = 30  # can't reach ALCORT: the healer
     assert evaluate_goal(party, 0) == Goal.CURE_POISON
+
+
+def test_one_laggard_does_not_hold_the_party_from_the_mark_of_kings(pygame_setup):
+    """Batch 3bb71ce b1: the planner ground until all four were level 5;
+    past 5 needs the Mark of Kings, so the three at 5 earned nothing while
+    the Cleric's rare kills crawled, and 9 of 10 seeds starved at 5/5/2/5."""
+    party = _make_party(level=5, food=300, gold=60)
+    cleric = next(m for m in party.members if m.profession == Profession.CLERIC)
+    cleric.level = 2
+    assert evaluate_goal(party, 0) in (Goal.GET_MARK_KINGS, Goal.BUY_GEMS, Goal.BUY_TORCHES)
+    party.members[0].level = 4  # two below 5: keep grinding
+    assert evaluate_goal(party, 0) == Goal.GRIND_AND_LEVEL
