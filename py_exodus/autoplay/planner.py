@@ -98,17 +98,7 @@ def ambrosia_trip_gold(party: Party, needed_keys: int) -> int:
     still to buy, so buying them never drops the party back under it.
     """
     living = [m for m in party.members if not m.is_dead()]
-    any_below_cap = any(
-        member_needs_shrine_stat(m, stat_attr, cap_attr)
-        for m in living
-        for stat_attr, cap_attr in (
-            ("strength", "max_str"),
-            ("dexterity", "max_dex"),
-            ("wisdom", "max_wis"),
-            ("intelligence", "max_int"),
-        )
-    )
-    shrine_gold = AMBROSIA_SHRINE_BUDGET if any_below_cap else 1500
+    shrine_gold = AMBROSIA_SHRINE_BUDGET if next_shrine_goal(party) is not None else 1500
     food_gold = sum(max(0, AMBROSIA_ENTRY_FOOD - m.food) for m in living) * 6 // 5
     keys_short = max(0, needed_keys + AMBROSIA_SPARE_KEYS - sum(m.keys for m in living))
     return shrine_gold + food_gold + 50 * keys_short
@@ -155,20 +145,61 @@ def member_needs_shrine_stat(member, stat_attr: str, cap_attr: str) -> bool:
     return getattr(member, stat_attr, 0) < stat_cap(member, cap_attr)
 
 
+# Shrine buying order (user request 2026-11-22), worked out from the code:
+#  * Hit roll is rand(0..255) + bonus > 128 (monster defence is always 128),
+#    and the bonus is 255 once DEX >= 40 (combat/resolver.py): DEX 15 hits
+#    55%, DEX 40 always hits. DEX above 40 only dodges chest traps (74).
+#  * Damage is 4..(weapon dmax + 1.5 * STR) (exotic dmax 49): about +0.75
+#    average damage per STR point, half the value of DEX up to 40.
+#  * Cleric MP = WIS, Wizard MP = INT; auto-combat casts SANCTU_MANI (50),
+#    NOXUM (50), ZXKUQYB (70) and UNSPEAKABLE (75).
+# Each step: (professions, stat, cap attr, target). A target above the
+# race cap stops at the cap. 100 gold buys one point.
+_MELEE_FIRST = (Profession.FIGHTER, Profession.BARBARIAN, Profession.PALADIN, Profession.RANGER)
+_DEX_SECOND = (Profession.THIEF, Profession.LARK)
+_HEALERS = (Profession.CLERIC,)
+_MAGES = (Profession.WIZARD,)
+_EVERYONE = tuple(Profession)
+SHRINE_PLAN: tuple[tuple[tuple[Profession, ...], str, str, int], ...] = (
+    (_HEALERS, "wisdom", "max_wis", 35),            # ALCORT (cure poison)
+    ((Profession.DRUID,), "wisdom", "max_wis", 70),  # Druid MP = WIS // 2
+    (_MELEE_FIRST, "dexterity", "max_dex", 40),      # always hit
+    (_DEX_SECOND, "dexterity", "max_dex", 40),
+    (_HEALERS, "dexterity", "max_dex", 40),
+    (_MAGES, "dexterity", "max_dex", 40),
+    (_EVERYONE, "dexterity", "max_dex", 40),
+    (_HEALERS, "wisdom", "max_wis", 50),            # SANCTU_MANI (major heal)
+    (_MAGES, "intelligence", "max_int", 50),        # NOXUM (multi-fireball)
+    (_HEALERS, "wisdom", "max_wis", 70),            # ZXKUQYB (multi-death bolt)
+    (_MAGES, "intelligence", "max_int", 75),        # UNSPEAKABLE (multi-death bolt)
+    (_MELEE_FIRST, "strength", "max_str", 99),      # damage
+    (_DEX_SECOND, "strength", "max_str", 99),
+    (_HEALERS, "wisdom", "max_wis", 99),            # bigger MP pools
+    (_MAGES, "intelligence", "max_int", 99),
+    (_EVERYONE, "strength", "max_str", 99),
+    (_DEX_SECOND, "dexterity", "max_dex", 74),      # chest traps: nicety only
+)
+SHRINE_RESERVE = 150  # gold kept back on every donation
+
+
+def next_shrine_goal(party: Party) -> tuple[int, str, str, int] | None:
+    """First unmet step of SHRINE_PLAN: (member index, stat, cap attr,
+    target clamped to the member's race cap), or None when all are met."""
+    for profs, stat_attr, cap_attr, target in SHRINE_PLAN:
+        for i, m in enumerate(party.members):
+            if m.is_dead() or m.profession not in profs:
+                continue
+            goal = min(target, stat_cap(m, cap_attr))
+            if getattr(m, stat_attr, 0) < goal:
+                return (i, stat_attr, cap_attr, goal)
+    return None
+
+
 def needs_shrine_stats(party: Party) -> bool:
-    """Return True if party has >= 500g and any living member still needs a relevant Shrine stat."""
+    """>= 500 gold (worth staying on Ambrosia for) and a plan step left."""
     if party.gold < 500:
         return False
-    return any(
-        member_needs_shrine_stat(m, stat_attr, cap_attr)
-        for m in party.members
-        for stat_attr, cap_attr in (
-            ("strength", "max_str"),
-            ("dexterity", "max_dex"),
-            ("wisdom", "max_wis"),
-            ("intelligence", "max_int"),
-        )
-    )
+    return next_shrine_goal(party) is not None
 
 
 def _normalize_map_id(party: Party, map_id: int | str | None) -> int:

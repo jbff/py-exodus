@@ -734,3 +734,59 @@ def test_shrine_caps_come_from_the_members_race():
     assert member_needs_shrine_stat(bobit, "wisdom", "max_wis")
     thief = Character("T", None, Race.HUMAN, Profession.THIEF, strength=15, dexterity=25, intelligence=15, wisdom=15)
     assert stat_cap(thief, "max_dex") >= AutoPlayController._TRAP_PROOF_DEX
+
+
+def test_shrine_plan_order_for_the_batch_party():
+    """User request 2026-11-22: one buying order for every Ambrosia visit.
+    ALCORT wisdom, DEX 40 for all (always hit), the 50-MP spells, the
+    multi-death bolts, STR, the rest of the MP pools, trap-proof DEX last;
+    every target clamped to the member's race cap."""
+    from py_exodus.autoplay import batch
+    from py_exodus.autoplay.planner import next_shrine_goal
+
+    party = batch.build_party()  # Elf Thief, Dwarf Fighter, Bobit Cleric, Fuzzy Wizard
+    steps = []
+    while (g := next_shrine_goal(party)) is not None:
+        idx, stat, _cap, target = g
+        steps.append((party.members[idx].profession.name, stat, target))
+        setattr(party.members[idx], stat, target)
+    assert steps == [
+        ("CLERIC", "wisdom", 35),
+        ("FIGHTER", "dexterity", 40),
+        ("THIEF", "dexterity", 40),
+        ("CLERIC", "dexterity", 40),
+        ("WIZARD", "dexterity", 40),
+        ("CLERIC", "wisdom", 50),
+        ("WIZARD", "intelligence", 50),
+        ("CLERIC", "wisdom", 70),
+        ("WIZARD", "intelligence", 75),
+        ("FIGHTER", "strength", 99),
+        ("THIEF", "strength", 75),
+        ("CLERIC", "wisdom", 99),
+        ("WIZARD", "intelligence", 99),
+        ("CLERIC", "strength", 75),
+        ("WIZARD", "strength", 25),
+        ("THIEF", "dexterity", 74),
+    ]
+
+
+def test_shrine_donation_stops_at_the_plan_target(pygame_setup, asset_mgr):
+    """At the wisdom shrine a WIS-30 Cleric buys exactly the 5 points to
+    ALCORT, then leaves: the next step (Fighter DEX 40) is another shrine."""
+    from py_exodus.autoplay import batch
+    from py_exodus.screens.shrine import ShrineScreen
+
+    party = batch.build_party()
+    cleric = party.members[2]
+    cleric.wisdom = 30
+    cleric.gold = 2000
+    sm = StateMachine(asset_mgr=asset_mgr, audio=None)
+    shrine = ShrineScreen(party=party, stat_name="wisdom", asset_mgr=asset_mgr)
+    sm.set_screen(shrine)
+    ctrl = AutoPlayController(enabled=True)
+    for _ in range(4):
+        if sm.current_screen is not shrine:
+            break
+        ctrl.step(sm)
+    assert cleric.wisdom == 35
+    assert cleric.gold == 1500

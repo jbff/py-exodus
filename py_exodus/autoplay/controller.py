@@ -23,9 +23,9 @@ from py_exodus.autoplay.nav import (
 from py_exodus.autoplay.planner import (
     Goal,
     evaluate_goal,
+    SHRINE_RESERVE,
     alcort_wisdom_gap,
-    stat_cap,
-    member_needs_shrine_stat,
+    next_shrine_goal,
     needs_heal,
     prefer_ranged_weapons,
 )
@@ -421,38 +421,24 @@ class AutoPlayController:
         return None
 
     def _step_shrine(self, state_machine: StateMachine, screen) -> int | None:
+        """Donate toward the current planner.SHRINE_PLAN step only; leave
+        when that step belongs to another shrine or is out of gold."""
+        party = screen.party
+        goal = next_shrine_goal(party)
+        stat_attr = getattr(screen, "stat_attr", "strength")
+        on_plan = goal is not None and goal[1] == stat_attr
+        member = party.members[goal[0]] if on_plan else None
+        spendable = max(0, party.gold - SHRINE_RESERVE) // 100
         if screen.state == screen.STATE_WHO:
-            stat_attr = getattr(screen, "stat_attr", "strength")
-            cap_attr = getattr(screen, "stat_cap_attr", "max_str")
-            needed_idx = next(
-                (
-                    i + 1
-                    for i, m in enumerate(screen.party.members)
-                    if m.gold >= 100 and member_needs_shrine_stat(m, stat_attr, cap_attr)
-                ),
-                None,
-            )
-            if needed_idx is None:
-                needed_idx = next(
-                    (i + 1 for i, m in enumerate(screen.party.members) if not m.is_dead() and m.gold >= 100),
-                    1,
-                )
-            return self._emit_key(state_machine, pygame.K_0 + needed_idx)
+            if member is not None and member.gold >= 100 and spendable >= 1:
+                return self._emit_key(state_machine, pygame.K_1 + goal[0])
+            return self._emit_key(state_machine, pygame.K_ESCAPE)
         if screen.state == screen.STATE_DONATE:
-            member = screen.party.get_member(screen.selected_member_idx)
-            gold = member.gold if member is not None else 0
-            stat_attr = getattr(screen, "stat_attr", "strength")
-            cap_attr = getattr(screen, "stat_cap_attr", "max_str")
-            room = (
-                max(0, stat_cap(member, cap_attr) - getattr(member, stat_attr, 0))
-                if member is not None
-                else 9
-            )
-            spendable = max(0, screen.party.gold - 150)
-            amt = min(9, gold // 100, spendable // 100, max(1, room))
-            if amt >= 1:
-                return self._emit_key(state_machine, pygame.K_0 + amt)
-            return self._emit_key(state_machine, pygame.K_0)
+            chosen = party.get_member(screen.selected_member_idx)
+            if member is None or chosen is not member:
+                return self._emit_key(state_machine, pygame.K_0)
+            amt = min(9, member.gold // 100, spendable, goal[3] - getattr(member, stat_attr, 0))
+            return self._emit_key(state_machine, pygame.K_0 + max(0, amt))
         return self._emit_key(state_machine, pygame.K_ESCAPE)
 
     _CRITICAL_HULL_THRESHOLD = 30
@@ -1733,48 +1719,13 @@ class AutoPlayController:
         return None
 
     def _ambrosia_destination(self, sm, party, px, py, living):
-        # Wisdom for ALCORT first (user ruling 2026-11-21): it is why the
-        # early trip is made; cards and other stats come after.
-        if alcort_wisdom_gap(party) and party.gold >= 250:
-            m_need = next(
-                (
-                    i + 1 for i, m in enumerate(party.members)
-                    if not m.is_dead() and m.profession in (Profession.CLERIC, Profession.DRUID)
-                    and member_needs_shrine_stat(m, "wisdom", "max_wis")
-                ),
-                None,
-            )
-            if m_need is not None:
-                def _wis() -> int:
-                    if party.members[m_need - 1].gold < 100 and party.gold >= 100:
-                        self._join_gold_member_idx = m_need
-                        return self._emit_key(sm, pygame.K_j)
-                    return self._emit_key(sm, pygame.K_e)
-
-                return Destination(frozenset({(55, 27)}), Transport.FOOT, "shrine55,27"), _wis
-        # Then dexterity 74 for a Thief/Lark (user idea 2026-11-21): a
-        # member who always dodges chest traps loots with G, no MP needed.
-        if (
-            not alcort_wisdom_gap(party)
-            and party.gold >= 250
-            and not any(not m.is_dead() and m.dex >= self._TRAP_PROOF_DEX for m in party.members)
-        ):
-            d_need = next(
-                (
-                    i + 1 for i, m in enumerate(party.members)
-                    if not m.is_dead() and m.profession in (Profession.THIEF, Profession.LARK)
-                    and stat_cap(m, "max_dex") >= self._TRAP_PROOF_DEX
-                ),
-                None,
-            )
-            if d_need is not None:
-                def _dex() -> int:
-                    if party.members[d_need - 1].gold < 100 and party.gold >= 100:
-                        self._join_gold_member_idx = d_need
-                        return self._emit_key(sm, pygame.K_j)
-                    return self._emit_key(sm, pygame.K_e)
-
-                return Destination(frozenset({(45, 52)}), Transport.FOOT, "shrine45,52"), _dex
+        """ALCORT wisdom first (it is why the trip is cheap to start), then
+        the cards, then planner.SHRINE_PLAN in order with whatever gold is
+        left above the reserve."""
+        goal = next_shrine_goal(party)
+        can_pay = party.gold >= SHRINE_RESERVE + 100
+        if goal is not None and can_pay and goal[1] == "wisdom" and alcort_wisdom_gap(party):
+            return self._shrine_dest(sm, party, goal)
         uncollected = [
             (tx, ty, card_idx)
             for tx, ty, card_idx in _AMBROSIA_CARD_SITES
@@ -1791,46 +1742,29 @@ class AutoPlayController:
                 _search,
             )
 
-        primary_shrines: list[tuple[int, int, str, str, tuple[Profession, ...]]] = [
-            (55, 27, "wisdom", "max_wis", (Profession.CLERIC, Profession.DRUID)),
-            (6, 6, "intelligence", "max_int", (Profession.WIZARD, Profession.ALCHEMIST, Profession.ILLUSIONIST)),
-            (4, 36, "strength", "max_str", (Profession.FIGHTER, Profession.PALADIN, Profession.RANGER, Profession.BARBARIAN)),
-            (45, 52, "dexterity", "max_dex", (Profession.THIEF, Profession.LARK)),
-        ]
-        shrine_target: tuple[int, int, int] | None = None
-        for sx, sy, stat_attr, cap_attr, profs in primary_shrines:
-            m_need = next(
-                (
-                    i + 1
-                    for i, m in enumerate(party.members)
-                    if not m.is_dead()
-                    and m.profession in profs
-                    and getattr(m, stat_attr, 0) < stat_cap(m, cap_attr)
-                ),
-                None,
-            )
-            if m_need is not None:
-                shrine_target = (sx, sy, m_need)
-                break
-        if shrine_target is None:
-            for sx, sy, stat_attr, cap_attr, _ in primary_shrines:
-                m_need = next(
-                    (i + 1 for i, m in enumerate(party.members) if member_needs_shrine_stat(m, stat_attr, cap_attr)),
-                    None,
-                )
-                if m_need is not None:
-                    shrine_target = (sx, sy, m_need)
-                    break
-        if shrine_target is None:
+        if goal is None or not can_pay:
             return (
                 Destination(frozenset({_AMBROSIA_EXIT}), Transport.SHIP, "exit_ambrosia"),
                 lambda: self._emit_key(sm, pygame.K_SPACE),
             )
-        sx, sy, m_need = shrine_target
+        return self._shrine_dest(sm, party, goal)
+
+    _SHRINE_SITES = {
+        "wisdom": (55, 27),
+        "intelligence": (6, 6),
+        "strength": (4, 36),
+        "dexterity": (45, 52),
+    }
+
+    def _shrine_dest(self, sm, party, goal):
+        """Walk to the shrine for ``goal``; on arrival pool gold on the
+        member (J) when they cannot pay a point, then enter (E)."""
+        m_idx = goal[0] + 1
+        sx, sy = self._SHRINE_SITES[goal[1]]
 
         def _shrine() -> int:
-            if party.members[m_need - 1].gold < 100 and party.gold >= 100:
-                self._join_gold_member_idx = m_need
+            if party.members[m_idx - 1].gold < 100 and party.gold >= 100:
+                self._join_gold_member_idx = m_idx
                 return self._emit_key(sm, pygame.K_j)
             return self._emit_key(sm, pygame.K_e)
 
