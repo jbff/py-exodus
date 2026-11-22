@@ -10,12 +10,10 @@ from py_exodus.entities.party import Party
 from py_exodus.screens.base import BaseScreen
 from py_exodus.ui.text_log import (
     EGA_BLACK,
-    EGA_BRIGHT_CYAN,
     EGA_BRIGHT_GREEN,
     EGA_BRIGHT_RED,
     EGA_DARK_GRAY,
     EGA_LIGHT_GRAY,
-    EGA_WHITE,
     EGA_YELLOW,
     get_hud_font,
 )
@@ -52,23 +50,22 @@ class StartScreen(BaseScreen):
         self.selected_idx = 0
         self.anim_time: float = 0.0
 
-        # Background surfaces
-        self.bg_image: pygame.Surface | None = None
-        self.border_image: pygame.Surface | None = None
+        # Title art (LairWare)
+        self.logo_image: pygame.Surface | None = None
+        self.exodus_image: pygame.Surface | None = None
         self._load_visual_assets()
 
     def _load_visual_assets(self) -> None:
+        """LairWare's title art: the "Ultima III" logo and EXODUS."""
         if self.asset_mgr is None:
             return
         try:
             from py_exodus.assets import load_image_surface
 
-            demon_path = self.asset_mgr.resolve_path("graphics", "demon.png")
-            if demon_path.exists():
-                self.bg_image = load_image_surface(demon_path)
-            border_path = self.asset_mgr.resolve_path("graphics", "splash_border.png")
-            if border_path.exists():
-                self.border_image = load_image_surface(border_path)
+            self.logo_image = load_image_surface(
+                self.asset_mgr.resolve_path("graphics", "lairware", "ultima_logo.png"))
+            self.exodus_image = load_image_surface(
+                self.asset_mgr.resolve_path("graphics", "lairware", "exodus.png"))
         except Exception:
             pass
 
@@ -106,39 +103,47 @@ class StartScreen(BaseScreen):
     def update(self, dt: float) -> None:
         self.anim_time += dt
 
+    CREDITS = (
+        "Ultima III: Exodus \u00a9 1983 Richard Garriott / Origin Systems",
+        "Java port gdx-exodus by Paul Antinori  \u00b7  Mac port by LairWare (Leon McNeill)",
+    )
+
     def render(self, surface: pygame.Surface) -> None:
         w, h = surface.get_width(), surface.get_height()
         surface.fill(EGA_BLACK)
+        k = w / 960.0
+        px = lambda v: max(1, int(round(v * k)))  # noqa: E731
 
-        # Draw decorative background if available
-        if self.bg_image is not None:
-            scaled_bg = pygame.transform.scale(self.bg_image, (w, h))
-            surface.blit(scaled_bg, (0, 0))
+        def blit_scaled(img, width, y):
+            if img.get_bitsize() < 24:  # paletted PNG: smoothscale needs 32-bit
+                rgba = pygame.Surface(img.get_size(), pygame.SRCALPHA)
+                rgba.blit(img, (0, 0))
+                img = rgba
+            sh = int(img.get_height() * width / img.get_width())
+            surface.blit(pygame.transform.smoothscale(img, (width, sh)), ((w - width) // 2, y))
+            return y + sh
 
-        scale = 3 if w >= 640 else 1
+        y = px(14)
+        if self.logo_image is not None:
+            y = blit_scaled(self.logo_image, px(400), y) + px(6)
+        if self.exodus_image is not None:
+            y = blit_scaled(self.exodus_image, px(600), y) + px(10)
+        else:
+            t = get_hud_font(size=px(48), font_name="ultima.ttf").render(
+                "ULTIMA III: EXODUS", True, EGA_YELLOW)
+            surface.blit(t, ((w - t.get_width()) // 2, y))
+            y += t.get_height() + px(10)
 
-        # Title banner
-        title_font = get_hud_font(size=24 * scale, font_name="ultima.ttf")
-        sub_font = get_hud_font(size=14 * scale)
-        info_font = get_hud_font(size=11 * scale)
+        tag_font = get_hud_font(size=px(24), font_name="BarlowSemiCondensed-SemiBold.ttf")
+        for line in ("From the depths of hell", "he comes for vengeance!"):
+            t = tag_font.render(line, True, EGA_BRIGHT_RED)
+            surface.blit(t, ((w - t.get_width()) // 2, y))
+            y += t.get_height()
+        y += px(10)
 
-        title_surf = title_font.render("ULTIMA III: EXODUS", True, EGA_YELLOW)
-        surface.blit(
-            title_surf,
-            ((w - title_surf.get_width()) // 2, 20 * scale),
-        )
-
-        sub_surf = sub_font.render(
-            "From the depths of hell... he comes for vengeance!", True, EGA_BRIGHT_RED
-        )
-        surface.blit(
-            sub_surf,
-            ((w - sub_surf.get_width()) // 2, 50 * scale),
-        )
-
+        menu_font = get_hud_font(size=px(24))
         # Game-over messaging when the whole party perished (Task 2 death flow).
-        # Documented deviation: Java's start screen shows no game-over text;
-        # the label is kept for UI clarity (controller ruling, Task 2 fix round 1).
+        # Documented deviation: Java's start screen shows no game-over text.
         if self.game_over:
             turns = getattr(self.party, "moves", None)
             msg = (
@@ -146,22 +151,26 @@ class StartScreen(BaseScreen):
                 if turns is not None
                 else "Thy party has perished!"
             )
-            over_surf = sub_font.render(msg, True, EGA_BRIGHT_RED)
-            surface.blit(over_surf, ((w - over_surf.get_width()) // 2, 70 * scale))
+            t = menu_font.render(msg, True, EGA_BRIGHT_RED)
+            surface.blit(t, ((w - t.get_width()) // 2, y))
+            y += t.get_height() + px(6)
 
-        # Menu options
-        menu_y = 90 * scale
         for i, (label, _) in enumerate(self.options):
-            is_sel = (i == self.selected_idx)
-            color = EGA_BRIGHT_GREEN if is_sel else EGA_LIGHT_GRAY
-            prefix = " > " if is_sel else "   "
-            opt_surf = sub_font.render(f"{prefix}{label}", True, color)
-            surface.blit(opt_surf, (80 * scale, menu_y + i * 26 * scale))
+            sel = i == self.selected_idx
+            t = menu_font.render(label, True, EGA_BRIGHT_GREEN if sel else EGA_LIGHT_GRAY)
+            x = (w - t.get_width()) // 2
+            surface.blit(t, (x, y))
+            if sel:
+                arrow = menu_font.render(">", True, EGA_BRIGHT_GREEN)
+                surface.blit(arrow, (x - arrow.get_width() - px(10), y))
+            y += t.get_height() + px(2)
 
-        # Footer
-        footer = "Use Arrows/Enter or 1-3 to select"
-        foot_surf = info_font.render(footer, True, EGA_DARK_GRAY)
-        surface.blit(foot_surf, ((w - foot_surf.get_width()) // 2, h - 25 * scale))
+        small = get_hud_font(size=px(14))
+        lines = ["Arrows and Enter, or 1-3"] + list(self.CREDITS)
+        yb = h - px(8) - len(lines) * small.get_linesize()
+        for i, line in enumerate(lines):
+            t = small.render(line, True, EGA_DARK_GRAY if i == 0 else EGA_LIGHT_GRAY)
+            surface.blit(t, ((w - t.get_width()) // 2, yb + i * small.get_linesize()))
 
     def _start_journey(self) -> None:
         """Begin or resume the adventure in the overworld.

@@ -12,7 +12,7 @@ preservation and study, and is not affiliated with or endorsed by them.
 
 ## LairWare Ultima III port (MIT)
 
-Rules are ported from, and the tile sheets and shrine picture in
+Rules are ported from, and the tile sheets, title art and shrine picture in
 `assets/graphics/lairware/` and the sounds `assets/sound/Shrine.wav`,
 `Shoot.wav` and `Hit.wav` are copied from, LairWare's Mac port of Ultima III (`refs/ultima3`).
 
@@ -34,8 +34,7 @@ replaced over time with LairWare-derived equivalents:
 - sound effects and music (`assets/sound/`)
 - XML game data (`assets/xml/`: maps, vendors, creatures, weapons, armors,
   sound, tileset)
-- maps and roster (`assets/maps/`, `assets/data/`), the start-screen art
-  (`assets/graphics/demon.png`, `splash_border.png`) and parts of the code's
+- maps and roster (`assets/maps/`, `assets/data/`) and parts of the code's
   structure.
 
 Rights to that material remain with its author.

@@ -339,6 +339,9 @@ def test_start_screen_renders_tagline(pygame_setup, asset_mgr, monkeypatch):
             rendered_texts.append(text)
             return self._inner.render(text, *args, **kwargs)
 
+        def get_linesize(self):
+            return self._inner.get_linesize()
+
     monkeypatch.setattr(
         start_mod,
         "get_hud_font",
@@ -348,7 +351,11 @@ def test_start_screen_renders_tagline(pygame_setup, asset_mgr, monkeypatch):
     scr = StartScreen(asset_mgr=asset_mgr)
     surface = pygame.Surface((640, 480))
     scr.render(surface)
-    assert "From the depths of hell... he comes for vengeance!" in rendered_texts
+    # Two lines (user 2026-11-22), and the credits at the bottom.
+    assert "From the depths of hell" in rendered_texts
+    assert "he comes for vengeance!" in rendered_texts
+    assert any("Richard Garriott" in t for t in rendered_texts)
+    assert any("Paul Antinori" in t and "LairWare" in t for t in rendered_texts)
 
 
 def test_start_screen_journey_onward(pygame_setup, asset_mgr, sample_party, monkeypatch, tmp_path):
