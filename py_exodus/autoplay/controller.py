@@ -74,6 +74,8 @@ _REST_INDOORS = object()
 _TRIP_REPLAN_TURNS = 300
 _TRIP_STUCK_TURNS = 30
 _NEIGHBOURS4 = ((0, -1), (0, 1), (-1, 0), (1, 0))
+_GATE_WAIT_TURNS = 6  # be at the gate this many turns before it opens
+_GATE_ROAM_RADIUS = 5
 _CHASE_RADIUS = 8  # land monsters this close count as chasing
 _BLOCK_TURNS = 40  # a refused threatened tile stays barred this long
 # Planning cost for entering a tile under threat when the trip is planned.
@@ -1815,26 +1817,66 @@ class AutoPlayController:
         return all(manhattan(w, h, pos, (x, y)) > 3 for x, y, _ in plan.path)
 
     def _drive_gate(self, state_machine, screen, gmap, party, pos, leg: Leg) -> int:
+        """Take moongate ``src`` to ``dst`` without standing around.
+
+        User rule (2026-11-21): watch the phases, roam the area fighting what
+        comes until the gate is about to open, and be next to it in time.
+        The phase steps every 4 surface turns; an open gate stays one phase.
+        """
         gates = getattr(gmap, "moongates", ()) or ()
         src, dst = leg.gate_src, leg.gate_dest
         if src is None or dst is None or src >= len(gates):
             self._trip = None
             return self._emit_key(state_machine, pygame.K_SPACE)
         site = (gates[src].x, gates[src].y)
-        if manhattan(gmap.width, gmap.height, pos, site) == 1:
-            if getattr(screen, "trammel_phase", -1) == src and getattr(screen, "felucca_phase", -1) == dst:
+        w, h = gmap.width, gmap.height
+        self._trip_stuck = 0
+        k = self._phases_until_gate(party, src, dst)
+        turns_left = 4 * k
+        dist = manhattan(w, h, pos, site)
+        if dist == 1:
+            if k == 0 and getattr(screen, "trammel_phase", -1) == src and getattr(screen, "felucca_phase", -1) == dst:
                 d = next(
                     d for d in (Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST)
-                    if ((pos[0] + d.dx) % gmap.width, (pos[1] + d.dy) % gmap.height) == site
+                    if ((pos[0] + d.dx) % w, (pos[1] + d.dy) % h) == site
                 )
                 return self._emit_key(state_machine, _DIR_TO_KEY[d])
-            self._trip_stuck = 0
-            return self._emit_key(state_machine, pygame.K_SPACE)
+            if turns_left <= _GATE_WAIT_TURNS:
+                return self._emit_key(state_machine, pygame.K_SPACE)  # opens in moments
         adjacent = {
-            ((site[0] + dx) % gmap.width, (site[1] + dy) % gmap.height)
-            for dx, dy in ((0, -1), (1, 0), (0, 1), (-1, 0))
+            ((site[0] + dx) % w, (site[1] + dy) % h)
+            for dx, dy in _NEIGHBOURS4
         }
-        return self._move_toward(state_machine, gmap, party, pos, adjacent)
+        if turns_left <= dist + _GATE_WAIT_TURNS:
+            return self._move_toward(state_machine, gmap, party, pos, adjacent)
+        # Roam near the gate: fight what is around, else wander a little.
+        prey = {
+            (c["x"], c["y"])
+            for c in getattr(screen, "creatures", ()) or ()
+            if "x" in c and "y" in c
+            and creature_name(c) not in SEA_MONSTERS and creature_name(c) != "whirlpool"
+            and manhattan(w, h, site, (c["x"], c["y"])) <= _GATE_ROAM_RADIUS + 3
+        }
+        if prey:
+            return self._move_toward(state_machine, gmap, party, pos, prey)
+        reach = self._foot_reachable(gmap, party, pos)
+        if self._patrol_target is None or pos == self._patrol_target or self._patrol_target not in reach \
+                or manhattan(w, h, self._patrol_target, site) > _GATE_ROAM_RADIUS:
+            near = [t for t in reach if 1 <= manhattan(w, h, t, site) <= _GATE_ROAM_RADIUS and t != pos]
+            self._patrol_target = random.choice(near) if near else None
+        if self._patrol_target is None:
+            return self._move_toward(state_machine, gmap, party, pos, adjacent)
+        return self._move_toward(state_machine, gmap, party, pos, {self._patrol_target})
+
+    @staticmethod
+    def _phases_until_gate(party, src: int, dst: int) -> int:
+        """Phase steps until trammel == src and felucca == dst (0: open now)."""
+        p0 = getattr(party, "moon_phase", 0)
+        for k in range(24):
+            p = (p0 + k) % 24
+            if min(7, p // 3) == src and p % 8 == dst:
+                return k
+        return 24
 
     def _drive_capture(self, state_machine, screen, gmap, party, pos, leg: Leg, map_id: int) -> int:
         """Hunt a pirate from land, or patrol the coast until one appears.

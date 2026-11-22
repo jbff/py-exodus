@@ -897,7 +897,12 @@ def test_dawn_double_new_moon_wait_and_moongate_helper(pygame_setup):
     gx, gy = gmap.moongates[0].x, gmap.moongates[0].y
     leg = Leg(Transport.FOOT, (gx, gy), "GATE", gate_src=0, gate_dest=1)
     party.x, party.y = gx + 1, gy
+    # User rule (2026-11-21): no standing at a gate that opens 20 phases
+    # (80 turns) from now; roam nearby instead. One phase (4 turns) out:
+    # stay put next to it.
     party.moon_phase = 5
+    assert ctrl._drive_gate(sm, ow, gmap, party, (gx + 1, gy), leg) != pygame.K_SPACE
+    party.moon_phase = 0
     assert ctrl._drive_gate(sm, ow, gmap, party, (gx + 1, gy), leg) == pygame.K_SPACE
     party.moon_phase = 1
     assert ctrl._drive_gate(sm, ow, gmap, party, (gx + 1, gy), leg) == pygame.K_LEFT
