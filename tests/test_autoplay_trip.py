@@ -1388,3 +1388,22 @@ def test_a_starving_member_turns_the_party_for_the_exit(pygame_setup, monkeypatc
     party.members[1].food = 0
     ctrl._step_dungeon(sm, ds)
     assert keys[-1] == to_exit
+
+
+def test_no_flee_into_a_town_the_party_would_walk_straight_out_of(pygame_setup, asset_mgr):
+    """Batch 1c7525f seed 38: hurt and chased beside the Exotic dig site,
+    the party fled into town 12 (30, 2) to rest. Near the site the food
+    check waits; inside the town it fires, BUY_FOOD walks out (town 12 sells
+    none), and in and out it went for 3,600 steps until it starved."""
+    party = _make_party(level=5, marks=[1, 0, 0, 0], gold=40, food=224, x=30, y=2)  # at town 12
+    for m in party.members:
+        m.food = 56
+    _hurt(party)
+    assert evaluate_goal(party, 0) != Goal.BUY_FOOD
+    assert evaluate_goal(party, 12) == Goal.BUY_FOOD
+    sm, ow = _overworld(asset_mgr, party)
+    ow.creatures = [{"tile_name": "orc", "tile": "orc", "x": 30, "y": 8}]
+    ctrl = AutoPlayController(enabled=True)
+    ctrl.step(sm)
+    assert not ctrl._fleeing
+    assert ctrl._trip is None or ctrl._trip.dest.label != "rest"

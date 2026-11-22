@@ -1617,6 +1617,16 @@ class AutoPlayController:
         if plan is None or not plan.path:
             return None
         portal = (plan.path[-1][0], plan.path[-1][1])
+        # Rest there only if the party will still want to once inside: the
+        # goal can differ by map (batch 1c7525f seed 38: near the Exotic dig
+        # site the food check waits, inside town 12 it fires, BUY_FOOD walks
+        # out, and in and out for 3,600 steps until the party starved).
+        dest_map = next(
+            (p.dest_map_id for p in getattr(gmap, "portals", ()) if (p.x, p.y) == portal), None
+        )
+        if dest_map is not None and not self._can_rest_indoors(party, evaluate_goal(party, dest_map)):
+            self._trip = None
+            return None
         ours = len(plan.path) - 1
         if any(manhattan(w, h, (cx, cy), portal) <= ours for cx, cy, _ in chasers):
             self._trip = None
