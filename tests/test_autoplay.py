@@ -52,6 +52,19 @@ def asset_mgr():
     return am
 
 
+def _max_shrine_stats(party: Party) -> Party:
+    """Buy every stat the planner's Ambrosia return trips would: the castle
+    waits for them (user ruling 2026-11-22)."""
+    from py_exodus.autoplay.planner import return_trip_cost, stat_cap
+
+    for m in party.members:
+        for stat, cap in (("strength", "max_str"), ("dexterity", "max_dex"),
+                          ("intelligence", "max_int"), ("wisdom", "max_wis")):
+            setattr(m, stat, stat_cap(m, cap))
+    assert return_trip_cost(party) == 0
+    return party
+
+
 def _make_party(
     level: int = 1,
     exp: int = 0,
@@ -362,6 +375,9 @@ def test_evaluate_goal_progression():
         weapon=WeaponType.EXOTIC,
         armor=ArmorType.EXOTIC,
     )
+    # Stats not yet bought: no castle (user ruling 2026-11-22).
+    assert evaluate_goal(ready_exodus) == Goal.GRIND_AND_LEVEL
+    _max_shrine_stats(ready_exodus)
     assert evaluate_goal(ready_exodus) == Goal.CONQUER_EXODUS
 
     # Exodus defeated -> DONE
@@ -692,6 +708,7 @@ def test_equipment_upgrades_hand_and_dawn(pygame_setup):
         m.cards = [1, 1, 1, 1]
         m.weapon = WeaponType.EXOTIC
         m.armor = ArmorType.EXOTIC
+    _max_shrine_stats(party)
     assert evaluate_goal(party) == Goal.CONQUER_EXODUS
 
 
@@ -1830,6 +1847,7 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
         level=25, exp=2400, gold=2000, food=500, marks=[1, 1, 1, 1], cards=[1, 1, 1, 1],
         weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC,
     )
+    _max_shrine_stats(p_exodus)
     p_exodus.members[0].weapons[WeaponType.BOW] = 1
     p_exodus.members[1].weapons[WeaponType.BOW_P2] = 1
     assert evaluate_goal(p_exodus, map_id=0) == Goal.CONQUER_EXODUS
@@ -1947,6 +1965,7 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
         level=25, exp=2400, gold=100, food=500, marks=[1, 1, 1, 1], cards=[1, 1, 1, 1],
         weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC, transport=Transport.SHIP,
     )
+    _max_shrine_stats(p_evo)
     p_evo.x, p_evo.y = 10, 59
     ow_evo = OverworldScreen(party=p_evo, map_id=0, asset_mgr=am, random_encounters=False)
     sm_evo = StateMachine(asset_mgr=am, audio=None)
@@ -2193,3 +2212,22 @@ def test_cli_has_no_seed_flag():
 
 
 
+
+
+def test_no_castle_until_the_stat_plan_is_bought():
+    """User run 2026-11-22: a level-25 party went into Castle Exodus with a
+    STR-39 Fighter and 70/75 caster MP and lost a member under LairWare
+    damage. While return-trip stats remain the planner grinds (which raids
+    Death Gulch for the gold); with the gold in hand it sails for Ambrosia;
+    with the plan bought it goes to the castle."""
+    party = _make_party(
+        level=25, exp=2400, gold=300, food=500, marks=[1, 1, 1, 1], cards=[1, 1, 1, 1],
+        weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC,
+    )
+    _max_shrine_stats(party)
+    fighter = next(m for m in party.members if m.profession == Profession.FIGHTER)
+    fighter.strength = 39
+    assert evaluate_goal(party, map_id=0) == Goal.GRIND_AND_LEVEL
+    fighter.strength = 99
+    _max_shrine_stats(party)
+    assert evaluate_goal(party, map_id=0) == Goal.CONQUER_EXODUS
