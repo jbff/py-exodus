@@ -669,3 +669,48 @@ def test_terrain_sees_the_snake_turn_to_water_after_evocare():
         assert (10, 58) in terrain_for(gmap, party, 0).sea_comp
     finally:
         random.setstate(rng_state)
+
+
+def test_strong_party_walks_up_to_a_pirate_and_attacks(pygame_setup, asset_mgr):
+    """User report 2026-11-22: a 25/25/19/25 party two tiles west of a
+    castle stepped out of a pirate's lane and straight back in, taking hits,
+    instead of walking round and killing it. A strong party now hunts any
+    pirate it can reach from land within a few steps."""
+    party = _make_party(level=25, marks=[1, 1, 1, 1], gold=9000, food=1000, x=44, y=20)
+    sm, ow = _overworld(asset_mgr, party)
+    gmap = ow.game_map
+    # A pirate on water whose nearest land neighbour is 3+ steps away.
+    spot = None
+    for y in range(5, 60):
+        for x in range(5, 60):
+            if not can_move_to(gmap, x, y, Transport.SHIP):
+                continue
+            for lx, ly in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
+                if not can_move_to(gmap, lx, ly, Transport.FOOT):
+                    continue
+                # a land tile 3 steps away along land
+                for sx, sy in ((lx - 3, ly), (lx + 3, ly), (lx, ly - 3), (lx, ly + 3)):
+                    line = [((lx * (3 - i) + sx * i) // 3, (ly * (3 - i) + sy * i) // 3) for i in range(4)]
+                    if all(can_move_to(gmap, a, b, Transport.FOOT) for a, b in line):
+                        spot = ((x, y), (sx, sy))
+                        break
+                if spot:
+                    break
+            if spot:
+                break
+        if spot:
+            break
+    assert spot is not None
+    (pxr, pyr), (party.x, party.y) = spot
+    ow.creatures = [_pirate(pxr, pyr)]
+    ctrl = AutoPlayController(enabled=True)
+    arrows = (pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame.K_RIGHT)
+    for _ in range(8):  # ctrl.step delivers each key, so the party moves
+        ctrl._key_queue.clear()
+        before = (party.x, party.y)
+        key = ctrl.step(sm)
+        if key == pygame.K_a:
+            assert abs(before[0] - pxr) + abs(before[1] - pyr) == 1
+            return
+        assert key in arrows, pygame.key.name(key)
+    raise AssertionError("never closed on the pirate")

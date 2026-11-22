@@ -104,6 +104,9 @@ def party_has_low_hp(party) -> bool:
     return any(not m.is_dead() and m.max_hp > 0 and m.hp * 10 < m.max_hp * 4 for m in party.members)
 
 _MAP_SOSARIA = 0
+# A party this strong walks up to pirates and fights them from land.
+_PIRATE_HUNT_MIN_LEVEL = 8
+_PIRATE_HUNT_RANGE = 10
 _MAP_CASTLE_LB = 1
 _MAP_EXODUS = 2
 _MAP_DEATH_GULCH = 10
@@ -1038,6 +1041,15 @@ class AutoPlayController:
                 if n in th.pirates:
                     return self._attack(state_machine, d)
 
+        # A strong party on foot goes and kills pirates it can reach from
+        # land instead of dodging their lanes (user report 2026-11-22: a
+        # 25/25/19/25 party stepped in and out of a castle-side pirate's
+        # lane until it nearly died).
+        if not on_ship and th.pirates and self._strong_vs_pirates(party):
+            hunt = self._pirate_hunt_step(gmap, party, pos, th)
+            if hunt is not None:
+                return self._emit_key(state_machine, _DIR_TO_KEY[hunt], guarded=False)
+
         if not th.unsafe_end(pos):
             return None
 
@@ -1090,6 +1102,45 @@ class AutoPlayController:
                 return self._emit_key(state_machine, pygame.K_u, guarded=False)
             return self._emit_key(state_machine, _DIR_TO_KEY[d], guarded=False)
         return self._emit_key(state_machine, pygame.K_SPACE, guarded=False)
+
+    @staticmethod
+    def _strong_vs_pirates(party) -> bool:
+        """Healthy, unpoisoned and every living member at level 8+."""
+        living = [m for m in party.members if not m.is_dead()]
+        return (
+            bool(living)
+            and not party_has_low_hp(party)
+            and all(m.status != Status.POISONED and m.level >= _PIRATE_HUNT_MIN_LEVEL for m in living)
+        )
+
+    def _pirate_hunt_step(self, gmap, party, pos, th) -> Direction | None:
+        """First step of the shortest land path (lanes allowed) to a tile
+        orthogonally next to a pirate, within _PIRATE_HUNT_RANGE steps."""
+        w, h = gmap.width, gmap.height
+        reach = self._foot_reachable(gmap, party, pos)
+        engage = {
+            ((p[0] + dx) % w, (p[1] + dy) % h)
+            for p in th.pirates
+            for dx, dy in _NEIGHBOURS4
+        } & reach
+        if not engage:
+            return None
+        seen = {pos}
+        frontier: list[tuple[tuple[int, int], Direction | None]] = [(pos, None)]
+        for _ in range(_PIRATE_HUNT_RANGE):
+            nxt = []
+            for cur, first in frontier:
+                for d in (Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST):
+                    n = ((cur[0] + d.dx) % w, (cur[1] + d.dy) % h)
+                    if n in seen or n not in reach or n in th.pirates:
+                        continue
+                    step = first or d
+                    if n in engage:
+                        return step
+                    seen.add(n)
+                    nxt.append((n, step))
+            frontier = nxt
+        return None
 
     @staticmethod
     def _is_locked_door(gmap, x: int, y: int) -> bool:
