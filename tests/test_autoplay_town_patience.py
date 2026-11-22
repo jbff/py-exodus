@@ -106,3 +106,18 @@ def test_weak_party_without_a_safe_opener_leaves_dropped_chests():
     sm, p = _party_on_a_chest(dead_cleric=False, level=10)
     ctrl = AutoPlayController(enabled=True)
     assert ctrl.step(sm) == pygame.K_g  # strong, all alive: still takes the gamble
+
+
+def test_guild_see_more_is_declined():
+    """Live trace 2026-11-22: after one key the guild asked "See more?" /
+    "Buy? (y or n)"; autoplay said y until the buyer was broke (44 keys)."""
+    from types import SimpleNamespace
+
+    pygame.init()
+    log = SimpleNamespace(current_prompt="Buy? (y or n)", lines=["Shamino says: See more?"])
+    screen = SimpleNamespace(text_log=log)
+    sm = StateMachine(asset_mgr=None, audio=None)
+    ctrl = AutoPlayController(enabled=True)
+    assert ctrl._handle_town_prompt(sm, screen) == pygame.K_n
+    log.lines = ["Avast ye mate!"]  # the opening offer is still accepted
+    assert ctrl._handle_town_prompt(sm, screen) == pygame.K_y

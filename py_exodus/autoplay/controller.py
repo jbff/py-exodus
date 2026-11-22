@@ -2330,7 +2330,14 @@ class AutoPlayController:
             return self._emit_key(state_machine, pygame.K_b)
         lines = getattr(screen.text_log, "lines", None) or ()
         last_msg = str(lines[-1]).lower() if lines else ""
-        if "anything else" in prompt or "anything else" in last_msg or "give blood" in prompt or "more help" in prompt:
+        # The guild's "See more?" after a sale (GuildVendor ANYTHING_ELSE):
+        # answering y bought again until the buyer's gold ran out (live
+        # trace 2026-11-22: 44 keys for 2,200 gold at Grey). One per talk;
+        # the goal brings the party back if it still needs more.
+        if (
+            "anything else" in prompt or "anything else" in last_msg or "see more" in last_msg
+            or "give blood" in prompt or "more help" in prompt
+        ):
             return self._emit_key(state_machine, pygame.K_n)
         if "(y or n)" in prompt or "take it" in prompt or "deal" in prompt:
             return self._emit_key(state_machine, pygame.K_y)
