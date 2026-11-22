@@ -864,6 +864,30 @@ def test_card_trip_carries_keys_enough_to_reach_the_moons_card():
     assert evaluate_goal(party, 0) == Goal.SAIL_WHIRLPOOL
 
 
+def test_fawn_is_not_castle_exodus_for_the_planner():
+    """Batch 775884a seed 16 (STEP_CAP, all level 25): the planner took map
+    12 (Fawn) for the castle, so inside Fawn the goal was CONQUER_EXODUS and
+    outside it BUY_KEYS for a return trip; the party walked in and out of
+    Fawn's west edge for 11k steps. Only Castle Exodus (map 2) holds the
+    party to the conquest."""
+    from py_exodus.autoplay import batch
+    from py_exodus.autoplay.planner import return_trip_gold
+
+    party = batch.build_party()
+    for m in party.members:
+        m.level, m.food, m.keys, m.gold = 25, 300, 0, 0
+        m.marks, m.cards = [1, 1, 1, 1], [1, 1, 1, 1]
+        m.weapon, m.armor = WeaponType.EXOTIC, ArmorType.EXOTIC
+    party.members[0].gold = return_trip_gold(party)
+    assert evaluate_goal(party, 0) == Goal.BUY_KEYS
+    assert evaluate_goal(party, 12) == Goal.BUY_KEYS
+    assert evaluate_goal(party, 2) == Goal.CONQUER_EXODUS
+    party.members[1].level = 20
+    party.members[0].gold = 0
+    assert evaluate_goal(party, 12) == Goal.GRIND_AND_LEVEL
+    assert evaluate_goal(party, 2) == Goal.CONQUER_EXODUS
+
+
 def test_return_trip_buys_keys_first_and_keeps_one_to_leave_ambrosia():
     """Live run 2026-11-22: a return trip sailed in with no keys; the last
     one went on the way in, the intelligence shrine (behind (10,6)) and the

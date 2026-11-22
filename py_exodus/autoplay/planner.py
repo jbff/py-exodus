@@ -446,7 +446,7 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
     # rest of the plan (one trip's worth at most), sail back to Ambrosia.
     trip_gold = return_trip_gold(party)
     if (
-        cur_map_id not in (12, 2)
+        cur_map_id != 2  # Castle Exodus: once inside, see it through
         and trip_gold
         and len(living) == len(party.members)
         and party.gold >= trip_gold
@@ -457,14 +457,14 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
             return Goal.BUY_FOOD
         return Goal.SAIL_WHIRLPOOL
 
-    if cur_map_id != 12 and min(m.level for m in living) < 25:
+    if cur_map_id != 2 and min(m.level for m in living) < 25:
         return Goal.GRIND_AND_LEVEL
 
     # No castle until the stat plan's return trips are bought (user ruling
     # 2026-11-22): under LairWare damage a level-25 party with STR 39 and
     # 70/75 caster MP lost a member in Castle Exodus. Grinding here raids
     # Death Gulch for the gold, and the return-trip goal above sails.
-    if cur_map_id not in (12, 2) and return_trip_cost(party) > 0:
+    if cur_map_id != 2 and return_trip_cost(party) > 0:
         return Goal.GRIND_AND_LEVEL
 
     return Goal.CONQUER_EXODUS
