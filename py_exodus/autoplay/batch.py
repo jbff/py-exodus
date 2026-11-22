@@ -1,13 +1,14 @@
 """Headless autoplay batch runner: many seeds, one trace per seed.
 
-    uv run python -m py_exodus.autoplay.batch --seeds 0-99 --workers 8 --out-dir traces/baseline
+    uv run python -m py_exodus.autoplay.batch --seeds 0-99 --workers 2 --out-dir traces/baseline
 
 Each seed starts a fresh canonical party (Thief / Fighter / Cleric / Wizard) at
 Castle British's gate and drives the REAL StateMachine through the same loop
 ``GameApp.run`` uses — ``autoplay.update(dt)`` then ``state_machine.update(dt)``
 at 60 FPS — minus rendering and the pygame event pump. Combat is the same
 symbolic auto-combat the live game uses, so a batch result describes what the
-user would see with ``--autoplay --seed N``.
+user would see with ``--autoplay`` (live play runs on wall-clock time, so only
+batches are seed-reproducible).
 
 Outputs ``<out-dir>/trace_<seed>.jsonl.gz`` (see ``autoplay.tracer``) plus a
 one-line summary per seed on stdout. Analyze with ``scripts/autoplay_atlas.py``.

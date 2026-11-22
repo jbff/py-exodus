@@ -1,46 +1,50 @@
 # py-exodus
 
-A Python 3 / Pygame-CE reimplementation of *Ultima III: Exodus*, featuring **Auto-Combat** (`TAB`) and an experimental autonomous **Full Autoplay / Watch Mode** (`F9`).
+A Python 3 / Pygame-CE reimplementation of *Ultima III: Exodus*, with **Auto-Combat** (`TAB`) and a **Full Autoplay / Watch Mode** (`F9`) that plays the whole game, from party creation to Exodus.
 
 ---
 
 ## Reference Implementations & Assets
 
-- **Original Game**: [*Ultima III: Exodus*](https://wiki.ultimacodex.com/wiki/Ultima_III:_Exodus) (1983) by Richard Garriott / Origin Systems.
-- **Primary Logic, Maps & Audio/Graphics Source — [pantinor/gdx-exodus](https://github.com/pantinor/gdx-exodus)**:
-  `py-exodus` was ported from Paul Antinori's LibGDX Java implementation, which also supplied the tile atlases, sound effects, `.ogg` soundtrack (transcoded from MIDI), XML definitions (`maps.xml`, `vendor.xml`, `creatures.xml`, `weapons.xml`, `armors.xml`), and JSON world maps/rosters.
-- **Classic Port References (GBC / LairWare / NES)**:
-  Where the Java port invented rules or differed from classic releases, several mechanics were intentionally aligned with:
-  - **Game Boy Color (`u3gbc`: `funcs5.c`, `battle3.c`, `menucmd2.c`)**: dual-moon slow/fast moongate routing, ship-battle party-wide cannonfire barrage, meal-crossing starvation (`-5 HP`) and fed HP regen (`+1 HP`), `QUICKNESS` stop-time aura gating, underground meal cadence, and 9999 pooled gold cap.
-  - **LairWare Mac port (`UltimaMisc.c`, `UltimaMain.c`)**: inspiration for **Auto-Combat**, plus cross-checking starvation/regen, moon cadence, and spell/combat edge cases.
-  - **NES (`MoonGateTbl`)**: cross-reference for the 8-site slow/fast moongate table.
+- **Original game**: [*Ultima III: Exodus*](https://wiki.ultimacodex.com/wiki/Ultima_III:_Exodus) (1983) by Richard Garriott / Origin Systems.
+- **Port base: [pantinor/gdx-exodus](https://github.com/pantinor/gdx-exodus)**. `py-exodus` started as a port of Paul Antinori's LibGDX Java implementation, which also supplied the tile atlases, sound effects, `.ogg` soundtrack (transcoded from MIDI), XML definitions (`maps.xml`, `vendor.xml`, `creatures.xml`, `weapons.xml`, `armors.xml`) and the world maps/rosters (now JSON).
+- **Rules authority: the LairWare Mac port** (`UltimaMain.c`, `UltimaMisc.c`, `UltimaSpellCombat.c`, ...). Where the Java port and the classic releases disagree, **LairWare is the correct implementation**. Recent LairWare ports include:
+  - **People move in towns and castles** (`MoveMonsters`): wanderers wander, shopkeepers follow, attackers close in and start a fight; in Castle Exodus the defenders come to you.
+  - **The dead leave the combat board** and no longer block the living.
+  - **Wind** steers ships on Ambrosia as on Sosaria, and is shown there too.
+- **Other classic references**: the Game Boy Color port (`u3gbc`) for moongate routing, ship-battle cannon barrages, meal-crossing starvation/regen and the `QUICKNESS` aura; the NES `MoonGateTbl` for the 8-site moongate table.
 
 ---
 
-## What Makes `py-exodus` Special
+## Auto-Combat (`TAB`)
 
-### Auto-Combat (`TAB`)
-Borrowed in concept from the LairWare Mac port, pressing **`TAB`** during any battle toggles tactical **Auto-Combat** on or off. Each living party member automatically selects healing/cure spells when needed, offensive magic or ranged/melee attacks, and chest-safe positioning—letting you breeze through routine encounters or step back into manual control at any moment.
+Borrowed in concept from the LairWare port: **`TAB`** (or `F2`) during any battle toggles tactical Auto-Combat. Each living member picks healing and cures when needed, offensive magic, or ranged/melee attacks; you can take back control at any moment.
 
-### Full Autoplay / Watch Mode (`F9`)
-Pressing **`F9`** (with **`[`** / **`]`** to adjust step speed) hands the entire game over to `AutoPlayController`, which drives real keyboard inputs through the live UI (`StateMachine`, `OverworldScreen`, `TownScreen`, `DungeonScreen`, `CombatScreen`, `ShrineScreen`) from party creation all the way toward Exodus:
-- **Party setup & outfitting**: creates a balanced 4-member party (Thief / Fighter / Cleric / Wizard), buys starter gear and `Chain`/`Plate` armor upgrades in Britain/Dawn, and keeps per-member food and gold reserves balanced.
-- **Progression & navigation**: levels to 5+ for the Mark of Kings, captures a frigate, uses wind-hold / sea-monster-avoiding BFS sailing to dig Exotic Weapons & Armor, clears remaining dungeon Marks (`Fire`, `Force`, `Snake`), raids Death Gulch for gold (`>= 4500g` target via locked doors & chokepoint guard bribing), sails Whirlpools into Ambrosia for all 4 Cards and Shrine stat upgrades (prioritizing Cleric `Wis`, Wizard `Int`, Fighter `Str`, Thief `Dex`), levels to 25+, yells `EVOCARE` to pass the Great Earth Serpent, clears Exodus Castle defenders, and inserts all 4 Cards to win.
+## Full Autoplay / Watch Mode (`F9`)
 
-> **Status (`master` / `pre-nn` baseline)**: Full autoplay has achieved **end-to-end A-to-Z victory from a fresh game both with and without cheats**:
-> - **Unassisted (no cheat flags, 6 verified seeds)**: `seed=437 WON@112,074`, `seed=471 WON@149,406`, `seed=472 WON@134,745`, `seed=522 WON@112,667`, `seed=525 WON@102,913`, and `seed=543 WON@132,678`.
-> - **Under `--debug` `NOHURT`**: `seed=418` (`114,926` steps) and `seed=417` (`142,845` steps) also won end-to-end (`L25–32`, `Wis=99`, `Int=35–52`).
-> - **Next up (on `neural-net` branch)**: Implementing the phased EV + compact PyTorch hybrid policy (`docs/superpowers/plans/2026-11-19-nn-hybrid-policy.md`) while keeping `master` at the `pre-nn` symbolic baseline.
+**`F9`** (or `--autoplay`) hands the game to `AutoPlayController`, which presses real keys through the live UI, so everything it does goes through the same rules you play by. **`[`** / **`]`** slow it down or speed it up. What it does, in order:
+
+- **Party & outfitting**: creates a Thief / Fighter / Cleric / Wizard party, buys starter gear and armor upgrades, keeps food and gold balanced across members.
+- **Marks & exotics**: levels for the Mark of Kings, captures a frigate, sails (wind- and pirate-aware) to dig the Exotic weapons and armor, and clears the dungeons for the Marks of Fire, Force and Snake.
+- **Gold**: raids Death Gulch, opening chests safely with APPAR UNEM (waiting in place for MP), routing patiently around the moving townspeople, and bribing guards only where they block the way.
+- **Ambrosia**: sails into the whirlpool for the four Cards, then makes return trips for shrine stats in plan order (Cleric WIS 35; DEX 40 for all; Cleric WIS 50/70/99, Wizard INT 50/75/99; Fighter and Thief STR). Each trip budgets the gold, the food and the keys it needs (Ambrosia's doors relock between visits), and leaves while it still has a key for the water door.
+- **Levels**: grinds every member to 25. Lagging casters open fights with their strongest area spell so they earn the kills.
+- **Endgame**: yells `EVOCARE` past the Great Earth Serpent, fights through Castle Exodus and inserts the four Cards.
+
+### Status
+
+- **Wins from a fresh game, no cheats.** The last full 100-seed batch (`bbceab3`) won **58**, wiped 39 and hit the step cap 3 times; most wipes are level 1-5 parties early on. Many fixes have landed since (Death Gulch raids, Ambrosia keys and shrine trips, ship escapes, town patience, map-scoped parked ships); a live run on 2026-11-22 won with every member at level 25.
+- **Open fronts**: early-game wipes (parties at level 1-5 meeting monsters they can't beat), resurrecting the dead as a real goal.
 
 ---
 
 ## Controls & Hotkeys
 
-- **Movement / Navigation**: **Arrow keys** or **Numpad** (ships must first face the heading; in dungeons `DOWN` steps backward). **Enter** / **Space** confirm menus and advance pages; **Esc** cancels prompts or exits subscreens.
-- **`F1` — Book of Lore, Spell Books & Command Reference**: Opens/closes the full in-game documentation from any screen (also accessible from the **Main Menu**), covering all A–Z Ultima III commands, race max stats, profession tables, and the complete Wizard & Cleric spell books.
-- **`TAB` (or `F2`) — Auto-Combat**: Toggles tactical Auto-Combat on/off during battle.
-- **`F9` — Full Autoplay / Watch Mode**: Toggles autonomous autoplay on/off (**`[`** slower, **`]`** faster).
-- **`F10`** *(with `--debug`)*: Debug tools.
+- **Movement**: arrow keys or numpad (a ship must first face its heading; in dungeons `DOWN` steps backward). **Enter** / **Space** confirm and advance; **Esc** cancels.
+- **`F1`**: Book of Lore, spell books and command reference, from any screen.
+- **`TAB`** (or **`F2`**): Auto-Combat on/off in battle.
+- **`F9`**: Full Autoplay on/off (**`[`** slower, **`]`** faster).
+- **`F10`** *(with `--debug`)*: debug cheat menu.
 
 ---
 
@@ -56,42 +60,67 @@ uv run exodus          # or: uv run py-exodus
 ```
 
 Without `uv`:
+
 ```bash
 pip install pygame-ce sounddevice soundfile
 python3 -m py_exodus
 ```
 
-### Test Suite
+### Command-line options
+
+| Flag | Effect |
+|---|---|
+| `--autoplay` | Start in Full Autoplay (Watch Mode); `F9` still toggles it. |
+| `--trace` | Record the run to `traces/trace_<time>.jsonl.gz` (written when the game exits). |
+| `--debug` | Enable the debug cheat harness (`F10`). |
+
+Live play runs on wall-clock time and the `[` / `]` speed keys change it, so a live run can't be replayed exactly. There is no `--seed` flag.
+
+### Headless batches and traces
+
+Reproducible autoplay runs, one trace per seed, no window:
+
+```bash
+uv run python -m py_exodus.autoplay.batch --seeds 0-99 --workers 2 --out-dir traces/batch
+```
+
+Each seed prints `WON@<steps>`, `WIPED@<steps>` or `STEP_CAP@<steps>`. A trace row records position, goal, party state, the key pressed and **`why`**: the autoplay functions and lines that chose it. In towns it also lists the people within 4 tiles. So a loop in a trace names the code that caused it.
+
+### Tests
+
 ```bash
 uv run python -m pytest
 ```
-The suite currently runs **1,264 tests** covering mechanics, Java/GBC parity, vendors, dungeons, combat, rendering, and autoplay regressions.
+
+About **1,350 tests** covering mechanics, LairWare/Java/GBC parity, vendors, dungeons, combat, rendering and autoplay regressions (most autoplay fixes come with a test that fails on the old code).
 
 ---
 
-## Known Bugs, Open Items & Deliberate Deviations
+## Deliberate Deviations
 
-### Deliberate Deviations
-1. **Wireframe dungeon renderer**: Classic 1st-person software wireframe projection instead of Java LibGDX's 3D pipeline (mechanics match).
-2. **Fixed spell letters (A–P)**: Spell menus always keep the full original A–P slot indices instead of compacting letters by mana/context; invalid attempts refuse with `"Not Here!"` or the canonical MP message.
-3. **Classic GBC/LW mechanic rulings**: Slow/fast moon moongate table (`trammel` visible site -> `felucca` destination), ship-battle party-wide `"Cannonball barrage!"`, meal-crossing `-5 HP` starvation / `+1 HP` regen, and `QUICKNESS` stop-time gating.
-4. **Quality-of-life & save rulings**: No quick-start party (create in party formation); `Q` save is Sosaria-overworld only (disabled in dungeons); `APPAR_UNEM` casts without a direction prompt to open the chest underfoot; saves/rosters are JSON-only (legacy binary `.ult` loader removed).
+1. **Wireframe dungeons**: a classic first-person wireframe view instead of Java's 3D pipeline (mechanics match).
+2. **Fixed spell letters (A–P)**: spell menus keep the original A–P slots; an invalid cast refuses with `"Not Here!"` or the MP message.
+3. **Classic GBC/LairWare rulings**: slow/fast moongate table, party-wide ship cannon barrage, meal-crossing `-5 HP` starvation / `+1 HP` regen, `QUICKNESS` stop-time.
+4. **Quality of life**: no quick-start party; `Q` saves only on the Sosaria overworld; `APPAR UNEM` opens the chest underfoot without a direction prompt; saves and rosters are JSON only.
+5. **Wind display**: reads `Wind NORTH` etc. in words, without arrow glyphs.
 
-### Known Open Items
-1. **Audio**: `Sound.POISON_EFFECT` and `Sound.FIREFIELD` cues are not yet wired to poison/fire field triggers.
-2. **Input**: Keyboard only (no gamepad mapping yet).
-3. **`H` (Hand Equipment)**: Transfers unequipped weapons and armor only (per Java `HandDialog.java`), not food—autoplay compensates by equalizing food at purchase time.
-4. **Combat regen**: Passive MP (`tick_regen`) and meal-crossing `+1 HP` do not tick during combat rounds (only healing spells restore HP mid-battle).
-5. **Autoplay (unassisted win rate & NN roadmap)**: End-to-end A-to-Z victory is verified both under `NOHURT` (`seed=417 WON@142845`, `seed=418 WON@114926`) and unassisted (`nohurt=False`: `seed=437 WON@112074`, `seed=471 WON@149406`, `seed=472 WON@134745`, `seed=522 WON@112667`, `seed=525 WON@102913`, `seed=543 WON@132678`). Recent 10-seed 160k non-`nohurt` sweeps: `435–444` (1 win `437`, 1 survived `441`, 8 wipes: `436/440/443` Death Gulch shore cannon, `435/439/444` `BUY_FOOD`/starvation, `438/442` mid-game combat/poison), `465–474` (2 wins `471/472`, 1 survived `473`, 7 wipes), `485–494` (3 survived, 7 wipes), `505–514` (1 survived, 9 wipes), `515–524` (1 win `522`, 9 wipes), `525–534` (1 win `525`, 9 wipes), and `535–544` (1 win `543`, 9 wipes). Next step: a phased hybrid EV + compact PyTorch NN policy (`<= 5M` params / `< 500 MB` VRAM on RTX 3050; see `docs/superpowers/plans/2026-11-19-nn-hybrid-policy.md`) on the `neural-net` branch — Phase 0 EV/utility goal scorer + shared feature extractor, Phase 1–2 outcome-filtered `CombatScreen` BC + PPO, and Phase 3 macro critic gated against held-out seeds `900–999`.
+## Known Open Items
+
+1. **Audio**: the poison-effect and fire-field sound cues aren't wired yet.
+2. **Input**: keyboard only.
+3. **`H` (Hand Equipment)**: hands weapons and armor only, not food (autoplay evens out food when it buys).
+4. **Combat regen**: MP regen and meal-crossing `+1 HP` don't tick during combat rounds.
+5. **Autoplay**: early-game wipes are the main loss; see Status above.
 
 ---
 
 ## Utilities
 
-- `scripts/render_maps.py`: Renders `assets/maps/*.json` to top-down PNGs in `maps_rendered/`.
+- `scripts/render_maps.py`: renders the JSON maps to top-down PNGs in `maps_rendered/`.
+- `scripts/autoplay_atlas.py`: summarizes autoplay traces.
 
 ---
 
 ## License
 
-Educational, preservation, and non-commercial archival use. Original *Ultima III: Exodus* content, design, and assets remain copyright © their respective owners and Richard Garriott / Origin Systems.
+Educational, preservation and non-commercial archival use. Original *Ultima III: Exodus* content, design and assets remain copyright © their respective owners and Richard Garriott / Origin Systems.
