@@ -69,8 +69,10 @@ AMBROSIA_ABORT_FOOD = 80
 # kept for the way out.
 AMBROSIA_RETURN_KEYS = 8
 AMBROSIA_EXIT_KEYS = 1
-# Keys a Death Gulch raid needs for its locked doors.
+# A Death Gulch raid needs keys for its locked doors AND gold to bribe its
+# guards (user 2026-11-22).
 DEATH_GULCH_KEYS = 4
+DEATH_GULCH_BRIBE_GOLD = 400
 # Card trips budget the same 8 (user live trace 2026-11-22): the Moons card
 # alone sits behind (45,17), (50,6) and (11,6), and the exit rule fires on
 # the last key, so the old needed+2 budget (4 keys) turned back five tiles
@@ -534,7 +536,9 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
         # doors (user live trace 2026-11-22, trace_20261122-151023: all
         # cards and marks, level 25+, 3 keys: no raid after step 53,837, and
         # 5,549 gold went on food until the party was broke).
-        if sum(m.keys for m in living) < DEATH_GULCH_KEYS and party.gold >= 50:
+        keys_short = DEATH_GULCH_KEYS - sum(m.keys for m in living)
+        # Buy them only while the bribe gold survives the purchase.
+        if keys_short > 0 and party.gold >= DEATH_GULCH_BRIBE_GOLD + 50 * keys_short:
             return Goal.BUY_KEYS
         return Goal.GRIND_AND_LEVEL
 

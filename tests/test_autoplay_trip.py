@@ -1074,7 +1074,8 @@ def test_a_finished_party_short_of_stat_gold_buys_keys_and_raids(pygame_setup):
     """User live trace 2026-11-22 (trace_20261122-151023): all cards and
     marks, level 25+, 3 keys. Death Gulch needs 4, so it never raided again;
     the return trip needed more gold and the castle waits for the stat plan,
-    so 5,549 gold went on food until the party was broke."""
+    so 5,549 gold went on food until the party was broke. A raid needs
+    keys and the guards' bribe gold."""
     from py_exodus.autoplay import batch
     from py_exodus.autoplay.controller import AutoPlayController
     from py_exodus.autoplay.planner import return_trip_cost, return_trip_gold
@@ -1094,5 +1095,12 @@ def test_a_finished_party_short_of_stat_gold_buys_keys_and_raids(pygame_setup):
     living = list(party.members)
     ctrl = AutoPlayController(enabled=True)
     assert ctrl._wants_death_gulch(party, living, 0, Goal.GRIND_AND_LEVEL)
-    party.members[0].gold = 29  # broke: raid all the more
-    assert ctrl._wants_death_gulch(party, living, 0, Goal.GRIND_AND_LEVEL)
+    # A raid needs gold too: 400 for the guards' bribes (user 2026-11-22).
+    party.members[0].gold = 399
+    assert not ctrl._wants_death_gulch(party, living, 0, Goal.GRIND_AND_LEVEL)
+    # Keys are bought only while the bribe gold survives the purchase.
+    party.members[0].keys = 3
+    party.members[0].gold = 449
+    assert evaluate_goal(party, 0) == Goal.GRIND_AND_LEVEL
+    party.members[0].gold = 450
+    assert evaluate_goal(party, 0) == Goal.BUY_KEYS
