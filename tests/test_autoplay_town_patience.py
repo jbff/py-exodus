@@ -94,12 +94,19 @@ def _party_on_a_chest(dead_cleric: bool, level: int):
     return sm, p
 
 
-def test_weak_party_without_a_safe_opener_leaves_dropped_chests():
-    """Live trace 2026-11-22: Cleric dead, a DEX-25 G set off the trap,
-    the poisoned level-5 party wiped on the way to a cure."""
+def test_dead_cleric_party_takes_dropped_chests_with_the_thief():
+    """User ruling 2026-11-22 (replaces the 2026-11-22 leave-it rule): with
+    the Cleric dead a party that skips chests never gets the 500 gold to
+    resurrect and stalls, so the Thief opens them with G and takes the
+    trap risk. A living Cleric out of MP still waits for mana when weak."""
     pygame.init()
     pygame.font.init()
     sm, p = _party_on_a_chest(dead_cleric=True, level=5)
+    ctrl = AutoPlayController(enabled=True)
+    assert ctrl.step(sm) == pygame.K_g
+    thief = next(i + 1 for i, m in enumerate(p.members) if m.profession.name == "THIEF")
+    assert ctrl._chest_opener(p) == ("get", thief)
+    sm, p = _party_on_a_chest(dead_cleric=False, level=5)
     ctrl = AutoPlayController(enabled=True)
     for _ in range(5):
         assert ctrl.step(sm) not in (pygame.K_g, pygame.K_c)

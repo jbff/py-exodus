@@ -87,7 +87,7 @@ def test_chest_gold_credits_member_not_party_pool(monkeypatch):
 
 def test_chest_gold_value_range_10_to_66(monkeypatch):
     """Over many seeded chests, credited gold is always 10-66 and member-only."""
-    member = make_member("Fighter", dexterity=200)
+    member = make_member("Fighter", dexterity=255)
     other = make_member("Cleric")
     party = make_party([member, other], gold=500)
     monkeypatch.setattr(chests, "random", random.Random(7))
@@ -106,7 +106,7 @@ def test_chest_gold_value_range_10_to_66(monkeypatch):
 
 def test_chest_gold_caps_at_9999(monkeypatch):
     """A member's gold caps at 9999 on chest credit (Java adjustGold)."""
-    member = make_member("Fighter", gold=9990, dexterity=200)
+    member = make_member("Fighter", gold=9990, dexterity=255)
     party = make_party([member], gold=9990)
     monkeypatch.setattr(chests, "random", random.Random(3))
 
@@ -117,8 +117,8 @@ def test_chest_gold_caps_at_9999(monkeypatch):
 # --- Step 1: pipeline trap behavior ---
 
 def test_high_dex_always_evades_traps(monkeypatch):
-    """dex + 25 >= rand(100) always holds for dex=200: traps never harm the opener."""
-    member = make_member("Fighter", dexterity=200)
+    """LW: RandNum(0,255) > 255 never holds: a 255 factor never springs a trap."""
+    member = make_member("Fighter", dexterity=255)
     party = make_party([member])
     monkeypatch.setattr(chests, "random", random.Random(2024))
 
@@ -465,7 +465,7 @@ def press_and_answer(screen: DungeonScreen, answers: list[str]) -> None:
 
 def test_dungeon_get_opens_chest_on_party_tile(monkeypatch):
     """Dungeon G prompts for the member and opens the chest on the party's own tile."""
-    member = make_member("Fighter", dexterity=200)
+    member = make_member("Fighter", dexterity=255)
     party = make_party([member, make_member("Cleric")])
     screen = make_dungeon_screen(party)
     # Chest under the party's feet
@@ -491,7 +491,7 @@ def test_dungeon_get_opens_chest_on_party_tile(monkeypatch):
 
 def test_dungeon_get_chest_not_here_consumes_turn(monkeypatch):
     """G on a chestless tile completes the prompt, logs 'Not Here!', consumes a turn."""
-    member = make_member("Fighter", dexterity=200)
+    member = make_member("Fighter", dexterity=255)
     party = make_party([member])
     screen = make_dungeon_screen(party)
     moves_before = party.moves
@@ -507,7 +507,7 @@ def test_dungeon_get_chest_not_here_consumes_turn(monkeypatch):
 
 def test_dungeon_get_checks_only_party_tile(monkeypatch):
     """Only the party's own tile is checked: an adjacent chest is 'Not Here!'."""
-    member = make_member("Fighter", dexterity=200)
+    member = make_member("Fighter", dexterity=255)
     party = make_party([member])
     screen = make_dungeon_screen(party)
     screen.dungeon_map.set_tile(2, 1, 0, DungeonTile.CHEST)  # north of the party
@@ -641,7 +641,7 @@ def test_seeded_drop_trials_approx_25_each_and_gold_band(monkeypatch):
     armor_names = {a.name.capitalize() for a in list(ArmorType)[1:4]}
     weapon_drops = armor_drops = 0
     for _ in range(1000):
-        member = make_member("Fighter", dexterity=200, gold=100)  # always evades
+        member = make_member("Fighter", dexterity=255, gold=100)  # LW: RandNum(0,255) > 255 never
         party = make_party([member])
         before = member.gold
         lines = open_chest(party, member, dungeon=False)
@@ -664,3 +664,23 @@ def test_seeded_drop_trials_approx_25_each_and_gold_band(monkeypatch):
     # weapon was granted, so its share is a bit under the weapon share.
     assert 150 <= weapon_drops <= 350, weapon_drops
     assert 100 <= armor_drops <= 350, armor_drops
+
+
+def test_trap_dodge_follows_lairware_steal_disarm(monkeypatch):
+    """LairWare StealDisarmFail (UltimaMisc.c:510-529; user ruling
+    2026-11-22): the trap goes off when RandNum(0,255) > dex (+128 Thief,
+    +64 Barbarian/Illusionist/Ranger/Alchemist). A 25-DEX Thief dodges a 153
+    roll that a 25-DEX Fighter does not; Java's dex+25 >= rand(100) made
+    them equal and DEX 74 trap-proof."""
+    from py_exodus.world import chests
+
+    thief = Character("T", "M", profession=Profession.THIEF, dexterity=25)
+    fighter = Character("F", "M", profession=Profession.FIGHTER, dexterity=25)
+    assert chests.disarm_factor(thief) == 153
+    assert chests.disarm_factor(fighter) == 25
+    monkeypatch.setattr(chests.random, "randrange", lambda n: 153)
+    assert not chests.steal_disarm_fails(thief)
+    assert chests.steal_disarm_fails(fighter)
+    agile = Character("F", "M", profession=Profession.FIGHTER, dexterity=74)
+    monkeypatch.setattr(chests.random, "randrange", lambda n: 200)
+    assert chests.steal_disarm_fails(agile)  # no DEX is trap-proof any more

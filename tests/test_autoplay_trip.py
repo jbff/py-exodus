@@ -471,9 +471,14 @@ def test_chest_in_a_lane_is_looted_before_escaping(pygame_setup, asset_mgr):
     ow.creatures = [_pirate(party.x + 3, party.y)]
     for m in party.members:
         m.mp = 0  # no APPAR_UNEM: plain Get
-    # A safe opener (DEX 74 always dodges): since 2026-11-22 a weak party
-    # with none leaves dropped chests alone.
-    party.members[0].dex = 74
+    # A G opener: with the Cleric dead the Thief takes chests (user ruling
+    # 2026-11-22; no DEX is trap-proof under LairWare).
+    from py_exodus.constants import Profession, Status
+
+    for m in party.members:
+        if m.profession == Profession.CLERIC:
+            m.status = Status.DEAD
+            m.hp = 0
     ctrl = AutoPlayController(enabled=True)
     assert ctrl.step(sm) == pygame.K_g
 
@@ -595,10 +600,27 @@ def test_chest_opener_never_risks_a_trap_when_it_can_avoid_it(pygame_setup):
     assert ctrl._chest_opener(party) == ("cast", healer)
     for m in party.members:
         m.mp = 4
-        m.dex = 25
+        m.dex = 74  # no DEX is trap-proof under LairWare: wait for mana
     assert ctrl._chest_opener(party) is None
-    party.members[0].dex = 74
-    assert ctrl._chest_opener(party) == ("get", 1)
+
+
+def test_thief_then_fighter_then_wizard_open_chests_once_the_cleric_is_dead(pygame_setup):
+    """User report (2026-11-22): the Cleric died early, nobody could cast
+    APPAR UNEM, the party never opened a chest, never had the 500 gold to
+    resurrect, and stalled. With no living APPAR UNEM caster the Thief takes
+    chests with G, then the Fighter, the Wizard last."""
+    from py_exodus.constants import Profession, Status
+
+    party = _make_party(level=3)
+    ctrl = AutoPlayController(enabled=True)
+    idx = {m.profession: i + 1 for i, m in enumerate(party.members)}
+    party.members[idx[Profession.CLERIC] - 1].status = Status.DEAD
+    assert ctrl._chest_opener(party) == ("get", idx[Profession.THIEF])
+    assert not ctrl._chest_too_risky(party)
+    party.members[idx[Profession.THIEF] - 1].status = Status.DEAD
+    assert ctrl._chest_opener(party) == ("get", idx[Profession.FIGHTER])
+    party.members[idx[Profession.FIGHTER] - 1].status = Status.DEAD
+    assert ctrl._chest_opener(party) == ("get", idx[Profession.WIZARD])
 
 
 def test_no_capture_planned_in_a_pond_pirates_never_reach(sosaria):
@@ -736,7 +758,7 @@ def test_shrine_caps_come_from_the_members_race():
     bobit = Character("B", None, Race.BOBIT, Profession.CLERIC, strength=15, dexterity=15, intelligence=15, wisdom=75)
     assert member_needs_shrine_stat(bobit, "wisdom", "max_wis")
     thief = Character("T", None, Race.HUMAN, Profession.THIEF, strength=15, dexterity=25, intelligence=15, wisdom=15)
-    assert stat_cap(thief, "max_dex") >= AutoPlayController._TRAP_PROOF_DEX
+    assert stat_cap(thief, "max_dex") >= 74
 
 
 def test_shrine_plan_order_for_the_batch_party():

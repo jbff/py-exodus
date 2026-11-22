@@ -133,6 +133,28 @@ def _chest_item_drops(member: PartyMember) -> list[str]:
     return item_lines
 
 
+def disarm_factor(member: Any) -> int:
+    """LairWare StealDisarmFail factor (UltimaMisc.c:510-529): dexterity,
+    +128 for a Thief, +64 for a Barbarian, Illusionist, Ranger or Alchemist."""
+    from py_exodus.constants import Profession
+
+    factor = int(getattr(member, "dex", 0) or 0)
+    profession = getattr(member, "profession", None)
+    if profession == Profession.THIEF:
+        factor += 0x80
+    elif profession in (Profession.BARBARIAN, Profession.ILLUSIONIST,
+                        Profession.RANGER, Profession.ALCHEMIST):
+        factor += 0x40
+    return factor
+
+
+def steal_disarm_fails(member: Any) -> bool:
+    """LairWare: the trap goes off when RandNum(0, 255) > factor. Replaces
+    Java's dex + 25 >= rand(100) evade (user ruling 2026-11-22: LairWare
+    wins). A 25-DEX Thief dodges 60%, a 25-DEX Fighter 10%."""
+    return random.randrange(256) > disarm_factor(member)
+
+
 def _chest_trap(party: Party, member: PartyMember) -> tuple[list[str], bool]:
     """Java Context.getChestTrapHandler: 50% trap with a dexterity evade check.
 
@@ -160,7 +182,7 @@ def _chest_trap(party: Party, member: PartyMember) -> tuple[list[str], bool]:
     if random.randrange(2) != 0:  # hasTrap = rand.nextInt(2) == 0
         return [], False
 
-    if member.dex + 25 >= random.randrange(100):  # evade: dex + 25 >= rand(100)
+    if not steal_disarm_fails(member):  # LW StealDisarmFail (UltimaMain.c:1630)
         return ["Evaded!"], False
 
     which_trap = (random.randrange(256) & random.randrange(256)) & 0x03

@@ -2497,24 +2497,37 @@ class AutoPlayController:
             eligible_level = min(eligible_level, 5)
         return eligible_level > member.level
 
-    # dex + 25 >= randrange(100) always evades a chest trap (chests.py).
-    _TRAP_PROOF_DEX = 74
+    # Who takes chests with G once no APPAR UNEM caster is left alive (user
+    # ruling 2026-11-22): the Thief (LairWare's +128 disarm bonus), then the
+    # Fighter, then anyone else, the Wizard last.
+    _G_OPENER_ORDER = (Profession.THIEF, Profession.FIGHTER, Profession.CLERIC)
 
     def _chest_opener(self, party) -> tuple[str, int] | None:
-        """Who opens a chest without risking a trap: APPAR UNEM from a
-        Cleric/Paladin/Druid with 5 MP, else G by a member whose dexterity
-        always dodges (74+). None = nobody can open one safely."""
+        """Who opens a chest: APPAR UNEM from a Cleric/Paladin/Druid with 5
+        MP; while such a caster lives but lacks the MP, None (wait for mana,
+        no trap). With no caster alive, G by the Thief, else the Fighter,
+        the Wizard last: under LairWare nobody is trap-proof, but a party
+        that never opens a chest never gets the gold to resurrect."""
         caster = self._find_caster(
             party, (Profession.CLERIC, Profession.PALADIN, Profession.DRUID), min_mp=5
         )
         if caster is not None:
             return ("cast", caster[0])
-        idx = next(
-            (i + 1 for i, m in enumerate(party.members)
-             if not m.is_dead() and m.dex >= self._TRAP_PROOF_DEX),
-            None,
-        )
-        return ("get", idx) if idx is not None else None
+        if self._mana_caster(party) is not None:
+            return None
+        living = [i + 1 for i, m in enumerate(party.members) if not m.is_dead()]
+        if not living:
+            return None
+
+        def rank(idx: int) -> tuple[int, int]:
+            prof = party.members[idx - 1].profession
+            order = self._G_OPENER_ORDER
+            first = order.index(prof) if prof in order else (
+                len(order) + 1 if prof == Profession.WIZARD else len(order)
+            )
+            return (first, idx)
+
+        return ("get", min(living, key=rank))
 
     _CHEST_RISK_LEVEL = 8
     _RAID_MANA_TARGET = 15

@@ -155,7 +155,7 @@ def member_needs_shrine_stat(member, stat_attr: str, cap_attr: str) -> bool:
 # Shrine buying order (user request 2026-11-22), worked out from the code:
 #  * Hit roll is rand(0..255) + bonus > 128 (monster defence is always 128),
 #    and the bonus is 255 once DEX >= 40 (combat/resolver.py): DEX 15 hits
-#    55%, DEX 40 always hits. DEX above 40 only dodges chest traps (74).
+#    55%, DEX 40 always hits. DEX above 40 only helps dodge chest traps.
 #  * Damage is 4..(weapon dmax + 1.5 * STR) (exotic dmax 49): about +0.75
 #    average damage per STR point, half the value of DEX up to 40.
 #  * Cleric MP = WIS, Wizard MP = INT; auto-combat casts SANCTU_MANI (50),
