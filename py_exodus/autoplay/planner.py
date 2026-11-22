@@ -65,10 +65,12 @@ AMBROSIA_ABORT_FOOD = 80
 # Keys beyond the card doors: the door east of the arrival point and the
 # water door between the east basin and the whirlpool bay.
 AMBROSIA_SPARE_KEYS = 2
-# A return trip for stats needs keys too: (10,6) to the intelligence
-# shrine, (39,61) out to the whirlpool, plus spares. The last one is kept
-# for the way out.
-AMBROSIA_RETURN_KEYS = 4
+# A return trip for stats needs keys too. Doors relock between visits, and
+# the live trace of 2026-11-22 spent up to 5 a visit: (45,17), (58,3),
+# the water door (39,61), (50,6) chasing a pirate ship, (10,6) to the
+# intelligence shrine. Budget for all of them plus spares. The last one is
+# kept for the way out.
+AMBROSIA_RETURN_KEYS = 8
 AMBROSIA_EXIT_KEYS = 1
 
 

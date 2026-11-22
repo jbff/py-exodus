@@ -849,7 +849,9 @@ def test_return_trip_buys_keys_first_and_keeps_one_to_leave_ambrosia():
         m.gold = 0
     party.members[0].gold = return_trip_gold(party)
     assert evaluate_goal(party, 0) == Goal.BUY_KEYS
-    party.members[0].keys = 4
+    party.members[0].keys = 7
+    assert evaluate_goal(party, 0) == Goal.BUY_KEYS  # a visit can spend 5
+    party.members[0].keys = 8
     assert evaluate_goal(party, 0) == Goal.SAIL_WHIRLPOOL
     # On Ambrosia, shopping left to do: shop while keys remain, leave on the last.
     assert needs_shrine_stats(party)
