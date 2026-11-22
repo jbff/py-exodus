@@ -531,3 +531,25 @@ def test_dead_party_members_not_rendered_in_combat():
     cs._render_players(surf)
     assert surf.get_at((bx * 16 + 8, by * 16 + 8))[:3] == (0, 0, 0)
 
+
+
+def test_lagging_caster_trains_with_area_spells_once_a_fighter_is_25():
+    """User idea 2026-11-22: kills pay the killer, so with a fighter at 25 a
+    lagging Cleric opens a 2+ monster fight with ZXKUQYB even when the
+    threat is low; at 25 itself it is back to the threat rule."""
+    arena = _caster_arena(Profession.CLERIC, mp=70, creature_tile="orc", monster_count=2)
+    arena.party.members[0].level = 13
+    fighter = Character("Fighter", "M", Race.HUMAN, Profession.FIGHTER)
+    fighter.level = 25
+    fighter.hp = fighter.max_hp = 2550
+    arena.party.add_member(fighter)
+    arena.party.members[0].used_free_spell_in_combat = True
+    for m, (x, y) in zip(arena.monsters, ((1, 1), (9, 9))):
+        m.x, m.y = x, y
+        m.exp = 5  # threat 10: far below the 80 bar
+    action = choose_auto_combat_action(arena, 0)
+    assert action.type == ActionType.CAST and action.spell == Spell.ZXKUQYB
+
+    arena.party.members[0].level = 25
+    action = choose_auto_combat_action(arena, 0)
+    assert getattr(action, "spell", None) != Spell.ZXKUQYB

@@ -188,6 +188,19 @@ def _find_lowest_hp_heal_target(party: Any) -> Any | None:
     return min(candidates, key=lambda m: m.hp)
 
 
+_TRAINING_SPELLS = (Spell.UNSPEAKABLE, Spell.ZXKUQYB, Spell.NECORP, Spell.DAG_MENTAR, Spell.NOXUM)
+
+
+def _caster_in_training(party: Any, member: Any) -> bool:
+    """A caster below level 25 while another living member is already 25."""
+    if getattr(member, "level", 25) >= 25:
+        return False
+    return any(
+        m is not member and not _is_member_dead(m) and getattr(m, "level", 0) >= 25
+        for m in getattr(party, "members", ())
+    )
+
+
 def _try_pre_attack_spell(
     arena: CombatArena,
     member: Any,
@@ -201,6 +214,19 @@ def _try_pre_attack_spell(
     if _can_cast_spell(member, Spell.PONTORI, check_free=True):
         if any(_is_undead(m) for m in visible_monsters):
             return Action.cast(Spell.PONTORI)
+
+    # Training (user idea 2026-11-22): experience goes to whoever kills, so
+    # once a fighter is level 25 a lagging caster opens every 2+ monster
+    # fight with its strongest area spell, whatever the threat, unless
+    # someone needs healing first.
+    if (
+        len(visible_monsters) >= 2
+        and _caster_in_training(arena.party, member)
+        and _find_lowest_hp_heal_target(arena.party) is None
+    ):
+        for spell in _TRAINING_SPELLS:
+            if _can_cast_spell(member, spell):
+                return Action.cast(spell)
 
     if len(visible_monsters) >= 2:
         threat = sum(
