@@ -253,6 +253,8 @@ class AutoPlayController:
         self._trip_stuck = 0
         self._trip_last_pos: tuple[int, int] | None = None
         self._patrol_target: tuple[int, int] | None = None
+        # Land tile the pirate hunt committed to (see _hunt_target).
+        self._hunt_target: tuple[int, int] | None = None
         self._reach_cache = None
         # Coast tiles where a capture wait timed out, per map id.
         self._last_transition: Transition | None = None
@@ -2010,7 +2012,8 @@ class AutoPlayController:
             }
             engage = {t for t in engage if t in reach and not (th is not None and th.unsafe_end(t))}
             if engage:
-                return self._move_toward(state_machine, gmap, party, pos, engage)
+                tgt = self._hunt_target_for(gmap, pos, reach, engage, pirates, th)
+                return self._move_toward(state_machine, gmap, party, pos, {tgt})
             coast = [
                 t for t in reach
                 if any(terr.sea_comp.get(n) in comps for n in terr.neighbours(*t))
@@ -2020,7 +2023,8 @@ class AutoPlayController:
                 best = min(min(manhattan(w, h, t, p) for p in pirates) for t in coast)
                 closest = {t for t in coast if min(manhattan(w, h, t, p) for p in pirates) == best}
                 if pos not in closest:
-                    return self._move_toward(state_machine, gmap, party, pos, closest)
+                    tgt = self._hunt_target_for(gmap, pos, reach, closest, pirates, th)
+                    return self._move_toward(state_machine, gmap, party, pos, {tgt})
             # As close as land allows: it is coming (pirates home in).
             return self._emit_key(state_machine, pygame.K_SPACE)
         # Patrol: a far reachable coast tile of this water, re-picked on arrival.
@@ -2034,6 +2038,47 @@ class AutoPlayController:
         if self._patrol_target is None:
             return self._emit_key(state_machine, pygame.K_SPACE)
         return self._move_toward(state_machine, gmap, party, pos, {self._patrol_target})
+
+    _HUNT_KEEP_RADIUS = 3
+
+    def _hunt_target_for(self, gmap, pos, reach, candidates, pirates, th) -> tuple[int, int]:
+        """Commit to one land tile while hunting a pirate.
+
+        A pirate shadows the party along the coast, so the set of tiles next
+        to it shifts every turn; re-aiming at the nearest each turn flipped
+        between routes on either side of a ridge and paced in place forever
+        (batch bbceab3 seeds 79/85: 33k steps on Ambrosia, then starved).
+        Keep the chosen tile while it stays reachable, safe and within a few
+        tiles of a pirate; re-pick (shortest walk) on arrival or when it
+        goes bad."""
+        w, h = gmap.width, gmap.height
+        t = self._hunt_target
+        if (
+            t is not None
+            and t != pos
+            and t in reach
+            and not (th is not None and th.unsafe_end(t))
+            and any(manhattan(w, h, t, p) <= self._HUNT_KEEP_RADIUS for p in pirates)
+        ):
+            return t
+        dist = {pos: 0}
+        frontier = [pos]
+        best = None
+        while frontier and best is None:
+            nxt = []
+            for cx, cy in frontier:
+                for dx, dy in _NEIGHBOURS4:
+                    n = ((cx + dx) % w, (cy + dy) % h)
+                    if n in dist or n not in reach:
+                        continue
+                    dist[n] = dist[(cx, cy)] + 1
+                    nxt.append(n)
+            hits = sorted(n for n in nxt if n in candidates)
+            if hits:
+                best = hits[0]
+            frontier = nxt
+        self._hunt_target = best if best is not None else min(candidates)
+        return self._hunt_target
 
     def _foot_reachable(self, gmap, party, pos) -> frozenset[tuple[int, int]]:
         """Land tiles reachable on foot from ``pos`` (cached per map/turn)."""
