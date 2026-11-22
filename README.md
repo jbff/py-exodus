@@ -16,7 +16,7 @@ A Python 3 / Pygame-CE reimplementation of *Ultima III: Exodus*, with **Auto-Com
   - **Monsters move and attack diagonally** on Sosaria (the party still can't).
   - **Chest traps** are dodged by DEX, with a big bonus for Thieves; nobody is trap-proof.
   - **UNSPEAKABLE** kills like ZXKUQYB: each monster has a 75% chance to die outright.
-  - **Monster variants**: half of Sosaria's wanderers come as a named variant: Brigands and Cutpurses, Goblins and Trolls, Ghouls and Zombies, Golems and Titans, Gargoyles and Manes, Snatches and Bradles, Griffons and Wyverns, Orcuses and Devils. Same stats, new name.
+  - **Monster variants**: half of Sosaria's wanderers come as a named variant: Brigands and Cutpurses, Goblins and Trolls, Ghouls and Zombies, Golems and Titans, Gargoyles and Manes, Snatches and Bradles, Griffons and Wyverns, Orcuses and Devils. Same stats, new name (and their own art with `--tiles`).
 - **Other classic references**: the Game Boy Color port (`u3gbc`) for moongate routing, ship-battle cannon barrages, meal-crossing starvation/regen and the `QUICKNESS` aura; the NES `MoonGateTbl` for the 8-site moongate table.
 
 ---
@@ -77,6 +77,7 @@ python3 -m py_exodus
 |---|---|
 | `--autoplay` | Start in Full Autoplay (Watch Mode); `F9` still toggles it. |
 | `--trace` | Record the run to `traces/trace_<time>.jsonl.gz` (written when the game exits). |
+| `--tiles NAME` | Draw with one of LairWare's tile sets: `standard`, `apple2`, `apple2-tv`, `apple2-mono`, `c64`, `mac-bw`, `nes`, `cga`, `ega`, `mcga`, `vga`, `ultima5` (`--tiles list` prints them). The named monster variants get their own art. |
 | `--debug` | Enable the debug cheat harness (`F10`). |
 
 Live play runs on wall-clock time and the `[` / `]` speed keys change it, so a live run can't be replayed exactly. There is no `--seed` flag.

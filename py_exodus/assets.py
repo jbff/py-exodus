@@ -299,6 +299,27 @@ ENTITY_TILES: set[str] = {
 }
 
 
+# LairWare tile sheets (assets/graphics/lairware, from refs/ultima3), chosen
+# with --tiles. Every sheet is a 12 x 16 grid: tile n at column pair n // 16,
+# row n % 16, animation frame 0 on the left and 1 on the right
+# (UltimaGraphics.c GetTileRectForIndex). Our tile indexes 0-63 are
+# LairWare's, so a sheet maps onto our tiles by index.
+LAIRWARE_TILESETS: dict[str, str] = {
+    "standard": "standard.png",
+    "apple2": "apple2.png",
+    "apple2-tv": "apple2-tv.png",
+    "apple2-mono": "apple2-mono.png",
+    "c64": "c64.gif",
+    "mac-bw": "mac-bw.gif",
+    "nes": "nes.png",
+    "cga": "cga.gif",
+    "ega": "ega.png",
+    "mcga": "mcga.png",
+    "vga": "vga.gif",
+    "ultima5": "ultima5.png",
+}
+
+
 def load_image_surface(path: Path | str) -> pygame.Surface:
     """Load an image into a Pygame Surface with PNG and BMP fallback support."""
     path = Path(path)
@@ -348,8 +369,10 @@ def _parse_int(val: str | None, default: int = 0) -> int:
 class AssetManager:
     """Central asset manager for Ultima III assets, tilesets, and definitions."""
 
-    def __init__(self, assets_dir: str | Path | None = None) -> None:
+    def __init__(self, assets_dir: str | Path | None = None, tileset: str | None = None) -> None:
         self.assets_dir: Path = self._resolve_assets_dir(assets_dir)
+        # --tiles NAME: a LAIRWARE_TILESETS key, or None for the default art.
+        self.tileset: str | None = tileset
         self.tiles: dict[str, list[pygame.Surface]] = {}
         self.tile_defs: dict[int, TileDef] = {}
         self.tile_defs_by_name: dict[str, TileDef] = {}
@@ -438,6 +461,46 @@ class AssetManager:
 
         # 2. Parse tileset XML
         self._load_tileset_xml(xml_path)
+
+        # 3. --tiles: overlay a LairWare sheet; tiles it lacks keep the atlas art
+        if self.tileset:
+            self._apply_lairware_sheet(self.tileset)
+
+    def _apply_lairware_sheet(self, name: str) -> None:
+        """Replace each tile's frames with the LairWare sheet's two cells,
+        scaled to the tile's current size; add the monster-variant art
+        (Brigand, Goblin, ... at LairWare sheet cells 80-95) under variant names."""
+        from py_exodus.world.monster_variants import VARIANT_NAMES, VARIANT_TILE_INDEX
+
+        filename = LAIRWARE_TILESETS.get(name.lower())
+        if filename is None:
+            raise ValueError(
+                f"Unknown tile set {name!r}; choose from {', '.join(LAIRWARE_TILESETS)}"
+            )
+        sheet = load_image_surface(self.resolve_path("graphics", "lairware", filename))
+        cell_w, cell_h = sheet.get_width() // 12, sheet.get_height() // 16
+
+        def cell(index: int, frame: int, size: tuple[int, int], entity: bool) -> pygame.Surface:
+            col = (index // 16) * 2 + frame
+            rect = pygame.Rect(col * cell_w, (index % 16) * cell_h, cell_w, cell_h)
+            surf = sheet.subsurface(rect).copy()
+            if surf.get_size() != size:
+                surf = pygame.transform.scale(surf, size)
+            if entity:
+                surf.set_colorkey((0, 0, 0))
+            return surf
+
+        default_size = (16, 16)
+        for index, tdef in self.tile_defs.items():
+            if not 0 <= index < 64 or tdef.name not in self.tiles:
+                continue
+            size = self.tiles[tdef.name][0].get_size()
+            entity = tdef.name.lower() in ENTITY_TILES
+            self.tiles[tdef.name] = [cell(index, f, size, entity) for f in (0, 1)]
+        for base, (i1, i2) in VARIANT_TILE_INDEX.items():
+            size = self.tiles[base][0].get_size() if base in self.tiles else default_size
+            for vname, index in zip(VARIANT_NAMES[base], (i1, i2)):
+                self.tiles[vname.lower()] = [cell(index, f, size, True) for f in (0, 1)]
 
     def _load_atlas(self, atlas_path: Path) -> None:
         """Parse LibGDX atlas and slice subsurfaces from the atlas page image."""

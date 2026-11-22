@@ -21,9 +21,9 @@ def test_each_named_type_has_lairwares_two_variant_names():
     assert variant_name("fighter", 1) is None  # LW names Thief..Balron only
 
 
-def test_variant_art_sits_at_lairware_tiles_64_to_79():
-    assert VARIANT_TILE_INDEX["thief"] == (64, 65)
-    assert VARIANT_TILE_INDEX["balron"] == (78, 79)
+def test_variant_art_sits_at_lairware_sheet_cells_80_to_95():
+    assert VARIANT_TILE_INDEX["thief"] == (80, 81)
+    assert VARIANT_TILE_INDEX["balron"] == (94, 95)
 
 
 def test_variant_roll_is_half_plain_then_even():
@@ -71,3 +71,37 @@ def test_overworld_spawn_names_the_variant(asset_mgr, monkeypatch):
             break
     orc = ow.creatures[0]
     assert orc["variant"] == 1 and orc["name"] == "Goblin"
+
+
+def test_tiles_flag_loads_a_lairware_sheet_with_variant_art():
+    """--tiles c64: every tile 0-63 comes from the C64 sheet, at our tile
+    size; the variants get their own art; the default set is untouched."""
+    from pathlib import Path
+
+    from py_exodus.assets import LAIRWARE_TILESETS, AssetManager
+
+    plain = AssetManager(assets_dir=Path("assets"))
+    plain.load_tiles()
+    for name in LAIRWARE_TILESETS:
+        am = AssetManager(assets_dir=Path("assets"), tileset=name)
+        am.load_tiles()
+        assert am.tiles["grass"][0].get_size() == plain.tiles["grass"][0].get_size()
+        assert len(am.tiles["orc"]) == 2
+        assert "goblin" in am.tiles and "devil" in am.tiles
+    c64 = AssetManager(assets_dir=Path("assets"), tileset="c64")
+    c64.load_tiles()
+    assert c64.tiles["orc"][0].get_at((8, 8)) != plain.tiles["orc"][0].get_at((8, 8)) or \
+        c64.tiles["water"][0].get_at((3, 3)) != plain.tiles["water"][0].get_at((3, 3))
+    assert "goblin" not in plain.tiles
+
+
+def test_unknown_tile_set_is_refused():
+    import pytest
+
+    from pathlib import Path
+
+    from py_exodus.assets import AssetManager
+
+    am = AssetManager(assets_dir=Path("assets"), tileset="atari")
+    with pytest.raises(ValueError):
+        am.load_tiles()

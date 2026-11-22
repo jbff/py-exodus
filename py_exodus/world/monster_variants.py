@@ -32,10 +32,11 @@ VARIANT_PLURALS: dict[str, tuple[str, str]] = {
     "dragon": ("Griffons", "Wyverns"),
     "balron": ("Orcuses", "Devils"),
 }
-# LairWare tile index of each variant's art: Tiles.plist 64..79, in the
-# order of VARIANT_NAMES (Thief's variant 1 is 64, Balron's variant 2 is 79).
+# Cell of each variant's art in LairWare's tile sheets: 80..95, in the order
+# of VARIANT_NAMES (Brigand is 80, Devil is 95). The names are Tiles.plist
+# 64..79; sheet cells 64..67 hold extra character art instead.
 VARIANT_TILE_INDEX: dict[str, tuple[int, int]] = {
-    tile: (64 + 2 * i, 65 + 2 * i) for i, tile in enumerate(VARIANT_NAMES)
+    tile: (80 + 2 * i, 81 + 2 * i) for i, tile in enumerate(VARIANT_NAMES)
 }
 
 

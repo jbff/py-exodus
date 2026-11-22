@@ -32,6 +32,7 @@ class GameApp:
         autoplay: bool = False,
         seed: int | None = None,
         trace: bool = False,
+        tiles: str | None = None,
         **kwargs: Any,
     ) -> None:
         self.scale = scale
@@ -64,7 +65,7 @@ class GameApp:
             if alt.exists():
                 self.assets_dir = alt
 
-        self.asset_mgr = AssetManager(assets_dir=self.assets_dir)
+        self.asset_mgr = AssetManager(assets_dir=self.assets_dir, tileset=tiles)
         try:
             self.asset_mgr.load_tiles()
             self.asset_mgr.load_xml_definitions()
@@ -195,6 +196,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Record the autoplay run to traces/trace_<time>.jsonl.gz.",
     )
+    parser.add_argument(
+        "--tiles",
+        metavar="NAME",
+        default=None,
+        help="Draw with a LairWare tile set ('--tiles list' shows the names).",
+    )
     return parser.parse_args(argv)
 
 
@@ -206,7 +213,15 @@ def main(argv: list[str] | None = None) -> None:
     # seed never replayed a live run. Use --trace to record one; headless
     # batches (fixed frame time) remain seed-reproducible.
     debug.set_debug(args.debug)
-    app = GameApp(autoplay=args.autoplay, trace=args.trace)
+    if args.tiles is not None:
+        from py_exodus.assets import LAIRWARE_TILESETS
+
+        if args.tiles.lower() == "list" or args.tiles.lower() not in LAIRWARE_TILESETS:
+            if args.tiles.lower() != "list":
+                print(f"Unknown tile set: {args.tiles}")
+            print("Tile sets: " + ", ".join(LAIRWARE_TILESETS))
+            sys.exit(0 if args.tiles.lower() == "list" else 2)
+    app = GameApp(autoplay=args.autoplay, trace=args.trace, tiles=args.tiles)
     try:
         app.run()
     except KeyboardInterrupt:

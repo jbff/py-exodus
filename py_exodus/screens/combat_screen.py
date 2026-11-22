@@ -921,7 +921,11 @@ class CombatScreen(BaseScreen):
             blitted = False
             if self.asset_mgr is not None:
                 try:
-                    t_img = self.asset_mgr.get_tile_surface(m.tile)
+                    # A LairWare sheet (--tiles) has art for the named variants.
+                    art = m.name.lower() if getattr(m, "variant", 0) else ""
+                    t_img = self.asset_mgr.get_tile_surface(
+                        art if art in self.asset_mgr.tiles else m.tile
+                    )
                     if t_img is not None:
                         surface.blit(t_img, (px, py))
                         blitted = True

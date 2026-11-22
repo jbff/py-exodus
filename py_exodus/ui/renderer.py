@@ -315,6 +315,10 @@ class WorldRenderer:
                 tile_name = mon.get("tile_name") or mon.get("name")
                 if not tile_name and "tile_id" in mon:
                     tile_name = self.asset_manager.get_tile_by_index(mon["tile_id"]).name
+                # A LairWare sheet (--tiles) has art for the named variants.
+                variant_art = str(mon.get("name", "")).lower()
+                if mon.get("variant") and variant_art in self.asset_manager.tiles:
+                    tile_name = variant_art
             else:
                 ex = getattr(mon, "x", getattr(mon, "currentX", 0))
                 ey = getattr(mon, "y", getattr(mon, "currentY", 0))
