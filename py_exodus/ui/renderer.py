@@ -109,8 +109,15 @@ def can_move_to(
         # Java hasShipObjectAt (BaseMap.java:786-793) matches a tile carrying
         # TileRule.ship; "frigate" is the only rule-"ship" tile
         # (tileset-base.xml:13), so the exact name equals the rule check.
+        # The party's objects belong to the surface map they were left on
+        # (Party.objects_map_id). Unscoped, a frigate parked on Sosaria at
+        # (54,31) made Death Gulch's counter letter at (54,31) walkable: the
+        # raid walked onto the pub counter, the merchant behind it attacked,
+        # and the party looted the chests behind it (live traces 2026-11-22).
         if not tile.walkable:
-            if party is not None and any(
+            if party is not None and str(getattr(game_map, "id", "")) == str(
+                getattr(party, "objects_map_id", 0)
+            ) and any(
                 str(obj.get("tile", "")).lower() == "frigate"
                 and obj.get("x") == target_x
                 and obj.get("y") == target_y

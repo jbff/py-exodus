@@ -92,3 +92,21 @@ def test_raid_waits_for_mana_instead_of_walking_out_and_back():
         assert (town.avatar_x, town.avatar_y) == (24, 56)
     finally:
         random.setstate(rng)
+
+
+def test_ship_parked_on_sosaria_does_not_open_the_pub_counter():
+    """Live traces 2026-11-22: the frigate left on Sosaria at (54,31) made
+    the counter's G at (54,31) in Death Gulch walkable; the party stepped
+    onto the counter, the merchant attacked, and it looted behind it."""
+    from py_exodus.constants import Direction
+    from py_exodus.ui.renderer import can_move_to
+
+    pygame.init()
+    p = _raid_party()
+    sm, town = _in_death_gulch(p)
+    p.dynamic_objects = [{"tile": "frigate", "x": 54, "y": 31}]
+    assert p.objects_map_id == 0
+    assert not can_move_to(town.game_map, 54, 31, Transport.FOOT, party=p)
+    town.avatar_x, town.avatar_y = 54, 32
+    town._try_move(Direction.NORTH)
+    assert (town.avatar_x, town.avatar_y) == (54, 32)
