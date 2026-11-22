@@ -120,6 +120,28 @@ def needs_food(party: Party) -> bool:
     return any(not m.is_dead() and m.food < 75 for m in party.members)
 
 
+# Food a living member can run down to while the party saves for a
+# resurrection: 1 food per 10 moves, so ~400 moves to earn the rest.
+RESURRECT_FOOD_FLOOR = 40
+
+
+def resurrection_cost(party: Party) -> int | None:
+    """Gold for the cheapest dead member (500, or 900 for ashes); None if
+    nobody is dead."""
+    costs = [900 if m.status == Status.ASH else 500 for m in party.members if m.is_dead()]
+    return min(costs) if costs else None
+
+
+def saving_to_resurrect(party: Party) -> bool:
+    """A member is dead and nobody living is about to starve: food waits for
+    the resurrection (batch 775884a seed 3 spent 80 of 490 gold on food at
+    74 each with the Cleric dead, and wiped). Bought first, food would also
+    drop a party that can just afford the healer back under the price."""
+    if resurrection_cost(party) is None:
+        return False
+    return all(m.food >= RESURRECT_FOOD_FLOOR for m in party.members if not m.is_dead())
+
+
 _CLERIC_CASTERS = (Profession.CLERIC, Profession.DRUID, Profession.PALADIN, Profession.RANGER)
 _WIZARD_CASTERS = (
     Profession.WIZARD,
@@ -322,6 +344,7 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
         and needs_food(party)
         and not (at_exotic_island and not living_has_exotics and party.food >= 100)
         and party.gold >= 30
+        and not saving_to_resurrect(party)
     ):
         return Goal.BUY_FOOD
 

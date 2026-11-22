@@ -864,6 +864,26 @@ def test_card_trip_carries_keys_enough_to_reach_the_moons_card():
     assert evaluate_goal(party, 0) == Goal.SAIL_WHIRLPOOL
 
 
+def test_resurrection_money_comes_before_food_that_can_wait():
+    """Batch 775884a seed 3: the Cleric dead, 490 gold of the 500 to raise
+    her, food 74 each: the party bought food, fell further short, and wiped.
+    Food waits until someone is close to starving."""
+    from py_exodus.constants import Status
+
+    party = _make_party(level=3)
+    for m in party.members:
+        m.food, m.gold = 74, 0
+    cleric = next(m for m in party.members if m.profession == Profession.CLERIC)
+    cleric.status, cleric.hp = Status.DEAD, 0
+    party.members[0].gold = 490
+    assert evaluate_goal(party, 0) == Goal.GRIND_AND_LEVEL
+    party.members[0].food = 30  # close to starving: food first
+    assert evaluate_goal(party, 0) == Goal.BUY_FOOD
+    party.members[0].food = 74
+    party.members[0].gold = 500
+    assert evaluate_goal(party, 0) == Goal.RESURRECT_DEAD
+
+
 def test_fawn_is_not_castle_exodus_for_the_planner():
     """Batch 775884a seed 16 (STEP_CAP, all level 25): the planner took map
     12 (Fawn) for the castle, so inside Fawn the goal was CONQUER_EXODUS and
