@@ -38,14 +38,15 @@ Borrowed in concept from the LairWare port: **`TAB`** (or `F2`) during any battl
 - **Party & outfitting**: creates a Thief / Fighter / Cleric / Wizard party, buys starter gear and armor upgrades, keeps food and gold balanced across members.
 - **Marks & exotics**: levels for the Mark of Kings, captures a frigate, sails (wind- and pirate-aware) to dig the Exotic weapons and armor, and clears the dungeons for the Marks of Fire, Force and Snake.
 - **Gold**: raids Death Gulch, opening chests safely with APPAR UNEM (waiting in place for MP), routing patiently around the moving townspeople, and bribing guards only where they block the way. With the Cleric dead, the Thief opens chests (then the Fighter, the Wizard last) so the party can still earn the gold to resurrect.
-- **Ambrosia**: sails into the whirlpool for the four Cards, then makes return trips for shrine stats in plan order (Cleric WIS 35; DEX 40 for all; Cleric WIS 50/70/99, Wizard INT 50/75/99; Fighter and Thief STR). Each trip budgets the gold, the food and the keys it needs (Ambrosia's doors relock between visits), and leaves while it still has a key for the water door.
-- **Levels**: grinds every member to 25. Lagging casters open fights with their strongest area spell so they earn the kills.
+- **Ambrosia**: sails into the whirlpool for the four Cards, then makes return trips for shrine stats in plan order (Cleric WIS 35; DEX 40 for all; Cleric WIS 50/70/99, Wizard INT 50/75/99; Fighter and Thief STR). Each trip, cards or stats, budgets the gold, the food and 8 keys (Ambrosia's doors relock between visits, and the Moons card alone is behind three), and leaves while it still has a key for the water door.
+- **Levels**: grinds every member to 25, starting on a loop near Britain's healer and Lord British and widening to the whole continent when nothing shows up for 150 moves. A Cleric below level 5 stays out of melee while others can fight, healing and stepping away at half HP. Lagging casters open fights with their strongest area spell so they earn the kills.
+- **The dead first**: with a member dead, food waits (until someone is down to 40) so the gold goes to the resurrection.
 - **Endgame**: only once every planned stat is bought, yells `EVOCARE` past the Great Earth Serpent, fights through Castle Exodus and inserts the four Cards.
 
 ### Status
 
 - **Wins from a fresh game, no cheats.** The latest 100-seed batch (`775884a`, LairWare combat rules, the final castle fighting back) won **58**, wiped 37 and hit the step cap 5 times, matching the easier-rules batch before it (`bbceab3`: 58 won, 39 wiped, 3 step caps). 34 of the 37 wipes are parties at level 10 or below. Live runs on 2026-11-22 won with every member at level 25.
-- **Open fronts**: early-game wipes (the Cleric usually dies first), resurrecting the dead as a real goal, and a town re-entry loop when no path out exists.
+- **Open fronts**: early-game wipes (being measured by the next 100-seed batch).
 
 ---
 
