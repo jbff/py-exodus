@@ -892,9 +892,18 @@ def test_grind_patrol_widens_when_nothing_shows_up(pygame_setup):
     ctrl._patrol_idx = 0
     key = ctrl._grind_local(sm, ow, ow.game_map, party, 42, 18, living)
     assert _SOSARIA_PATROL[0] == (44, 22) and key in (pygame.K_RIGHT, pygame.K_DOWN)
-    ow.creatures = [{"tile_name": "orc", "tile": "orc", "x": 46, "y": 18}]
+    ow.creatures = [{"tile_name": "orc", "tile": "orc", "x": 44, "y": 22}]  # reachable
     ctrl._grind_local(sm, ow, ow.game_map, party, 42, 18, living)
     assert ctrl._grind_quiet == 0
+
+    # A hurt party skips the chase, but its patrol moves still count (user
+    # live trace 2026-11-22: a hurt level-2 Cleric kept the count at 0).
+    ow.creatures = []
+    party.members[2].hp = party.members[2].max_hp // 2
+    ctrl._grind_quiet = 0
+    for _ in range(3):
+        ctrl._grind_local(sm, ow, ow.game_map, party, 42, 18, living)
+    assert ctrl._grind_quiet == 3
 
 
 def test_resurrection_money_comes_before_food_that_can_wait():

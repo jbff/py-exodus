@@ -2252,14 +2252,18 @@ class AutoPlayController:
                 if manhattan(gmap.width, gmap.height, (px, py), (cx, cy)) <= 12:
                     land_targets.add((cx, cy))
             if land_targets:
-                self._grind_quiet = 0
                 d = find_2d_step(gmap, (px, py), land_targets, Transport.FOOT, party=party, avoid_tiles=self._overworld_avoid)
                 if d is not None:
+                    self._grind_quiet = 0  # a monster it can walk to
                     return self._emit_key(state_machine, _DIR_TO_KEY[d])
-            else:
-                self._grind_quiet += 1
 
         if transport == Transport.FOOT:
+            # Every patrol move counts as quiet (user live trace
+            # 2026-11-22, trace_20261122-145915: the count lived inside the
+            # chase block, which is skipped while anyone needs healing, so
+            # with a hurt level-2 Cleric it never grew; 4,000 steps on the
+            # Britain loop, no fight, starved).
+            self._grind_quiet += 1
             early_patrol = ((42, 18), (38, 17), (35, 17), (40, 22), (45, 22), (46, 20))
             # User 2026-11-22: circling Britain forever starves the party when
             # nothing turns up (batch 775884a seeds 35, 50, 60...: ~1,900
