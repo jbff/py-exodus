@@ -12,6 +12,10 @@ A Python 3 / Pygame-CE reimplementation of *Ultima III: Exodus*, with **Auto-Com
   - **People move in towns and castles** (`MoveMonsters`): wanderers wander, shopkeepers follow, attackers close in and start a fight; in Castle Exodus the defenders come to you.
   - **The dead leave the combat board** and no longer block the living.
   - **Wind** steers ships on Ambrosia as on Sosaria, and is shown there too.
+  - **Monster attacks**: hit chance by armor (`RandNum(0, armor+16) < 8`), damage that grows with the target's max HP, and a location bonus (+16 dungeon, +32 town, +48 castles and Ambrosia). Castle Exodus is a real fight now. Dragon fire always hits.
+  - **Monsters move and attack diagonally** on Sosaria (the party still can't).
+  - **Chest traps** are dodged by DEX, with a big bonus for Thieves; nobody is trap-proof.
+  - **UNSPEAKABLE** kills like ZXKUQYB: each monster has a 75% chance to die outright.
 - **Other classic references**: the Game Boy Color port (`u3gbc`) for moongate routing, ship-battle cannon barrages, meal-crossing starvation/regen and the `QUICKNESS` aura; the NES `MoonGateTbl` for the 8-site moongate table.
 
 ---
@@ -26,15 +30,15 @@ Borrowed in concept from the LairWare port: **`TAB`** (or `F2`) during any battl
 
 - **Party & outfitting**: creates a Thief / Fighter / Cleric / Wizard party, buys starter gear and armor upgrades, keeps food and gold balanced across members.
 - **Marks & exotics**: levels for the Mark of Kings, captures a frigate, sails (wind- and pirate-aware) to dig the Exotic weapons and armor, and clears the dungeons for the Marks of Fire, Force and Snake.
-- **Gold**: raids Death Gulch, opening chests safely with APPAR UNEM (waiting in place for MP), routing patiently around the moving townspeople, and bribing guards only where they block the way.
+- **Gold**: raids Death Gulch, opening chests safely with APPAR UNEM (waiting in place for MP), routing patiently around the moving townspeople, and bribing guards only where they block the way. With the Cleric dead, the Thief opens chests (then the Fighter, the Wizard last) so the party can still earn the gold to resurrect.
 - **Ambrosia**: sails into the whirlpool for the four Cards, then makes return trips for shrine stats in plan order (Cleric WIS 35; DEX 40 for all; Cleric WIS 50/70/99, Wizard INT 50/75/99; Fighter and Thief STR). Each trip budgets the gold, the food and the keys it needs (Ambrosia's doors relock between visits), and leaves while it still has a key for the water door.
 - **Levels**: grinds every member to 25. Lagging casters open fights with their strongest area spell so they earn the kills.
-- **Endgame**: yells `EVOCARE` past the Great Earth Serpent, fights through Castle Exodus and inserts the four Cards.
+- **Endgame**: only once every planned stat is bought, yells `EVOCARE` past the Great Earth Serpent, fights through Castle Exodus and inserts the four Cards.
 
 ### Status
 
-- **Wins from a fresh game, no cheats.** The last full 100-seed batch (`bbceab3`) won **58**, wiped 39 and hit the step cap 3 times; most wipes are level 1-5 parties early on. Many fixes have landed since (Death Gulch raids, Ambrosia keys and shrine trips, ship escapes, town patience, map-scoped parked ships); a live run on 2026-11-22 won with every member at level 25.
-- **Open fronts**: early-game wipes (parties at level 1-5 meeting monsters they can't beat), resurrecting the dead as a real goal.
+- **Wins from a fresh game, no cheats.** The last full 100-seed batch (`bbceab3`) won **58**, wiped 39 and hit the step cap 3 times; most wipes are level 1-5 parties early on. A new 100-seed run on the LairWare combat rules (`775884a`, 10 batches of 10) is in progress: 12 won, 7 wiped, 1 step cap after the first 20 seeds. Live runs on 2026-11-22 won with every member at level 25.
+- **Open fronts**: early-game wipes (the Cleric usually dies first), resurrecting the dead as a real goal, and a town re-entry loop when no path out exists.
 
 ---
 
