@@ -106,7 +106,7 @@ About **1,350 tests** covering mechanics, LairWare/Java/GBC parity, vendors, dun
 
 ## Known Open Items
 
-1. **Audio**: the poison-effect and fire-field sound cues aren't wired yet.
+1. **Audio**: the poison/fire field sound cues (`Sound.POISON_EFFECT`, `Sound.FIREFIELD`) aren't wired yet.
 2. **Input**: keyboard only.
 3. **`H` (Hand Equipment)**: hands weapons and armor only, not food (autoplay evens out food when it buys).
 4. **Combat regen**: MP regen and meal-crossing `+1 HP` don't tick during combat rounds.
