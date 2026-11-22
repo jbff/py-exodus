@@ -139,6 +139,10 @@ def test_low_hp_retreat_when_adjacent_enemy(asset_mgr):
     arena = _open_arena(
         weapon=WeaponType.SWORD, hp=10, max_hp=100, asset_mgr=asset_mgr, monster_count=1
     )
+    # Someone else is still standing (a healer can come): retreat.
+    arena.party.add_member(
+        Character("Medic", "F", Race.HUMAN, Profession.CLERIC, strength=10, dexterity=10)
+    )
     arena.player_positions[0] = (5, 5)
     arena.monsters[0].x = 5
     arena.monsters[0].y = 4
@@ -146,6 +150,21 @@ def test_low_hp_retreat_when_adjacent_enemy(asset_mgr):
     action = choose_auto_combat_action(arena, 0, asset_mgr=asset_mgr)
     assert action.type == ActionType.MOVE
     assert action.direction == Direction.SOUTH
+
+
+def test_last_one_standing_fights_instead_of_retreating(asset_mgr):
+    """Batch 1c7525f seed 17: the lone survivor stepped back from a Goblin,
+    stepped in again, and back, from step 45,791 to the 200,000 cap."""
+    arena = _open_arena(
+        weapon=WeaponType.SWORD, hp=10, max_hp=100, asset_mgr=asset_mgr, monster_count=1
+    )
+    arena.player_positions[0] = (5, 5)
+    arena.monsters[0].x = 5
+    arena.monsters[0].y = 4
+
+    action = choose_auto_combat_action(arena, 0, asset_mgr=asset_mgr)
+    assert action.type == ActionType.ATTACK
+    assert action.direction == Direction.NORTH
 
 
 def test_combat_screen_toggle_tab_f2_and_escape(asset_mgr, conflict_map):

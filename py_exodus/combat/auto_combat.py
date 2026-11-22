@@ -125,6 +125,13 @@ def _try_low_hp_retreat(
 ) -> Action | None:
     """Retreat one cardinal step if HP is critical (half, for a held-back
     healer) and an enemy is adjacent."""
+    # The last one standing gains nothing by stepping back: nobody comes to
+    # heal, and the step back and in again can go on forever (batch 1c7525f
+    # seed 17: a lone Fighter and one Goblin from step 45,791 to the cap).
+    if not any(
+        i != member_idx and not _is_member_dead(m) for i, m in enumerate(arena.party.members)
+    ):
+        return None
     max_hp = getattr(member, "max_hp", 0)
     floor = max_hp // 2 if _held_back_healer(arena, member) else max(15, max_hp // 5)
     if getattr(member, "hp", 0) > floor:
