@@ -10,7 +10,7 @@ os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 import pygame
 import pytest
 
-from py_exodus.assets import AssetManager
+from py_exodus.assets import MAP_NAME_TO_ID, AssetManager
 from py_exodus.combat.arena import Action, CombatArena
 from py_exodus.constants import Direction, Profession, Race, Transport
 from py_exodus.entities.character import Character
@@ -28,9 +28,11 @@ def test_objects_show_only_on_their_own_surface_map():
     p.dynamic_objects = [{"tile": "frigate", "x": 54, "y": 31}]
     assert p.objects_map_id == 0
     assert objects_on(p, _Map(0)) == p.dynamic_objects
-    assert objects_on(p, _Map(10)) == []  # Death Gulch
-    assert objects_on(p, _Map(12)) == []  # Castle Exodus
-    assert objects_on(p, _Map(13)) == []  # Ambrosia (its own list on arrival)
+    # Every other place: each town, castle, dungeon, and Ambrosia.
+    others = sorted(set(MAP_NAME_TO_ID.values()) - {0})
+    assert len(others) > 15
+    for map_id in others:
+        assert objects_on(p, _Map(map_id)) == [], map_id
 
 
 @pytest.fixture
