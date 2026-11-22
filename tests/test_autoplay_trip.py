@@ -471,6 +471,9 @@ def test_chest_in_a_lane_is_looted_before_escaping(pygame_setup, asset_mgr):
     ow.creatures = [_pirate(party.x + 3, party.y)]
     for m in party.members:
         m.mp = 0  # no APPAR_UNEM: plain Get
+    # A safe opener (DEX 74 always dodges): since 2026-11-22 a weak party
+    # with none leaves dropped chests alone.
+    party.members[0].dex = 74
     ctrl = AutoPlayController(enabled=True)
     assert ctrl.step(sm) == pygame.K_g
 

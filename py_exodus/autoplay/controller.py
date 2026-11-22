@@ -1047,7 +1047,7 @@ class AutoPlayController:
         # Standing on a chest under fire: take it now (one action), then the
         # usual rule (fight or leave). Stepping off first made the party walk
         # back in for it, again and again (user report 2026-11-21).
-        if not on_ship and any(
+        if not on_ship and not self._chest_too_risky(party) and any(
             str(o.get("tile", "")).lower() == "chest" and (o.get("x"), o.get("y")) == pos
             for o in getattr(party, "dynamic_objects", ()) or ()
         ):
@@ -1272,7 +1272,11 @@ class AutoPlayController:
         living = [m for m in party.members if not m.is_dead()]
 
         # Loot dropped chests on foot on Sosaria or Ambrosia (prefer APPAR_UNEM, else G with member 1)
-        if cur_map_id in _PIRATE_SEA_MAPS and party.transport == Transport.FOOT:
+        if (
+            cur_map_id in _PIRATE_SEA_MAPS
+            and party.transport == Transport.FOOT
+            and not self._chest_too_risky(party)
+        ):
             chests = {
                 (obj.get("x"), obj.get("y"))
                 for obj in getattr(party, "dynamic_objects", [])
@@ -2428,6 +2432,20 @@ class AutoPlayController:
             None,
         )
         return ("get", idx) if idx is not None else None
+
+    _CHEST_RISK_LEVEL = 8
+
+    def _chest_too_risky(self, party) -> bool:
+        """Leave dropped chests alone when nobody can open one safely and
+        the party is weak (someone dead, or any living member below level
+        8). Live trace 2026-11-22: the Cleric lay dead for 5,900 steps, a
+        DEX-25 G set off the trap, the poisoned level-5 party met dragons
+        on the way to a cure and wiped."""
+        if self._chest_opener(party) is not None:
+            return False
+        if any(m.is_dead() for m in party.members):
+            return True
+        return any(m.level < self._CHEST_RISK_LEVEL for m in party.members)
 
     def _open_chest(self, state_machine, party, guarded: bool = True) -> int:
         """Open the chest underfoot the safest way available (G with the

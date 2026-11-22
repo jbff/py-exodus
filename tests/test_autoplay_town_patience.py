@@ -67,3 +67,42 @@ def test_transact_faces_the_merchant_not_a_passing_guard():
         ]
 
     assert AutoPlayController._direction_to_npc(_Map(), 10, 10) == pygame.K_DOWN
+
+
+def _party_on_a_chest(dead_cleric: bool, level: int):
+    from py_exodus.constants import Status, Transport
+    from py_exodus.screens.overworld import OverworldScreen
+
+    am = batch._assets()
+    p = batch.build_party()
+    for m in p.members:
+        m.level = level
+        m.max_hp = m.hp = 100 * level
+        m.food = 300
+        m.mp = 0  # no APPAR UNEM
+    if dead_cleric:
+        cleric = next(m for m in p.members if m.profession.name == "CLERIC")
+        cleric.status = Status.DEAD
+        cleric.hp = 0
+    sm = StateMachine(asset_mgr=am, audio=None)
+    ow = OverworldScreen(party=p, asset_mgr=am)
+    sm.set_screen(ow)
+    p.transport = Transport.FOOT
+    p.dynamic_objects = list(getattr(p, "dynamic_objects", []) or []) + [
+        {"tile": "chest", "x": p.x, "y": p.y}
+    ]
+    return sm, p
+
+
+def test_weak_party_without_a_safe_opener_leaves_dropped_chests():
+    """Live trace 2026-11-22: Cleric dead, a DEX-25 G set off the trap,
+    the poisoned level-5 party wiped on the way to a cure."""
+    pygame.init()
+    pygame.font.init()
+    sm, p = _party_on_a_chest(dead_cleric=True, level=5)
+    ctrl = AutoPlayController(enabled=True)
+    for _ in range(5):
+        assert ctrl.step(sm) not in (pygame.K_g, pygame.K_c)
+    sm, p = _party_on_a_chest(dead_cleric=False, level=10)
+    ctrl = AutoPlayController(enabled=True)
+    assert ctrl.step(sm) == pygame.K_g  # strong, all alive: still takes the gamble
