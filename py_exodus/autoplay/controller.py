@@ -1421,12 +1421,7 @@ class AutoPlayController:
             and not any(m.food == 0 for m in living)
             and any(not m.is_dead() and m.max_hp > 0 and m.hp * 10 < m.max_hp * 7 for m in living)
             and goal not in (Goal.BUY_FOOD, Goal.RESURRECT_DEAD, Goal.CURE_POISON)
-            and any(
-                not m.is_dead()
-                and m.profession in (Profession.CLERIC, Profession.PALADIN, Profession.DRUID)
-                and m.max_mp >= 10
-                for m in party.members
-            )
+            and self._can_rest_indoors(party, goal)
         ):
             # User rule (2026-11-21): pass time only inside a town or castle
             # (_step_town rests there under the same conditions).
@@ -1448,6 +1443,17 @@ class AutoPlayController:
                 m.profession in (Profession.CLERIC, Profession.PALADIN, Profession.DRUID)
                 and m.max_mp >= 10
                 for m in living
+            )
+            # Poison drains HP every turn: resting only helps if it ends with
+            # ALCORT (a Cleric/Druid whose MP pool reaches 35). Otherwise heal
+            # spells never keep up (user report 2026-11-21): go earn the
+            # healer's 100 gold instead.
+            and (
+                not any(m.status == Status.POISONED for m in living)
+                or any(
+                    m.profession in (Profession.CLERIC, Profession.DRUID) and m.max_mp >= 35
+                    for m in living
+                )
             )
         )
 

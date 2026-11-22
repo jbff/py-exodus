@@ -521,3 +521,29 @@ def test_healthy_party_chased_by_dragons_does_not_hide_in_town(pygame_setup, ass
     ctrl = AutoPlayController(enabled=True)
     ctrl.step(sm)
     assert not ctrl._fleeing
+
+
+def test_poisoned_party_without_alcort_does_not_rest_in_town(pygame_setup, asset_mgr):
+    """User report (2026-11-21): resting in a town to regain MP for heal
+    spells while poisoned loses to the poison. Without ALCORT in reach the
+    party does not rest; with it, it rests (for the MP to cure)."""
+    from py_exodus.constants import Profession, Status
+    from py_exodus.screens.town import TownScreen
+
+    party = _make_party(level=3, gold=20)
+    _hurt(party, 0.6)
+    party.members[0].status = Status.POISONED
+    for m in party.members:
+        if m.profession in (Profession.CLERIC, Profession.DRUID):
+            m.max_mp = 20
+    ctrl = AutoPlayController(enabled=True)
+    goal = evaluate_goal(party, 4)
+    assert not ctrl._can_rest_indoors(party, goal)
+    sm = StateMachine(asset_mgr=asset_mgr, audio=None)
+    ts = TownScreen(party=party, asset_mgr=asset_mgr, map_id=4, start_x=32, start_y=62)
+    sm.set_screen(ts)
+    assert ctrl.step(sm) != pygame.K_SPACE
+    for m in party.members:
+        if m.profession in (Profession.CLERIC, Profession.DRUID):
+            m.max_mp = 40
+    assert ctrl._can_rest_indoors(party, evaluate_goal(party, 4))
