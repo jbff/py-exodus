@@ -228,6 +228,13 @@ def ship_escape(
             best = (score, d)
     if best is not None:
         return Move("move", best[1])
+    # 4. Nothing safe: never sit under fire. Sail on along the heading even
+    # through the lane; distance at least gains time. Batch be64d73 seed 0:
+    # a ship in Ambrosia's water door (walls north and south), the pirate
+    # astern upwind, the only open tile still in its lane; waiting let the
+    # pirate sink it from hull 50 to 0 with the party aboard.
+    if wind is not None and heading != blocked and can_sail(*dest(heading)):
+        return Move("move", heading)
     return Move("wait")
 
 

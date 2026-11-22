@@ -859,3 +859,18 @@ def test_return_trip_buys_keys_first_and_keeps_one_to_leave_ambrosia():
     assert evaluate_goal(party, 13) == Goal.AMBROSIA_CARDS_SHRINES
     party.members[0].keys = 1
     assert evaluate_goal(party, 13) == Goal.EXIT_AMBROSIA
+
+
+def test_ship_escape_sails_on_through_the_lane_rather_than_sit_under_fire():
+    """Batch be64d73 seed 0: in Ambrosia's water door (walls N and S), the
+    pirate 2 tiles astern and upwind, the only open tile still in its lane:
+    the ship waited and was sunk with the party aboard."""
+    party = _make_party(level=5, transport=Transport.SHIP)
+    party.wind_direction = Direction.WEST  # can't sail east, toward the pirate
+    th = compute_threats(_Grid, party, [_pirate(12, 10)])
+    pos = (10, 10)
+    open_water = {(9, 10), (11, 10)}  # walls north and south
+    move = ship_escape(_Grid, party, pos, Direction.WEST, th, lambda x, y: (x, y) in open_water,
+                       prefer_engage=True)
+    assert th.unsafe_end((9, 10))  # the only way out is still in the lane
+    assert move.key == "move" and move.direction == Direction.WEST
