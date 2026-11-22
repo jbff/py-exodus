@@ -398,3 +398,47 @@ def test_hand_transfer_never_gives_a_duplicate():
         m.weapons[WeaponType.EXOTIC] = 1
     transfer = best_hand_transfer(p)
     assert transfer is None or transfer[1] != 2
+
+
+# ---------------------------------------------------------------------------
+# Being chased (user rule 2026-11-21): outrun a deadly fight to a town, else
+# fight; never dodge in circles.
+# ---------------------------------------------------------------------------
+
+
+def _hurt(party, frac=0.25):
+    for m in party.members:
+        m.hp = max(1, int(m.max_hp * frac))
+
+
+def test_deadly_chase_outrunnable_flees_to_town(pygame_setup, asset_mgr):
+    party = _make_party(level=5)
+    party.x, party.y = 46, 22  # 3 steps south of the Britain portal (46, 19)
+    _hurt(party)
+    sm, ow = _overworld(asset_mgr, party)
+    ow.creatures = [{"tile_name": "orc", "tile": "orc", "x": 46, "y": 29}]
+    ctrl = AutoPlayController(enabled=True)
+    ctrl.step(sm)
+    assert ctrl._fleeing
+    assert ctrl._trip is not None and ctrl._trip.dest.label == "rest"
+
+
+def test_deadly_chase_not_outrunnable_fights(pygame_setup, asset_mgr):
+    party = _make_party(level=5)
+    party.x, party.y = 46, 22
+    _hurt(party)
+    sm, ow = _overworld(asset_mgr, party)
+    ow.creatures = [{"tile_name": "orc", "tile": "orc", "x": 47, "y": 19}]  # by the portal
+    ctrl = AutoPlayController(enabled=True)
+    ctrl.step(sm)
+    assert not ctrl._fleeing
+
+
+def test_healthy_party_does_not_flee(pygame_setup, asset_mgr):
+    party = _make_party(level=5)
+    party.x, party.y = 46, 22
+    sm, ow = _overworld(asset_mgr, party)
+    ow.creatures = [{"tile_name": "orc", "tile": "orc", "x": 46, "y": 29}]
+    ctrl = AutoPlayController(enabled=True)
+    ctrl.step(sm)
+    assert not ctrl._fleeing

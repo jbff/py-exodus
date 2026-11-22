@@ -1660,7 +1660,10 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
     # party's row and column, so the firing-lane rule does not decide this step.
     ow_bs.creatures.append({"x": 43, "y": 24, "tile_name": "pirate"})
     p_bs.x, p_bs.y = 40, 20  # (random encounters are off: the first step walked onto the orc)
-    assert ctrl.step(sm) != pygame.K_UP
+    # (The step key no longer tells: under the chase rule a non-deadly party
+    # meets the orc on its way anyway; assert the hunt trigger itself.)
+    living_bs = [m for m in p_bs.members if not m.is_dead()]
+    assert not ctrl._broke_and_starving(ow_bs, ow_bs.game_map, p_bs, 40, 20, living_bs)
 
     # 3. Stranded on Snake Island (57, 46) in GRIND_AND_LEVEL uses moongate/frigate instead of K_SPACE stall
     p_snk = _make_party(

@@ -74,6 +74,7 @@ _REST_INDOORS = object()
 _TRIP_REPLAN_TURNS = 300
 _TRIP_STUCK_TURNS = 30
 _NEIGHBOURS4 = ((0, -1), (0, 1), (-1, 0), (1, 0))
+_CHASE_RADIUS = 8  # land monsters this close count as chasing
 _BLOCK_TURNS = 40  # a refused threatened tile stays barred this long
 # Planning cost for entering a tile under threat when the trip is planned.
 _DANGER_HARD = 60.0
@@ -239,6 +240,7 @@ class AutoPlayController:
         self._last_transition: Transition | None = None
         self._ow_turn = 0
         self._blocked_tiles: dict[tuple[int, int], int] = {}
+        self._fleeing = False
 
     def toggle(self) -> bool:
         """Flip autoplay enabled state and clear any queued keystrokes."""
@@ -1177,10 +1179,10 @@ class AutoPlayController:
                 and any(m.food == 0 for m in living)
                 and all(m.hp * 10 >= m.max_hp * 3 for m in living)
             )
-            avoid_all_land = (
-                goal in (Goal.RESURRECT_DEAD, Goal.CURE_POISON, Goal.BUY_FOOD)
-                or (needs_heal(party) and not broke_and_starving_nav)
-            )
+            # User rule (2026-11-21, being chased): steer around land
+            # monsters only while outrunning them to a town (_flee_plan);
+            # otherwise meet them (no zig-zagging).
+            avoid_all_land = self._fleeing and not broke_and_starving_nav
             for c in creatures:
                 tname = creature_name(c)
                 if "x" not in c or "y" not in c or tname in ("whirlpool", "pirate"):
@@ -1283,6 +1285,12 @@ class AutoPlayController:
                 if d is not None:
                     return self._emit_key(state_machine, _DIR_TO_KEY[d])
 
+        self._fleeing = False
+        if cur_map_id == _MAP_SOSARIA and party.transport != Transport.SHIP:
+            flee_key = self._flee_plan(state_machine, screen, gmap, party, px, py, living, cur_map_id)
+            if flee_key is not None:
+                return flee_key
+
         if cur_map_id == _MAP_SOSARIA and needs_heal(party):
             rest_key = self._evade_or_rest(state_machine, screen, gmap, party, px, py, goal, living, cur_map_id)
             if rest_key is _REST_INDOORS:
@@ -1309,7 +1317,9 @@ class AutoPlayController:
 
     def _evade_or_rest(self, state_machine, screen, gmap, party, px, py, goal, living, cur_map_id) -> int | None:
         # Emergency step away only when a monster is within 1 tile (radius 2-3 is routed around via _overworld_avoid)
-        evade_rad = 3 if party.transport == Transport.SHIP else 1
+        # On foot a step away from an adjacent monster only delays the fight
+        # (user rule: outrun it to a town, or fight it); ships still sheer off.
+        evade_rad = 3 if party.transport == Transport.SHIP else -1
         nearby = [
             (c["x"], c["y"])
             for c in getattr(screen, "creatures", [])
@@ -1377,6 +1387,53 @@ class AutoPlayController:
             # (_step_town rests there under the same conditions).
             return _REST_INDOORS
         return None
+
+    def _flee_plan(self, state_machine, screen, gmap, party, px, py, living, cur_map_id) -> int | None:
+        """Being chased (user rule 2026-11-21).
+
+        If the fight looks deadly and the party can outrun its chasers to a
+        town or castle (our route there is shorter than any chaser's distance
+        to it), go there and heal; the chasers are fought on the way out.
+        Otherwise return None: the party meets them (no dodging)."""
+        w, h = gmap.width, gmap.height
+        chasers = [
+            (c["x"], c["y"], creature_name(c))
+            for c in getattr(screen, "creatures", ()) or ()
+            if "x" in c and "y" in c
+            and creature_name(c) not in SEA_MONSTERS and creature_name(c) != "whirlpool"
+            and manhattan(w, h, (px, py), (c["x"], c["y"])) <= _CHASE_RADIUS
+        ]
+        if not chasers or not living:
+            return None
+        hp = sum(m.hp for m in living)
+        max_hp = sum(m.max_hp for m in living) or 1
+        top_level = max(m.level for m in living)
+        deadly = (
+            hp * 2 < max_hp
+            or any(m.hp * 10 < m.max_hp * 3 for m in living)
+            or (top_level < 8 and any(n in ("dragon", "balron") for _, _, n in chasers))
+        )
+        if not deadly:
+            return None
+        dest, on_arrive = self._rest_destination(state_machine, screen, gmap)
+        if dest is None:
+            return None
+        if self._trip is None or self._trip.dest.label != "rest":
+            self._replan(gmap, party, screen, cur_map_id, (px, py), party.transport, dest)
+        plan = self._trip
+        if plan is None or not plan.path:
+            return None
+        portal = (plan.path[-1][0], plan.path[-1][1])
+        ours = len(plan.path) - 1
+        if any(manhattan(w, h, (cx, cy), portal) <= ours for cx, cy, _ in chasers):
+            self._trip = None
+            return None  # cannot outrun them: fight
+        self._fleeing = True
+        self._overworld_avoid = self._monster_avoid(screen, party, px, py, Goal.GRIND_AND_LEVEL, living)
+        key = self._trip_drive(state_machine, screen, gmap, party, px, py, cur_map_id, dest)
+        if key is _ARRIVED:
+            return on_arrive()
+        return key
 
     def _rest_destination(self, state_machine, screen, gmap):
         """The towns and castles of this map that are safe to rest in."""
