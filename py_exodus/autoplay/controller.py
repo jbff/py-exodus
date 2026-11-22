@@ -24,6 +24,7 @@ from py_exodus.autoplay.planner import (
     Goal,
     evaluate_goal,
     alcort_wisdom_gap,
+    stat_cap,
     member_needs_shrine_stat,
     needs_heal,
     prefer_ranged_weapons,
@@ -443,7 +444,7 @@ class AutoPlayController:
             stat_attr = getattr(screen, "stat_attr", "strength")
             cap_attr = getattr(screen, "stat_cap_attr", "max_str")
             room = (
-                max(0, getattr(member, cap_attr, 99) - getattr(member, stat_attr, 0))
+                max(0, stat_cap(member, cap_attr) - getattr(member, stat_attr, 0))
                 if member is not None
                 else 9
             )
@@ -1762,7 +1763,7 @@ class AutoPlayController:
                 (
                     i + 1 for i, m in enumerate(party.members)
                     if not m.is_dead() and m.profession in (Profession.THIEF, Profession.LARK)
-                    and getattr(m, "max_dex", 0) >= self._TRAP_PROOF_DEX
+                    and stat_cap(m, "max_dex") >= self._TRAP_PROOF_DEX
                 ),
                 None,
             )
@@ -1804,7 +1805,7 @@ class AutoPlayController:
                     for i, m in enumerate(party.members)
                     if not m.is_dead()
                     and m.profession in profs
-                    and getattr(m, stat_attr, 0) < getattr(m, cap_attr, 99)
+                    and getattr(m, stat_attr, 0) < stat_cap(m, cap_attr)
                 ),
                 None,
             )

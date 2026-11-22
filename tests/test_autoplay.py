@@ -818,6 +818,9 @@ def test_buy_keys_before_ambrosia_and_unlock_locked_door(pygame_setup):
         # (user ruling 2026-11-21: an early trip buys the Cleric's wisdom).
         if m.profession in (Profession.CLERIC, Profession.DRUID):
             m.max_mp = 40
+        # Likewise a trap-proof Thief (dex 74), so the dex shrine does not.
+        if m.profession == Profession.THIEF:
+            m.dexterity = 74
     ow = OverworldScreen(party=party, map_id=13, asset_mgr=am, random_encounters=False)
     ow.creatures = []
     sm.set_screen(ow)

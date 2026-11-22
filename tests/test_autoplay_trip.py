@@ -716,3 +716,21 @@ def test_strong_party_walks_up_to_a_pirate_and_attacks(pygame_setup, asset_mgr):
             return
         assert key in arrows, pygame.key.name(key)
     raise AssertionError("never closed on the pirate")
+
+
+def test_shrine_caps_come_from_the_members_race():
+    """Stat caps live on the race (Race.max_wis...). Reading member.max_wis
+    defaulted every cap to 99: a Human Cleric at WIS 75 kept paying the
+    shrine 100 gold a point for nothing, and the Thief dex-74 rule never
+    fired (max_dex read as 0)."""
+    from py_exodus.autoplay.planner import member_needs_shrine_stat, stat_cap
+    from py_exodus.constants import Race
+    from py_exodus.entities.character import Character
+
+    cleric = Character("C", None, Race.HUMAN, Profession.CLERIC, strength=15, dexterity=15, intelligence=15, wisdom=75)
+    assert stat_cap(cleric, "max_wis") == 75
+    assert not member_needs_shrine_stat(cleric, "wisdom", "max_wis")
+    bobit = Character("B", None, Race.BOBIT, Profession.CLERIC, strength=15, dexterity=15, intelligence=15, wisdom=75)
+    assert member_needs_shrine_stat(bobit, "wisdom", "max_wis")
+    thief = Character("T", None, Race.HUMAN, Profession.THIEF, strength=15, dexterity=25, intelligence=15, wisdom=15)
+    assert stat_cap(thief, "max_dex") >= AutoPlayController._TRAP_PROOF_DEX

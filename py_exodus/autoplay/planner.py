@@ -83,7 +83,7 @@ def alcort_wisdom_gap(party: Party) -> int | None:
             continue
         if m.max_mp >= 35:
             return 0
-        if getattr(m, "max_wis", 99) >= need:
+        if stat_cap(m, "max_wis") >= need:
             gaps.append(max(0, need - m.wisdom))
     return min(gaps) if gaps else None
 
@@ -131,6 +131,18 @@ _WIZARD_CASTERS = (
 )
 
 
+def stat_cap(member, cap_attr: str) -> int:
+    """The member's shrine cap for a stat: it belongs to the RACE
+    (``Race.max_str`` etc.; Human 75, Bobit WIS 99, Fuzzy INT 99...).
+    Reading ``member.max_str`` (absent) defaulted every cap to 99, so a
+    capped member kept paying 100 gold a point for nothing."""
+    race = getattr(member, "race", None)
+    cap = getattr(race, cap_attr, None) if race is not None else None
+    if cap is None:
+        cap = getattr(member, cap_attr, 99)
+    return int(cap)
+
+
 def member_needs_shrine_stat(member, stat_attr: str, cap_attr: str) -> bool:
     """Return True if this living member should raise ``stat_attr`` at an Ambrosia Shrine."""
     if member.is_dead():
@@ -140,7 +152,7 @@ def member_needs_shrine_stat(member, stat_attr: str, cap_attr: str) -> bool:
         return False
     if stat_attr == "intelligence" and prof not in _WIZARD_CASTERS:
         return False
-    return getattr(member, stat_attr, 0) < getattr(member, cap_attr, 99)
+    return getattr(member, stat_attr, 0) < stat_cap(member, cap_attr)
 
 
 def needs_shrine_stats(party: Party) -> bool:
