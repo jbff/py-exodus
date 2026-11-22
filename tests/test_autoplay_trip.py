@@ -582,7 +582,7 @@ def test_first_ambrosia_trip_saves_the_full_shrine_budget(pygame_setup):
     cleric.max_mp = None  # derived from wisdom
     for m in party.members:
         m.food = 300
-        m.keys = 2
+        m.keys = 2  # 8 together: the card-trip key budget
     assert alcort_wisdom_gap(party) == 10
     assert ambrosia_trip_gold(party, 2) == 4500
     for m in party.members:
@@ -843,6 +843,25 @@ def test_return_trips_for_stats_and_no_pointless_raids():
     assert not gold_has_a_use(party)
     assert evaluate_goal(party, 0) == Goal.GRIND_AND_LEVEL  # levels, not stats
     assert SHRINE_PLAN[RETURN_TRIP_STEPS - 1][1:] == ("intelligence", "max_int", 99)
+
+
+def test_card_trip_carries_keys_enough_to_reach_the_moons_card():
+    """User live trace 2026-11-22: card trips sailed in with 4 keys; the
+    Moons card is behind (45,17), (50,6) and (11,6), the exit rule fired on
+    the last key five tiles short, and four visits in a row came back empty."""
+    from py_exodus.autoplay import batch
+    from py_exodus.autoplay.planner import ambrosia_trip_gold
+
+    party = batch.build_party()
+    for m in party.members:
+        m.level, m.food, m.keys, m.gold = 25, 300, 0, 0
+        m.marks, m.cards = [1, 1, 1, 1], [1, 1, 0, 1]  # Moons missing
+        m.weapon, m.armor = WeaponType.EXOTIC, ArmorType.EXOTIC
+    party.members[0].gold = ambrosia_trip_gold(party)
+    party.members[0].keys = 4
+    assert evaluate_goal(party, 0) == Goal.BUY_KEYS
+    party.members[0].keys = 8
+    assert evaluate_goal(party, 0) == Goal.SAIL_WHIRLPOOL
 
 
 def test_return_trip_buys_keys_first_and_keeps_one_to_leave_ambrosia():

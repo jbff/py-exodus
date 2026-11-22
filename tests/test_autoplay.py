@@ -311,7 +311,7 @@ def test_evaluate_goal_progression():
 
     # Has all Marks, Exotics, keys, and >=1500g on ship -> SAIL_WHIRLPOOL
     marked_ship = _make_party(level=5, exp=500, marks=[1, 1, 1, 1], transport=Transport.SHIP, gold=1500)
-    marked_ship.members[0].keys = 4  # key shopping is no longer suppressed on a ship
+    marked_ship.members[0].keys = 8  # the card-trip key budget (AMBROSIA_CARD_KEYS)
     for m in marked_ship.members:
         # Equipped: owned-but-unequipped gear is an OUTFIT step on ship too now
         # (goals no longer depend on the transport).
@@ -802,16 +802,16 @@ def test_buy_keys_before_ambrosia_and_unlock_locked_door(pygame_setup):
     )
     assert evaluate_goal(party) == Goal.BUY_KEYS
 
-    # In Fawn (map 12) at the Guild stand (32, 13), buys Keys up to 4
+    # In Fawn (map 12) at the Guild stand (32, 13), buys Keys up to the card-trip budget (8)
     sm = StateMachine(asset_mgr=am, audio=None)
     ts = TownScreen(party=party, asset_mgr=am, map_id=12, start_x=32, start_y=13)
     sm.set_screen(ts)
     ctrl = AutoPlayController(enabled=True)
-    for _ in range(80):
+    for _ in range(240):
         ctrl.step(sm)
-        if sum(m.keys for m in party.members) >= 4:
+        if sum(m.keys for m in party.members) >= 8:
             break
-    assert sum(m.keys for m in party.members) >= 4
+    assert sum(m.keys for m in party.members) >= 8
     # Formerly CAPTURE_SHIP on foot; goals no longer depend on the transport.
     for _m in party.members:  # Ambrosia entry budget (user rule 2026-11-21)
         _m.food = max(_m.food, 300)
@@ -1355,7 +1355,7 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
 
     # Sailing ship fires cannons (K_f) at aligned broadsides serpent and steers around non-aligned serpents
     p_ship = _make_party(level=5, exp=500, gold=1500, food=500, marks=[1, 1, 1, 1], transport=Transport.SHIP)
-    p_ship.members[0].keys = 4
+    p_ship.members[0].keys = 8
     for m in p_ship.members:
         m.weapon = WeaponType.EXOTIC
         m.weapons[WeaponType.EXOTIC] = 1
@@ -1465,7 +1465,7 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
 
     # A party that needs a ship (formerly CAPTURE_SHIP) loots dropped chests instead of ignoring them
     p_cap2 = _make_party(level=5, exp=500, gold=1500, food=500, marks=[1, 1, 1, 1], weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC, transport=Transport.FOOT)
-    p_cap2.members[0].keys = 4
+    p_cap2.members[0].keys = 8
     p_cap2.x, p_cap2.y = 44, 15
     p_cap2.dynamic_objects.append({"tile": "chest", "x": 44, "y": 16})
     ow_c2 = OverworldScreen(party=p_cap2, asset_mgr=am, random_encounters=False)
@@ -1557,7 +1557,7 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
 
     # A party that needs a ship ignores unreachable open-ocean frigates: the trip captures one at the coast
     p_cap = _make_party(level=5, exp=500, gold=1500, food=500, marks=[1, 1, 1, 1], weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC)
-    p_cap.members[0].keys = 4
+    p_cap.members[0].keys = 8
     p_cap.x, p_cap.y = 45, 12
     # (Formerly (55, 12), which is a mountain tile next to walkable land, so reachable on foot
     # under the engine's hasShipObjectAt rule.) (49, 11) is water on all four sides.
@@ -1686,7 +1686,7 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
         level=8, exp=1500, gold=200, food=500, marks=[1, 1, 1, 1],
         weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC,
     )
-    p_snk.members[0].keys = 4
+    p_snk.members[0].keys = 8
     p_snk.x, p_snk.y = 57, 46
     ow_snk = OverworldScreen(party=p_snk, asset_mgr=am, random_encounters=False)
     ow_snk.creatures = []
@@ -1815,7 +1815,7 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
         level=10, exp=1000, gold=500, food=500, marks=[1, 1, 1, 1],
         weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC,
     )
-    p_dg.members[0].keys = 4
+    p_dg.members[0].keys = 8
     # The raid opens chests only safely (APPAR UNEM / dex 74+; user report
     # 2026-11-21), so give the Cleric the 5 MP for the cast.
     for _m in p_dg.members:
@@ -1846,7 +1846,7 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
         level=10, exp=950, gold=110, food=200, marks=[1, 1, 1, 1],
         weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC,
     )
-    p_sail.members[0].keys = 5
+    p_sail.members[0].keys = 8
     p_sail.x, p_sail.y = 46, 18
     p_sail.wind_direction = None
     p_sail.dynamic_objects = [{"tile": "frigate", "x": 46, "y": 18}]
@@ -1864,7 +1864,7 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
         level=10, exp=950, gold=110, food=200, marks=[1, 1, 1, 1],
         weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC,
     )
-    p_dg_shore.members[0].keys = 5
+    p_dg_shore.members[0].keys = 8
     p_dg_shore.x, p_dg_shore.y = 54, 32
     p_dg_shore.transport = Transport.SHIP
     p_dg_shore.dynamic_objects = [{"tile": "frigate", "x": 54, "y": 32}]

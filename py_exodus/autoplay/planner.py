@@ -62,9 +62,6 @@ def needs_cure(party: Party) -> bool:
 AMBROSIA_ENTRY_FOOD = 200
 AMBROSIA_SHRINE_BUDGET = 4500
 AMBROSIA_ABORT_FOOD = 80
-# Keys beyond the card doors: the door east of the arrival point and the
-# water door between the east basin and the whirlpool bay.
-AMBROSIA_SPARE_KEYS = 2
 # A return trip for stats needs keys too. Doors relock between visits, and
 # the live trace of 2026-11-22 spent up to 5 a visit: (45,17), (58,3),
 # the water door (39,61), (50,6) chasing a pirate ship, (10,6) to the
@@ -72,6 +69,11 @@ AMBROSIA_SPARE_KEYS = 2
 # kept for the way out.
 AMBROSIA_RETURN_KEYS = 8
 AMBROSIA_EXIT_KEYS = 1
+# Card trips budget the same 8 (user live trace 2026-11-22): the Moons card
+# alone sits behind (45,17), (50,6) and (11,6), and the exit rule fires on
+# the last key, so the old needed+2 budget (4 keys) turned back five tiles
+# short of (6,6) on four visits running.
+AMBROSIA_CARD_KEYS = AMBROSIA_RETURN_KEYS
 
 
 def alcort_wisdom_gap(party: Party) -> int | None:
@@ -95,7 +97,7 @@ def alcort_wisdom_gap(party: Party) -> int | None:
     return min(gaps) if gaps else None
 
 
-def ambrosia_trip_gold(party: Party, needed_keys: int) -> int:
+def ambrosia_trip_gold(party: Party, needed_keys: int = 0) -> int:
     """Gold the party should hold before sailing for Ambrosia.
 
     User ruling (2026-11-22): save the full shrine budget for the first
@@ -107,7 +109,7 @@ def ambrosia_trip_gold(party: Party, needed_keys: int) -> int:
     living = [m for m in party.members if not m.is_dead()]
     shrine_gold = AMBROSIA_SHRINE_BUDGET if next_shrine_goal(party) is not None else 1500
     food_gold = sum(max(0, AMBROSIA_ENTRY_FOOD - m.food) for m in living) * 6 // 5
-    keys_short = max(0, needed_keys + AMBROSIA_SPARE_KEYS - sum(m.keys for m in living))
+    keys_short = max(0, AMBROSIA_CARD_KEYS - sum(m.keys for m in living))
     return shrine_gold + food_gold + 50 * keys_short
 
 
@@ -425,7 +427,7 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
         )
         if len(living) < len(party.members) or party.gold < ambrosia_trip_gold(party, needed_keys):
             return Goal.GRIND_AND_LEVEL
-        if sum(m.keys for m in living) < needed_keys + AMBROSIA_SPARE_KEYS:
+        if sum(m.keys for m in living) < AMBROSIA_CARD_KEYS:
             if party.gold >= 50:
                 return Goal.BUY_KEYS
             return Goal.GRIND_AND_LEVEL
