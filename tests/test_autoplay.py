@@ -1170,10 +1170,13 @@ def test_heal_rest_on_sosaria_and_walkable_coast_patrol(pygame_setup):
     sm.set_screen(ow)
 
     ctrl = AutoPlayController(enabled=True)
-    # Hurt party with living Cleric at 0 MP evades adjacent monster, then rests with K_SPACE when safe
+    # Hurt party with living Cleric at 0 MP evades adjacent monster, then
+    # heads for a town or castle to rest (user rule 2026-11-21: pass time
+    # only indoors, never outdoors).
     assert ctrl.step(sm) in (pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT)
     ow.creatures = []
-    assert ctrl.step(sm) == pygame.K_SPACE
+    assert ctrl.step(sm) != pygame.K_SPACE
+    assert ctrl._trip is not None and ctrl._trip.dest.label == "rest"
 
     # Coast patrol points for CAPTURE_SHIP must all be reachable on foot from Dardin's Pit (46, 7)
     for coord in [(45, 12), (45, 14), (44, 16), (44, 14)]:
@@ -1618,16 +1621,28 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
     ow.creatures = []
     sm.set_screen(ow)
 
-    # First rest establishes _prev_ow_hp_state
-    assert ctrl.step(sm) == pygame.K_SPACE
-    # Simulate taking ranged/ambient damage while resting at (40, 20)
-    p.members[0].hp = 35
-    assert ctrl.step(sm) != pygame.K_SPACE  # took_hit_here aborts rest
+    # User rule (2026-11-21): resting happens indoors, so the guard stack now
+    # decides whether to head for a town/castle to rest (never a SPACE).
+    def resting() -> bool:
+        return ctrl._trip is not None and ctrl._trip.dest.label == "rest"
 
-    # Starving (food == 0) also skips K_SPACE rest
+    # First call establishes _prev_ow_hp_state and heads off to rest
+    assert ctrl.step(sm) != pygame.K_SPACE
+    assert resting()
+    # Simulate taking ranged/ambient damage on the tile we now stand on
+    # (the first step may already have moved the party toward the town).
+    ctrl._prev_ow_hp_state = (0, p.x, p.y, sum(m.hp for m in p.members if not m.is_dead()))
+    p.members[0].hp = 35
+    ctrl._trip = None
+    ctrl.step(sm)
+    assert not resting()  # took_hit_here: no rest trip
+
+    # Starving (food == 0) also skips the rest
     p.members[0].food = 0
     ctrl._prev_ow_hp_state = None
-    assert ctrl.step(sm) != pygame.K_SPACE
+    ctrl._trip = None
+    ctrl.step(sm)
+    assert not resting()
 
     # 2. broke_and_starving: gold < 30, food == 0, HP >= 30% chases nearby land creature...
     p_bs = _make_party(level=5, exp=500, gold=0, food=0, marks=[1, 0, 0, 0])

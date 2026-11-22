@@ -70,6 +70,7 @@ _KEY_TO_DIR: dict[int, Direction] = {v: k for k, v in _DIR_TO_KEY.items()}
 
 # Returned by the trip follower when the party stands at its destination.
 _ARRIVED = object()
+_REST_INDOORS = object()
 _TRIP_REPLAN_TURNS = 300
 _TRIP_STUCK_TURNS = 30
 _NEIGHBOURS4 = ((0, -1), (0, 1), (-1, 0), (1, 0))
@@ -1284,7 +1285,15 @@ class AutoPlayController:
 
         if cur_map_id == _MAP_SOSARIA and needs_heal(party):
             rest_key = self._evade_or_rest(state_machine, screen, gmap, party, px, py, goal, living, cur_map_id)
-            if rest_key is not None:
+            if rest_key is _REST_INDOORS:
+                dest, on_arrive = self._rest_destination(state_machine, screen, gmap)
+                if dest is not None:
+                    key = self._trip_drive(state_machine, screen, gmap, party, px, py, cur_map_id, dest)
+                    if key is _ARRIVED:
+                        return on_arrive()
+                    if key is not None:
+                        return key
+            elif rest_key is not None:
                 return rest_key
 
         dest, on_arrive = self._destination_for(state_machine, screen, gmap, party, px, py, goal, living, cur_map_id)
@@ -1364,8 +1373,23 @@ class AutoPlayController:
                 for m in party.members
             )
         ):
-            return self._emit_key(state_machine, pygame.K_SPACE)
+            # User rule (2026-11-21): pass time only inside a town or castle
+            # (_step_town rests there under the same conditions).
+            return _REST_INDOORS
         return None
+
+    def _rest_destination(self, state_machine, screen, gmap):
+        """The towns and castles of this map that are safe to rest in."""
+        portals = {
+            (p.x, p.y)
+            for p in getattr(gmap, "portals", ())
+            if 1 <= p.dest_map_id <= 12
+            and p.dest_map_id not in _UNSAFE_REST_TOWN_MAPS
+            and p.dest_map_id != 11  # Dawn: rarely open
+        }
+        if not portals:
+            return None, None
+        return self._portal_dest(state_machine, screen, portals, "rest")
 
     # -- destinations ---------------------------------------------------
 
