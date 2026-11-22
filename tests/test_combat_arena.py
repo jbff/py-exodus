@@ -590,6 +590,7 @@ def test_ship_party_monster_ranged_is_single_target_projectile(asset_mgr, confli
     """Ship-battle monsters use single-target LoS projectiles (GBC dragonbreathbattle),
     not party-wide cannonfire — only the lined-up target on the projectile path is hit."""
     monkeypatch.setattr(arena_mod.random, "randrange", lambda n: 0 if n == 100 else 12)
+    monkeypatch.setattr(resolver_mod, "lw_monster_hits", lambda *a, **k: True)  # land the bolt
     party = Party(transport=Transport.SHIP)
     for i in range(2):
         party.add_member(Character(f"Hero{i}", "M", hp=60, max_hp=60))
@@ -622,9 +623,9 @@ def test_wizard_with_distant_party_magic_blasts(asset_mgr, conflict_map, monkeyp
         return 0 if n == 100 else (129 if n == 193 else value)  # RANGED + blast
 
     monkeypatch.setattr(arena_mod.random, "randrange", fake)
-    monkeypatch.setattr(resolver_mod, "calculate_monster_damage", lambda basehp=48: 7)
+    monkeypatch.setattr(resolver_mod, "lw_monster_damage_roll", lambda *a, **k: 7)
     monkeypatch.setattr(resolver_mod, "monster_damage_bonus", lambda context_map_id=None: 0)
-    monkeypatch.setattr(resolver_mod, "roll_hit", lambda *a, **k: True)
+    monkeypatch.setattr(resolver_mod, "lw_monster_hits", lambda *a, **k: True)
     party = Party()
     hero = Character("Hero", "M", hp=999, max_hp=999)
     party.add_member(hero)
@@ -657,8 +658,8 @@ def test_adjacent_wizard_keeps_the_bolt_path(asset_mgr, conflict_map, monkeypatc
         return 0 if n == 100 else value  # force the RANGED action
 
     monkeypatch.setattr(arena_mod.random, "randrange", fake)
-    monkeypatch.setattr(resolver_mod, "calculate_monster_damage", lambda basehp=48: 5)
-    monkeypatch.setattr(resolver_mod, "roll_hit", lambda *a, **k: True)
+    monkeypatch.setattr(resolver_mod, "lw_monster_damage_roll", lambda *a, **k: 5)
+    monkeypatch.setattr(resolver_mod, "lw_monster_hits", lambda *a, **k: True)
     party = Party()
     hero = Character("Hero", "M", hp=999, max_hp=999)
     party.add_member(hero)

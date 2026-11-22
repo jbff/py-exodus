@@ -123,17 +123,83 @@ def _dungeon_map_ids() -> frozenset:
     return _DUNGEON_MAP_IDS
 
 
+# LairWare Combat (UltimaSpellCombat.c:867): starting-HP ceiling per monster
+# type, indexed by (gMonType / 2) & 0x0F, i.e. the LW tile index & 15.
+LW_MONHPSTART = (0x20, 0x20, 0xF0, 0xF0, 0xC0, 0x60, 0xA0, 0x80,
+                 0x30, 0x50, 0x70, 0xA0, 0xC0, 0xE0, 0xF0, 0xF0)
+# Port creature tile -> LairWare tile index (Tiles.plist). Variants share
+# their base type's gMonType. The port's "ranger" is a fighter variant.
+LW_TILE_INDEX = {
+    "grass": 1, "floor": 8, "chest": 9, "horse": 10,
+    "serpent": 13, "squid": 14, "man-o-war": 14, "pirate": 15,
+    "merchant": 16, "jester": 17, "guard": 18, "lord_british": 19,
+    "fighter": 20, "ranger": 20, "cleric": 21, "wizard": 22, "thief": 23,
+    "orc": 24, "skeleton": 25, "giant": 26, "daemon": 27, "pincher": 28,
+    "dragon": 29, "balron": 30, "exodus": 31,
+}
+
+
+def lw_monhpstart(monster: Any) -> int:
+    """LairWare monhpstart[] for this monster's type (unknown: from basehp)."""
+    for attr in ("tile", "tile_name", "name"):
+        key = str(getattr(monster, attr, "") or "").lower().replace(" ", "_")
+        if key in LW_TILE_INDEX:
+            return LW_MONHPSTART[LW_TILE_INDEX[key] & 0x0F]
+    return int(getattr(monster, "basehp", 48) or 48)
+
+
+def _armor_index(target_player: Any) -> int:
+    """LW Player[40]: 0 none .. 7 exotic (the ArmorType order)."""
+    from py_exodus.constants import ArmorType
+
+    armor = getattr(target_player, "armor", None)
+    try:
+        return list(ArmorType).index(ArmorType(getattr(armor, "value", armor)))
+    except (ValueError, TypeError):
+        return 0
+
+
+def lw_monster_hits(target_player: Any, context_map_id: int | None) -> bool:
+    """LairWare monster attack roll (UltimaSpellCombat.c:1207-1216): in Castle
+    Exodus a defender without exotic armor is hit automatically; otherwise
+    RandNum(0, armor + 16) < 8 hits (exotic: 8 in 24)."""
+    import py_exodus.assets as assets
+
+    if context_map_id == assets.MAP_NAME_TO_ID["EXODUS"] and _armor_index(target_player) != 7:
+        return True
+    return lw_armor_roll(target_player)
+
+
+def lw_armor_roll(target_player: Any) -> bool:
+    """LairWare: RandNum(0, armor + 16) < 8 hits (exotic armor: 8 in 24)."""
+    return random.randint(0, _armor_index(target_player) + 0x10) < 8
+
+
+def lw_monster_damage(monster: Any, target_player: Any, context_map_id: int | None) -> int:
+    """LairWare hit damage (UltimaSpellCombat.c:1221-1226): RandNum(0,
+    (monhpstart/8 + the target's max HP/100) | 1) + 1, then the location
+    bonus. It grows with the victim's max HP, so strong parties stay tested."""
+    return lw_monster_damage_roll(monster, target_player) + monster_damage_bonus(context_map_id)
+
+
+def lw_monster_damage_roll(monster: Any, target_player: Any) -> int:
+    """The random part of a LairWare hit, before the location bonus."""
+    max_hp = int(getattr(target_player, "max_hp", 0) or 0)
+    ceiling = ((lw_monhpstart(monster) // 8) + max_hp // 100) | 1
+    return random.randint(0, ceiling) + 1
+
+
 def monster_damage_bonus(context_map_id: int | None) -> int:
-    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-16): terrain tier for monster
-    melee damage — +10 on a dungeon map, +0 on Sosaria surface, +30 in Ambrosia,
-    Castle British, and Castle of Death (EXODUS), and +20 in other towns and
-    interiors; an unknown context (None) falls to the interior tier
-    (GBC battle3.c:354-368).
-    """
+    """LairWare location bonus on every monster hit: (g835E & 3) * 16
+    (UltimaSpellCombat.c:1226), g835E being Party[3] before the battle:
+    Sosaria 0 -> +0, dungeon 1 -> +16, town 2 -> +32, castle 3 (Castle
+    British, Castle Exodus) -> +48, Ambrosia 255 -> +48. An unknown context
+    (None) counts as a town. Replaces the GBC 0/10/20/30 tiers (LairWare is
+    the authority, user ruling 2026-11-22)."""
     if context_map_id is None:
-        return 20
+        return 32
     if context_map_id in _dungeon_map_ids():
-        return 10
+        return 16
     import py_exodus.assets as assets
 
     if context_map_id == assets.MAP_NAME_TO_ID["SOSARIA"]:
@@ -143,8 +209,8 @@ def monster_damage_bonus(context_map_id: int | None) -> int:
         assets.MAP_NAME_TO_ID["EXODUS"],
         assets.MAP_NAME_TO_ID["AMBROSIA"],
     ):
-        return 30
-    return 20
+        return 48
+    return 32
 
 
 # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): the GBC magic-creature tiles
@@ -537,17 +603,8 @@ def resolve_monster_melee_attack(
     """
     import py_exodus.assets as assets
 
-    # Java CombatScreen.java:723: EXODUS auto-hit vs exotic-armor-less defenders.
-    armor_name = getattr(getattr(target_player, "armor", None), "value", None)
-    if context_map_id == assets.MAP_NAME_TO_ID["EXODUS"] and armor_name != "EXOTIC":
-        is_hit = True
-    else:
-        attack_bonus = getattr(monster, "get_attack_bonus", lambda: 0)()
-        if armor_def is not None:
-            defense = armor_def.defense
-        else:
-            defense = getattr(target_player, "get_defense", lambda: 128)()
-        is_hit = roll_hit(attack_bonus, defense)
+    # LairWare hit roll (user ruling 2026-11-22: LairWare monster attacks).
+    is_hit = lw_monster_hits(target_player, context_map_id)
 
     if not is_hit:
         return AttackResolution(
@@ -559,13 +616,8 @@ def resolve_monster_melee_attack(
             message="",
         )
 
-    basehp = getattr(monster, "basehp", 48)
-    # USER-DIRECTED GBC-RULES DEVIATION (2026-11-16): monster melee damage adds
-    # the terrain bonus — +10 dungeon, +0 Sosaria surface, +30 Ambrosia /
-    # Castle British / Castle of Death (EXODUS), +20 other towns/interiors, per
-    # the GBC inside/peermap table mapped to py MAP_NAME_TO_ID
-    # (GBC battle3.c:354-368).
-    damage = calculate_monster_damage(basehp) + monster_damage_bonus(context_map_id)
+    # LairWare damage, location bonus included (UltimaSpellCombat.c:1221-1226).
+    damage = lw_monster_damage(monster, target_player, context_map_id)
     # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): a NECORP-weakened creature
     # deals half its melee damage. GBC NECORP clamps the monster's hp to 5 AND
     # sets monsterpower=10 (battle.c:1361-1373; LW UltimaSpellCombat.c:498-520
@@ -721,16 +773,12 @@ def resolve_monster_ranged_attack(
             message="\n".join(lines),
         )
 
-    armor_name = getattr(getattr(target_player, "armor", None), "value", None)
-    if context_map_id == assets.MAP_NAME_TO_ID["EXODUS"] and armor_name != "EXOTIC":
-        hit = True
-    else:
-        attack_bonus = getattr(monster, "get_attack_bonus", lambda: 0)()
-        if armor_def is not None:
-            defense = armor_def.defense
-        else:
-            defense = getattr(target_player, "get_defense", lambda: 128)()
-        hit = roll_hit(attack_bonus, defense)
+    # LairWare hit roll and damage for monster bolts and spells too: its
+    # monmagic and monshoot paths end in the same roll/damage code
+    # (UltimaSpellCombat.c:1138-1226; user ruling 2026-11-22).
+    hit = lw_monster_hits(target_player, context_map_id)
+    if str(getattr(monster, "tile", "")).lower() == "dragon":
+        hit = True  # monshoot skips the roll (UltimaSpellCombat.c:1193)
 
     hit_tile = (getattr(monster, "ranged_hit_tile", None) or "").lower()
     effect: str | None = None
@@ -746,7 +794,8 @@ def resolve_monster_ranged_attack(
     poisoned = False
     message_parts: list[str] = []
 
-    basehp = getattr(monster, "basehp", 48)
+    def _bolt() -> int:
+        return lw_monster_damage(monster, target_player, context_map_id)
 
     def _deal(amount: int) -> None:
         nonlocal damage_total, killed
@@ -756,12 +805,12 @@ def resolve_monster_ranged_attack(
 
     # Java CombatScreen.java:646-671 — the effect switch, entered whatever the
     # hit roll said.
-    if effect == "energy":
+    # LairWare deals one damage roll per landed bolt; Java's extra roll for
+    # fire/energy (hit or miss) is gone (user ruling 2026-11-22).
+    if effect == "energy" and hit:
         message_parts.append("Electrified!")
-        _deal(calculate_monster_damage(basehp))
-    elif effect == "fire":
+    elif effect == "fire" and hit:
         message_parts.append("Fiery Hit!")
-        _deal(calculate_monster_damage(basehp))
     elif effect == "poison":
         # CombatScreen.java:661-667 — 1-in-2 to poison a non-poisoned member.
         if random.randrange(2) == 0 and getattr(target_player, "status", None) != Status.POISONED:
@@ -772,7 +821,7 @@ def resolve_monster_ranged_attack(
 
     # CombatScreen.java:673-675 — the hit's own dealDamage.
     if hit:
-        _deal(calculate_monster_damage(basehp))
+        _deal(_bolt())
         if effect in (None, "magic", "rocks") and not message_parts:
             pass  # Java logs nothing for the plain bolt
     elif effect == "poison" and not poisoned:

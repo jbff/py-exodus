@@ -120,10 +120,12 @@ def test_monster_ranged_fires_regardless_of_distance(asset_mgr, conflict_map, mo
 
 
 def test_monster_ranged_fire_deals_damage_twice(asset_mgr, conflict_map, monkeypatch):
-    """Java rangedAttackAt: fire/energy effect dealDamage + HIT dealDamage = 2 rolls."""
+    """LairWare: a landed fire bolt deals ONE damage roll (Java's double
+    dealDamage is gone, user ruling 2026-11-22)."""
     monkeypatch.setattr(arena_mod.random, "randrange", lambda n: 0)  # force RANGED
-    monkeypatch.setattr(resolver_mod, "calculate_monster_damage", lambda basehp=48: 5)
-    monkeypatch.setattr(resolver_mod, "roll_hit", lambda *a, **k: True)
+    monkeypatch.setattr(resolver_mod, "lw_monster_damage_roll", lambda *a, **k: 5)
+    monkeypatch.setattr(resolver_mod, "lw_monster_hits", lambda *a, **k: True)
+    monkeypatch.setattr(resolver_mod, "monster_damage_bonus", lambda *a, **k: 0)  # isolate the double
 
     party = Party()
     hero = Character("Hero", "M", hp=1000, max_hp=1000)
@@ -138,18 +140,16 @@ def test_monster_ranged_fire_deals_damage_twice(asset_mgr, conflict_map, monkeyp
 
     res = arena._execute_single_monster_ai(arena.monsters[0])
     assert res is not None and res.attack_res is not None
-    assert res.attack_res.damage == 10  # 5 + 5 (double dealDamage)
-    assert hero.hp == 990
-    # Playtest-1 item 4 affordance: the mechanic line keeps its slot and the
-    # landed bolt adds its hit line. The fire roll runs twice per Java's
-    # double-damage quirk; the line shows the SUM dealt, 5 + 5.
-    assert res.message == "Fiery Hit!\nOrc hits Hero (-10)."
+    assert res.attack_res.damage == 5  # one roll
+    assert hero.hp == 995
+    assert res.message == "Fiery Hit!\nOrc hits Hero (-5)."
 
 
 def test_monster_ranged_energy_doubles_and_electrified(asset_mgr, conflict_map, monkeypatch):
     monkeypatch.setattr(arena_mod.random, "randrange", lambda n: 0)
-    monkeypatch.setattr(resolver_mod, "calculate_monster_damage", lambda basehp=48: 7)
-    monkeypatch.setattr(resolver_mod, "roll_hit", lambda *a, **k: True)
+    monkeypatch.setattr(resolver_mod, "lw_monster_damage_roll", lambda *a, **k: 7)
+    monkeypatch.setattr(resolver_mod, "lw_monster_hits", lambda *a, **k: True)
+    monkeypatch.setattr(resolver_mod, "monster_damage_bonus", lambda *a, **k: 0)  # isolate the double
 
     party = Party()
     hero = Character("Hero", "M", hp=1000, max_hp=1000)
@@ -162,11 +162,9 @@ def test_monster_ranged_energy_doubles_and_electrified(asset_mgr, conflict_map, 
     arena.monsters[0].ranged_hit_tile = "energy"
 
     res = arena._execute_single_monster_ai(arena.monsters[0])
-    assert res.attack_res.damage == 14
-    assert hero.hp == 986
-    # Playtest-1 item 4 affordance: the landed bolt adds its hit line under
-    # the mechanic line (7 + 7 per the energy double-damage quirk).
-    assert res.message == "Electrified!\nOrc hits Hero (-14)."
+    assert res.attack_res.damage == 7  # one roll
+    assert hero.hp == 993
+    assert res.message == "Electrified!\nOrc hits Hero (-7)."
 
 
 # --- (b) Context.getCombatMap ------------------------------------------------
@@ -307,26 +305,25 @@ def test_combat_poison_tick_removed(asset_mgr, conflict_map):
     assert not hasattr(CombatArena, "_apply_poison_tick")
 
 
-def test_monster_damage_zero_possible_through_chokepoint(asset_mgr, conflict_map):
-    """Small monsters roll 0 base damage (no max(1, _) floor).
+def test_monster_melee_damage_follows_lairware_through_chokepoint(asset_mgr, conflict_map):
+    """LairWare (UltimaSpellCombat.c:1221-1226, user ruling 2026-11-22): a hit
+    does RandNum(0, (monhpstart/8 + max HP/100) | 1) + 1, so never 0, plus the
+    location bonus (Castle Exodus +48). An orc (monhpstart 48) on a 100-HP
+    defender: (6 + 1) | 1 = 7 -> 1..8, then +48."""
+    for _ in range(40):
+        party = Party()
+        hero = Character("Hero", "M", hp=100, max_hp=100)
+        party.add_member(hero)
+        arena = CombatArena(party, conflict_map, asset_mgr=asset_mgr, monster_count=1,
+                            context_map_id=2)  # forced hit (no exotic armor)
+        arena.player_positions[0] = (5, 5)
+        arena.monsters[0].x, arena.monsters[0].y = 5, 4
 
-    USER-DIRECTED GBC-RULES DEVIATION (2026-11-16): the GBC terrain bonus is
-    added to the roll even when it lands 0, so on the Castle of Death context
-    (EXODUS, tier +30) the member takes the bonus, not zero
-    (GBC battle3.c:354-368)."""
-    party = Party()
-    hero = Character("Hero", "M", hp=100, max_hp=100)
-    party.add_member(hero)
-    arena = CombatArena(party, conflict_map, asset_mgr=asset_mgr, monster_count=1,
-                        context_map_id=2)  # forced hit
-    arena.player_positions[0] = (5, 5)
-    arena.monsters[0].x, arena.monsters[0].y = 5, 4
-    arena.monsters[0].basehp = 4  # getDamage: nextInt(1) = 0
-
-    res = arena._execute_single_monster_ai(arena.monsters[0])
-    assert res is not None and res.action_type == "attack"
-    assert hero.hp == 100 - monster_damage_bonus(2)  # base roll 0 + terrain bonus
-    assert not arena.is_finished
+        res = arena._execute_single_monster_ai(arena.monsters[0])
+        assert res is not None and res.action_type == "attack"
+        assert monster_damage_bonus(2) == 48
+        assert 100 - (8 + 48) <= hero.hp <= 100 - (1 + 48)
+        assert not arena.is_finished
 
 
 # --- (e) weapon loss ---------------------------------------------------------
@@ -634,8 +631,8 @@ def test_exodus_attack_refusal_plays_java_sfx(asset_mgr, conflict_map, pygame_se
 
 def test_exodus_monster_melee_auto_hits_non_exotic_defender(asset_mgr, conflict_map, monkeypatch):
     """Java CombatScreen.java:723 — EXODUS + armor != EXOTIC -> forced HIT."""
-    monkeypatch.setattr(resolver_mod, "roll_hit", lambda *a, **k: False)  # would miss
-    monkeypatch.setattr(resolver_mod, "calculate_monster_damage", lambda basehp=48: 9)
+    monkeypatch.setattr(resolver_mod, "lw_armor_roll", lambda *a, **k: False)  # would miss
+    monkeypatch.setattr(resolver_mod, "lw_monster_damage_roll", lambda *a, **k: 9)
     party = Party()
     hero = Character("Hero", "M", hp=100, max_hp=100)
     party.add_member(hero)
@@ -646,13 +643,12 @@ def test_exodus_monster_melee_auto_hits_non_exotic_defender(asset_mgr, conflict_
 
     res = arena._execute_single_monster_ai(arena.monsters[0])
     assert res.attack_res.hit
-    # USER-DIRECTED GBC-RULES DEVIATION (2026-11-16): 9 rolled + EXODUS terrain
-    # tier +30 (GBC battle3.c:354-368).
+    # LairWare: 9 rolled + the castle location bonus +48.
     assert hero.hp == 100 - (9 + monster_damage_bonus(2))
 
 
 def test_exodus_monster_melee_respects_exotic_armor(asset_mgr, conflict_map, monkeypatch):
-    monkeypatch.setattr(resolver_mod, "roll_hit", lambda *a, **k: False)
+    monkeypatch.setattr(resolver_mod, "lw_armor_roll", lambda *a, **k: False)
     party = Party()
     hero = Character("Hero", "M", hp=100, max_hp=100, armor=ArmorType.EXOTIC)
     party.add_member(hero)
@@ -668,8 +664,8 @@ def test_exodus_monster_melee_respects_exotic_armor(asset_mgr, conflict_map, mon
 
 def test_exodus_monster_ranged_auto_hits_non_exotic_defender(asset_mgr, conflict_map, monkeypatch):
     monkeypatch.setattr(arena_mod.random, "randrange", lambda n: 0)  # force RANGED
-    monkeypatch.setattr(resolver_mod, "roll_hit", lambda *a, **k: False)
-    monkeypatch.setattr(resolver_mod, "calculate_monster_damage", lambda basehp=48: 4)
+    monkeypatch.setattr(resolver_mod, "lw_armor_roll", lambda *a, **k: False)
+    monkeypatch.setattr(resolver_mod, "lw_monster_damage_roll", lambda *a, **k: 4)
     party = Party()
     hero = Character("Hero", "M", hp=100, max_hp=100)
     party.add_member(hero)
@@ -682,7 +678,7 @@ def test_exodus_monster_ranged_auto_hits_non_exotic_defender(asset_mgr, conflict
     res = arena._execute_single_monster_ai(arena.monsters[0])
     assert res.action_type == "ranged"
     assert res.attack_res.hit
-    assert hero.hp == 96
+    assert hero.hp == 100 - (4 + monster_damage_bonus(2))  # LW bolts take the bonus too
 
 
 # --- (j) monster count -------------------------------------------------------

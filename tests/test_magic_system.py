@@ -1173,47 +1173,26 @@ def test_zxkuqyb_seeded_trials_kill_share(asset_mgr, conflict_map, monkeypatch):
     assert 25 <= kills_low <= 49, kills_low
 
 
-def test_unspeakable_java_dice(asset_mgr, conflict_map, monkeypatch):
-    """useRageOfGod (SpellUtil.java:690-732): rand(2)==0 → 255; elif rand(2)==0
-    → hp - 23 (0 if hp <= 23); else hp / 2. No max(15, ...) floor."""
+def test_unspeakable_is_lairware_bigdeath(asset_mgr, conflict_map, monkeypatch):
+    """LairWare casts UNSPEAKABLE (the Wizard's nameless P spell) as
+    BigDeath(255) like ZXKUQYB (UltimaSpellCombat.c:247, 475-495; user ruling
+    2026-11-22): each living monster dies on its own 75% roll
+    ((RandNum(0,255)&0x03)!=0) or is left untouched. Java's 1/2-kill,
+    hp-23 and hp/2 branches are gone."""
     import py_exodus.combat.magic as magic
 
     party = Party()
     wiz = Character("Wiz", "M", Race.FUZZY, Profession.WIZARD, intelligence=75, mp=75)
     party.add_member(wiz)
-
-    arena = CombatArena(party, conflict_map, creature_tile="orc", asset_mgr=asset_mgr, monster_count=1)
-    m = arena.monsters[0]
-    m.hp = 100
-    m.max_hp = 100
-    monkeypatch.setattr(magic.random, "randrange", lambda *a, **k: 0)
-    cast_spell(Spell.UNSPEAKABLE, caster=party.members[0], arena=arena)
-    assert m.is_dead  # rand(2)==0 → 255
-
-    # second branch: rand 1 then 0 → hp - 23
-    wiz.mp = 75
-    arena2 = CombatArena(party, conflict_map, creature_tile="orc", asset_mgr=asset_mgr, monster_count=1)
-    m2 = arena2.monsters[0]
-    m2.hp = 100
-    m2.max_hp = 100
-    # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): arena construction now
-    # rolls the per-battle masskill latch (randrange(2)); the scripted draws
-    # are the spell's two branch rolls (1, 0) plus arena3's latch roll (1).
-    seq = [1, 0, 1]
-    monkeypatch.setattr(magic.random, "randrange", lambda *a, **k: seq.pop(0))
-    cast_spell(Spell.UNSPEAKABLE, caster=party.members[0], arena=arena2)
-    assert m2.hp == 23  # 100 - (hp - 23) dealt 77 damage
-
-    # otherwise branch: rand 1 forever → hp / 2
-    wiz.mp = 75
-    arena3 = CombatArena(party, conflict_map, creature_tile="orc", asset_mgr=asset_mgr, monster_count=1)
-    m3 = arena3.monsters[0]
-    m3.hp = 99
-    m3.max_hp = 99
-    monkeypatch.setattr(magic.random, "randrange", lambda *a, **k: 1)
-    cast_spell(Spell.UNSPEAKABLE, caster=party.members[0], arena=arena3)
-    assert m3.hp == 50  # 99 // 2 == 49 damage
-
+    arena = CombatArena(party, conflict_map, creature_tile="orc", asset_mgr=asset_mgr, monster_count=2)
+    for m in arena.monsters:
+        m.hp = m.max_hp = 100
+    rolls = iter([1, 0])  # monster 0: &3 != 0 -> dies; monster 1: &3 == 0 -> untouched
+    monkeypatch.setattr(magic.random, "randrange", lambda *a, **k: next(rolls))
+    res = cast_spell(Spell.UNSPEAKABLE, caster=party.members[0], arena=arena)
+    assert res.success
+    assert arena.monsters[0].is_dead
+    assert arena.monsters[1].hp == 100  # never the old hp-23 / hp/2 wound
 
 def test_pabulum_food_deterministic(monkeypatch):
     """PABULUM feeds Utils.getRandomBetween(5,10) == 5..9 per member

@@ -704,6 +704,9 @@ class TestMonsterHitAffordance:
 
         monkeypatch.setattr(resolver, "roll_hit", lambda *a, **k: hit)
         monkeypatch.setattr(resolver, "calculate_monster_damage", lambda basehp: damage)
+        # Monster attacks use the LairWare roll/damage (2026-11-22).
+        monkeypatch.setattr(resolver, "lw_monster_hits", lambda *a, **k: hit)
+        monkeypatch.setattr(resolver, "lw_monster_damage_roll", lambda *a, **k: damage)
         monkeypatch.setattr(resolver, "monster_damage_bonus", lambda cmap: roll_bonus)
         return session
 
@@ -752,12 +755,11 @@ class TestMonsterHitAffordance:
         member_pos = arena.player_positions[0]
         monster.x, monster.y = member_pos[0], member_pos[1] - 2  # straight bolt south
 
-        # AI: the ranged-only choice (randrange(100) -> 0 <= 33); damage 27
-        # on every roll call (the fire bolt rolls twice per Java's
-        # double-damage quirk, so the line shows the SUM).
+        # AI: the ranged-only choice (randrange(100) -> 0 <= 33); damage 27,
+        # one roll per landed bolt (LairWare; Java's double roll is gone).
         monkeypatch.setattr(random, "randrange", lambda n: 0)
-        monkeypatch.setattr(resolver, "roll_hit", lambda *a, **k: True)
-        monkeypatch.setattr(resolver, "calculate_monster_damage", lambda basehp: 27)
+        monkeypatch.setattr(resolver, "lw_monster_hits", lambda *a, **k: True)
+        monkeypatch.setattr(resolver, "lw_monster_damage_roll", lambda *a, **k: 27)
         monkeypatch.setattr(resolver, "monster_damage_bonus", lambda cmap: 0)
         before = session.transcript
 
@@ -765,7 +767,7 @@ class TestMonsterHitAffordance:
 
         added = session.transcript[len(before):]
         assert any("[msg] Fiery Hit!" in line for line in added), added
-        assert any("Dragon hits Serana (-54)." in line for line in added), added
+        assert any("Dragon hits Serana (-27)." in line for line in added), added
 
     def test_ship_serpent_ranged_uses_projectile_not_cannonfire(self, asset_mgr, monkeypatch):
         """Ship battles use single-target LoS projectiles instead of party-wide cannonfire."""

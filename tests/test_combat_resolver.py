@@ -38,9 +38,13 @@ LORD_BRITISH = CreatureDef(id=7, name="Lord British", tile="lord_british",
 
 
 def _forced_hit(monkeypatch, damage=1):
-    """Force the melee hit roll and damage so only the on-hit specials vary."""
+    """Force the monster hit roll and damage so only the on-hit specials vary
+    (LairWare roll/damage since 2026-11-22; the Java seams stay patched for
+    the player-side callers)."""
     monkeypatch.setattr(resolver_mod, "roll_hit", lambda *a, **k: True)
     monkeypatch.setattr(resolver_mod, "calculate_monster_damage", lambda basehp=48: damage)
+    monkeypatch.setattr(resolver_mod, "lw_monster_hits", lambda *a, **k: True)
+    monkeypatch.setattr(resolver_mod, "lw_monster_damage_roll", lambda *a, **k: damage)
 
 
 def _attacker():
@@ -339,33 +343,31 @@ def test_guard_never_takes_damage_across_seeded_rolls():
 
 
 def test_monster_damage_bonus_tiers():
-    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-16): +10 dungeon, +0 Sosaria
-    surface, +30 Ambrosia & Castle British / Castle of Death, +20 other
-    towns/interiors/None — the GBC inside/peermap table mapped onto py
-    MAP_NAME_TO_ID ids (GBC battle3.c:354-368)."""
+    """LairWare (g835E & 3) * 16 (UltimaSpellCombat.c:1226, user ruling
+    2026-11-22): Sosaria 0, dungeons 16, towns 32, castles (British, Exodus)
+    48, Ambrosia (Party[3] = 255) 48; an unknown context counts as a town."""
     for name in ("PERINIAN", "DARDIN", "MINE", "FIRE", "DOOM", "SNAKE", "TIME"):
-        assert monster_damage_bonus(MAP_NAME_TO_ID[name]) == 10
+        assert monster_damage_bonus(MAP_NAME_TO_ID[name]) == 16
     assert monster_damage_bonus(MAP_NAME_TO_ID["SOSARIA"]) == 0
     for name in ("BRITISH", "EXODUS", "AMBROSIA"):
-        assert monster_damage_bonus(MAP_NAME_TO_ID[name]) == 30
-    for name in ("LCB", "DAWN", "YEW"):
-        assert monster_damage_bonus(MAP_NAME_TO_ID[name]) == 20
-    assert monster_damage_bonus(None) == 20  # unknown context falls to interiors
+        assert monster_damage_bonus(MAP_NAME_TO_ID[name]) == 48
+    for name in ("LCB", "DAWN", "YEW", "DEATH"):
+        assert monster_damage_bonus(MAP_NAME_TO_ID[name]) == 32
+    assert monster_damage_bonus(None) == 32
 
 
 def test_melee_damage_applies_terrain_bonus(monkeypatch):
-    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-16): monster melee damage
-    adds the terrain bonus to the roll (GBC battle3.c:354-368)."""
+    """LairWare: monster hit damage adds the location bonus to the roll."""
     _forced_hit(monkeypatch, damage=1)
     monster = CombatMonster(ORC, 0, 0)
     expected_by_name = {
-        "MINE": 11,  # 1 + 10 dungeon
+        "MINE": 17,  # 1 + 16 dungeon
         "SOSARIA": 1,  # 1 + 0 Sosaria surface
-        "AMBROSIA": 31,  # 1 + 30 Ambrosia
-        "BRITISH": 31,  # 1 + 30 Castle British
-        "EXODUS": 31,  # 1 + 30 Castle of Death
-        "DAWN": 21,  # 1 + 20 town
-        None: 21,  # unknown/absent context falls to interiors
+        "AMBROSIA": 49,  # 1 + 48 Ambrosia
+        "BRITISH": 49,  # 1 + 48 Castle British
+        "EXODUS": 49,  # 1 + 48 Castle Exodus
+        "DAWN": 33,  # 1 + 32 town
+        None: 33,  # unknown context counts as a town
     }
     for map_name, want in expected_by_name.items():
         member = Character("Hero", "M", hp=999, max_hp=999)
@@ -456,7 +458,7 @@ def test_magic_poke_rate_is_34_percent_of_193(monkeypatch):
 
 def test_failed_poke_roll_falls_through_to_bolt(monkeypatch):
     """A failed make_rnd(0xC1)&0x80 draw leaves the plain bolt behavior."""
-    _forced_hit(monkeypatch, damage=7)
+    _forced_hit_flat(monkeypatch, damage=7)  # LW bolts take the location bonus too
     real_randrange = resolver_mod.random.randrange
     monkeypatch.setattr(
         resolver_mod.random,

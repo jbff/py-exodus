@@ -1081,7 +1081,7 @@ def _apply_group_damage(
                     dmg = _get_random_between(24, caster_char.int)
                 elif spell == Spell.DAG_MENTAR:
                     dmg = _get_random_between(32, caster_char.int)
-                elif spell == Spell.ZXKUQYB:
+                elif spell in (Spell.ZXKUQYB, Spell.UNSPEAKABLE):
                     # USER-DIRECTED RULING (2026-11-15): ZXKUQYB keeps no
                     # BUG — Java's hp*(3/4)==0 quirk is not carried. LW
                     # UltimaSpellCombat.c:355 BigDeath(255), :475-495 rolls
@@ -1093,14 +1093,11 @@ def _apply_group_damage(
                     # agrees in spirit: "ZXKUQYB KILL ALL".
                     if (random.randrange(256) & 0x03) == 0:
                         continue  # failed kill roll — no damage at all
+                    # LairWare casts the Wizard's nameless P spell
+                    # (UNSPEAKABLE) as the same BigDeath(255)
+                    # (UltimaSpellCombat.c:247); Java's 1/2-kill roll is gone
+                    # (user ruling 2026-11-22).
                     dmg = m.hp  # lethal kill, not a fixed damage value
-                elif spell == Spell.UNSPEAKABLE:
-                    if random.randrange(2) == 0:
-                        dmg = 255
-                    elif random.randrange(2) == 0:
-                        dmg = (m.hp - 23) if m.hp > 23 else 0
-                    else:
-                        dmg = m.hp // 2
                 else:
                     dmg = _get_random_between(20, 50)
 
@@ -1124,7 +1121,7 @@ def _apply_group_damage(
         if spell == Spell.NECORP:
             # No damage was dealt — NECORP only clamps hp to 5 and weakens.
             summary = f"Necorp weakens {affected_count} monsters to 5 hp!"
-        elif spell == Spell.ZXKUQYB:
+        elif spell in (Spell.ZXKUQYB, Spell.UNSPEAKABLE):
             # Ruling above: only kills count — survivors were untouched.
             summary = f"{spell.name.capitalize()} destroys {affected_count} monsters!"
         else:
