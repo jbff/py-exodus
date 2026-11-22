@@ -1,6 +1,8 @@
 """City and castle exploration screen with NPC and vendor interactions."""
 from __future__ import annotations
 
+import random
+
 from typing import TYPE_CHECKING, Any
 
 import pygame
@@ -400,7 +402,7 @@ class TownScreen(BaseScreen):
                 self.audio.play_sfx("blocked")
 
     def _start_exodus_combat(self, npc: Any) -> None:
-        """Initiate CombatScreen against a hostile ATTACK_AVATAR NPC in Exodus Castle."""
+        """Battle a hostile ATTACK_AVATAR person (any town; LW AttackCode)."""
         if self.asset_mgr is None:
             return
         from py_exodus.screens.combat_screen import CombatScreen
@@ -417,7 +419,7 @@ class TownScreen(BaseScreen):
             audio=self.audio,
             return_screen=self,
             manager=self.manager,
-            context_map_id=2,
+            context_map_id=getattr(self.game_map, "id", 2),
         )
         if self.manager is not None:
             self.manager.push_screen(combat_scr)
@@ -426,7 +428,7 @@ class TownScreen(BaseScreen):
             self.is_finished = True
 
     def end_combat(self, is_won: bool) -> None:
-        """Remove defeated Exodus Castle NPC when returning from CombatScreen."""
+        """Remove the defeated town person when returning from CombatScreen."""
         if (
             is_won
             and self._combat_npc is not None
@@ -462,6 +464,80 @@ class TownScreen(BaseScreen):
         except PartyDeathException:
             pass
         self.check_party_death()
+        if not self.party.is_party_dead():
+            self._move_people()
+
+    # LW ValidMonsterDir (UltimaMisc.c:263-272): land people walk only on
+    # grass/brush/forest/floor (tile values 4/8/12/32); sea people (pirate,
+    # serpent, squid) only on water.
+    _PEOPLE_LAND_TILES = frozenset({"grass", "brush", "forest", "floor"})
+    _PEOPLE_SEA = frozenset({"pirate", "serpent", "squid"})
+
+    @staticmethod
+    def _lw_heading(value: int) -> int:
+        """LW GetHeading (UltimaMisc.c:444-452) for a 0-255 roll."""
+        if value == 0:
+            return 0
+        return 1 if value <= 127 else -1
+
+    def _person_can_step(self, npc: Any, x: int, y: int) -> bool:
+        gm = self.game_map
+        if not (0 <= x < gm.width and 0 <= y < gm.height):
+            return False
+        tile = gm.get_tile(x, y)
+        name = str(getattr(tile, "name", "")).lower()
+        kind = str(getattr(npc, "tile_name", getattr(npc, "tile", "")) or "").lower()
+        if kind in self._PEOPLE_SEA:
+            ok = name == "water"
+        else:
+            ok = name in self._PEOPLE_LAND_TILES
+        if not ok:
+            return False
+        return not any(o is not npc and o.x == x and o.y == y for o in gm.npcs)
+
+    def _move_people(self) -> None:
+        """LW MoveMonsters, town/castle branch (UltimaMisc.c:1191-1330):
+        every turn each person acts on its behaviour (ctrl & 0xC0):
+        FIXED never moves; WANDER takes a random diagonal-ish step half the
+        time; FOLLOW_AVATAR steps toward the party; ATTACK_AVATAR steps
+        toward the party and, when that step would land on the party
+        (any of the 8 neighbours), starts the battle (AttackCode removes it
+        from the map). A blocked diagonal tries the vertical step, then the
+        horizontal one (move7AAA); nobody steps onto the party."""
+        gm = self.game_map
+        if gm is None or not gm.npcs:
+            return
+        px, py = self.avatar_x, self.avatar_y
+        for npc in list(reversed(gm.npcs)):
+            if npc not in gm.npcs:
+                continue
+            mv = getattr(npc, "movement", "FIXED")
+            if mv == "WANDER":
+                if random.randrange(256) < 128:
+                    continue
+                dx = self._lw_heading(random.randrange(256))
+                xs = npc.x + dx
+                if xs <= 0:
+                    continue
+                dy = self._lw_heading(random.randrange(256))
+                ys = npc.y + dy
+                if ys <= 0:
+                    continue
+            elif mv in ("FOLLOW_AVATAR", "ATTACK_AVATAR"):
+                dx = (px > npc.x) - (px < npc.x)
+                dy = (py > npc.y) - (py < npc.y)
+                if mv == "ATTACK_AVATAR" and (npc.x + dx, npc.y + dy) == (px, py):
+                    self._start_exodus_combat(npc)
+                    return
+            else:
+                continue
+            for cx, cy in ((npc.x + dx, npc.y + dy), (npc.x, npc.y + dy), (npc.x + dx, npc.y)):
+                if (cx, cy) == (npc.x, npc.y):
+                    continue
+                if self._person_can_step(npc, cx, cy):
+                    if (cx, cy) != (px, py):
+                        npc.x, npc.y = cx, cy
+                    break
 
     def _exit_town(self) -> None:
         self.text_log.add_message("Leaving city...")

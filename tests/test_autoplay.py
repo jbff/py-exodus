@@ -455,6 +455,9 @@ def test_autoplay_controller_exodus_insert_to_final_screen(pygame_setup, asset_m
     sm = StateMachine(asset_mgr=asset_mgr)
     town = TownScreen(party=party, map_id=2, asset_mgr=asset_mgr)
     town.avatar_x, town.avatar_y = 30, 12
+    # Insertion flow only: the castle's people move and attack now (LW
+    # MoveMonsters), and this loop never runs a battle to its end.
+    town.game_map.npcs = []
     sm.push_screen(town)
 
     ctrl = AutoPlayController(enabled=True, step_interval=0.01)
@@ -1917,7 +1920,9 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
     prev_nohurt = _dbg.CHEATS.nohurt
     _dbg.CHEATS.nohurt = True
     try:
-        for _ in range(1500):
+        # The castle's attackers now close in (LW MoveMonsters): ~1800
+        # steps of fighting, up from ~1500 when they stood still.
+        for _ in range(4000):
             if getattr(p_exo, "exodus_defeated", 0) > 0:
                 break
             ctrl_exo.step(sm_exo)
