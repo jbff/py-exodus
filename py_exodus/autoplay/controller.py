@@ -2376,17 +2376,28 @@ class AutoPlayController:
 
     @staticmethod
     def _direction_to_npc(game_map, px: int, py: int) -> int:
-        """Return the pygame key pointing toward an NPC within 1-2 tiles of (px, py)."""
-        npc_coords = {(npc.x, npc.y) for npc in getattr(game_map, "npcs", ())}
-        for key, (dx, dy) in (
-            (pygame.K_UP, (0, -1)),
-            (pygame.K_DOWN, (0, 1)),
-            (pygame.K_RIGHT, (1, 0)),
-            (pygame.K_LEFT, (-1, 0)),
-        ):
-            for dist in (1, 2):
-                if (px + dx * dist, py + dy * dist) in npc_coords:
-                    return key
+        """Return the pygame key pointing toward the shopkeeper within 1-2
+        tiles of (px, py). Every shop stand's keeper is a merchant, and town
+        people move now: a guard who wandered up north of De Grocer won the
+        old first-found scan and autoplay Transacted with him forever
+        ("Funny, no response!", user 2026-11-22). Merchants first, then
+        anyone."""
+        npcs = list(getattr(game_map, "npcs", ()))
+        merchants = {
+            (n.x, n.y) for n in npcs
+            if str(getattr(n, "tile_name", "")).lower() == "merchant"
+        }
+        anyone = {(n.x, n.y) for n in npcs}
+        for coords in (merchants, anyone):
+            for key, (dx, dy) in (
+                (pygame.K_UP, (0, -1)),
+                (pygame.K_DOWN, (0, 1)),
+                (pygame.K_RIGHT, (1, 0)),
+                (pygame.K_LEFT, (-1, 0)),
+            ):
+                for dist in (1, 2):
+                    if (px + dx * dist, py + dy * dist) in coords:
+                        return key
         return pygame.K_UP
 
     @staticmethod

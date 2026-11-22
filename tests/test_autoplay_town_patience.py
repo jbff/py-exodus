@@ -52,3 +52,18 @@ def test_grey_guild_reached_through_the_crowded_pub():
         assert sum(m.gems for m in p.members) > 0, (ts.avatar_x, ts.avatar_y)
     finally:
         random.setstate(rng)
+
+
+def test_transact_faces_the_merchant_not_a_passing_guard():
+    """User 2026-11-22 at De Grocer: a guard wandered up north of the party
+    while the grocer stood south; autoplay Transacted north forever."""
+    from py_exodus.world.map import MapNpc
+
+    class _Map:
+        npcs = [
+            MapNpc(tile_index=0, tile_name="guard", x=10, y=9, start_x=10, start_y=9, movement="WANDER"),
+            MapNpc(tile_index=0, tile_name="merchant", x=10, y=12, start_x=10, start_y=12,
+                   movement="FOLLOW_AVATAR"),
+        ]
+
+    assert AutoPlayController._direction_to_npc(_Map(), 10, 10) == pygame.K_DOWN
