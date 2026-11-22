@@ -649,16 +649,7 @@ class AutoPlayController:
         if (
             map_id not in _UNSAFE_REST_TOWN_MAPS
             and needs_heal(party)
-            and party.food >= 100
-            and not any(not m.is_dead() and m.food == 0 for m in party.members)
-            and goal not in (Goal.BUY_FOOD, Goal.RESURRECT_DEAD, Goal.CURE_POISON)
-            and not any(not m.is_dead() and m.status == Status.POISONED and m.hp <= 25 for m in party.members)
-            and any(
-                not m.is_dead()
-                and m.profession in (Profession.CLERIC, Profession.PALADIN, Profession.DRUID)
-                and m.max_mp >= 10
-                for m in party.members
-            )
+            and self._can_rest_indoors(party, goal)
         ):
             return self._emit_key(state_machine, pygame.K_SPACE)
         if map_id == 2:  # EXODUS (Castle of Death)
@@ -1442,6 +1433,24 @@ class AutoPlayController:
             return _REST_INDOORS
         return None
 
+    @staticmethod
+    def _can_rest_indoors(party, goal: Goal) -> bool:
+        """Would a town or castle actually heal the party? The same test the
+        town handler uses to rest there: fed, not on an urgent errand, no
+        member about to die of poison, and a healer who can cast."""
+        living = [m for m in party.members if not m.is_dead()]
+        return (
+            party.food >= 100
+            and not any(m.food == 0 for m in living)
+            and goal not in (Goal.BUY_FOOD, Goal.RESURRECT_DEAD, Goal.CURE_POISON)
+            and not any(m.status == Status.POISONED and m.hp <= 25 for m in living)
+            and any(
+                m.profession in (Profession.CLERIC, Profession.PALADIN, Profession.DRUID)
+                and m.max_mp >= 10
+                for m in living
+            )
+        )
+
     def _flee_plan(self, state_machine, screen, gmap, party, px, py, living, cur_map_id) -> int | None:
         """Being chased (user rule 2026-11-21).
 
@@ -1461,13 +1470,17 @@ class AutoPlayController:
             return None
         hp = sum(m.hp for m in living)
         max_hp = sum(m.max_hp for m in living) or 1
-        top_level = max(m.level for m in living)
-        deadly = (
-            hp * 2 < max_hp
-            or any(m.hp * 10 < m.max_hp * 3 for m in living)
-            or (top_level < 8 and any(n in ("dragon", "balron") for _, _, n in chasers))
-        )
+        # Deadly = already badly hurt. (No "dragons are scary" clause: a
+        # healthy party fights them; user ruling 2026-11-21.)
+        deadly = hp * 2 < max_hp or any(m.hp * 10 < m.max_hp * 3 for m in living)
         if not deadly:
+            return None
+        # A town only helps if the party can rest there; otherwise running in
+        # and straight back out is the worst of both (user report 2026-11-21).
+        # (A healthy party chased by dragons gains nothing indoors either:
+        # they wait outside. User report: in and out of Yew, dragons outside.)
+        goal = evaluate_goal(party, cur_map_id)
+        if not needs_heal(party) or not self._can_rest_indoors(party, goal):
             return None
         dest, on_arrive = self._rest_destination(state_machine, screen, gmap)
         if dest is None:

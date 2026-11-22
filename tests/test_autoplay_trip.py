@@ -473,3 +473,51 @@ def test_chest_in_a_lane_is_looted_before_escaping(pygame_setup, asset_mgr):
         m.mp = 0  # no APPAR_UNEM: plain Get
     ctrl = AutoPlayController(enabled=True)
     assert ctrl.step(sm) == pygame.K_g
+
+
+def test_no_flee_to_town_when_town_cannot_heal(pygame_setup, asset_mgr):
+    """User report (2026-11-21): a hurt level-3 party ran into Yew and
+    straight back out, over and over: the town rests only with a healer who
+    can cast (Cleric/Paladin/Druid, max MP >= 10). Without one, fight."""
+    from py_exodus.constants import Profession
+
+    party = _make_party(level=3)
+    party.x, party.y = 46, 22
+    _hurt(party)
+    for m in party.members:
+        if m.profession in (Profession.CLERIC, Profession.PALADIN, Profession.DRUID):
+            m.max_mp = 5
+    sm, ow = _overworld(asset_mgr, party)
+    ow.creatures = [{"tile_name": "orc", "tile": "orc", "x": 46, "y": 29}]
+    ctrl = AutoPlayController(enabled=True)
+    ctrl.step(sm)
+    assert not ctrl._fleeing
+    assert ctrl._trip is None or ctrl._trip.dest.label != "rest"
+
+
+def test_town_rest_matches_the_flee_decision(pygame_setup, asset_mgr):
+    """Whatever sends the party indoors to rest, the town handler rests."""
+    from py_exodus.autoplay.planner import evaluate_goal
+    from py_exodus.screens.town import TownScreen
+
+    party = _make_party(level=5)
+    _hurt(party, 0.6)
+    ctrl = AutoPlayController(enabled=True)
+    goal = evaluate_goal(party, 4)
+    assert ctrl._can_rest_indoors(party, goal)
+    sm = StateMachine(asset_mgr=asset_mgr, audio=None)
+    ts = TownScreen(party=party, asset_mgr=asset_mgr, map_id=4, start_x=32, start_y=62)
+    sm.set_screen(ts)
+    assert ctrl.step(sm) == pygame.K_SPACE
+
+
+def test_healthy_party_chased_by_dragons_does_not_hide_in_town(pygame_setup, asset_mgr):
+    """User report (2026-11-21): dragons outside Yew; the healthy low-level
+    party ran in, had nothing to do, ran out, ran back in. Fight instead."""
+    party = _make_party(level=3)
+    party.x, party.y = 46, 22
+    sm, ow = _overworld(asset_mgr, party)
+    ow.creatures = [{"tile_name": "dragon", "tile": "dragon", "x": 46, "y": 29}]
+    ctrl = AutoPlayController(enabled=True)
+    ctrl.step(sm)
+    assert not ctrl._fleeing
