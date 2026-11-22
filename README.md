@@ -44,7 +44,7 @@ Borrowed in concept from the LairWare port: **`TAB`** (or `F2`) during any battl
 
 ### Status
 
-- **Wins from a fresh game, no cheats.** The last full 100-seed batch (`bbceab3`) won **58**, wiped 39 and hit the step cap 3 times; most wipes are level 1-5 parties early on. A new 100-seed run on the LairWare combat rules (`775884a`, 10 batches of 10) is in progress: 12 won, 7 wiped, 1 step cap after the first 20 seeds. Live runs on 2026-11-22 won with every member at level 25.
+- **Wins from a fresh game, no cheats.** The latest 100-seed batch (`775884a`, LairWare combat rules, the final castle fighting back) won **58**, wiped 37 and hit the step cap 5 times, matching the easier-rules batch before it (`bbceab3`: 58 won, 39 wiped, 3 step caps). 34 of the 37 wipes are parties at level 10 or below. Live runs on 2026-11-22 won with every member at level 25.
 - **Open fronts**: early-game wipes (the Cleric usually dies first), resurrecting the dead as a real goal, and a town re-entry loop when no path out exists.
 
 ---
