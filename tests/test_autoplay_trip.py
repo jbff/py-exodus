@@ -1028,3 +1028,22 @@ def test_autoplay_on_an_empty_roster_creates_the_tested_party(pygame_setup):
         ctrl.step(sm)
     stats = lambda c: (c.name, c.race, c.profession, c.strength, c.dexterity, c.intelligence, c.wisdom)
     assert [stats(m) for m in party.members] == [stats(m) for m in build_party().members]
+
+
+def test_a_cleric_who_can_alcort_cures_poison_instead_of_the_healer(pygame_setup):
+    """User 2026-11-22: a poisoned party walked to a healer although its
+    Cleric had WIS 35 (ALCORT's 35 MP). With the MP coming back before the
+    poison bites, the party carries on and ALCORT is cast on the spot."""
+    from py_exodus.constants import Status
+
+    party = _make_party(level=5, food=300, gold=500, marks=[1, 0, 0, 0])
+    cleric = next(m for m in party.members if m.profession == Profession.CLERIC)
+    cleric.max_mp, cleric.mp = 35, 20  # 15 turns of MP on the surface
+    victim = party.members[0]
+    victim.status, victim.hp = Status.POISONED, 200
+    assert evaluate_goal(party, 0) != Goal.CURE_POISON
+    victim.hp = 30  # would drop under the margin before the MP is back
+    assert evaluate_goal(party, 0) == Goal.CURE_POISON
+    victim.hp = 200
+    cleric.max_mp = 30  # can't reach ALCORT: the healer
+    assert evaluate_goal(party, 0) == Goal.CURE_POISON

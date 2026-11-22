@@ -1114,9 +1114,12 @@ def test_cure_poisoned_member_by_spell_or_healer(pygame_setup):
             break
     assert party.members[1].status == Status.GOOD
 
-    # 2. With < 35 MP and >= 100g, cured at Castle British Healer for 100g
+    # 2. A Cleric who can't reach 35 MP (a 50-MP Cleric would wait for
+    # ALCORT, user 2026-11-22): with >= 100g, cured at Castle British's
+    # Healer for 100g
     party.members[1].status = Status.POISONED
     party.members[2].mp = 0
+    party.members[2].max_mp = 30
     ts = TownScreen(party=party, asset_mgr=am, map_id=1, start_x=46, start_y=26)
     sm.set_screen(ts)
     for _ in range(25):

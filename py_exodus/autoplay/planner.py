@@ -142,6 +142,36 @@ def saving_to_resurrect(party: Party) -> bool:
     return all(m.food >= RESURRECT_FOOD_FLOOR for m in party.members if not m.is_dead())
 
 
+# HP a poisoned member keeps in hand while the caster's MP comes back.
+ALCORT_WAIT_MARGIN = 25
+
+
+def alcort_coming(party: Party, map_id: int) -> bool:
+    """A living Cleric/Druid whose MP pool reaches ALCORT's 35 will have the
+    MP before any poisoned member runs low: skip the healer and cure on the
+    spot (user 2026-11-22: a Cleric with WIS 35 walked the party to a
+    healer). Surface MP returns 1 a turn (a Druid 2) against 1 HP of poison;
+    off the surface, MP comes every 4th turn."""
+    living = [m for m in party.members if not m.is_dead()]
+    casters = [
+        m for m in living
+        if m.profession in (Profession.CLERIC, Profession.DRUID) and m.max_mp >= 35
+    ]
+    if not casters:
+        return False
+    surface = map_id in (0, 13)
+
+    def turns(m) -> int:
+        need = max(0, 35 - m.mp)
+        rate = 2 if m.profession == Profession.DRUID else 1
+        return -(-need // rate) * (1 if surface else 4)
+
+    wait = min(turns(m) for m in casters)
+    return all(
+        m.hp > wait + ALCORT_WAIT_MARGIN for m in living if m.status == Status.POISONED
+    )
+
+
 _CLERIC_CASTERS = (Profession.CLERIC, Profession.DRUID, Profession.PALADIN, Profession.RANGER)
 _WIZARD_CASTERS = (
     Profession.WIZARD,
@@ -362,7 +392,11 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
         )
         if party.gold >= needed_cost:
             return Goal.RESURRECT_DEAD
-        if any(m.status == Status.POISONED for m in living) and party.gold >= 100:
+        if (
+            any(m.status == Status.POISONED for m in living)
+            and party.gold >= 100
+            and not alcort_coming(party, cur_map_id)
+        ):
             return Goal.CURE_POISON
         return Goal.GRIND_AND_LEVEL
 
@@ -371,6 +405,7 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
         and not (at_exotic_island and not living_has_exotics and party.food >= 100)
         and any(m.status == Status.POISONED for m in living)
         and party.gold >= 100
+        and not alcort_coming(party, cur_map_id)
     ):
         return Goal.CURE_POISON
 
