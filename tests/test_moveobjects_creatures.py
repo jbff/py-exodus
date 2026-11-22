@@ -143,13 +143,26 @@ class TestAdjacencyEngagement:
         assert [c[0] for c in combat_trigger] == ["orc"]
         assert ow.creatures == []  # engaged creature removed (Java 447/556)
 
-    def test_diagonal_adjacent_does_not_engage(self, ow, sample_party, combat_trigger):
-        """Java's movementDistance (Utils.java:314-357) walks one axis per
-        step — a diagonal neighbour is distance 2, so it does NOT engage."""
+    def test_diagonal_adjacent_engages(self, ow, sample_party, combat_trigger):
+        """LairWare MoveMonsters (UltimaMisc.c:1200-1204, user ruling
+        2026-11-22): a monster whose diagonal step toward the party lands on
+        it attacks. Java's one-axis movementDistance made that distance 2."""
         ow.creatures = [{"tile_name": "orc", "tile": "orc", "x": 11, "y": 11}]
         ow._update_creatures()
-        assert combat_trigger == []
-        assert len(ow.creatures) == 1
+        assert [c[0] for c in combat_trigger] == ["orc"]
+
+    def test_snagged_monster_steps_around_by_the_lairware_order(self, ow, sample_party):
+        """LairWare tries the diagonal step, then the vertical, then the
+        horizontal. A monster with its diagonal and vertical steps blocked
+        still slides sideways toward the party instead of freezing."""
+        ow.creatures = [
+            {"tile_name": "orc", "tile": "orc", "x": 14, "y": 14},
+            {"tile_name": "orc", "tile": "orc", "x": 13, "y": 13},  # diagonal blocker
+            {"tile_name": "orc", "tile": "orc", "x": 14, "y": 13},  # vertical blocker
+        ]
+        mover = ow.creatures[0]
+        assert ow._lw_monster_step(mover, ow.asset_mgr.get_creature("orc"),
+                                   ow.game_map.width, ow.game_map.height) == (13, 14)
 
     def test_same_tile_engages_and_is_purged(self, ow, combat_trigger):
         ow.creatures = [{"tile_name": "giant", "tile": "giant", "x": 10, "y": 10}]

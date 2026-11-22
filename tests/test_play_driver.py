@@ -86,6 +86,14 @@ class TestKeyTokens:
 
 
 class TestOverworldSmoke:
+    @pytest.fixture(autouse=True)
+    def _no_wanderers(self, monkeypatch):
+        """These smoke tests read Z-stats; a wanderer stepping in to fight
+        (LairWare diagonal attacks, 2026-11-22) would swap the screen
+        depending on the random state earlier tests left behind."""
+        monkeypatch.setattr(OverworldScreen, "_update_creatures", lambda self: None)
+        monkeypatch.setattr(OverworldScreen, "_spawn_wandering_creature", lambda self: None)
+
     def test_journey_onward_then_zstats_heading(self, asset_mgr, monkeypatch, tmp_path):
         """Plan row 1: boot the roster->overworld flow (Journey Onward via
         an on-disk save in tmp_path), press Z, and read the zstats heading off the

@@ -2100,7 +2100,26 @@ class OverworldScreen(BaseScreen):
                 engaged = True
                 break
 
-            # 4. Movement inside the valid-moves mask (BaseMap.java:562-608).
+            # 4. LairWare MoveMonsters (UltimaMisc.c:1191-1236, user ruling
+            # 2026-11-22): a hostile non-pirate tries the diagonal step toward
+            # the party, then the vertical one, then the horizontal one; a
+            # diagonal step onto the party starts the fight. Java's cardinal-
+            # only step left monsters snagged on terrain for good, and since
+            # the original never despawns, 32 snagged monsters stopped all
+            # spawning (seed 3 starved grinding near Britain).
+            if not wontattack and tile_name != "pirate":
+                step = self._lw_monster_step(c, cr_def, width, height)
+                if step == "attack":
+                    encounter_creature = c
+                    self.creatures = survivors + snapshot[i + 1:]
+                    engaged = True
+                    break
+                if step is not None:
+                    c["x"], c["y"] = step
+                survivors.append(c)
+                continue
+
+            # Movement inside the valid-moves mask (BaseMap.java:562-608).
             mask = self._creature_valid_moves_mask(c, cr_def, wontattack)
             if wontattack:
                 move_dir = random_valid_direction(mask)
@@ -2146,6 +2165,58 @@ class OverworldScreen(BaseScreen):
                 self._trigger_combat(
                     encounter_creature.get("tile_name", "orc"), encounter_creature
                 )
+
+    def _lw_monster_step(self, c: dict[str, Any], cr_def, width: int, height: int):
+        """LairWare GetMonsterDir + MoveMonsters: the step toward the party
+        (shortest way over the wrap seams, as LW's byte-wrapped delta * 4
+        sign gives), trying (dx, dy), then (0, dy), then (dx, 0). Returns
+        "attack" when the first step lands on the party, the new (x, y), or
+        None (stays put)."""
+        wrap = self.game_map.border_behavior == "wrap"
+
+        def heading(delta: int, span: int) -> int:
+            if wrap:
+                delta = ((delta + span // 2) % span) - span // 2
+            return (delta > 0) - (delta < 0)
+
+        cx, cy = c["x"], c["y"]
+        dx = heading(self.party.x - cx, width)
+        dy = heading(self.party.y - cy, height)
+
+        def norm(x: int, y: int) -> tuple[int, int]:
+            if wrap:
+                return x % width, y % height
+            return max(0, min(width - 1, x)), max(0, min(height - 1, y))
+
+        first = norm(cx + dx, cy + dy)
+        if first == (self.party.x, self.party.y):
+            return "attack"
+        for sx, sy in ((dx, dy), (0, dy), (dx, 0)):
+            if sx == 0 and sy == 0:
+                continue
+            tx, ty = norm(cx + sx, cy + sy)
+            if (tx, ty) == (cx, cy) or (tx, ty) == (self.party.x, self.party.y):
+                continue
+            if self._creature_can_enter(c, cr_def, tx, ty):
+                return (tx, ty)
+        return None
+
+    def _creature_can_enter(self, c: dict[str, Any], cr_def, tx: int, ty: int) -> bool:
+        """One tile of the valid-moves test: terrain, no portal, no other
+        creature, not the party's tile unless the creature may step on it."""
+        if cr_def is None:
+            return False
+        if (tx, ty) in {(p.x, p.y) for p in getattr(self.game_map, "portals", ())}:
+            return False
+        tile = self.game_map.get_tile(tx, ty)
+        if tile is None or not can_creature_move_on(tile, cr_def):
+            return False
+        if tx == self.party.x and ty == self.party.y and not cr_def.can_move_onto_avatar:
+            return False
+        return not any(
+            other is not c and other.get("x") == tx and other.get("y") == ty
+            for other in self.creatures
+        )
 
     def _creature_valid_moves_mask(self, c: dict[str, Any], cr_def, wontattack: bool) -> int:
         """Java ``objects/BaseMap.java:637-698`` ``getValidMovesMask`` for a
