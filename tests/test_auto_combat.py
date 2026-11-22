@@ -520,8 +520,12 @@ def test_dead_party_members_not_rendered_in_combat():
     party.add_member(a)
     party.add_member(b)
 
-    cs = CombatScreen(party=party, combat_map=load_conflict_map(37, am), asset_mgr=am, monster_count=1)
-    bx, by = cs.arena.player_positions[1]
+    cmap = load_conflict_map(37, am)
+    cs = CombatScreen(party=party, combat_map=cmap, asset_mgr=am, monster_count=1)
+    # LairWare: the dead are off the board (no position at all); their
+    # roster start tile must stay empty on screen.
+    assert 1 not in cs.arena.player_positions
+    bx, by = (cmap.player_starts or [(5, 9), (4, 8)])[1]
     surf = pygame.Surface((176, 176))
     surf.fill((0, 0, 0))
     cs._render_players(surf)

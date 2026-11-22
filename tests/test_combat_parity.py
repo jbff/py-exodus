@@ -877,32 +877,23 @@ def test_monsters_converging_cannot_share_a_tile(asset_mgr, monkeypatch):
         assert len(set(tiles)) == len(tiles)
 
 
-def test_monster_cannot_step_onto_dead_member_tile(asset_mgr, monkeypatch):
-    """A dead party member still occupies their start tile (CombatScreen.java:
-    125-147 combatCr assignment, hasBlockingCombatPlayerAt skips only fled) and
-    blocks the advance like any other occupied tile."""
-    monkeypatch.setattr(arena_mod.random, "randrange", lambda n: 99)  # force ADVANCE
+def test_dead_member_tile_is_free_for_monsters(asset_mgr):
+    """LairWare (UltimaSpellCombat.c:887-895, 1239-1241): the dead are off the
+    board, so a dead member's start tile is open to creatures. (Java kept the
+    corpse there as a blocker; LairWare is the rule, user report 2026-11-22.)"""
     party = Party()
     party.add_member(Character("Hero", "M", hp=500, max_hp=500))
     dead = Character("Corpse", "M", hp=0, max_hp=100, status=Status.DEAD)
     party.add_member(dead)
 
-    arena = CombatArena(party, load_combat_map(asset_mgr, "CNFLCT_G.ULT"),
-                        asset_mgr=asset_mgr, monster_count=1)
-    corpse_pos = arena.player_positions[1]
-    # Hero stands just beyond the corpse along the monster's line of approach.
-    mdx = corpse_pos[0] - arena.monsters[0].x
-    mdy = corpse_pos[1] - arena.monsters[0].y
-    hero_x = corpse_pos[0] + (1 if mdx > 0 else -1 if mdx < 0 else 0)
-    hero_y = corpse_pos[1] + (1 if mdy > 0 else -1 if mdy < 0 else 0)
-    arena.player_positions[0] = (hero_x, hero_y)
-    arena.party.members[0].x, arena.party.members[0].y = hero_x, hero_y
-    arena.monsters[0].basehp = 4
-
-    res = arena._execute_single_monster_ai(arena.monsters[0])
-    assert (arena.monsters[0].x, arena.monsters[0].y) != corpse_pos  # never steps on
-    if res is not None:
-        assert res.action_type != "flee"
+    cmap = load_combat_map(asset_mgr, "CNFLCT_G.ULT")
+    arena = CombatArena(party, cmap, asset_mgr=asset_mgr, monster_count=1)
+    assert 1 not in arena.player_positions
+    corpse_tile = cmap.player_starts[1]
+    assert corpse_tile != arena.player_positions[0]
+    assert arena._member_at(*corpse_tile) is None
+    if not any((m.x, m.y) == corpse_tile for m in arena.monsters if not m.is_dead):
+        assert arena._is_tile_passable_for_creature(*corpse_tile, arena.monsters[0])
 
 
 def test_teleport_step_never_lands_on_occupied_tile(asset_mgr, monkeypatch):

@@ -12,6 +12,7 @@ from py_exodus.assets import MAP_NAME_TO_ID
 from py_exodus.constants import (
     ArmorType,
     Direction,
+    Status,
     TileAttrib,
     TileEffect,
     Transport,
@@ -357,10 +358,11 @@ class CombatArena:
         return monsters
 
     def _place_players(self) -> None:
-        """Java CombatScreen ctor (CombatScreen.java:125-147): EVERY member
-        gets combat coordinates by roster index — dead members included, so
-        their corpses occupy a start tile and block creature movement
-        (hasBlockingCombatPlayerAt skips only ``fled`` members)."""
+        """Members take start tiles by roster index. LairWare is the rule
+        (user report 2026-11-22: a lone survivor was walled in by unseen
+        corpses): only Good or Poisoned members are placed
+        (UltimaSpellCombat.c:887-895, others get 0xFF = off the board), so
+        the dead and ashes never occupy or block a tile. Java placed them."""
         starts = self.combat_map.player_starts or [(5, 9), (4, 8), (6, 8), (5, 10)]
         for i, member in enumerate(self.party.members):
             member.fled = False
@@ -369,11 +371,26 @@ class CombatArena:
             if hasattr(member, "character") and hasattr(member.character, "used_free_spell_in_combat"):
                 member.character.used_free_spell_in_combat = False
             sx, sy = starts[i % len(starts)]
+            if not self._on_board(member):
+                continue
             self.player_positions[i] = (sx, sy)
             member.combat_x = sx
             member.combat_y = sy
             member.x = sx
             member.y = sy
+
+    @staticmethod
+    def _on_board(member) -> bool:
+        """LW: Good or Poisoned members stand on the board; a member who
+        dies leaves it (UltimaSpellCombat.c:1239-1241)."""
+        return not member.is_dead() and getattr(member, "status", None) not in (Status.ASH, Status.ASHES)
+
+    def _board_positions(self) -> dict[int, tuple[int, int]]:
+        """Tiles held by members still on the board (corpses hold none)."""
+        return {
+            i: pos for i, pos in self.player_positions.items()
+            if self._on_board(self.party.members[i]) and not self.party.members[i].fled
+        }
 
     def _get_living_party_members(self) -> list[PartyMember]:
         if hasattr(self.party, "living_members"):
@@ -524,8 +541,8 @@ class CombatArena:
                     success=False, action=action, message=f"{member.name} is blocked by terrain."
                 )
 
-        # Check if occupied by another player
-        for p_idx, pos in self.player_positions.items():
+        # Check if occupied by another player (corpses are off the board)
+        for p_idx, pos in self._board_positions().items():
             if p_idx != member_idx and pos == (nx, ny):
                 return ActionResult(
                     success=False, action=action, message=f"{member.name} is blocked by an ally."
@@ -618,7 +635,7 @@ class CombatArena:
                 max_range=max_range,
                 attack_through_objects=attack_through,
                 monsters=self.monsters,
-                players=self.player_positions,
+                players=self._board_positions(),
             )
 
             # Check if projectile reached a monster
@@ -1301,8 +1318,8 @@ class CombatArena:
 
     def _member_at(self, x: int, y: int) -> PartyMember | None:
         """The party member occupying a tile (Java rangedAttackAt's defender
-        scan, CombatScreen.java:593-599 — dead members still stand there)."""
-        for p_idx, pos in self.player_positions.items():
+        scan, CombatScreen.java:593-599); the dead are off the board (LW)."""
+        for p_idx, pos in self._board_positions().items():
             if pos == (x, y):
                 return self.party.members[p_idx]
         return None
@@ -1370,8 +1387,8 @@ class CombatArena:
             if not m.is_dead and (m.x, m.y) == (x, y):
                 return False
 
-        # Cannot step onto a living player
-        for pos in self.player_positions.values():
+        # Cannot step onto a living player (corpses are off the board, LW)
+        for pos in self._board_positions().values():
             if pos == (x, y):
                 return False
 

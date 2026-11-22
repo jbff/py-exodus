@@ -141,22 +141,22 @@ def test_encounter_size_exodus_map_always_eight(asset_mgr, conflict_map):
 
 
 def test_player_placement(asset_mgr, conflict_map):
-    """Java CombatScreen.java:125-147 — every member gets combat coordinates by
-    roster index, DEAD members included (their corpses occupy a tile and block
-    creatures: hasBlockingCombatPlayerAt skips only fled members)."""
+    """Members take start tiles by roster index; LairWare places only Good or
+    Poisoned members (UltimaSpellCombat.c:887-895), so a dead member gets no
+    tile and the living keep their own roster slots. (Java placed corpses;
+    LairWare is the rule, user report 2026-11-22.)"""
     party = Party()
     party.add_member(Character("Alive1", "M", Race.HUMAN, Profession.FIGHTER, hp=100))
     party.add_member(Character("Dead1", "F", Race.ELF, Profession.CLERIC, hp=0, status=Status.DEAD))
     party.add_member(Character("Alive2", "M", Race.DWARF, Profession.PALADIN, hp=100))
 
     arena = CombatArena(party, conflict_map, creature_tile="orc", asset_mgr=asset_mgr)
-    # Alive1 at player_starts[0], Dead1's corpse at [1], Alive2 at [2]
+    # Alive1 at player_starts[0], Dead1 off the board, Alive2 at [2]
     assert 0 in arena.player_positions
-    assert 1 in arena.player_positions
+    assert 1 not in arena.player_positions
     assert 2 in arena.player_positions
 
     assert arena.player_positions[0] == conflict_map.player_starts[0]
-    assert arena.player_positions[1] == conflict_map.player_starts[1]
     assert arena.player_positions[2] == conflict_map.player_starts[2]
 
 
@@ -930,3 +930,21 @@ def test_ship_battle_killing_action_counts_the_win_round(asset_mgr, conflict_map
     assert arena.is_victory
     assert party.moves == moves_before + 1
     assert party.ship_hull == 41
+
+
+def test_dead_members_are_off_the_board_and_block_nobody(asset_mgr, conflict_map):
+    """LairWare (UltimaSpellCombat.c:887-895, 1239-1241): only Good or
+    Poisoned members are placed; the dead get no tile and block nobody.
+    User report 2026-11-22: a lone survivor was walled in by unseen corpses."""
+    party = Party()
+    for name in ("A", "B", "C", "D"):
+        party.add_member(Character(name, "M", Race.HUMAN, Profession.FIGHTER))
+    for m in party.members[1:]:
+        m.status = Status.DEAD
+        m.hp = 0
+    arena = CombatArena(party, conflict_map, creature_tile="orc", asset_mgr=asset_mgr)
+    assert set(arena.player_positions) == {0}
+    starts = conflict_map.player_starts or [(5, 9), (4, 8), (6, 8), (5, 10)]
+    corpse_tile = starts[1]
+    assert arena._member_at(*corpse_tile) is None
+    assert corpse_tile not in arena._board_positions().values()
