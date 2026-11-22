@@ -1253,3 +1253,101 @@ def test_dungeon_route_goes_around_gremlins():
                 dmap.set_tile(x, y, 0, DungeonTile.WALL)
     entered = _walk_dungeon(dmap, start, Direction.EAST, goal, gremlins)
     assert entered[-1] == (6, 3, 0) and set(entered) & gremlins == gremlins
+
+
+def _room_dungeon(party, x=2, y=2):
+    from py_exodus.screens.dungeon_screen import DungeonScreen
+    from py_exodus.world.map import DungeonMap, DungeonTile
+
+    dmap = DungeonMap(id=99, name="TestDungeon", width=8, height=8, levels=8)
+    dmap.tiles = [
+        [
+            [DungeonTile.WALL if xx in (0, 7) or yy in (0, 7) else DungeonTile.FLOOR for xx in range(8)]
+            for yy in range(8)
+        ]
+        for _z in range(8)
+    ]
+    ds = DungeonScreen(party=party, dungeon_map=dmap, start_x=x, start_y=y, start_z=0)
+    ds.state.is_torch_on = True
+    return ds, dmap
+
+
+def test_dungeon_chest_underfoot_is_opened_with_appar_unem(pygame_setup):
+    """User 2026-11-22: chests the party walks over in dungeons are opened
+    (the safe way), never searched for. A Cleric with MP casts APPAR UNEM."""
+    from py_exodus.autoplay import batch
+    from py_exodus.world.map import DungeonTile
+
+    party = batch.build_party()
+    for m in party.members:
+        m.food = 300
+    cleric = party.members[2]
+    cleric.max_mp, cleric.mp = 40, 40
+    ds, dmap = _room_dungeon(party)
+    dmap.set_tile(2, 2, 0, DungeonTile.CHEST)
+    sm = StateMachine(asset_mgr=None, audio=None)
+    sm.set_screen(ds)
+    ctrl = AutoPlayController(enabled=True)
+    ctrl._mapped_dungeon_levels.add((99, 0))
+    gold0 = party.gold
+    for _ in range(10):
+        if dmap.get_tile(2, 2, 0) != DungeonTile.CHEST:
+            break
+        ctrl.step(sm)
+    assert dmap.get_tile(2, 2, 0) != DungeonTile.CHEST
+    assert cleric.mp == 35
+    assert party.gold >= gold0
+    assert all(m.status.name == "GOOD" for m in party.members)
+
+
+def test_dungeon_chest_is_left_while_the_cleric_lacks_mp(pygame_setup):
+    """With the APPAR UNEM caster alive but under 5 MP, the party walks on:
+    no G (traps), no waiting for MP."""
+    from py_exodus.autoplay import batch
+    from py_exodus.world.map import DungeonTile
+
+    party = batch.build_party()
+    for m in party.members:
+        m.food = 300
+    party.members[2].max_mp, party.members[2].mp = 40, 2
+    ds, dmap = _room_dungeon(party)
+    dmap.set_tile(2, 2, 0, DungeonTile.CHEST)
+    sm = StateMachine(asset_mgr=None, audio=None)
+    sm.set_screen(ds)
+    ctrl = AutoPlayController(enabled=True)
+    ctrl._mapped_dungeon_levels.add((99, 0))
+    keys: list[int] = []
+    ctrl._emit_key = lambda _sm, key, **_kw: keys.append(key) or 0
+    ctrl._step_dungeon(sm, ds)
+    assert keys and keys[-1] not in (pygame.K_g, pygame.K_c)
+
+
+def test_a_starving_member_turns_the_party_for_the_exit(pygame_setup, monkeypatch):
+    """Batch 1c7525f: members hit 0 food on the Fire dungeon's level 4 and
+    the party went on to level 7 for the Mark. Anyone at 0 food: leave."""
+    from py_exodus.autoplay import batch
+    from py_exodus.autoplay import controller as ctl
+    from py_exodus.autoplay.nav import find_dungeon_step
+    from py_exodus.world.map import DungeonTile
+
+    party = batch.build_party()
+    for m in party.members:
+        m.food = 300
+    ds, dmap = _room_dungeon(party, x=3, y=1)
+    dmap.set_tile(6, 6, 0, DungeonTile.MARK_FIRE)
+    monkeypatch.setattr(ctl, "evaluate_goal", lambda *_a, **_k: Goal.GET_REMAINING_MARKS)
+    sm = StateMachine(asset_mgr=None, audio=None)
+    sm.set_screen(ds)
+    ctrl = AutoPlayController(enabled=True)
+    ctrl._mapped_dungeon_levels.add((99, 0))
+    keys: list[int] = []
+    ctrl._emit_key = lambda _sm, key, **_kw: keys.append(key) or 0
+    st = ds.state
+    to_mark = find_dungeon_step(dmap, st.x, st.y, st.z, st.dir, {(6, 6, 0)})
+    to_exit = find_dungeon_step(dmap, st.x, st.y, st.z, st.dir, {(1, 1, 0)})
+    assert to_mark != to_exit
+    ctrl._step_dungeon(sm, ds)
+    assert keys[-1] == to_mark
+    party.members[1].food = 0
+    ctrl._step_dungeon(sm, ds)
+    assert keys[-1] == to_exit

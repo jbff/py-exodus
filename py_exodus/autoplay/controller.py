@@ -530,6 +530,17 @@ class AutoPlayController:
                 self._queue_text(str(need_idx), enter=False)
                 return self._emit_key(state_machine, pygame.K_s)
 
+        # A chest underfoot: open it the safe way (APPAR UNEM, or G with no
+        # caster alive in a party strong enough for a trap). Never waits for
+        # MP and never goes looking for chests (user 2026-11-22).
+        if cur_tile == DungeonTile.CHEST:
+            opener = self._chest_opener(party)
+            weak = any(m.is_dead() for m in party.members) or any(
+                m.level < self._CHEST_RISK_LEVEL for m in party.members
+            )
+            if opener is not None and (opener[0] == "cast" or not weak):
+                return self._open_chest(state_machine, party)
+
         # Ignite a torch or cast light spell whenever dungeon light is out
         if not getattr(screen.state, "is_torch_on", False):
             if any(not m.is_dead() and m.torches > 0 for m in party.members):
@@ -557,6 +568,12 @@ class AutoPlayController:
                 wanted.add(DungeonTile.MARK_FORCE)
             if wanted:
                 target_tiles = self._find_dungeon_tiles(dmap, wanted)
+
+        # Anyone at 0 food is starving every step: leave now, Mark or not
+        # (batch 1c7525f: members hit 0 on the Fire dungeon's level 4 and
+        # the party went on down to level 7).
+        if any(not m.is_dead() and m.food <= 0 for m in party.members):
+            target_tiles = set()
 
         if not target_tiles:
             target_tiles = {(1, 1, 0)}
