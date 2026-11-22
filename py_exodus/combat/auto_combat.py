@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 from py_exodus.aura import AuraType
 from py_exodus.combat.arena import Action
 from py_exodus.combat.resolver import trace_projectile_path
-from py_exodus.constants import Direction, Spell, TileAttrib, WeaponType
+from py_exodus.constants import Direction, Profession, Spell, TileAttrib, WeaponType
 
 if TYPE_CHECKING:
     from py_exodus.combat.arena import CombatArena, CombatMonster
@@ -96,6 +96,25 @@ def _is_walkable_unoccupied(
     return True
 
 
+# A Cleric below this level is the party's healer and its weakest body:
+# batch 775884a's early wipes lost the Cleric first in 26 of 34, often a
+# level behind with 200 fewer max HP. It stays back while someone else can
+# fight and steps away at half HP.
+HEALER_BACK_LEVEL = 5
+
+
+def _held_back_healer(arena: CombatArena, member: Any) -> bool:
+    """A low-level Cleric with another living, non-Cleric member to fight."""
+    if getattr(member, "profession", None) != Profession.CLERIC:
+        return False
+    if getattr(member, "level", 25) >= HEALER_BACK_LEVEL:
+        return False
+    return any(
+        m is not member and not _is_member_dead(m) and getattr(m, "profession", None) != Profession.CLERIC
+        for m in getattr(arena.party, "members", ())
+    )
+
+
 def _try_low_hp_retreat(
     arena: CombatArena,
     member_idx: int,
@@ -103,9 +122,11 @@ def _try_low_hp_retreat(
     pos: tuple[int, int],
     visible_monsters: list[CombatMonster],
 ) -> Action | None:
-    """Retreat one cardinal step if HP is critical and an enemy is adjacent."""
+    """Retreat one cardinal step if HP is critical (half, for a held-back
+    healer) and an enemy is adjacent."""
     max_hp = getattr(member, "max_hp", 0)
-    if getattr(member, "hp", 0) > max(15, max_hp // 5):
+    floor = max_hp // 2 if _held_back_healer(arena, member) else max(15, max_hp // 5)
+    if getattr(member, "hp", 0) > floor:
         return None
 
     px, py = pos
@@ -344,6 +365,11 @@ def choose_auto_combat_action(
         )
         if ranged_dir is not None:
             return Action.attack(ranged_dir)
+
+    # A low-level Cleric holds its ground: it heals (above) and fights what
+    # reaches it, but never walks into melee while others can.
+    if _held_back_healer(arena, member):
+        return Action.pass_turn()
 
     # Advance toward nearest visible living monster.
     # For melee fighters, prefer BFS shortest path first so obstacles (like ship masts)
