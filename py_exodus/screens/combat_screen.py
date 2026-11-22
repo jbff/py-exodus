@@ -64,6 +64,7 @@ class CombatScreen(BaseScreen):
         encounter_x: int | None = None,
         encounter_y: int | None = None,
         encounter_tile_walkable: bool | None = None,
+        creature_variant: int = 0,
         **kwargs: Any,
     ) -> None:
         super().__init__(return_screen=return_screen, **kwargs)
@@ -83,6 +84,7 @@ class CombatScreen(BaseScreen):
             encounter_x=encounter_x,
             encounter_y=encounter_y,
             encounter_tile_walkable=encounter_tile_walkable,
+            creature_variant=creature_variant,
         )
 
         self.world_renderer = (

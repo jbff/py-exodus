@@ -46,6 +46,7 @@ from py_exodus.ui.text_log import (
     TextLog,
     get_hud_font,
 )
+from py_exodus.world.monster_variants import roll_variant, variant_name
 from py_exodus.world import doors as door_module
 from py_exodus.world import portal_entry
 from py_exodus.world import search as search_module
@@ -1911,12 +1912,17 @@ class OverworldScreen(BaseScreen):
                 continue
 
             c_def = self.asset_mgr.get_creature(c_name) if self.asset_mgr else None
+            # LairWare SpawnMonster (UltimaMisc.c:1181-1185): a variant,
+            # named for the Thief..Balron (Brigand, Goblin, Devil...).
+            variant = roll_variant()
             self.creatures.append({
                 # Display name from creatures.xml (e.g. "Man-O-War" for the
-                # squid tile).
-                "name": (c_def.name if c_def else c_name.capitalize()),
+                # squid tile), or the variant's own name.
+                "name": variant_name(c_name, variant)
+                or (c_def.name if c_def else c_name.capitalize()),
                 "tile_name": c_name,
                 "tile": c_name,
+                "variant": variant,
                 "x": sx,
                 "y": sy,
                 # Java Creature.sailDir defaults to EAST (Creature.java:63).
@@ -1950,12 +1956,12 @@ class OverworldScreen(BaseScreen):
         (13, False),  # 4  Giant
         (14, False),  # 5  Daemon
         (21, True),   # 6  Sea Serpent
-        (17, False),  # 7  Pincher (Orcus)
+        (17, False),  # 7  Pincher (variants Snatch, Bradle)
         (16, False),  # 8  Wizard
         (22, True),   # 9  Man-O-War (Squid)
         (20, True),   # 10 Pirate
-        (18, False),  # 11 Dragon (Wyvern)
-        (19, False),  # 12 Balron
+        (18, False),  # 11 Dragon (variants Griffon, Wyvern)
+        (19, False),  # 12 Balron (variants Orcus, Devil)
     )
 
     def _pick_creature_for_tile(self, tile) -> str | None:
@@ -2388,6 +2394,7 @@ class OverworldScreen(BaseScreen):
                 encounter_x=creature_x,
                 encounter_y=creature_y,
                 encounter_tile_walkable=not encounter_unwalkable,
+                creature_variant=int((creature or {}).get("variant", 0) or 0),
             )
             if self.manager is not None:
                 self.manager.push_screen(combat_scr)
@@ -2460,6 +2467,8 @@ class OverworldScreen(BaseScreen):
                 creature["sail_dir"] = "EAST"
             if m.get("hp") is not None:
                 creature["hp"] = int(m["hp"])
+            if m.get("variant"):
+                creature["variant"] = int(m["variant"])
             self.creatures.append(creature)
 
     def _save_game(self) -> None:
@@ -2504,6 +2513,8 @@ class OverworldScreen(BaseScreen):
                     }
                     if c.get("hp") is not None:
                         entry["hp"] = int(c["hp"])
+                    if c.get("variant"):
+                        entry["variant"] = int(c["variant"])
                     saved_monsters.append(entry)
 
                 SaveSystem.save_game(

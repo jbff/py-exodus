@@ -145,6 +145,7 @@ class CombatMonster:
         self.definition = definition
         self.name = definition.name or definition.tile.capitalize()
         self.tile = definition.tile
+        self.variant = 0  # LairWare VARMON: 0 plain, 1/2 named variant
         self.basehp = definition.basehp if definition.basehp > 0 else 48
         # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): per-battle HP is
         # make_rnd(cap)|0x0F — the roll's low nibble is forced, so HP floors
@@ -222,10 +223,14 @@ class CombatArena:
         encounter_x: int | None = None,
         encounter_y: int | None = None,
         encounter_tile_walkable: bool | None = None,
+        creature_variant: int = 0,
     ) -> None:
         self.party = party
         self.combat_map = combat_map
         self.creature_tile = creature_tile
+        # LairWare gMonVarType (UltimaMain.c:1353): the encountered monster's
+        # variant names every monster in the fight (Brigand, Devil...).
+        self.creature_variant = creature_variant
         self.asset_mgr = asset_mgr
         # The map combat happens ON (Java CombatScreen.contextMap). Defaults to
         # the party's current map id; drives the Castle of Death (EXODUS) rules.
@@ -268,6 +273,13 @@ class CombatArena:
 
         # Spawn monsters
         self.monsters: list[CombatMonster] = self._spawn_monsters(monster_count)
+        from py_exodus.world.monster_variants import variant_name
+
+        vname = variant_name(self.creature_def.tile, creature_variant)
+        for m in self.monsters:
+            m.variant = creature_variant
+            if vname is not None:
+                m.name = vname
 
         # Place player characters
         self.player_positions: dict[int, tuple[int, int]] = {}

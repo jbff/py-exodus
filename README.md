@@ -16,6 +16,7 @@ A Python 3 / Pygame-CE reimplementation of *Ultima III: Exodus*, with **Auto-Com
   - **Monsters move and attack diagonally** on Sosaria (the party still can't).
   - **Chest traps** are dodged by DEX, with a big bonus for Thieves; nobody is trap-proof.
   - **UNSPEAKABLE** kills like ZXKUQYB: each monster has a 75% chance to die outright.
+  - **Monster variants**: half of Sosaria's wanderers come as a named variant: Brigands and Cutpurses, Goblins and Trolls, Ghouls and Zombies, Golems and Titans, Gargoyles and Manes, Snatches and Bradles, Griffons and Wyverns, Orcuses and Devils. Same stats, new name.
 - **Other classic references**: the Game Boy Color port (`u3gbc`) for moongate routing, ship-battle cannon barrages, meal-crossing starvation/regen and the `QUICKNESS` aura; the NES `MoonGateTbl` for the 8-site moongate table.
 
 ---
