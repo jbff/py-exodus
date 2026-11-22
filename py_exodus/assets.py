@@ -305,22 +305,16 @@ ENTITY_TILES: set[str] = {
 # (UltimaGraphics.c GetTileRectForIndex). Our tile indexes 0-63 are
 # LairWare's, so a sheet maps onto our tiles by index.
 LAIRWARE_TILESETS: dict[str, str] = {
-    "standard": "standard.png",
+    "lairware": "lairware.png",
     "apple2": "apple2.png",
-    "apple2-tv": "apple2-tv.png",
-    "apple2-mono": "apple2-mono.png",
     "c64": "c64.gif",
-    "mac-bw": "mac-bw.gif",
-    "nes": "nes.png",
-    "cga": "cga.gif",
     "ega": "ega.png",
     "mcga": "mcga.png",
-    "vga": "vga.gif",
     "ultima5": "ultima5.png",
 }
 
 
-DEFAULT_TILESET = "standard"
+DEFAULT_TILESET = "ega"  # user 2026-11-22: closest to the old Java art
 # LairWare tile indexes that animate, and how (UltimaMain.c FullUpdate):
 LW_SWAPPED = {6, 7, 11, 13, 14, 15, *range(16, 31), 63}  # two cells side by side
 LW_SCROLL_STEP = {0: 1, 33: 1, 32: 2, 34: 2}  # water, lava: slow; field, moongate: fast
