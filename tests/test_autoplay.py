@@ -814,6 +814,10 @@ def test_buy_keys_before_ambrosia_and_unlock_locked_door(pygame_setup):
     party.x, party.y = 11, 6
     for m in party.members:
         m.cards = [1, 1, 0, 1]  # missing Moons (6, 6)
+        # ALCORT already in reach, so the wisdom shrine does not come first
+        # (user ruling 2026-11-21: an early trip buys the Cleric's wisdom).
+        if m.profession in (Profession.CLERIC, Profession.DRUID):
+            m.max_mp = 40
     ow = OverworldScreen(party=party, map_id=13, asset_mgr=am, random_encounters=False)
     ow.creatures = []
     sm.set_screen(ow)
@@ -1768,7 +1772,10 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
     ow_bay.creatures = [{"x": 34, "y": 10, "tile_name": "pirate"}]
     sm.set_screen(ow_bay)
     ctrl._key_queue.clear()
-    assert ctrl.step(sm) == pygame.K_SPACE
+    # User rulings (2026-11-21): no waiting by a pirate, and with no ALCORT
+    # yet the early trip goes to the wisdom shrine first.
+    assert ctrl.step(sm) != pygame.K_SPACE
+    assert ctrl._trip is not None and ctrl._trip.dest.label == "shrine55,27"
 
     ctrl.step_interval = 0.01
     ctrl._timer = 0.0

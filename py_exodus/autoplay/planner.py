@@ -59,11 +59,62 @@ def needs_cure(party: Party) -> bool:
 # abort for food in time). Surface eating is 1 food per member every 10
 # moves (Party.consume_food, decr_interval 40 vs 400 submorsels); a visit
 # runs ~1500-2500 moves, and finding a pirate and sailing out ~500-800.
-AMBROSIA_ENTRY_FOOD = 300
+AMBROSIA_ENTRY_FOOD = 200
 AMBROSIA_ABORT_FOOD = 80
 # Keys beyond the card doors: the door east of the arrival point and the
 # water door between the east basin and the whirlpool bay.
 AMBROSIA_SPARE_KEYS = 2
+
+
+def alcort_wisdom_gap(party: Party) -> int | None:
+    """Wisdom points (100 gold each at the Ambrosia shrine) until a living
+    Cleric/Druid can cast ALCORT (max MP 35: Cleric MP = WIS, Druid MP =
+    max(INT, WIS) // 2). 0 = already able; None = nobody can get there."""
+    gaps = []
+    for m in party.members:
+        if m.is_dead():
+            continue
+        if m.profession == Profession.CLERIC:
+            need = 35
+        elif m.profession == Profession.DRUID:
+            need = 70
+        else:
+            continue
+        if m.max_mp >= 35:
+            return 0
+        if getattr(m, "max_wis", 99) >= need:
+            gaps.append(max(0, need - m.wisdom))
+    return min(gaps) if gaps else None
+
+
+def ambrosia_trip_gold(party: Party, needed_keys: int) -> int:
+    """Gold the party should hold before sailing for Ambrosia.
+
+    User ruling (2026-11-21): the first trip is early and cheap, just the
+    wisdom a Cleric needs for ALCORT (it ends the healer runs that eat the
+    gold); the 4500 shrine budget comes after ALCORT. The target also
+    covers the food and keys still to buy, so buying them never drops the
+    party back under it.
+    """
+    living = [m for m in party.members if not m.is_dead()]
+    gap = alcort_wisdom_gap(party)
+    if gap:
+        shrine_gold = gap * 100 + 200  # the shrine keeps a 150 reserve
+    else:
+        any_below_cap = any(
+            member_needs_shrine_stat(m, stat_attr, cap_attr)
+            for m in living
+            for stat_attr, cap_attr in (
+                ("strength", "max_str"),
+                ("dexterity", "max_dex"),
+                ("wisdom", "max_wis"),
+                ("intelligence", "max_int"),
+            )
+        )
+        shrine_gold = 4500 if any_below_cap else 1500
+    food_gold = sum(max(0, AMBROSIA_ENTRY_FOOD - m.food) for m in living) * 6 // 5
+    keys_short = max(0, needed_keys + AMBROSIA_SPARE_KEYS - sum(m.keys for m in living))
+    return shrine_gold + food_gold + 50 * keys_short
 
 
 def needs_food(party: Party) -> bool:
@@ -267,22 +318,11 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
             return Goal.AMBROSIA_CARDS_SHRINES
         if sum(m.keys for m in living) < 4 and party.gold >= 50:
             return Goal.BUY_KEYS
-        any_below_cap = any(
-            member_needs_shrine_stat(m, stat_attr, cap_attr)
-            for m in living
-            for stat_attr, cap_attr in (
-                ("strength", "max_str"),
-                ("dexterity", "max_dex"),
-                ("wisdom", "max_wis"),
-                ("intelligence", "max_int"),
-            )
-        )
-        gold_target = 4500 if any_below_cap else 1500
-        if len(living) < len(party.members) or party.gold < gold_target:
-            return Goal.GRIND_AND_LEVEL
         needed_keys = sum(
             1 for idx in (0, 2) if not any(m.cards[idx] > 0 for m in living)
         )
+        if len(living) < len(party.members) or party.gold < ambrosia_trip_gold(party, needed_keys):
+            return Goal.GRIND_AND_LEVEL
         if sum(m.keys for m in living) < needed_keys + AMBROSIA_SPARE_KEYS:
             if party.gold >= 50:
                 return Goal.BUY_KEYS

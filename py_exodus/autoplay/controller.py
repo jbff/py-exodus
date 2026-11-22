@@ -23,6 +23,7 @@ from py_exodus.autoplay.nav import (
 from py_exodus.autoplay.planner import (
     Goal,
     evaluate_goal,
+    alcort_wisdom_gap,
     member_needs_shrine_stat,
     needs_heal,
     prefer_ranged_weapons,
@@ -1692,6 +1693,25 @@ class AutoPlayController:
         return None
 
     def _ambrosia_destination(self, sm, party, px, py, living):
+        # Wisdom for ALCORT first (user ruling 2026-11-21): it is why the
+        # early trip is made; cards and other stats come after.
+        if alcort_wisdom_gap(party) and party.gold >= 250:
+            m_need = next(
+                (
+                    i + 1 for i, m in enumerate(party.members)
+                    if not m.is_dead() and m.profession in (Profession.CLERIC, Profession.DRUID)
+                    and member_needs_shrine_stat(m, "wisdom", "max_wis")
+                ),
+                None,
+            )
+            if m_need is not None:
+                def _wis() -> int:
+                    if party.members[m_need - 1].gold < 100 and party.gold >= 100:
+                        self._join_gold_member_idx = m_need
+                        return self._emit_key(sm, pygame.K_j)
+                    return self._emit_key(sm, pygame.K_e)
+
+                return Destination(frozenset({(55, 27)}), Transport.FOOT, "shrine55,27"), _wis
         uncollected = [
             (tx, ty, card_idx)
             for tx, ty, card_idx in _AMBROSIA_CARD_SITES
