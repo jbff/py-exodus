@@ -198,6 +198,57 @@ def find_2d_step_and_cost(
     return (None, None)
 
 
+def reachable_2d(
+    game_map: GameMap,
+    start: tuple[int, int],
+    transport: Transport = Transport.FOOT,
+    party: Party | None = None,
+    avoid_tiles: set[tuple[int, int]] | None = None,
+    allow_locked_doors: bool = False,
+) -> set[tuple[int, int]]:
+    """Every tile reachable from ``start`` under find_2d_step's rules.
+
+    Tiles that are not passable themselves but may be a step's goal (a
+    chest under a counter, say) are not included; callers test goals
+    against the neighbours of this set when they need that."""
+    has_fire = party is not None and any(not m.is_dead() and m.marks[1] > 0 for m in party.members)
+    has_force = tile_effects.all_members_mark_of_force(party)
+    wraps = getattr(game_map, "border_behavior", "exit") == "wrap"
+    w, h = game_map.width, game_map.height
+    avoid = avoid_tiles or set()
+
+    def _passable(nx: int, ny: int) -> bool:
+        t = game_map.get_tile(nx, ny)
+        tname = str(getattr(t, "name", "")).lower() if t else ""
+        if tname in ("lava", "fire") and not has_fire:
+            return False
+        if tname in ("energy_field", "force_field") and not has_force:
+            return False
+        if can_move_to(game_map, nx, ny, transport=transport, party=party):
+            return True
+        if allow_locked_doors and t is not None and tname == "locked_door":
+            return locked_door_passable(game_map, nx, ny, transport, party)
+        return False
+
+    seen = {start}
+    queue: deque[tuple[int, int]] = deque([start])
+    while queue:
+        cx, cy = queue.popleft()
+        for d in _CARDINALS:
+            nx, ny = cx + d.dx, cy + d.dy
+            if wraps:
+                nx %= w
+                ny %= h
+            elif not (0 <= nx < w and 0 <= ny < h):
+                continue
+            n = (nx, ny)
+            if n in seen or n in avoid or not _passable(nx, ny):
+                continue
+            seen.add(n)
+            queue.append(n)
+    return seen
+
+
 def find_2d_step(
     game_map: GameMap,
     start: tuple[int, int],

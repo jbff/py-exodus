@@ -1,6 +1,8 @@
 """Live input-driver AutoPlayController for Full Autoplay ("Watch Mode")."""
 from __future__ import annotations
 
+import sys
+
 import random
 from collections import deque
 from pathlib import Path
@@ -19,6 +21,7 @@ from py_exodus.autoplay.nav import (
     find_2d_step_and_cost,
     find_dungeon_step,
     locked_door_passable,
+    reachable_2d,
 )
 from py_exodus.autoplay.planner import (
     Goal,
@@ -296,7 +299,21 @@ class AutoPlayController:
             self._timer = 0.0
         return stepped
 
+    _WHY_SKIP = frozenset({"_emit_key", "_step_or_unlock", "_move_toward", "_attack"})
+
     def _emit_key(self, state_machine: StateMachine, key: int, guarded: bool = True) -> int:
+        # Trace "why": the autoplay functions that chose this key (nearest
+        # first), so a loop in a trace names its branch.
+        f = sys._getframe(1)
+        why: list[str] = []
+        while f is not None and len(why) < 3:
+            name = f.f_code.co_name
+            if name in ("step", "_step"):
+                break
+            if name not in self._WHY_SKIP and f.f_code.co_filename == __file__:
+                why.append(f"{name}:{f.f_lineno}")
+            f = f.f_back
+        self._last_why = "<".join(why) or None
         if guarded:
             key = self._lane_guard(state_machine, key)
         event = pygame.event.Event(
@@ -318,9 +335,10 @@ class AutoPlayController:
 
     def step(self, state_machine: StateMachine) -> int | None:
         """Emit one logical input step for the active screen (traced when a tracer is set)."""
+        self._last_why = None
         key = self._step(state_machine)
         if self.tracer is not None:
-            self.tracer.record_step(state_machine, key)
+            self.tracer.record_step(state_machine, key, why=self._last_why)
         return key
 
     def _step(self, state_machine: StateMachine) -> int | None:
@@ -717,25 +735,50 @@ class AutoPlayController:
             # User report (2026-11-21): G with a low-dex Thief once the MP
             # ran out poisoned the party on nearly every raid. Raid only
             # while a chest can be opened safely (APPAR UNEM or dex 74+);
-            # otherwise leave and come back with MP.
-            and self._chest_opener(party) is not None
+            # otherwise wait in town for the caster's MP (below).
+            and (self._chest_opener(party) is not None or self._mana_caster(party) is not None)
         ):
+            opener = self._chest_opener(party)
             dg_chests = {
                 (x, y)
                 for y in range(gmap.height)
                 for x in range(gmap.width)
                 if "chest" in str(getattr(gmap.get_tile(x, y), "name", "")).lower()
             }
-            if (px, py) in dg_chests:
+            if opener is not None and (px, py) in dg_chests:
                 return self._open_chest(state_machine, party)
             has_key = any(not m.is_dead() and m.keys > 0 for m in party.members)
-            if dg_chests:
-                d = find_2d_step(
-                    gmap, (px, py), dg_chests, Transport.FOOT, party=party,
-                    avoid_tiles=npc_tiles, allow_locked_doors=has_key,
+            # Only chests the party can actually reach, people who move
+            # treated as passing (they step aside); FIXED people stay walls.
+            # The pub's chests behind its counters are never reachable:
+            # chasing them, re-routed every turn around the pub's wandering
+            # thieves, circled (53-54,32-33) for thousands of steps (live
+            # trace 2026-11-22, turns 52,690-57,100).
+            fixed_npcs = [n for n in gmap.npcs if getattr(n, "movement", "FIXED") == "FIXED"]
+            saved_npcs = gmap.npcs
+            gmap.npcs = fixed_npcs
+            try:
+                reach = reachable_2d(
+                    gmap, (px, py), Transport.FOOT, party=party,
+                    avoid_tiles={(n.x, n.y) for n in fixed_npcs}, allow_locked_doors=has_key,
                 )
-                if d is not None:
-                    return self._step_or_unlock(state_machine, gmap, party, px, py, d)
+            finally:
+                gmap.npcs = saved_npcs
+            open_chests = dg_chests & reach
+            # Out of MP for APPAR UNEM with chests still to open: wait here
+            # until the caster has several casts' worth. Walking toward the
+            # exit at 0-4 MP and back at 5 cost a round trip per chest.
+            caster = self._mana_caster(party)
+            if caster is not None and open_chests and (opener is None or self._mana_waiting):
+                if caster.mp < min(caster.max_mp, self._RAID_MANA_TARGET):
+                    self._mana_waiting = True
+                    return self._emit_key(state_machine, pygame.K_SPACE)
+            self._mana_waiting = False
+            if opener is not None and open_chests:
+                key = self._town_step_patient(state_machine, gmap, party, px, py, open_chests, npc_tiles)
+                if key is not None:
+                    return key
+            if dg_chests:
                 # Path to chests blocked by a guard: only bribe a guard standing in a
                 # chokepoint that separates us from unvisited passable tiles.
                 guards = {
@@ -747,6 +790,10 @@ class AutoPlayController:
                 if guards and living and party.gold >= 100:
                     from py_exodus.screens.overworld import can_move_to
 
+                    # Moving people are not walls (they step aside); only
+                    # FIXED ones close off a room.
+                    fixed_tiles = {(n.x, n.y) for n in fixed_npcs}
+
                     reachable = {(px, py)}
                     rq = deque([(px, py)])
                     while rq:
@@ -755,7 +802,7 @@ class AutoPlayController:
                             nx, ny = rx + dx, ry + dy
                             if (nx, ny) in reachable or not (0 <= nx < gmap.width and 0 <= ny < gmap.height):
                                 continue
-                            if (nx, ny) in npc_tiles:
+                            if (nx, ny) in fixed_tiles:
                                 continue
                             t = gmap.get_tile(nx, ny)
                             tname = str(getattr(t, "name", "")).lower() if t else ""
@@ -2462,6 +2509,22 @@ class AutoPlayController:
         return ("get", idx) if idx is not None else None
 
     _CHEST_RISK_LEVEL = 8
+    _RAID_MANA_TARGET = 15
+    _mana_waiting = False
+
+    @staticmethod
+    def _mana_caster(party):
+        """The living APPAR UNEM caster (Cleric/Paladin/Druid) who can ever
+        afford it (max MP >= 5), or None."""
+        return next(
+            (
+                m for m in party.members
+                if not m.is_dead()
+                and m.profession in (Profession.CLERIC, Profession.PALADIN, Profession.DRUID)
+                and m.max_mp >= 5
+            ),
+            None,
+        )
 
     def _chest_too_risky(self, party) -> bool:
         """Leave dropped chests alone when nobody can open one safely and

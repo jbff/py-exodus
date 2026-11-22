@@ -152,7 +152,9 @@ class RunTracer:
         except Exception:
             pass
 
-    def record_step(self, state_machine: StateMachine, key: int | None, goal: Any = None) -> None:
+    def record_step(
+        self, state_machine: StateMachine, key: int | None, goal: Any = None, why: str | None = None
+    ) -> None:
         """Call once per autoplay step, after the step's key was emitted."""
         if not self.enabled or self._file is None:
             return
@@ -224,8 +226,17 @@ class RunTracer:
         }
         if z is not None:
             row["z"] = z
+        if why:
+            row["why"] = why
         if kind == "OverworldScreen":
             row["near"] = nearby_creatures(screen, party)
+        elif kind == "TownScreen":
+            gm = getattr(screen, "game_map", None)
+            row["people"] = [
+                [n.x, n.y, str(getattr(n, "tile_name", ""))[:3], str(getattr(n, "movement", ""))[:1]]
+                for n in (getattr(gm, "npcs", ()) or ())
+                if abs(n.x - x) <= 4 and abs(n.y - y) <= 4
+            ]
         self._emit(row)
 
     def end(self, outcome: str, party=None, exc: BaseException | None = None) -> None:
