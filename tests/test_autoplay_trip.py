@@ -442,3 +442,20 @@ def test_healthy_party_does_not_flee(pygame_setup, asset_mgr):
     ctrl = AutoPlayController(enabled=True)
     ctrl.step(sm)
     assert not ctrl._fleeing
+
+
+def test_squid_fought_on_foot_when_healthy(pygame_setup, asset_mgr):
+    """User rule (2026-11-21): the squid by Castle British is fought on foot
+    by a healthy party (no keep-away zone); a poisoned party keeps clear."""
+    from py_exodus.constants import Status
+
+    party = _make_party(level=5)
+    party.x, party.y = 45, 20
+    sm, ow = _overworld(asset_mgr, party)
+    ow.creatures = [{"tile_name": "squid", "tile": "squid", "x": 44, "y": 22}]
+    ctrl = AutoPlayController(enabled=True)
+    ctrl._threat_escape(sm, ow, party, party.x, party.y)
+    assert not ctrl._threats.squid_engage
+    party.members[0].status = Status.POISONED
+    ctrl._threat_escape(sm, ow, party, party.x, party.y)
+    assert ctrl._threats.squid_engage

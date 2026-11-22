@@ -1018,7 +1018,14 @@ class AutoPlayController:
     def _threat_escape(self, state_machine: StateMachine, screen, party, px: int, py: int) -> int | None:
         """Never end a turn in a pirate firing lane or next to a squid (pre-ALCORT)."""
         gmap = screen.game_map
-        th = compute_threats(gmap, party, getattr(screen, "creatures", ()) or ())
+        # Squids (user rule 2026-11-21): from a ship the cannons deal with
+        # them; on foot a healthy, unpoisoned party fights them.
+        fight_squids = (
+            party.transport != Transport.SHIP
+            and not party_has_low_hp(party)
+            and all(m.status != Status.POISONED for m in party.members if not m.is_dead())
+        )
+        th = compute_threats(gmap, party, getattr(screen, "creatures", ()) or (), fight_squids=fight_squids)
         self._threats = th
         pos = (px, py)
         on_ship = party.transport == Transport.SHIP
@@ -1190,6 +1197,8 @@ class AutoPlayController:
                 if "x" not in c or "y" not in c or tname in ("whirlpool", "pirate"):
                     continue
                 is_sea = tname in SEA_MONSTERS
+                if tname == "squid" and not avoid_all_land and th is not None and not th.squid_engage:
+                    continue  # fighting squids on foot (see _threat_escape)
                 if (is_sea and (avg_max_hp < 400 or avoid_all_land)) or (not is_sea and avoid_all_land):
                     cx, cy = c["x"], c["y"]
                     rad = 2 if (avoid_all_land and (is_sea or goal in (Goal.BUY_FOOD, Goal.RESURRECT_DEAD, Goal.CURE_POISON))) else 1

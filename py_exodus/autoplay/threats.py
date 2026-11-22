@@ -86,10 +86,12 @@ class Threats:
         return self.lanes | self.squid_engage
 
 
-def compute_threats(gmap, party, creatures) -> Threats:
+def compute_threats(gmap, party, creatures, fight_squids: bool = False) -> Threats:
+    """``fight_squids``: the party meets squids instead of keeping clear
+    (user rule 2026-11-21: fight the squid on foot, cannon it from a ship)."""
     w, h = gmap.width, gmap.height
     th = Threats(w, h)
-    avoid_squids = not party_has_alcort(party)
+    avoid_squids = not party_has_alcort(party) and not fight_squids
     for c in creatures:
         if "x" not in c or "y" not in c:
             continue
