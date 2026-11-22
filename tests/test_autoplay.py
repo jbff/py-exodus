@@ -1825,6 +1825,11 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
         weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC,
     )
     p_dg.members[0].keys = 4
+    # The raid opens chests only safely (APPAR UNEM / dex 74+; user report
+    # 2026-11-21), so give the Cleric the 5 MP for the cast.
+    for _m in p_dg.members:
+        if _m.profession == Profession.CLERIC:
+            _m.mp = 10
     assert evaluate_goal(p_dg, map_id=0) == Goal.GRIND_AND_LEVEL
     ts_dg = TownScreen(party=p_dg, asset_mgr=am, map_id=10, start_x=13, start_y=8)
     sm.set_screen(ts_dg)
@@ -2137,7 +2142,10 @@ def test_no_resting_on_unsafe_town_maps(pygame_setup):
     party.members[0].max_hp = 500
     party.members[2].mp = 0
     party.members[2].max_mp = 50
-    ts = TownScreen(party=party, asset_mgr=am, map_id=10, start_x=13, start_y=8)
+    # Open street, not the sealed chest room at (13, 8): with no safe
+    # chest opener the raid is off, and inside that room no exit path
+    # exists (only a test placement can put a party there).
+    ts = TownScreen(party=party, asset_mgr=am, map_id=10, start_x=20, start_y=32)
     sm = StateMachine(asset_mgr=am, audio=None)
     sm.set_screen(ts)
     ctrl = AutoPlayController(enabled=True)

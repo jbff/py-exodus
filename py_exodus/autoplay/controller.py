@@ -717,6 +717,11 @@ class AutoPlayController:
             and party.gold < 9000
             and party.food >= 40
             and all(not m.is_dead() and m.hp > 100 for m in party.members)
+            # User report (2026-11-21): G with a low-dex Thief once the MP
+            # ran out poisoned the party on nearly every raid. Raid only
+            # while a chest can be opened safely (APPAR UNEM or dex 74+);
+            # otherwise leave and come back with MP.
+            and self._chest_opener(party) is not None
         ):
             dg_chests = {
                 (x, y)
@@ -725,14 +730,7 @@ class AutoPlayController:
                 if "chest" in str(getattr(gmap.get_tile(x, y), "name", "")).lower()
             }
             if (px, py) in dg_chests:
-                caster = self._find_caster(
-                    party, (Profession.CLERIC, Profession.PALADIN, Profession.DRUID), min_mp=5
-                )
-                if caster is not None:
-                    self._queue_text(f"{caster[0]}b", enter=False)
-                    return self._emit_key(state_machine, pygame.K_c)
-                self._queue_text("1", enter=False)
-                return self._emit_key(state_machine, pygame.K_g)
+                return self._open_chest(state_machine, party)
             has_key = any(not m.is_dead() and m.keys > 0 for m in party.members)
             if dg_chests:
                 d = find_2d_step(
@@ -1050,14 +1048,7 @@ class AutoPlayController:
             str(o.get("tile", "")).lower() == "chest" and (o.get("x"), o.get("y")) == pos
             for o in getattr(party, "dynamic_objects", ()) or ()
         ):
-            caster = self._find_caster(
-                party, (Profession.CLERIC, Profession.PALADIN, Profession.DRUID), min_mp=5
-            )
-            if caster is not None:
-                self._queue_text(f"{caster[0]}b", enter=False)
-                return self._emit_key(state_machine, pygame.K_c, guarded=False)
-            self._queue_text("1", enter=False)
-            return self._emit_key(state_machine, pygame.K_g, guarded=False)
+            return self._open_chest(state_machine, party, guarded=False)
 
         has_key = any(not m.is_dead() and m.keys > 0 for m in party.members)
         if on_ship:
@@ -1246,14 +1237,7 @@ class AutoPlayController:
                 if str(obj.get("tile", "")).lower() == "chest"
             }
             if (px, py) in chests:
-                caster = self._find_caster(
-                    party, (Profession.CLERIC, Profession.PALADIN, Profession.DRUID), min_mp=5
-                )
-                if caster is not None:
-                    self._queue_text(f"{caster[0]}b", enter=False)
-                    return self._emit_key(state_machine, pygame.K_c)
-                self._queue_text("1", enter=False)
-                return self._emit_key(state_machine, pygame.K_g)
+                return self._open_chest(state_machine, party)
             if chests and (
                 goal in (Goal.GRIND_AND_LEVEL, Goal.OUTFIT_BRITAIN, Goal.AMBROSIA_CARDS_SHRINES)
                 or (goal not in (Goal.BUY_FOOD, Goal.RESURRECT_DEAD, Goal.CURE_POISON) and not needs_heal(party))
@@ -1712,6 +1696,29 @@ class AutoPlayController:
                     return self._emit_key(sm, pygame.K_e)
 
                 return Destination(frozenset({(55, 27)}), Transport.FOOT, "shrine55,27"), _wis
+        # Then dexterity 74 for a Thief/Lark (user idea 2026-11-21): a
+        # member who always dodges chest traps loots with G, no MP needed.
+        if (
+            not alcort_wisdom_gap(party)
+            and party.gold >= 250
+            and not any(not m.is_dead() and m.dex >= self._TRAP_PROOF_DEX for m in party.members)
+        ):
+            d_need = next(
+                (
+                    i + 1 for i, m in enumerate(party.members)
+                    if not m.is_dead() and m.profession in (Profession.THIEF, Profession.LARK)
+                    and getattr(m, "max_dex", 0) >= self._TRAP_PROOF_DEX
+                ),
+                None,
+            )
+            if d_need is not None:
+                def _dex() -> int:
+                    if party.members[d_need - 1].gold < 100 and party.gold >= 100:
+                        self._join_gold_member_idx = d_need
+                        return self._emit_key(sm, pygame.K_j)
+                    return self._emit_key(sm, pygame.K_e)
+
+                return Destination(frozenset({(45, 52)}), Transport.FOOT, "shrine45,52"), _dex
         uncollected = [
             (tx, ty, card_idx)
             for tx, ty, card_idx in _AMBROSIA_CARD_SITES
@@ -2303,6 +2310,43 @@ class AutoPlayController:
         if not member.marks or member.marks[0] == 0:
             eligible_level = min(eligible_level, 5)
         return eligible_level > member.level
+
+    # dex + 25 >= randrange(100) always evades a chest trap (chests.py).
+    _TRAP_PROOF_DEX = 74
+
+    def _chest_opener(self, party) -> tuple[str, int] | None:
+        """Who opens a chest without risking a trap: APPAR UNEM from a
+        Cleric/Paladin/Druid with 5 MP, else G by a member whose dexterity
+        always dodges (74+). None = nobody can open one safely."""
+        caster = self._find_caster(
+            party, (Profession.CLERIC, Profession.PALADIN, Profession.DRUID), min_mp=5
+        )
+        if caster is not None:
+            return ("cast", caster[0])
+        idx = next(
+            (i + 1 for i, m in enumerate(party.members)
+             if not m.is_dead() and m.dex >= self._TRAP_PROOF_DEX),
+            None,
+        )
+        return ("get", idx) if idx is not None else None
+
+    def _open_chest(self, state_machine, party, guarded: bool = True) -> int:
+        """Open the chest underfoot the safest way available (G with the
+        highest-dex member when nobody is safe)."""
+        opener = self._chest_opener(party)
+        if opener is not None and opener[0] == "cast":
+            self._queue_text(f"{opener[1]}b", enter=False)
+            return self._emit_key(state_machine, pygame.K_c, guarded=guarded)
+        if opener is not None:
+            idx = opener[1]
+        else:
+            idx = max(
+                (i + 1 for i, m in enumerate(party.members) if not m.is_dead()),
+                key=lambda i: party.members[i - 1].dex,
+                default=1,
+            )
+        self._queue_text(str(idx), enter=False)
+        return self._emit_key(state_machine, pygame.K_g, guarded=guarded)
 
     @staticmethod
     def _find_caster(

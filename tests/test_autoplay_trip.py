@@ -571,3 +571,26 @@ def test_early_ambrosia_trip_targets_alcort_wisdom(pygame_setup):
     cleric.wisdom = 35
     assert alcort_wisdom_gap(party) == 0
     assert ambrosia_trip_gold(party, 2) >= 1500
+
+
+def test_chest_opener_never_risks_a_trap_when_it_can_avoid_it(pygame_setup):
+    """User report (2026-11-21): Death Gulch raids poisoned the party once
+    the healer's MP ran out and a 25-dex Thief took chests with G. Open with
+    APPAR UNEM (5 MP) or a dex-74+ member (dex+25 >= rand(100) always
+    dodges); with neither, the raid is off."""
+    from py_exodus.constants import Profession
+
+    party = _make_party(level=10)
+    ctrl = AutoPlayController(enabled=True)
+    healer = next(
+        i + 1 for i, m in enumerate(party.members)
+        if m.profession in (Profession.CLERIC, Profession.PALADIN, Profession.DRUID)
+    )
+    party.members[healer - 1].mp = 5
+    assert ctrl._chest_opener(party) == ("cast", healer)
+    for m in party.members:
+        m.mp = 4
+        m.dex = 25
+    assert ctrl._chest_opener(party) is None
+    party.members[0].dex = 74
+    assert ctrl._chest_opener(party) == ("get", 1)
