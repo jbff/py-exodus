@@ -16,12 +16,8 @@ from py_exodus.entities.party import Party
 from py_exodus.screens.base import BaseScreen
 from py_exodus.ui.text_log import (
     EGA_BLACK,
-    EGA_BRIGHT_BLUE,
     EGA_BRIGHT_CYAN,
-    EGA_BRIGHT_GREEN,
-    EGA_BRIGHT_RED,
     EGA_DARK_GRAY,
-    EGA_LIGHT_GRAY,
     EGA_WHITE,
     EGA_YELLOW,
     TextLog,
@@ -83,9 +79,7 @@ class RosterScreen(BaseScreen):
         self.focus_panel: str = "roster"  # "roster" or "party"
 
         self.text_log = TextLog(max_lines=3, wrap_width=45)
-        self.text_log.add_message(
-            "Party Formation: [A]dd, [R]emove, [C]reate, [P] Save, [E]mbark"
-        )
+        self.text_log.add_message("Form a party of up to four, then Enter to embark.")
 
         # Creation wizard state
         self._creating_char: bool = False
@@ -512,89 +506,114 @@ class RosterScreen(BaseScreen):
             self.next_screen = overworld
             self.is_finished = True
 
+    # LairWare DrawOrganizeMenu colors: a banded row per slot.
+    _BAND_NUM = (64, 255, 64)
+    _BAND_NAME = (0, 128, 0)
+    _BAND_LVL = (0, 96, 0)
+    _BAND_DESC = (0, 64, 0)
+    _STATUS_INK = {"P": (64, 255, 64), "D": (255, 64, 64), "A": (192, 192, 192)}
+    _STATUS_WORD = {"P": "Poisoned ", "D": "Dead ", "A": "Ashes "}
+    _SEX_WORD = {"M": "Male", "F": "Female", "O": "Other"}
+
+    def _in_party(self, char: Character) -> bool:
+        return any(m.name.upper() == char.name.upper() for m in self.party.members)
+
+    @classmethod
+    def describe(cls, char: Character) -> str:
+        """LairWare's row text: status (when not good), race, class, sex."""
+        st = getattr(char.status, "value", str(char.status))[:1]
+        race = getattr(char.race, "name", str(char.race)).title()
+        prof = getattr(char.profession, "name", str(char.profession)).title()
+        sex = cls._SEX_WORD.get(getattr(char.sex, "value", str(char.sex))[:1], "")
+        return f"{cls._STATUS_WORD.get(st, '')}{race} {prof} {sex}".strip()
+
     def render(self, surface: pygame.Surface) -> None:
         surface.fill(EGA_BLACK)
         w, h = surface.get_width(), surface.get_height()
-        scale = 3 if w >= 640 else 1
+        k = w / 960.0
+        px = lambda v: max(1, int(round(v * k)))  # noqa: E731
+        f_title = get_hud_font(size=px(26), font_name="BarlowSemiCondensed-SemiBold.ttf")
+        f_row = get_hud_font(size=px(17))
+        f_bold = get_hud_font(size=px(17), font_name="BarlowSemiCondensed-SemiBold.ttf")
+        f_small = get_hud_font(size=px(14))
 
-        f_title = get_hud_font(size=14 * scale, font_name="ultima.ttf")
-        f_hud = get_hud_font(size=11 * scale)
-        f_small = get_hud_font(size=10 * scale)
+        def center_y(img, top, height):
+            return top + (height - img.get_height()) // 2
 
-        # 1. Title Banner
-        title = "PARTY FORMATION & ROSTER"
-        title_surf = f_title.render(title, True, EGA_YELLOW)
-        surface.blit(title_surf, ((w - title_surf.get_width()) // 2, 4 * scale))
+        y = px(10)
+        title = f_title.render("Organize Party", True, EGA_WHITE)
+        surface.blit(title, ((w - title.get_width()) // 2, y))
+        y += title.get_height() + px(8)
 
-        # 2. Party Box (Left)
-        p_rect = pygame.Rect(6 * scale, 22 * scale, 144 * scale, 122 * scale)
-        pygame.draw.rect(surface, (15, 15, 30), p_rect)
-        border_col = EGA_YELLOW if self.focus_panel == "party" else EGA_DARK_GRAY
-        pygame.draw.rect(surface, border_col, p_rect, max(1, scale))
-
-        p_header = f"PARTY ({len(self.party.members)}/4)"
-        surface.blit(f_hud.render(p_header, True, EGA_BRIGHT_CYAN), (10 * scale, 26 * scale))
-
-        for slot in range(4):
-            slot_y = (42 + slot * 24) * scale
-            is_sel = (self.focus_panel == "party" and self.selected_party_idx == slot)
-            marker = ">" if is_sel else " "
-
-            if slot < len(self.party.members):
-                m = self.party.members[slot]
-                p_name = m.name.upper()[:7]
-                prof_name = getattr(m.profession, "name", str(m.profession))[:5]
-                col = EGA_YELLOW if is_sel else EGA_WHITE
-                surface.blit(f_small.render(f"{marker}[{slot+1}] {p_name} ({prof_name})", True, col), (10 * scale, slot_y))
-                surface.blit(f_small.render(f"    H:{m.hp} M:{m.mp} S:{m.str:<2} D:{m.dex:<2} I:{m.int:<2} W:{m.wis:<2}", True, EGA_LIGHT_GRAY), (10 * scale, slot_y + 11 * scale))
+        # The party: four slots across.
+        slot_w = (w - px(40)) // 4
+        slot_h = px(30)
+        lbl = f_small.render("PARTY", True, (125, 143, 160))
+        surface.blit(lbl, (px(16), y))
+        y += lbl.get_height() + px(2)
+        for i in range(4):
+            r = pygame.Rect(px(16) + i * (slot_w + px(3)), y, slot_w, slot_h)
+            sel = self.focus_panel == "party" and self.selected_party_idx == i
+            pygame.draw.rect(surface, self._BAND_NAME if i < len(self.party.members) else (20, 20, 20), r)
+            if i < len(self.party.members):
+                m = self.party.members[i]
+                img = f_bold.render(m.name.upper(), True, EGA_YELLOW)
+                surface.blit(img, (r.x + px(8), center_y(img, r.y, r.h)))
+                lv = f_small.render(f"Lvl {m.level}", True, EGA_WHITE)
+                surface.blit(lv, (r.right - lv.get_width() - px(8), center_y(lv, r.y, r.h)))
             else:
-                col = EGA_YELLOW if is_sel else EGA_DARK_GRAY
-                surface.blit(f_small.render(f"{marker}[{slot+1}] <EMPTY SLOT>", True, col), (10 * scale, slot_y + 4 * scale))
+                img = f_small.render("empty", True, EGA_DARK_GRAY)
+                surface.blit(img, (r.x + px(8), center_y(img, r.y, r.h)))
+            if sel:
+                pygame.draw.rect(surface, EGA_YELLOW, r, max(1, px(2)))
+        y += slot_h + px(12)
 
-        # 3. Roster Box (Right)
-        r_rect = pygame.Rect(154 * scale, 22 * scale, (w - 160 * scale), 122 * scale)
-        pygame.draw.rect(surface, (15, 15, 30), r_rect)
-        r_border = EGA_YELLOW if self.focus_panel == "roster" else EGA_DARK_GRAY
-        pygame.draw.rect(surface, r_border, r_rect, max(1, scale))
+        # The roster: 20 slots in two columns of 10.
+        lbl = f_small.render(f"ROSTER  {len(self.roster)}/{ROSTER_SLOTS}", True, (125, 143, 160))
+        surface.blit(lbl, (px(16), y))
+        y += lbl.get_height() + px(2)
+        row_h = px(26)
+        col_w = (w - px(40)) // 2
+        widths = (px(30), px(130), px(58))
+        for slot in range(ROSTER_SLOTS):
+            col, row = divmod(slot, 10)
+            x0 = px(16) + col * (col_w + px(8))
+            ry = y + row * (row_h + px(2))
+            cells = (
+                pygame.Rect(x0, ry, widths[0], row_h),
+                pygame.Rect(x0 + widths[0], ry, widths[1], row_h),
+                pygame.Rect(x0 + widths[0] + widths[1], ry, widths[2], row_h),
+                pygame.Rect(x0 + sum(widths), ry, col_w - sum(widths), row_h),
+            )
+            for cell, band in zip(cells, (self._BAND_NUM, self._BAND_NAME, self._BAND_LVL, self._BAND_DESC)):
+                pygame.draw.rect(surface, band, cell)
+            char = self.roster[slot] if slot < len(self.roster) else None
+            in_party = char is not None and self._in_party(char)
+            num = f_row.render(str(slot + 1), True, EGA_WHITE if in_party else EGA_BLACK)
+            surface.blit(num, (cells[0].right - num.get_width() - px(5), center_y(num, ry, row_h)))
+            if char is not None:
+                nm = (f_bold if in_party else f_row).render(
+                    char.name.upper(), True, EGA_YELLOW if in_party else EGA_WHITE)
+                surface.blit(nm, (cells[1].x + px(6), center_y(nm, ry, row_h)))
+                lv = f_row.render(f"Lvl {char.level}", True, EGA_WHITE)
+                surface.blit(lv, (cells[2].x + px(6), center_y(lv, ry, row_h)))
+                st = getattr(char.status, "value", str(char.status))[:1]
+                ds = f_row.render(self.describe(char), True, self._STATUS_INK.get(st, EGA_WHITE))
+                surface.blit(ds, (cells[3].x + px(6), center_y(ds, ry, row_h)))
+            if self.focus_panel == "roster" and slot == self.selected_roster_idx and self.roster:
+                pygame.draw.rect(surface, EGA_YELLOW, pygame.Rect(x0, ry, col_w, row_h), max(1, px(2)))
+        y += 10 * (row_h + px(2)) + px(6)
 
-        r_header = f"ROSTER ({len(self.roster)} RECRUITS)"
-        surface.blit(f_hud.render(r_header, True, EGA_BRIGHT_CYAN), (158 * scale, 26 * scale))
+        # Keys
+        keys = ("[A] Add to party   [R] Remove   [C] Create   [D] Delete   "
+                "[P] Save   [Tab] Party/roster   [Enter] Embark   [Esc] Back")
+        img = f_small.render(keys, True, EGA_BRIGHT_CYAN)
+        surface.blit(img, ((w - img.get_width()) // 2, y))
+        y += img.get_height() + px(6)
 
-        # Show up to 5 recruits at a time
-        max_visible = 5
-        start_idx = max(0, min(self.selected_roster_idx - max_visible // 2, max(0, len(self.roster) - max_visible)))
-        visible_recs = self.roster[start_idx : start_idx + max_visible]
-
-        for i, rec in enumerate(visible_recs):
-            actual_idx = start_idx + i
-            is_sel = (self.focus_panel == "roster" and self.selected_roster_idx == actual_idx)
-            marker = ">" if is_sel else " "
-            col = EGA_YELLOW if is_sel else EGA_WHITE
-            row_y = (44 + i * 18) * scale
-
-            name = rec.name.upper()[:8]
-            prof = getattr(rec.profession, "name", str(rec.profession))[:4]
-            race = getattr(rec.race, "name", str(rec.race))[:3]
-            surface.blit(f_small.render(f"{marker}{actual_idx+1}:{name:<8} {prof} {race}", True, col), (158 * scale, row_y))
-            surface.blit(f_small.render(f"   H:{rec.hp:<3} S:{rec.str:<2} D:{rec.dex:<2} I:{rec.int:<2} W:{rec.wis:<2}", True, EGA_LIGHT_GRAY), (158 * scale, row_y + 9 * scale))
-
-        if not self.roster:
-            surface.blit(f_small.render("No recruits in roster.", True, EGA_DARK_GRAY), (162 * scale, 50 * scale))
-            surface.blit(f_small.render("Press [C] to create one!", True, EGA_BRIGHT_GREEN), (162 * scale, 65 * scale))
-
-        # 4. Command Bar
-        cmd_y = 146 * scale
-        c1 = "[A] Add to Party   [R] Remove from Party"
-        c2 = "[C] Create Hero    [P] Save Party"
-        c3 = "[E/ENTER] Embark!  [ESC] Back to Title"
-        surface.blit(f_small.render(c1, True, EGA_BRIGHT_GREEN), (10 * scale, cmd_y))
-        surface.blit(f_small.render(c2, True, EGA_BRIGHT_CYAN), (10 * scale, cmd_y + 11 * scale))
-        surface.blit(f_small.render(c3, True, EGA_YELLOW), (10 * scale, cmd_y + 22 * scale))
-
-        # 5. Bottom Interactive Text Log
         self.text_log.render(
             surface,
-            rect=pygame.Rect(6 * scale, 176 * scale, w - 12 * scale, h - 178 * scale),
+            rect=pygame.Rect(px(6), y, w - px(12), max(px(40), h - y - px(4))),
             draw_border=True,
             font=f_small,
         )

@@ -223,3 +223,23 @@ def test_roster_screen_rendering(pygame_setup, asset_mgr):
     scr = RosterScreen(asset_mgr=asset_mgr)
     surf = pygame.Surface((320, 200))
     scr.render(surf)
+
+
+def test_roster_rows_follow_lairware_organize_party(pygame_setup):
+    """LairWare DrawOrganizeMenu: one row per character, status + race +
+    class + sex in words, party members in bold yellow, 20 slots."""
+    from py_exodus.constants import Status
+
+    a = Character("Ariel", "F", Race.ELF, Profession.CLERIC)
+    b = Character("Bors", "M", Race.DWARF, Profession.FIGHTER)
+    b.status = Status.DEAD
+    assert RosterScreen.describe(a) == "Elf Cleric Female"
+    assert RosterScreen.describe(b) == "Dead Dwarf Fighter Male"
+    party = Party(members=[])
+    party.add_member(a)
+    scr = RosterScreen(party=party, roster=[a, b])
+    assert scr._in_party(a) and not scr._in_party(b)
+    surf = pygame.Surface((960, 600))
+    scr.render(surf)
+    # Slot 20's band is drawn even with two characters on the roster.
+    assert surf.get_at((960 - 20, 393))[:3] != (0, 0, 0)
