@@ -3,9 +3,10 @@
 User 2026-11-22: "allow fire in any of 4 directions and not bother to track
 heading". LairWare's Fire: only aboard a ship ("Fire <-WHAT?" otherwise),
 any direction, up to three tiles wrapping round the map, the first monster in
-the path is hit half the time (a Balron shrugs off half of those) and
+the path is hit half the time (a pirate shrugs off half of those) and
 "destroyed!"; empty ships don't stop the shot. Ships sail straight off in any
-direction the wind allows, with no turn-to-face press.
+direction the wind allows, with no turn-to-face press. Pirates and dragons
+fire back (moveshoot), at the crew: LairWare ships have no hull.
 """
 from __future__ import annotations
 
@@ -61,14 +62,20 @@ def test_a_low_roll_misses_silently_and_stops_the_shot(ow, monkeypatch):
     assert not any("destroyed" in m for m in ow.text_log.history)
 
 
-def test_balron_shrugs_off_half_the_hits(ow, monkeypatch):
-    ow.creatures = [{"tile_name": "balron", "x": 21, "y": 20}]
-    _rolls(monkeypatch, 10)  # Balron's own roll: shot shrugged off
+def test_a_pirate_shrugs_off_half_the_hits(ow, monkeypatch):
+    """LairWare checks Monsters[store] == 0x3C: map value 0x3C is the Pirate
+    (tile 15), so pirates take a second roll; Balrons don't."""
+    ow.creatures = [{"tile_name": "pirate", "x": 21, "y": 20}]
+    _rolls(monkeypatch, 10)  # the pirate's own roll: shot shrugged off
     ow._fire_cannons(Direction.EAST)
     assert len(ow.creatures) == 1
     _rolls(monkeypatch, 200, 200)
     ow._fire_cannons(Direction.EAST)
-    assert ow.creatures == [] and "Balrons destroyed!" in ow.text_log.history
+    assert ow.creatures == [] and "Pirates destroyed!" in ow.text_log.history
+    ow.creatures = [{"tile_name": "balron", "x": 21, "y": 20}]
+    _rolls(monkeypatch, 200)
+    ow._fire_cannons(Direction.EAST)
+    assert ow.creatures == []
 
 
 def test_range_is_three_tiles(ow, monkeypatch):
@@ -91,7 +98,7 @@ def test_empty_ships_do_not_stop_the_shot(ow, monkeypatch):
     frigate = {"tile": "frigate", "x": 21, "y": 20, "hull": 50}
     ow.party.dynamic_objects.append(frigate)
     ow.creatures = [{"tile_name": "pirate", "x": 22, "y": 20}]
-    _rolls(monkeypatch, 200)
+    _rolls(monkeypatch, 200, 200)
     ow._fire_cannons(Direction.EAST)
     assert frigate["hull"] == 50 and ow.creatures == []
 
@@ -124,3 +131,78 @@ def test_a_ship_sails_straight_off_without_turning(ow):
         ow._move_avatar(d)
         assert (ow.party.x, ow.party.y) == (x, y)
     assert not hasattr(ow, "heading")
+
+
+# --- Monsters that shoot: LairWare moveshoot (UltimaMisc.c:1245-1278) ---
+
+
+def _open_water(ow, x0=14, x1=27, y0=14, y1=27):
+    water = ow.asset_mgr.get_tile_by_name("water")
+    for x in range(x0, x1):
+        for y in range(y0, y1):
+            ow.game_map.set_tile(x, y, water)
+
+
+@pytest.mark.parametrize("dx,dy", [(3, 0), (0, -3), (-2, 0), (2, 2), (-3, 3)])
+def test_pirates_fire_along_rows_columns_and_diagonals(ow, monkeypatch, dx, dy):
+    _open_water(ow)
+    hp = [m.hp for m in ow.party.members]
+    _rolls(monkeypatch, 100, 0)  # fires (<= 127); damage roll 0 & 0x77
+    ow._lw_monster_shoot({"tile_name": "pirate", "x": 20 + dx, "y": 20 + dy})
+    assert [m.hp for m in ow.party.members] == [h - 8 for h in hp]
+    assert ow.cannon_fx[-1]["hit"] is True and ow.cannon_fx[-1]["path"][-1] == (20, 20)
+
+
+def test_the_bomb_is_rand_and_0x77_plus_8_on_every_living_member(ow, monkeypatch):
+    _open_water(ow)
+    hero = ow.party.members[0]
+    hero.hp = 500
+    _rolls(monkeypatch, 0, 255)
+    ow._lw_monster_shoot({"tile_name": "dragon", "x": 22, "y": 20})
+    assert hero.hp == 500 - (0x77 + 8)
+
+
+def test_half_the_time_they_hold_fire(ow, monkeypatch):
+    _open_water(ow)
+    _rolls(monkeypatch, 128)
+    ow._lw_monster_shoot({"tile_name": "pirate", "x": 22, "y": 20})
+    assert ow.cannon_fx == [] and ow.party.members[0].hp == 100
+
+
+def test_off_line_shots_miss_and_range_is_three(ow, monkeypatch):
+    _open_water(ow)
+    _rolls(monkeypatch, 0)
+    ow._lw_monster_shoot({"tile_name": "pirate", "x": 23, "y": 21})  # knight's move
+    _rolls(monkeypatch, 0)
+    ow._lw_monster_shoot({"tile_name": "pirate", "x": 24, "y": 20})  # 4 away
+    assert ow.party.members[0].hp == 100
+    assert all(not fx["hit"] for fx in ow.cannon_fx)
+
+
+def test_mountains_stop_the_shot(ow, monkeypatch):
+    _open_water(ow)
+    ow.game_map.set_tile(21, 20, ow.asset_mgr.get_tile_by_name("mountains"))
+    _rolls(monkeypatch, 0)
+    ow._lw_monster_shoot({"tile_name": "pirate", "x": 22, "y": 20})
+    assert ow.party.members[0].hp == 100
+
+
+def test_a_lethal_bomb_kills(ow, monkeypatch):
+    _open_water(ow)
+    ow.party.members[0].hp = 5
+    _rolls(monkeypatch, 0, 0)
+    ow._lw_monster_shoot({"tile_name": "pirate", "x": 22, "y": 20})
+    assert ow.party.members[0].is_dead()  # HPSubtract: under 1 HP is dead
+
+
+def test_pirates_close_in_and_fire_each_turn(ow, monkeypatch):
+    """A pirate moves like any monster (no turning to sail) and then fires;
+    LairWare ships have no hull, so the crew takes it."""
+    _open_water(ow)
+    monkeypatch.setattr(overworld_module.random, "randint", lambda a, b: 0)
+    ow.random_encounters_enabled = False
+    ow.creatures = [{"tile_name": "pirate", "tile": "pirate", "x": 24, "y": 20}]
+    ow._update_creatures()
+    assert (ow.creatures[0]["x"], ow.creatures[0]["y"]) == (23, 20)
+    assert ow.party.members[0].hp == 92
+    assert not hasattr(ow.party, "ship_hull")

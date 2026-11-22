@@ -960,7 +960,6 @@ def test_deepest_level_klimb_down_clamps(empty_dmap):
     assert state.z == 8
 
 
-
 # --- Renderer geometry locks (2026-11-10 dungeon-render fix) ---
 #
 # Pixel-level regression checks for the projected wireframe renderer:
@@ -1196,7 +1195,7 @@ def test_torch_load_maps_old_boolean_saves(empty_dmap, test_party):
 # cadence ``end_turn(surface=False)`` already runs for towns/castles — the
 # per-member meal pipeline (GBC funcs5.c:1274; LW UltimaMisc.c:1428-1467
 # corroborates). Java DungeonScreen never calls Party.endTurn, so the move
-# counter and the ship-hull roll stay OUT of the dungeon tick; only the
+# counter stays OUT of the dungeon tick; only the
 # meals ride it. A QUICKNESS (stop-time) aura freezes dungeon meals the
 # same way it freezes surface meals.
 
@@ -1231,13 +1230,6 @@ class TestDungeonMealCadence:
         state._tick_turn()
         assert state.party.moves == 0
 
-    def test_dungeon_tick_does_not_repair_ship_hull(self, state):
-        """Hull repair is the sosaria end_turn roll — never the dungeon tick
-        (a party.tick_meals call carries no random roll at all)."""
-        state.party.ship_hull = 10
-        for _ in range(10):
-            state._tick_turn()
-        assert state.party.ship_hull == 10
 
     def test_starvation_crossing_wipes_party_through_dungeon_tick(
         self, empty_dmap

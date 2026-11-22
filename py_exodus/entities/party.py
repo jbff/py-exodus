@@ -228,7 +228,6 @@ class Party:
         map_id: int = 0,
         dungeon_level: int = 0,
         transport: Transport | str = Transport.FOOT,
-        ship_hull: int = 50,
         wind_direction: Direction | str | None = Direction.NORTH,
         gold: int | None = None,
         food: int | None = None,
@@ -267,8 +266,6 @@ class Party:
                 "ship": Transport.SHIP,
             }
             self.transport = lookup_t.get(t, Transport.FOOT)
-
-        self.ship_hull = max(0, min(50, ship_hull))
 
         self.active_member_index = active_member_index
 
@@ -353,10 +350,8 @@ class Party:
             list(dynamic_monsters) if dynamic_monsters is not None else []
         )
 
-        # The frigate most recently disembarked (Java Context.lastShip,
-        # GameScreen.java:587): re-boarding it keeps the hull it left with,
-        # while any other frigate is fresh and resets the hull to 50
-        # (GameScreen.java:958-959). Runtime-only: Java does not persist it.
+        # The frigate most recently disembarked. Runtime-only. LairWare
+        # ships have no hull, so this only tells autoplay which ship is its.
         self.last_ship: dict[str, int] | None = None
 
         # The single typed aura the party carries (Java Context.getAura,
@@ -390,15 +385,6 @@ class Party:
     @active_player.setter
     def active_player(self, val: int) -> None:
         self.active_member_index = val
-
-    @property
-    def shiphull(self) -> int:
-        """Alias for ship_hull."""
-        return self.ship_hull
-
-    @shiphull.setter
-    def shiphull(self, val: int) -> None:
-        self.ship_hull = max(0, min(50, val))
 
     @property
     def torchduration(self) -> int:
@@ -668,7 +654,7 @@ class Party:
         submorsel/meal block sits behind ``mapType != MapType.combat``, so the
         combat round-finish caller (``CombatScreen.finishTurn``,
         ``CombatScreen.java:472``) counts the round as a move and runs the
-        ship-hull roll ONLY.
+        move count ONLY.
 
         USER-DIRECTED GBC-RULES DEVIATION (2026-11-14, supersedes the
         2026-11-10 interpretation for these two rules): starvation and HP
@@ -696,21 +682,15 @@ class Party:
 
         # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): the QUICKNESS
         # (stop-time) aura freezes food consumption — see ``turn_meals``.
-        # The move counter above and the ship-hull roll below still tick
+        # The move counter above still ticks
         # while time is stopped.
         self.turn_meals(surface=surface, combat=combat)
-
-        if sosaria and self.ship_hull < 50 and random.randint(0, 3) == 0:
-            self.ship_hull += 1
-            if self.ship_hull > 50:
-                self.ship_hull = 50
 
     def turn_meals(self, surface: bool = True, combat: bool = False) -> None:
         """Per-member meal pipeline: the submorsel decrement + meal crossing.
 
         Extracted from ``end_turn`` (pending item 23) so the dungeon tick
-        can run the same crossing WITHOUT the move counter or the
-        ship-hull roll. ``end_turn`` passes its own flags here — zero
+        can run the same crossing WITHOUT the move counter. ``end_turn`` passes its own flags here — zero
         behavior change anywhere ``end_turn`` already ran;
         ``DungeonState._tick_turn`` calls ``turn_meals(surface=False)`` on
         every consumed dungeon move (USER-DIRECTED GBC-RULES DEVIATION
@@ -840,13 +820,6 @@ class Party:
             if m.status == Status.POISONED:
                 m.apply_damage(1, False)
 
-    def adjust_ship_hull(self, val: int) -> int:
-        """Adjust ship hull health between 0 and 50."""
-        if val < 0 and debug.CHEATS.nohurt:
-            return self.ship_hull
-        self.ship_hull = max(0, min(50, self.ship_hull + val))
-        return self.ship_hull
-
     # --- Party Status Checks ---
     def is_anyone_alive(self) -> bool:
         """Return True if at least one member is alive."""
@@ -907,7 +880,6 @@ class Party:
             "map_id": self.map_id,
             "dungeon_level": self.dungeon_level,
             "transport": self.transport.value,
-            "ship_hull": self.ship_hull,
             "wind_direction": (
                 self.wind_direction.name if self.wind_direction is not None else None
             ),
@@ -969,7 +941,6 @@ class Party:
             map_id=p_data.get("map_id", 0),
             dungeon_level=p_data.get("dungeon_level", 0),
             transport=p_data.get("transport", Transport.FOOT),
-            ship_hull=p_data.get("ship_hull", 50),
             wind_direction=p_data.get("wind_direction", Direction.NORTH),
             # Per-member model (Java CharacterRecord, SaveGame.java:190-192):
             # gold and food live on the member records. Legacy-migration below

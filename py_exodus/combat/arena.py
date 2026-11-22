@@ -845,12 +845,7 @@ class CombatArena:
         Java truth: ``exodus/CombatScreen.java:470-496`` ``finishTurn`` — every
         combat round-finish opens with
         ``party.endTurn(Maps.get(combatMap.getId()), combatMap.getType())``
-        (``CombatScreen.java:472``), i.e. the round counts as a move and — the
-        only other thing Java's endTurn still does under ``mapType == combat``
-        — the ship hull repairs 1-in-4 while the party's current map is
-        SOSARIA (``Party.java:633-638``; a ship battle happens on Sosaria's
-        water, so ``sosaria`` tracks ``context_map_id`` the way the overworld
-        screen's ``_finish_turn`` does). The per-member meal block is skipped:
+        (``CombatScreen.java:472``), i.e. the round counts as a move. The per-member meal block is skipped:
         Java gates it on ``mapType != MapType.combat`` (``Party.java:600``).
 
         Scoping note (pending item 2, ruled ship-once): Java runs this

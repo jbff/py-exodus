@@ -201,10 +201,7 @@ class TestMealCrossingRegen:
     ``end_turn``) a member with food 0 takes 5 damage and a member with
     food > 0 heals +1 HP unless POISONED (GBC funcs5.c:741-789; LW
     UltimaMisc.c:1428-1493). Both route through ``apply_damage`` — a wipe
-    raises ``PartyDeathException``.
-
-    The ship-hull 1-in-4 roll is pinned on every test that lets ``end_turn``
-    run (RNG hygiene): ``py_exodus.entities.party.random.randint``."""
+    raises ``PartyDeathException``."""
 
     def test_heal_caps_at_max_health(self):
         party = make_party(hero(hp=100, max_hp=100))
@@ -396,7 +393,7 @@ class TestScreenTickRouting:
     def test_move_crossing_heals_and_pass_does_not_starve(self, ow, monkeypatch):
         import pygame
 
-        # Pin the ship-hull roll it must not fire into the assertion.
+        # Pin the party RNG so nothing random fires into the assertion.
         monkeypatch.setattr("py_exodus.entities.party.random.randint", lambda a, b: 1)
         m = ow.party.members[0]
         m.submorsels = 5

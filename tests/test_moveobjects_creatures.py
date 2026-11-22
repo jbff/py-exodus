@@ -224,184 +224,6 @@ class TestFaithfulBreak:
         assert (11, 10) in [(c["x"], c["y"]) for c in ow.creatures]
 
 
-class TestPirateBroadsides:
-    """BaseMap.java:511-538 — the pirate block: cannon fire at range 2-3 on a
-    broadsides heading, the 1-in-2 misaligned turn, and the adjacent rules."""
-
-    def test_pirate_fires_broadsides_aligned_at_dist_2(
-        self, ow, sample_party, combat_trigger, monkeypatch
-    ):
-        """relDir toward the avatar (EAST), range 2, and sailDir NORTH makes
-        EAST a broadsides heading: enemy cannons fire (Utils.java:403-421)
-        and the pirate loses its movement tick (Java 525 continue)."""
-        sample_party.transport = Transport.SHIP
-        sample_party.ship_hull = 50
-        monkeypatch.setattr(
-            "py_exodus.screens.overworld.random.randint", lambda a, b: 0
-        )
-        ow.creatures = [
-            {
-                "tile_name": "pirate",
-                "tile": "pirate",
-                "x": 12,
-                "y": 10,
-                "sail_dir": "NORTH",
-            }
-        ]
-        ow._update_creatures()
-        assert combat_trigger == []
-        assert sample_party.ship_hull == 40  # fireAt: 1-in-3 hit, damageShip(10)
-        assert any("pirate" in m.lower() for m in ow.text_log.history)
-
-    def test_pirate_broadside_hit_damages_party_when_on_foot(
-        self, ow, sample_party, combat_trigger, monkeypatch
-    ):
-        """Utils.java:580-585 — not on a ship: damageParty(10, 25), each
-        member on a coin flip."""
-        monkeypatch.setattr(
-            "py_exodus.screens.overworld.random.randint", lambda a, b: a
-        )  # hit rolls (0..2) hit, coin flips (0..1) hit, damage (10..25) = 10
-        ow.creatures = [
-            {
-                "tile_name": "pirate",
-                "tile": "pirate",
-                "x": 12,
-                "y": 10,
-                "sail_dir": "NORTH",
-            }
-        ]
-        before = [m.hp for m in sample_party.members]
-        ow._update_creatures()
-        after = [m.hp for m in sample_party.members]
-        assert after == [100 - 10, 70 - 10]  # both members lose the coin flip
-
-    def test_pirate_turns_to_broadsides_misaligned_coin_hit(
-        self, ow, sample_party, combat_trigger, monkeypatch, asset_mgr
-    ):
-        """BaseMap.java:526-528 — range 2-3, aligned but NOT on a broadsides
-        heading: 1-in-2 turn to goBroadsides(mask)."""
-        ow.game_map.set_tile(11, 10, water_tile(asset_mgr))
-        ow.game_map.set_tile(12, 10, water_tile(asset_mgr))
-        monkeypatch.setattr(
-            "py_exodus.screens.overworld.random.randint", lambda a, b: 0
-        )
-        ow.creatures = [
-            {
-                "tile_name": "pirate",
-                "tile": "pirate",
-                "x": 12,
-                "y": 10,
-                "sail_dir": "EAST",
-            }
-        ]
-        ow._update_creatures()
-        assert combat_trigger == []  # no cannons fired
-        pirate = ow.creatures[0]
-        # goBroadsides(N|S) returns the first mask hit in value order (W,N,E,S):
-        # NORTH (Constants.java:386-395).
-        assert pirate["sail_dir"] == "NORTH"
-        assert (pirate["x"], pirate["y"]) == (12, 10)  # the turn ate the tick
-
-    def test_pirate_misaligned_coin_miss_then_rotates_instead_of_moving(
-        self, ow, sample_party, combat_trigger, monkeypatch, asset_mgr
-    ):
-        """BaseMap.java:573-578 — with the coin miss the pirate falls through
-        to movement, and the rotate-then-move rule turns sailDir without
-        moving when dir != sailDir."""
-        ow.game_map.set_tile(11, 10, water_tile(asset_mgr))
-        ow.game_map.set_tile(12, 10, water_tile(asset_mgr))
-        rolls = {"n": 0}
-
-        def _rand(a, b):
-            rolls["n"] += 1
-            return 1  # first roll (coin) misses; path has no roll here
-
-        monkeypatch.setattr(
-            "py_exodus.screens.overworld.random.randint", _rand
-        )
-        ow.creatures = [
-            {
-                "tile_name": "pirate",
-                "tile": "pirate",
-                "x": 12,
-                "y": 10,
-                "sail_dir": "EAST",
-            }
-        ]
-        ow._update_creatures()
-        pirate = ow.creatures[0]
-        assert (pirate["x"], pirate["y"]) == (12, 10)
-        assert pirate["sail_dir"] == "WEST"  # turned toward the avatar
-
-    def test_pirate_adjacent_aligned_battles(
-        self, ow, sample_party, combat_trigger, monkeypatch
-    ):
-        """BaseMap.java:529-533 — distance <= 1 on a broadsides heading:
-        attackAt (battle), not cannons."""
-        ow.creatures = [
-            {
-                "tile_name": "pirate",
-                "tile": "pirate",
-                "x": 11,
-                "y": 10,
-                "sail_dir": "NORTH",
-            }
-        ]
-        ow._update_creatures()
-        assert [c[0] for c in combat_trigger] == ["pirate"]
-
-    def test_pirate_adjacent_misaligned_turns_not_battles(
-        self, ow, sample_party, combat_trigger, monkeypatch
-    ):
-        """BaseMap.java:534-537 — adjacent but misaligned: turn broadsides."""
-        monkeypatch.setattr(
-            "py_exodus.screens.overworld.random.randint", lambda a, b: 0
-        )
-        ow.creatures = [
-            {
-                "tile_name": "pirate",
-                "tile": "pirate",
-                "x": 11,
-                "y": 10,
-                "sail_dir": "EAST",
-            }
-        ]
-        ow._update_creatures()
-        assert combat_trigger == []
-        assert ow.creatures[0]["sail_dir"] == "NORTH"
-
-
-class TestRotateThenMove:
-    """BaseMap.java:573-578 — pirates sail only when the intended dir equals
-    sailDir; else the sailDir turn consumes the tick."""
-
-    def test_rotate_first_move_next_tick(self, ow, sample_party, asset_mgr):
-        for x in (10, 11, 12, 13):
-            ow.game_map.set_tile(x, 14, water_tile(asset_mgr))
-        ow.game_map.set_tile(10, 13, water_tile(asset_mgr))
-        ow.creatures = [
-            {
-                "tile_name": "pirate",
-                "tile": "pirate",
-                "x": 10,
-                "y": 14,
-                "sail_dir": "EAST",
-            }
-        ]
-        ow._update_creatures()
-        pirate = ow.creatures[0]
-        assert (pirate["x"], pirate["y"]) == (10, 14)  # turn tick
-        assert pirate["sail_dir"] == "NORTH"
-        ow._update_creatures()
-        pirate = ow.creatures[0]
-        assert (pirate["x"], pirate["y"]) == (10, 13)  # now it sails
-
-    def test_non_pirate_moves_without_rotation(self, ow, sample_party):
-        ow.creatures = [{"tile_name": "orc", "tile": "orc", "x": 12, "y": 10}]
-        ow._update_creatures()
-        assert (ow.creatures[0]["x"], ow.creatures[0]["y"]) == (11, 10)
-
-
 class TestNoDistanceDespawn:
     """Original game (user ruling 2026-11-21): no 24-tile leash. A far
     monster stays on the map and keeps closing in on the party."""
@@ -534,7 +356,6 @@ class TestFrigateBoarding:
 
     def test_walk_onto_then_board(self, ow_real_move, sample_party, asset_mgr):
         ow_real_move.game_map.set_tile(10, 11, water_tile(asset_mgr))
-        sample_party.ship_hull = 10
         frig = {"tile": "frigate", "x": 10, "y": 11}
         sample_party.dynamic_objects.append(frig)
         key_move(ow_real_move, Direction.SOUTH)
@@ -544,7 +365,6 @@ class TestFrigateBoarding:
         assert sample_party.transport == Transport.SHIP
         assert any("Board Frigate!" in m for m in ow_real_move.text_log.history)
         assert frig not in sample_party.dynamic_objects
-        assert sample_party.ship_hull == 50  # fresh frigate resets the hull
 
     def test_dropped_frigate_persists_through_save_round_trip(self, sample_party):
         sample_party.dynamic_objects.append({"tile": "frigate", "x": 3, "y": 4})

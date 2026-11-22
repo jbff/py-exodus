@@ -1407,8 +1407,6 @@ def test_wanderer_spawn_uses_java_selection_low_health(
     for c in seen:
         assert c["tile_name"] in {"orc", "skeleton", "thief", "giant", "pirate",
                                   "serpent", "daemon", "fighter", "wizard"}
-        if c["tile_name"] == "pirate":
-            assert "sail_dir" in c  # Java Creature.sailDir EAST default kept
 
 
 def test_overworld_wandering_creatures(pygame_setup, asset_mgr, sample_party):

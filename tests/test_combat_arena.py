@@ -582,7 +582,6 @@ def test_monster_hp_explicit_definition_override_kept():
     assert monster.max_hp == 100
 
 
-
 # --- GBC ship-battle cannonfire + no-LOS magic poke (2026-11-14) ---------------
 
 
@@ -811,9 +810,7 @@ def test_successful_bolt_still_consumes_the_turn(asset_mgr, conflict_map):
 
 # --- Pending item 2: ship-combat rounds tick turns and hull ---
 # Java CombatScreen.java:470-496 finishTurn: every combat round-finish runs
-# party.endTurn (CombatScreen.java:472) — the round counts as a move and the
-# ship hull repairs 1-in-4 while the current map is SOSARIA
-# (Party.java:633-638); the meal block is skipped under mapType == combat
+# party.endTurn (CombatScreen.java:472) — the round counts as a move; the meal block is skipped under mapType == combat
 # (Party.java:600). The port routes the tick through ship battles only
 # (pending item 2, ruled ship-once).
 
@@ -845,51 +842,6 @@ def test_ship_battle_round_counts_a_move_and_skips_the_meal_block(
     assert party.members[0].submorsels == 45  # Java Party.java:600 gate
     assert party.members[0].food == 10
     assert party.members[0].hp == party.members[0].max_hp  # no meal regen
-
-
-def test_ship_battle_round_repairs_hull_1_in_4(asset_mgr, conflict_map, monkeypatch):
-    monkeypatch.setattr("py_exodus.entities.party.random.randint", lambda a, b: 0)
-    party = _ship_party()
-    random.seed(501)
-    arena = CombatArena(
-        party, conflict_map, creature_tile="orc", asset_mgr=asset_mgr, monster_count=1
-    )
-
-    arena.execute_turn(Action.pass_turn())
-
-    assert party.ship_hull == 41
-
-
-def test_ship_battle_round_hull_roll_miss_keeps_hull(asset_mgr, conflict_map, monkeypatch):
-    monkeypatch.setattr("py_exodus.entities.party.random.randint", lambda a, b: 1)
-    party = _ship_party()
-    random.seed(502)
-    arena = CombatArena(
-        party, conflict_map, creature_tile="orc", asset_mgr=asset_mgr, monster_count=1
-    )
-
-    arena.execute_turn(Action.pass_turn())
-
-    assert party.ship_hull == 40
-
-
-def test_ship_battle_round_off_sosaria_counts_without_hull(asset_mgr, conflict_map, monkeypatch):
-    """Java gates the hull roll on the CURRENT map being SOSARIA
-    (Party.java:633) — fighting on Ambrosia's water still counts the round
-    as a move but never repairs the hull."""
-    monkeypatch.setattr("py_exodus.entities.party.random.randint", lambda a, b: 0)
-    party = _ship_party()
-    party.map_id = MAP_NAME_TO_ID["AMBROSIA"]
-    random.seed(503)
-    arena = CombatArena(
-        party, conflict_map, creature_tile="orc", asset_mgr=asset_mgr, monster_count=1
-    )
-    moves_before = party.moves
-
-    arena.execute_turn(Action.pass_turn())
-
-    assert party.moves == moves_before + 1
-    assert party.ship_hull == 40
 
 
 def test_non_ship_combat_round_ticks_nothing(asset_mgr, conflict_map, monkeypatch):
@@ -930,7 +882,6 @@ def test_ship_battle_killing_action_counts_the_win_round(asset_mgr, conflict_map
 
     assert arena.is_victory
     assert party.moves == moves_before + 1
-    assert party.ship_hull == 41
 
 
 def test_dead_members_are_off_the_board_and_block_nobody(asset_mgr, conflict_map):

@@ -276,7 +276,7 @@ def test_overworld_starvation_wipe_transitions_to_start_screen(sm, asset_mgr, mo
     """A meal crossing at food 0 lands the 5 HP starvation blow
     (USER-DIRECTED GBC-RULES DEVIATION, 2026-11-14, supersedes the
     2026-11-10 per-tick starvation): one surviving member dies → StartScreen
-    game over. The ship-hull roll is pinned."""
+    game over."""
     monkeypatch.setattr("py_exodus.entities.party.random.randint", lambda a, b: 1)
     party = single_member_party(hp=0)
     party.food = 0
@@ -327,8 +327,7 @@ def test_town_starvation_wipe_transitions_to_start_screen(sm, asset_mgr, monkeyp
     key; towns drain the 10-submorsel pool per turn, Party.endTurn
     Party.java:592-639) and the MEAL CROSSING lands the 5 HP starvation blow
     (USER-DIRECTED GBC-RULES DEVIATION 2026-11-14, supersedes the 2026-11-10
-    per-turn tick), routing the wipe to the StartScreen game over. The
-    ship-hull roll is pinned."""
+    per-turn tick), routing the wipe to the StartScreen game over. The"""
     monkeypatch.setattr("py_exodus.entities.party.random.randint", lambda a, b: 1)
     party = single_member_party(hp=1)
     for m in party.members:
@@ -362,7 +361,7 @@ def test_dungeon_food_zero_never_starves_without_a_crossing(sm, asset_mgr):
     submorsels per consumed move — so ONE dungeon move at a fresh 400 pool
     takes NO crossing and no starvation blow. Java DungeonScreen
     (DungeonScreen.java:1124-1141) still never calls Party.endTurn: the
-    move counter and the ship-hull roll do not tick per dungeon move."""
+    move counter does not tick per dungeon move."""
 
     def member(name: str) -> Character:
         char = Character(name, "M", Race.HUMAN, Profession.FIGHTER, hp=6, max_hp=100)

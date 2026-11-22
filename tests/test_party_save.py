@@ -225,7 +225,7 @@ def test_party_membership_and_swapping():
 
 
 def test_party_gold_food_and_transport():
-    """Verify gold pooling, food consumption per turn, starvation, transport, and hull health."""
+    """Verify gold pooling, food consumption per turn, starvation, and transport."""
     p = Party()
     c1 = Character(name="Hero1", gold=100, food=50)
     c2 = Character(name="Hero2", gold=200, food=60)
@@ -260,14 +260,9 @@ def test_party_gold_food_and_transport():
     assert c1.hp == 96
     assert c2.hp == 96
 
-    # Transport & Ship hull
+    # Transport
     assert p.transport == Transport.FOOT
     p.transport = Transport.SHIP
-    assert p.ship_hull == 50
-    p.adjust_ship_hull(-15)
-    assert p.ship_hull == 35
-    p.adjust_ship_hull(30)
-    assert p.ship_hull == 50  # capped at 50
 
     # Wind direction
     p.wind_direction = Direction.EAST

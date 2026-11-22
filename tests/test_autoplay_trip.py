@@ -50,20 +50,27 @@ def sosaria(asset_mgr):
 
 
 def _pirate(x, y):
-    return {"tile_name": "pirate", "tile": "pirate", "x": x, "y": y, "sail_dir": "EAST"}
+    return {"tile_name": "pirate", "tile": "pirate", "x": x, "y": y}
 
 
 # ---------------------------------------------------------------------------
-# Lane geometry (engine: same row/column, movement distance 2 or 3)
+# Lane geometry (LairWare moveshoot: row, column or diagonal, 2 or 3 away)
 # ---------------------------------------------------------------------------
 
 
-def test_lane_tiles_are_row_and_column_at_distance_2_and_3():
+def test_lane_tiles_are_rows_columns_and_diagonals_at_distance_2_and_3():
     lane = lane_tiles_for(64, 64, (10, 10))
-    assert {(12, 10), (13, 10), (8, 10), (7, 10), (10, 12), (10, 13), (10, 8), (10, 7)} == lane
-    assert (11, 10) not in lane  # distance 1 is the battle, not the lane
-    assert (11, 11) not in lane  # diagonal: never fired upon
-    assert (14, 10) not in lane
+    assert len(lane) == 16
+    assert {(12, 10), (13, 10), (10, 7), (12, 12), (13, 13), (7, 13), (8, 8)} <= lane
+    assert (11, 10) not in lane and (11, 11) not in lane  # distance 1: the battle
+    assert (14, 10) not in lane and (12, 11) not in lane  # off every ray
+
+
+def test_lane_stops_at_mountains(sosaria):
+    """The shot stops at mountains, walls and the void (UltimaMisc.c:1265);
+    by the moongate strip a mountain ridge at x=59 shields (58, 44)."""
+    lane = lane_tiles_for(64, 64, (60, 44), sosaria)
+    assert (58, 44) not in lane and (62, 44) in lane
 
 
 def test_lane_tiles_wrap_the_map_seam():
@@ -95,6 +102,10 @@ class _Grid:
 
     width = 64
     height = 64
+
+    @staticmethod
+    def get_tile(x, y):
+        return "water"  # nothing stops a shot
 
 
 def test_foot_escape_steps_off_the_line():

@@ -44,7 +44,6 @@ from py_exodus.autoplay.threats import (
     wrap_delta,
 )
 from py_exodus.autoplay.trip import (
-    CRITICAL_SHIP_BOARD_PENALTY,
     Destination,
     Leg,
     Transition,
@@ -463,15 +462,6 @@ class AutoPlayController:
         amt = min(9, member.gold // 100, spendable, goal[3] - getattr(member, goal[1], 0))
         return self._emit_key(state_machine, pygame.K_0 + max(0, amt))
 
-    _CRITICAL_HULL_THRESHOLD = 30
-
-    @classmethod
-    def _is_hull_critical(cls, party, screen=None) -> bool:
-        """Return True when the active ship hull is at or below the critical threshold (<= 30)."""
-        hull = getattr(screen, "ship_hull", None) if screen is not None else None
-        if hull is None:
-            hull = getattr(party, "ship_hull", 50)
-        return hull <= cls._CRITICAL_HULL_THRESHOLD
 
     @staticmethod
     def _screen_map_id(screen, party) -> int:
@@ -1113,7 +1103,6 @@ class AutoPlayController:
 
         has_key = any(not m.is_dead() and m.keys > 0 for m in party.members)
         if on_ship:
-            hull = getattr(party, "ship_hull", 50)
             move = ship_escape(
                 gmap,
                 party,
@@ -1122,7 +1111,7 @@ class AutoPlayController:
                 lambda x, y: can_move_to(gmap, x, y, Transport.SHIP, party=party)
                 or (has_key and self._is_locked_door(gmap, x, y)
                     and locked_door_passable(gmap, x, y, Transport.SHIP, party)),
-                prefer_engage=hull >= 20 and not party_has_low_hp(party),
+                prefer_engage=not party_has_low_hp(party),
             )
         else:
             move = foot_escape(
@@ -1213,9 +1202,7 @@ class AutoPlayController:
         dest = ((party.x + d.dx) % gmap.width, (party.y + d.dy) % gmap.height)
         here = (party.x, party.y)
         w, h = gmap.width, gmap.height
-        healthy = not party_has_low_hp(party) and (
-            party.transport != Transport.SHIP or getattr(party, "ship_hull", 50) >= 20
-        )
+        healthy = not party_has_low_hp(party)
         if dest in th.lanes:
             # User rule (2026-11-21): step into a lane only to keep advancing
             # on the pirate (fight and take its ship) with a party that can
@@ -1836,15 +1823,11 @@ class AutoPlayController:
     # -- trip follower: the ONLY place that emits B or X -----------------
 
     def _frigate_costs(self, party, screen) -> dict[tuple[int, int], float]:
-        last_ship = getattr(party, "last_ship", None)
-        low_hull = self._is_hull_critical(party, screen)
-        out: dict[tuple[int, int], float] = {}
-        for obj in objects_on(party, getattr(screen, "game_map", None)):
-            if str(obj.get("tile", "")).lower() != "frigate":
-                continue
-            wreck = low_hull and (obj is last_ship or last_ship is None)
-            out[(obj.get("x"), obj.get("y"))] = CRITICAL_SHIP_BOARD_PENALTY if wreck else 0.0
-        return out
+        return {
+            (obj.get("x"), obj.get("y")): 0.0
+            for obj in objects_on(party, getattr(screen, "game_map", None))
+            if str(obj.get("tile", "")).lower() == "frigate"
+        }
 
     def _replan(self, gmap, party, screen, map_id, pos, mode, dest) -> TripPlan | None:
         frig = self._frigate_costs(party, screen)
@@ -1867,7 +1850,6 @@ class AutoPlayController:
             mode,
             dest,
             frig,
-            hull_critical=(mode == Transport.SHIP and self._is_hull_critical(party, screen)),
             pirates=frozenset(th.pirates) if th is not None else frozenset(),
             pirates_spawn=(map_id == 0),
             last_transition=self._last_transition,

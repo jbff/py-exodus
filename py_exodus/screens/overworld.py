@@ -188,25 +188,6 @@ def movement_distance(
     return dist
 
 
-def broadsides_direction_mask(sail_dir_name: str | None) -> int:
-    """Java ``Constants.java:371-384`` ``getBroadsidesDirectionMask`` — the
-    two directions a ship's cannons can fire in, perpendicular to sailDir."""
-    if sail_dir_name in ("EAST", "WEST"):
-        return Direction.NORTH.mask | Direction.SOUTH.mask
-    if sail_dir_name in ("NORTH", "SOUTH"):
-        return Direction.EAST.mask | Direction.WEST.mask
-    return 0
-
-
-def go_broadsides(broadsides_mask: int) -> str | None:
-    """Java ``Constants.java:386-395`` ``goBroadsides`` — the first direction
-    in value order (W, N, E, S) carried by the broadsides mask."""
-    for d in _DIRECTION_VALUES:
-        if broadsides_mask & d.mask:
-            return d.name
-    return None
-
-
 def direction_by_mask(mask: int) -> Direction | None:
     """Java ``Constants.java:360-368`` ``getByMask`` — the single direction
     matching an exactly-one-bit mask."""
@@ -583,7 +564,6 @@ class OverworldScreen(BaseScreen):
                 "tile": key,
                 "x": npc.x,
                 "y": npc.y,
-                **({"sail_dir": "EAST"} if key == "pirate" else {}),
             })
         self.game_map.npcs = keep
 
@@ -918,7 +898,7 @@ class OverworldScreen(BaseScreen):
 
         Java truth: ``exodus/GameScreen.java:584-596`` — X while on a ship
         drops the frigate object on the tile and records it as
-        ``Context.lastShip``, so re-boarding the same hull keeps its damage.
+        ``Context.lastShip``.
         """
         # Java GameScreen.java:584-596 — X is silent on foot (it only resets
         # the transport and sets the avatar anim); the keyUp tail still ticks.
@@ -971,8 +951,7 @@ class OverworldScreen(BaseScreen):
 
         Java truth: ``exodus/GameScreen.java:945-979`` ``board(x, y)`` —
         already mounted: "Board: Can't!"; a frigate object with
-        ``cx == x && cy == y`` boards (a *fresh* one resets the hull to 50 via
-        ``adjustShipHull(50)``), then a horse creature on the exact tile
+        ``cx == x && cy == y`` boards (LairWare ships have no hull), then a horse creature on the exact tile
         mounts, otherwise "Board What?". There is no auto-mounting and no
         Chebyshev-1 adjacency.
         """
@@ -991,10 +970,6 @@ class OverworldScreen(BaseScreen):
             if tile == "frigate" and obj.get("x") == px and obj.get("y") == py:
                 self.party.dynamic_objects.pop(idx)
                 self.party.transport = Transport.SHIP
-                if self.party.last_ship is not obj:
-                    # Fresh frigate: hull + 50 capped at 50 == reset to 50
-                    # (Java adjustShipHull, Party.java:74-76).
-                    self.party.adjust_ship_hull(50)
                 self.party.last_ship = obj
                 if self.audio is not None:
                     self.audio.play_sfx("trigger")
@@ -1559,18 +1534,6 @@ class OverworldScreen(BaseScreen):
         choices = [o for o in WIND_OUTCOMES if o != current]
         self.party.wind_direction = random.choice(choices)
 
-    def _check_hull_integrity(self) -> None:
-        """Sink a ship whose hull has reached 0, killing the whole party.
-
-        Java truth: ``exodus/GameScreen.java:1181-1197`` ``checkHullIntegrity``
-        — while on a ship with ``shiphull <= 0``: "Thy ship sinks!", then
-        ``killAll()`` and ``partyDeath()``. The screen's post-check
-        (``check_party_death``) routes the game-over flow (Task 2).
-        """
-        if self.party.transport == Transport.SHIP and self.party.ship_hull <= 0:
-            self.text_log.add_message("Thy ship sinks!")
-            self.party.kill_all()
-
     def _finish_turn(self, effect_tile=None) -> None:
         """End the movement turn: sink check, aura tick, submorsel tick, tile
         effect, then the whirlpool engulf scan.
@@ -1588,15 +1551,13 @@ class OverworldScreen(BaseScreen):
         (GBC/LW, 2026-11-14). A wipe raises
 
         ``PartyDeathException``; the post-check routes the game-over flow
-        (Task 2). The 1-in-4 hull repair sits in ``endTurn``'s Sosaria branch
-        (``Party.java:633-638``), so ``sosaria`` tracks the current map id;
+        (Task 2). ``sosaria`` tracks the current map id;
         the 40-submorsel interval is surface maps SOSARIA (0) and EXODUS (2)
         only — Ambrosia (13) drains at 10 (``Party.java:598-600``).
         """
         map_id = str(getattr(self.game_map, "id", self.map_id))
         sosaria = map_id == "0"
         try:
-            self._check_hull_integrity()
             # Java order (GameScreen.java:710-714): endTurn, then aura.passTurn.
             self.party.end_turn(surface=map_id in ("0", "2"), sosaria=sosaria)
             # USER-DIRECTED ORIGINAL-RULES DEVIATION (2026-11-10): mana
@@ -1691,36 +1652,11 @@ class OverworldScreen(BaseScreen):
 
         self.text_log.prompt("Fire Direct-", callback=_on_dir, single_char=True)
 
-    def _damage_unmanned_frigate_at(self, tx: int, ty: int, message: str) -> bool:
-        """Damage the last unmanned ``frigate`` at ``(tx, ty)`` by 10 hull.
-
-        Java truth: ``util/Utils.java:536-547`` ``fireAt`` scans all
-        objects without breaking, so the last matching ``frigate`` at the
-        target tile takes 10 hull damage; ``animateCannonFire``
-        (``Utils.java:509-514``) removes it if ``hull <= 0``.
-        """
-        target_idx = None
-        for idx, obj in enumerate(self.party.dynamic_objects):
-            if (
-                str(obj.get("tile", "")).lower() == "frigate"
-                and obj.get("x") == tx
-                and obj.get("y") == ty
-            ):
-                target_idx = idx
-        if target_idx is None:
-            return False
-        target = self.party.dynamic_objects[target_idx]
-        target["hull"] = target.get("hull", 50) - 10
-        self.text_log.add_message(message)
-        if target["hull"] <= 0:
-            self.party.dynamic_objects.pop(target_idx)
-        return True
-
     def _fire_cannons(self, direction: Direction) -> None:
         """LairWare Fire (UltimaMain.c:1523-1580): the shot flies up to three
         tiles in any direction, wrapping round the map, and stops at the
-        first monster: half the time it misses silently (a Balron shrugs it
-        off half again), otherwise the monster is destroyed. Empty ships
+        first monster: half the time it misses silently (a pirate shrugs
+        it off half again: Monsters[] holds map values, 0x3C is the Pirate), otherwise the monster is destroyed. Empty ships
         and terrain don't stop it."""
         from py_exodus.world.monster_variants import plural_name
 
@@ -1741,7 +1677,7 @@ class OverworldScreen(BaseScreen):
             if target is None:
                 continue
             tile_name = str(target.get("tile_name") or target.get("tile") or "").lower()
-            if tile_name == "balron" and random.randint(0, 255) < 128:
+            if tile_name == "pirate" and random.randint(0, 255) < 128:
                 break
             if random.randint(0, 255) < 128:
                 break
@@ -2084,50 +2020,8 @@ class OverworldScreen(BaseScreen):
             # DEVIATION, original-game spawning, 2026-11-21).
             dist = movement_distance(width, height, cx, cy, self.party.x, self.party.y)
 
-            # 2. Pirate broadsides (BaseMap.java:511-538). Java gates on the
-            # tile alone; the wontattack conjunction here is a documented
-            # deferral: a mirror-strict port would run the broadsides block
-            # even for a wontattack pirate.
-            if tile_name == "pirate" and not wontattack:
-                rel = get_relative_direction_mask(
-                    width, height, self.party.x, self.party.y, cx, cy
-                )
-                if self.party.x == cx:
-                    rel &= ~(Direction.EAST.mask | Direction.WEST.mask)
-                elif self.party.y == cy:
-                    rel &= ~(Direction.NORTH.mask | Direction.SOUTH.mask)
-                else:
-                    rel = 0
-                # Java Creature.sailDir defaults to EAST (Creature.java:63).
-                sail = c.get("sail_dir") or "EAST"
-                broad = broadsides_direction_mask(sail)
-                if rel > 0 and dist in (2, 3) and rel & broad:
-                    # Aligned broadside: enemy cannons fire; the pirate
-                    # forfeits movement this tick (Java 525 continue).
-                    fire_dir = direction_by_mask(rel)
-                    if fire_dir is not None:
-                        self._enemy_fire_cannons(c, fire_dir)
-                    survivors.append(c)
-                    continue
-                if rel > 0 and dist in (2, 3) and not rel & broad and random.randint(0, 1) == 0:
-                    c["sail_dir"] = go_broadsides(broad)
-                    survivors.append(c)
-                    continue
-                if dist <= 1:
-                    if rel & broad:
-                        encounter_creature = c
-                        # Java 533 attackAt + break — the engaged creature is
-                        # gone and every LATER creature keeps its exact state
-                        # this tick (no movement, no despawn check).
-                        self.creatures = survivors + snapshot[i + 1:]
-                        engaged = True
-                        break
-                    c["sail_dir"] = go_broadsides(broad)
-                    survivors.append(c)
-                    continue  # Java 536 turn, tick consumed
-
-            # 3. Other creatures: engage at distance <= 1 (BaseMap.java:540-558).
-            elif dist <= 1 and not wontattack:
+            # 3. Hostile creatures: engage at distance <= 1 (BaseMap.java:540-558).
+            if dist <= 1 and not wontattack:
                 encounter_creature = c
                 # Java 557 attackAt + break — see above.
                 self.creatures = survivors + snapshot[i + 1:]
@@ -2141,7 +2035,7 @@ class OverworldScreen(BaseScreen):
             # only step left monsters snagged on terrain for good, and since
             # the original never despawns, 32 snagged monsters stopped all
             # spawning (seed 3 starved grinding near Britain).
-            if not wontattack and tile_name != "pirate":
+            if not wontattack:
                 step = self._lw_monster_step(c, cr_def, width, height)
                 if step == "attack":
                     encounter_creature = c
@@ -2151,6 +2045,9 @@ class OverworldScreen(BaseScreen):
                 if step is not None:
                     c["x"], c["y"] = step
                 survivors.append(c)
+                # LairWare moveshoot: pirates fire, dragons breathe.
+                if tile_name in self.LW_SHOOTERS and not self.party.exodus_defeated:
+                    self._lw_monster_shoot(c)
                 continue
 
             # Movement inside the valid-moves mask (BaseMap.java:562-608).
@@ -2167,12 +2064,6 @@ class OverworldScreen(BaseScreen):
                 else:
                     move_dir = None  # Java getPath null → no move this tick
             if move_dir is None:
-                survivors.append(c)
-                continue
-
-            # PIRATES rotate-then-move (BaseMap.java:573-578).
-            if tile_name == "pirate" and c.get("sail_dir") != move_dir.name:
-                c["sail_dir"] = move_dir.name
                 survivors.append(c)
                 continue
 
@@ -2298,72 +2189,57 @@ class OverworldScreen(BaseScreen):
                 mask |= d.mask
         return mask
 
-    def _enemy_fire_cannons(self, pirate: dict[str, Any], fire_dir: Direction) -> None:
-        """Java ``util/Utils.java:403-421`` ``enemyfireCannon`` +
-        ``animateCannonFire`` — the pirate's cannonball trace toward the
-        avatar (range 1-4, never blocked: ``isCannonBall``), with the
-        ``fireAt`` (Utils.java:532-589) rules: an unmanned frigate in the
-        path takes 10 hull damage and ends the volley (animateCannonFire,
-        Utils.java:509-514, removes it once the hull reaches 0); the
-        avatar's tile at range N is a 1-in-3 hit that damages the ship hull
-        (``damageShip``) or rolls ``Party.damageParty(10, 25)`` (each member
-        on a coin flip) when on foot. The trace never wraps: Java's
-        getDirectionalActionPath (Utils.java:484-490) breaks on an off-map
-        tile before it is used."""
-        if self.game_map is None:
-            return
-        if self.audio is not None:
-            self.audio.play_sfx("cannon") or self.audio.play_sfx("enemy_magic_proj")
-        self.text_log.add_message("The pirate ship fires its broadside!")
+    # LairWare map values 0x3C and 0x74 (UltimaMisc.c:1224, 1242).
+    LW_SHOOTERS = ("pirate", "dragon")
+    # GetXY values 0x08, 0x46, 0x48 stop the shot (screen tiles, tile * 2).
+    LW_SHOT_BLOCKERS = ("mountains", "wall", "blank")
 
-        sx, sy = pirate["x"], pirate["y"]
+    def _lw_monster_shoot(self, c: dict[str, Any]) -> None:
+        """LairWare moveshoot (UltimaMisc.c:1245-1278): half the time a pirate
+        or dragon in the 11x11 view fires toward the party, each axis
+        stepping toward it on its own (so diagonals too), up to 3 tiles,
+        stopped by mountains, walls and the void. Reaching the party is
+        BombTrap (UltimaMain.c:1728): every living member loses
+        (rand & 0x77) + 8 hit points."""
+        if random.randint(0, 255) > 127:
+            return
+        rx, ry = self.party.x - c["x"], self.party.y - c["y"]
+        if abs(rx) > 5 or abs(ry) > 5:  # off the 11x11 screen
+            return
+        dx, dy = (rx > 0) - (rx < 0), (ry > 0) - (ry < 0)
+        if self.audio is not None:
+            self.audio.play_sfx("Shoot.wav")
+        w, h = self.game_map.width, self.game_map.height
+        x, y = c["x"], c["y"]
         path: list[tuple[int, int]] = []
         hit = False
-        for distance in range(1, 5):
-            tx = sx + fire_dir.dx * distance
-            ty = sy + fire_dir.dy * distance
-            if tx < 0 or tx >= self.game_map.width or ty < 0 or ty >= self.game_map.height:
+        for _ in range(3):
+            x, y = x + dx, y + dy
+            if abs(self.party.x - x) > 5 or abs(self.party.y - y) > 5:
                 break
-            path.append((tx, ty))
-
-            # fireAt: unmanned frigate first (Utils.java:536-547).
-            if self._damage_unmanned_frigate_at(tx, ty, "Cannon fire strikes the unmanned frigate!"):
+            tile = self.game_map.get_tile(x % w, y % h)
+            if getattr(tile, "name", tile) in self.LW_SHOT_BLOCKERS:
+                break
+            path.append((x % w, y % h))
+            if (x, y) == (self.party.x, self.party.y):
                 hit = True
+                self._lw_bomb_party()
                 break
-
-            if tx == self.party.x and ty == self.party.y:
-                if self.party.transport == Transport.SHIP:
-                    # 1-in-3 hit: adjustShipHull(-10) (Context.java:242-246).
-                    if random.randint(0, 2) == 0:
-                        self.party.adjust_ship_hull(-10)
-                        self.text_log.add_message("Cannon fire rakes thy ship!")
-                        hit = True
-                    else:
-                        self.text_log.add_message("The cannonball splashes down!")
-                else:
-                    # 1-in-3 hit: damageParty(10, 25), coin flip per member
-                    # (Party.java:79-86), combat damage (no death routing).
-                    if random.randint(0, 2) == 0:
-                        for member in self.party.members:
-                            if random.randint(0, 1) == 0 and not member.is_dead():
-                                member.apply_damage(random.randint(10, 25), True)
-                        self.text_log.add_message("Cannon fire strikes thy party!")
-                        hit = True
-                    else:
-                        self.text_log.add_message("The cannonball splashes down!")
-                break
-
         if path:
-            self.cannon_fx.append(
-                {
-                    "start_pos": (sx, sy),
-                    "path": path,
-                    "target_pos": path[-1],
-                    "hit": hit,
-                    "duration": 0.35,
-                    "timer": 0.35,
-                }
-            )
+            self.cannon_fx.append({"start_pos": (c["x"], c["y"]), "path": path,
+                                   "target_pos": path[-1], "hit": hit,
+                                   "duration": 0.35, "timer": 0.35})
+
+    def _lw_bomb_party(self) -> None:
+        for m in self.party.members:
+            if m.is_disabled():  # CheckAlive
+                continue
+            if self.audio is not None:
+                self.audio.play_sfx("Hit.wav")
+            m.apply_damage((random.randint(0, 255) & 0x77) + 8, True)
+            if m.hp < 1 and not m.is_dead():  # HPSubtract: under 1 is dead
+                m.status = Status.DEAD
+        self.check_party_death()
 
     def _trigger_combat(self, creature_name: str, creature: dict[str, Any] | None = None) -> None:
         """Initiate tactical combat screen with creature.
@@ -2489,10 +2365,6 @@ class OverworldScreen(BaseScreen):
                 # without a creatures.xml-backed asset manager: they never
                 # attack, only random-walk over water (BaseMap.java:564-565).
                 creature["wontattack"] = True
-            # Java rebuilds monsters fresh on load: a pirate's sailDir is the
-            # Creature.java:63 default EAST (not persisted by saveGame).
-            if tile_name == "pirate":
-                creature["sail_dir"] = "EAST"
             if m.get("hp") is not None:
                 creature["hp"] = int(m["hp"])
             if m.get("variant"):

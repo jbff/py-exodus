@@ -1,11 +1,8 @@
-"""Task 6: ship hull lifecycle, boarding parity, sailing facing movement.
+"""Ships: boarding parity, wind, rendering, shoreline. LairWare ships have
+no hull (the Java hull, sinking and repair rules are gone, 2026-11-22).
 
 Java truth: ``exodus/GameScreen.java:945-979`` (board — exact-tile boarding,
-hull reset to 50 for a fresh frigate, "Board What?" / "Board: Can't!"),
-``1181-1197`` (checkHullIntegrity — "Thy ship sinks!" + killAll → partyDeath),
-``461-529`` (ship facing — an arrow first turns the ship, consuming the turn),
-``exodus/Party.java:633-638`` (1-in-4 hull repair per endTurn on Sosaria) and
-``exodus/Context.java:242-246`` (damageShip).
+"Board What?" / "Board: Can't!").
 """
 from __future__ import annotations
 
@@ -117,55 +114,6 @@ class TestBoardingGate:
         assert sample_party.transport == Transport.SHIP
 
 
-class TestHullLifecycle:
-    """Boarding hull rules (GameScreen.java:958-959) and the sink path
-    (GameScreen.java:1181-1192)."""
-
-    def test_boarding_fresh_frigate_resets_hull_to_50(self, overworld, sample_party):
-        sample_party.ship_hull = 23
-        sample_party.dynamic_objects.append({"tile": "frigate", "x": 10, "y": 10})
-        key(overworld, pygame.K_b)
-        assert sample_party.ship_hull == 50
-
-    def test_reboarding_last_ship_keeps_hull(self, overworld, sample_party, monkeypatch):
-        # Board, damage, disembark: the left-behind frigate is last_ship.
-        # B/X now consume a turn (Java keyUp tail), so pin Java's 1-in-4
-        # Sosaria hull repair off (randint → 1, no repair) to stay
-        # deterministic about the hull value.
-        monkeypatch.setattr("py_exodus.entities.party.random.randint", lambda a, b: 1)
-        sample_party.dynamic_objects.append({"tile": "frigate", "x": 10, "y": 10})
-        key(overworld, pygame.K_b)
-        sample_party.adjust_ship_hull(-10)
-        assert sample_party.ship_hull == 40
-        key(overworld, pygame.K_x)  # disembark
-        assert sample_party.transport == Transport.FOOT
-        hulls = [o for o in sample_party.dynamic_objects if o.get("tile") == "frigate"]
-        assert len(hulls) == 1
-        assert sample_party.last_ship is hulls[0]
-
-        # Board the same frigate again: hull is preserved.
-        key(overworld, pygame.K_b)
-        assert sample_party.transport == Transport.SHIP
-        assert sample_party.ship_hull == 40
-
-    def test_ship_sinks_at_zero_hull_routes_to_game_over(self, overworld, sample_party):
-        sample_party.transport = Transport.SHIP
-        sample_party.ship_hull = 0
-        key(overworld, pygame.K_SPACE)  # pass → finishTurn → checkHullIntegrity
-        assert any("Thy ship sinks!" in m for m in overworld.text_log.history)
-        assert sample_party.is_party_dead()
-        assert overworld.is_finished
-        from py_exodus.screens.start import StartScreen
-        assert isinstance(overworld.next_screen, StartScreen)
-
-    def test_ship_survives_positive_hull(self, overworld, sample_party):
-        sample_party.transport = Transport.SHIP
-        sample_party.ship_hull = 1
-        key(overworld, pygame.K_SPACE)
-        assert not sample_party.is_party_dead()
-        assert not any("sinks" in m for m in overworld.text_log.history)
-
-
 class TestExactFrigateNameMatch:
     """Java matches the exact tile name: ``"frigate".equals(
     d.getTile().getName())`` in fireAt (util/Utils.java:538) and board
@@ -181,22 +129,6 @@ class TestExactFrigateNameMatch:
         assert any(m == "Board What?" for m in overworld.text_log.history)
         assert obj in sample_party.dynamic_objects
 
-    def test_cannons_ignore_ship_named_object(self, overworld, sample_party):
-        sample_party.transport = Transport.SHIP
-        obj = {"tile": "ship", "x": 11, "y": 10, "hull": 50}
-        sample_party.dynamic_objects.append(obj)
-        overworld._fire_cannons(Direction.EAST)
-        assert obj["hull"] == 50
-        assert not any("unmanned frigate" in m for m in overworld.text_log.history)
-
-    def test_enemy_broadside_ignores_ship_named_object(self, overworld, sample_party):
-        sample_party.x, sample_party.y = 30, 30
-        pirate = {"tile": "pirate", "x": 3, "y": 3}
-        obj = {"tile": "ship", "x": 4, "y": 3, "hull": 50}
-        sample_party.dynamic_objects.append(obj)
-        overworld._enemy_fire_cannons(pirate, Direction.EAST)
-        assert obj["hull"] == 50
-        assert not any("unmanned frigate" in m for m in overworld.text_log.history)
 
     def test_town_board_ignores_ship_named_object(self, asset_mgr, sample_party):
         from py_exodus.screens.town import TownScreen
@@ -210,36 +142,6 @@ class TestExactFrigateNameMatch:
         assert sample_party.transport == Transport.FOOT
         assert any(m == "Board What?" for m in town.text_log.history)
         assert obj in sample_party.dynamic_objects
-
-
-class TestSosariaHullRepair:
-    """Party.java:633-638 — 1-in-4 per endTurn on Sosaria while hull < 50."""
-
-    def test_repair_when_rand_hits(self, sample_party, monkeypatch):
-        monkeypatch.setattr("py_exodus.entities.party.random.randint", lambda a, b: 0)
-        sample_party.ship_hull = 40
-        sample_party.end_turn(surface=True, sosaria=True)
-        assert sample_party.ship_hull == 41
-
-    def test_no_repair_when_rand_misses(self, sample_party, monkeypatch):
-        monkeypatch.setattr("py_exodus.entities.party.random.randint", lambda a, b: 1)
-        sample_party.ship_hull = 40
-        sample_party.end_turn(surface=True, sosaria=True)
-        assert sample_party.ship_hull == 40
-
-    def test_no_repair_off_sosaria(self, sample_party, monkeypatch):
-        monkeypatch.setattr("py_exodus.entities.party.random.randint", lambda a, b: 0)
-        sample_party.ship_hull = 40
-        sample_party.end_turn(surface=True, sosaria=False)
-        sample_party.end_turn(surface=False, sosaria=False)
-        assert sample_party.ship_hull == 40
-
-    def test_repair_caps_at_50(self, sample_party, monkeypatch):
-        monkeypatch.setattr("py_exodus.entities.party.random.randint", lambda a, b: 0)
-        sample_party.ship_hull = 50
-        for _ in range(5):
-            sample_party.end_turn(surface=True, sosaria=True)
-        assert sample_party.ship_hull == 50
 
 
 class TestCombatRoundEndTurn:
@@ -350,67 +252,6 @@ class TestWindRules:
         assert any(t == "Wind CALM" for t in strip)
         # Full render path must not crash on the None wind.
         o.render(pygame.Surface((320, 200)))
-
-
-class TestCannonTraceStopsAtMapEdge:
-    """util/Utils.java:484-490 getDirectionalActionPath — a traced tile off
-    the map (``nx > width-1 || nx < 0 || ny > height-1 || ny < 0``) breaks
-    the trace before it is used. Cannonballs never wrap across a map seam,
-    on either the avatar's or the pirate's volley."""
-
-
-    def test_enemy_broadside_does_not_wrap_across_west_seam(self, overworld, sample_party):
-        sample_party.x, sample_party.y = 30, 30
-        pirate = {"tile": "pirate", "x": 2, "y": 10}
-        frigate = {"tile": "frigate", "x": 63, "y": 10, "hull": 50}
-        sample_party.dynamic_objects.append(frigate)
-        overworld._enemy_fire_cannons(pirate, Direction.WEST)
-        # Wrap would place step 3 on x=63; Java breaks the trace at x=-1.
-        assert frigate["hull"] == 50
-        assert frigate in sample_party.dynamic_objects
-
-    def test_enemy_broadside_does_not_wrap_across_north_seam(self, overworld, sample_party):
-        sample_party.x, sample_party.y = 30, 30
-        pirate = {"tile": "pirate", "x": 20, "y": 1}
-        frigate = {"tile": "frigate", "x": 20, "y": 63, "hull": 50}
-        sample_party.dynamic_objects.append(frigate)
-        overworld._enemy_fire_cannons(pirate, Direction.NORTH)
-        # Wrap would place steps 3-4 on y=63; Java breaks the trace at y=-1.
-        assert frigate["hull"] == 50
-        assert frigate in sample_party.dynamic_objects
-
-
-class TestSunkFrigateRemoved:
-    """utils/Utils.java:509-514 animateCannonFire — a cannon hit that leaves
-    an unmanned frigate with hull <= 0 removes it from the map
-    (``map.removeObject``). A sunk hull is not left boardable."""
-
-
-    def test_enemy_broadside_removes_sunk_frigate(self, overworld, sample_party):
-        sample_party.x, sample_party.y = 30, 30
-        pirate = {"tile": "pirate", "x": 3, "y": 3}
-        frigate = {"tile": "frigate", "x": 4, "y": 3, "hull": 10}
-        sample_party.dynamic_objects.append(frigate)
-        overworld._enemy_fire_cannons(pirate, Direction.EAST)
-        assert frigate["hull"] == 0
-        assert frigate not in sample_party.dynamic_objects
-
-
-class TestStackedFrigateLastMatch:
-    """util/Utils.java:536-547 fireAt — scans all objects without early
-    break, so the last matching ``frigate`` on the target tile takes 10
-    hull damage while earlier stacked frigates remain untouched."""
-
-
-    def test_enemy_broadside_damages_last_stacked_frigate(self, overworld, sample_party):
-        sample_party.x, sample_party.y = 30, 30
-        pirate = {"tile": "pirate", "x": 3, "y": 3}
-        frigate_first = {"tile": "frigate", "x": 4, "y": 3, "hull": 50}
-        frigate_last = {"tile": "frigate", "x": 4, "y": 3, "hull": 50}
-        sample_party.dynamic_objects.extend([frigate_first, frigate_last])
-        overworld._enemy_fire_cannons(pirate, Direction.EAST)
-        assert frigate_first["hull"] == 50
-        assert frigate_last["hull"] == 40
 
 
 class TestFrigateRendering:

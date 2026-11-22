@@ -1175,7 +1175,6 @@ def test_stats_panel_autoplay_autocombat_and_turn_count(pygame_setup):
     sm.autoplay_enabled = True
     sm.autoplay_step_interval = 0.05
     party.transport = Transport.SHIP
-    party.ship_hull = 38
     party.members[0].gold = 77
     party.members[0].marks[0] = 1
     captured.clear()
@@ -1185,7 +1184,6 @@ def test_stats_panel_autoplay_autocombat_and_turn_count(pygame_setup):
     assert any("TURN: 42" in s for s in captured)
     assert any("G:77" in s for s in captured)
     assert any("TOR:" in s for s in captured)
-    assert any("SHIP HULL: 38/50" in s for s in captured)
     assert any("MARKS: K:1 F:0 S:0 O:0" in s for s in captured)
     assert any("CARDS: L:0 S:0 M:0 D:0" in s for s in captured)
     assert any("EXOTICS: W:0/4 A:0/4" in s for s in captured)
@@ -1495,19 +1493,21 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
     assert ctrl.step(sm) == pygame.K_f
     assert ctrl._key_queue[0] == pygame.K_LEFT
 
-    # Ship in DIG_EXOTICS avoids pirate broadside lane at distance 3 (steps perpendicular out of lane)
+    # Ship in DIG_EXOTICS in a pirate's firing lane at distance 3
     p_lane = _make_party(level=5, exp=500, gold=0, food=500, marks=[1, 0, 0, 0], transport=Transport.SHIP)
-    p_lane.x, p_lane.y = 52, 15
+    p_lane.x, p_lane.y = 50, 12
     p_lane.wind_direction = Direction.NORTH
     ow_pl = OverworldScreen(party=p_lane, asset_mgr=am, random_encounters=False)
-    ow_pl.creatures = [{"x": 55, "y": 15, "tile_name": "pirate"}]  # 3 tiles East in broadside lane
+    ow_pl.creatures = [{"x": 53, "y": 12, "tile_name": "pirate"}]  # 3 tiles East over open water
     sm.set_screen(ow_pl)
     ctrl._key_queue.clear()
     # User rule (2026-11-21): in a lane, advance to fight when the ship can
     # take the fire (bow on the pirate: distance 1 and the battle in two
-    # ticks); only a battered ship turns out of the lane.
+    # ticks); a badly hurt crew turns out of the lane (LairWare ships have
+    # no hull: the shot hurts the crew).
     assert ctrl.step(sm) == pygame.K_RIGHT
-    p_lane.ship_hull = 10
+    for _m in p_lane.members:
+        _m.hp = max(1, _m.max_hp // 5)
     ctrl._key_queue.clear()
     assert ctrl.step(sm) != pygame.K_RIGHT
 
@@ -1575,8 +1575,8 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
     assert all(leg.end != (49, 11) for leg in ctrl._trip.legs)
 
 
-def test_wind_hold_four_heading_progress_and_hull_triage_policy(pygame_setup):
-    """4-heading sea legs advance along allowed wind-free steps and hold only at blocked turns; hull <= 25 shares one policy."""
+def test_wind_hold_four_heading_progress(pygame_setup):
+    """4-heading sea legs advance along allowed wind-free steps and hold only at blocked turns."""
     from py_exodus.assets import AssetManager
     from py_exodus.screens.overworld import OverworldScreen
 
@@ -1613,36 +1613,6 @@ def test_wind_hold_four_heading_progress_and_hull_triage_policy(pygame_setup):
     ow2.creatures = []
     sm.set_screen(ow2)
     assert ctrl.step(sm) == pygame.K_SPACE
-
-    # 2. Critical hull (<= 30): next to the dig island the trip lands (X) ...
-    p_hull = _make_party(level=5, exp=500, gold=0, food=500, marks=[1, 0, 0, 0], transport=Transport.SHIP)  # gold 0: no shop detour
-    p_hull.ship_hull = 25
-    p_hull.x, p_hull.y = 34, 3  # adjacent to (33, 3) land
-    ow_h = OverworldScreen(party=p_hull, asset_mgr=am, random_encounters=False)
-    ow_h.creatures = []
-    sm.set_screen(ow_h)
-    assert ctrl._is_hull_critical(p_hull, ow_h) is True
-    assert ctrl.step(sm) == pygame.K_x
-
-    # ... but with a pirate's broadside lane on that tile it neither waits nor lands into the
-    # lane (X would leave the party on foot on the same tile): it turns or sails out.
-    p_hull2 = _make_party(level=5, exp=500, gold=0, food=500, marks=[1, 0, 0, 0], transport=Transport.SHIP)
-    p_hull2.ship_hull = 25
-    p_hull2.x, p_hull2.y = 34, 3
-    p_hull2.wind_direction = Direction.NORTH
-    ow_h2 = OverworldScreen(party=p_hull2, asset_mgr=am, random_encounters=False)
-    ow_h2.creatures = [{"x": 34, "y": 5, "tile_name": "pirate"}]  # distance 2, same column
-    sm.set_screen(ow_h2)
-    assert ctrl.step(sm) not in (pygame.K_SPACE, pygame.K_x)
-
-    # A critically damaged last ship is a last resort for boarding (planner penalty).
-    from py_exodus.autoplay.trip import CRITICAL_SHIP_BOARD_PENALTY
-
-    last = {"tile": "frigate", "x": 34, "y": 3}
-    p_hull.ship_hull = 25
-    p_hull.last_ship = last
-    p_hull.dynamic_objects = [last]
-    assert ctrl._frigate_costs(p_hull, None)[(34, 3)] == CRITICAL_SHIP_BOARD_PENALTY
 
 
 def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
@@ -2103,35 +2073,6 @@ def test_kx_landing_refuses_pirate_lane_when_alternate_exists(pygame_setup):
     assert plan.legs[0].action == "X"
     assert plan.legs[0].end != (2, 2)
     assert not ctrl._threats.in_lane(plan.legs[0].end)
-
-
-def test_broadsides_permitted_at_critical_hull(pygame_setup):
-    """A battered ship (hull below 20) with a pirate lined up at distance 2: it sails
-    out of the lane when it can, and fires (LairWare: any direction) only when it
-    cannot sail. A sound ship closes in to fight instead (user rule 2026-11-21)."""
-    gmap = _make_stub_grid(10, 10, {}, default="water", map_id=0)
-    party = _make_party(
-        level=10, exp=1000, gold=100, food=500, marks=[1, 1, 1, 1],
-        weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC, transport=Transport.SHIP,
-    )
-    party.x, party.y = 4, 4
-    party.ship_hull = 15
-    sm = StateMachine(asset_mgr=None, audio=None)
-    screen = _stub_screen(
-        game_map=gmap,
-        creatures=[{"x": 6, "y": 4, "tile_name": "pirate"}],
-        party=party,
-        ship_hull=15,
-    )
-    sm.set_screen(screen)
-    ctrl = AutoPlayController(enabled=True)
-    party.wind_direction = Direction.NORTH
-    assert ctrl.step(sm) in (pygame.K_UP, pygame.K_DOWN)  # out of the pirate's row
-    party.x, party.y = 4, 4
-    party.wind_direction = None  # becalmed: shoot back at the pirate to the east
-    ctrl._key_queue.clear()
-    assert ctrl.step(sm) == pygame.K_f
-    assert ctrl._key_queue[0] == pygame.K_RIGHT
 
 
 def test_cure_poison_suppresses_sanctu_above_25_hp(pygame_setup):

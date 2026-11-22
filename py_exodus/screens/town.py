@@ -166,8 +166,6 @@ class TownScreen(BaseScreen):
             if tile == "frigate" and obj.get("x") == x and obj.get("y") == y:
                 objs.pop(idx)
                 self.party.transport = Transport.SHIP
-                if self.party.last_ship is not obj:
-                    self.party.adjust_ship_hull(50)
                 self.party.last_ship = obj
                 if self.audio is not None:
                     self.audio.play_sfx("trigger")

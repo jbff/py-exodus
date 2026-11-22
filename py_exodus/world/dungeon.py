@@ -1592,7 +1592,7 @@ class DungeonState:
         creatureCleanup + the spawn roll + moveDungeonCreatures ONLY.
         ``Party.endTurn`` is NEVER called while exploring a dungeon — it
         runs only from GameScreen.java:712 and CombatScreen.java:472 — so
-        the move counter and the ship-hull roll do not tick per dungeon
+        the move counter does not tick per dungeon
         move, and the torch boolean needs no upkeep (no rounds to
         decrement, no expiry ever). After the aura pass this runs the
         wandering-creature upkeep and returns a COMBAT event when a
@@ -1624,7 +1624,7 @@ class DungeonState:
         UltimaMisc.c:1428-1467 corroborates). A wipe raised at a
         starvation crossing lands in the catch below and routes through
         the screen's post-move ``check_party_death()`` (the pit-trap
-        death flow). The move counter and the ship-hull roll stay OUT —
+        death flow). The move counter stays OUT —
         Java DungeonScreen never calls Party.endTurn.
         """
         if self.torchtime > 0:

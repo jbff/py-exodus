@@ -50,7 +50,6 @@ SHIP = Transport.SHIP
 
 WALK_STEP_COST = 1.0
 SAIL_STEP_COST = 1.5
-CRITICAL_HULL_SAIL_FACTOR = 4.0
 BOARD_COST = 1.0
 EXIT_COST = 1.0
 GATE_COST = 50.0
@@ -62,7 +61,6 @@ PATROL_CAPTURE_EXTRA = 250.0
 # a capture there left parties pacing its shore until they starved
 # (rules-c84c7c6 batch, 2026-11-22).
 OPEN_WATER_MIN = 100
-CRITICAL_SHIP_BOARD_PENALTY = 300.0
 REVERSE_TRANSITION_PENALTY = 200.0
 
 _NEIGHBOURS = ((0, -1), (0, 1), (-1, 0), (1, 0))
@@ -241,7 +239,6 @@ def plan_trip(
     dest: Destination,
     frigates: dict[tuple[int, int], float],
     *,
-    hull_critical: bool = False,
     allow_capture: bool = True,
     banned_capture: frozenset[tuple[int, int]] = frozenset(),
     last_transition: Transition | None = None,
@@ -253,8 +250,7 @@ def plan_trip(
 ) -> TripPlan | None:
     """Cheapest trip from ``(start, mode)`` to ``dest``, or None.
 
-    ``frigates`` maps boardable frigate tiles to an extra boarding cost
-    (0 for a sound ship, ``CRITICAL_SHIP_BOARD_PENALTY`` for a wreck).
+    ``frigates`` maps boardable frigate tiles to an extra boarding cost.
     ``danger`` adds a cost for entering a tile (pirate lanes, squid reach as
     seen when planning), so a blocked portal loses to a free one.
     """
@@ -300,7 +296,7 @@ def plan_trip(
     gate_sites = {(g.x, g.y): i for i, g in enumerate(gates)}
     hops = gate_hops(len(gates)) if gates else {}
 
-    sail_cost = SAIL_STEP_COST * (CRITICAL_HULL_SAIL_FACTOR if hull_critical else 1.0)
+    sail_cost = SAIL_STEP_COST
 
     def reverse_penalty(kind: str, pos: tuple[int, int]) -> float:
         lt = last_transition

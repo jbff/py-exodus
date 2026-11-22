@@ -627,7 +627,6 @@ def test_stats_panel_scaled_resolution():
     party = Party()
     party.add_member(Character("Ranger", "M", Race.ELF, Profession.RANGER))
     party.transport = Transport.SHIP
-    party.ship_hull = 42
 
     panel = StatsPanel()
     panel.render(surf, party)

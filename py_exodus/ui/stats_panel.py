@@ -370,8 +370,6 @@ class StatsPanel:
                 )
                 if party.torch_duration > 0:
                     draw_line(f"TORCH LIGHT: {party.torch_duration}", EGA_YELLOW)
-                if party.transport == Transport.SHIP:
-                    draw_line(f"SHIP HULL: {party.ship_hull}/50", EGA_BRIGHT_CYAN)
             if is_large and target_rect.bottom - curr_y >= line_h * 3 + 8:
                 draw_separator()
                 mk, mf, ms, mo = (

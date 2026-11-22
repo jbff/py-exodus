@@ -74,7 +74,6 @@ def party_snapshot(party) -> dict[str, Any]:
         ),
         "keys": sum(m.keys for m in living),
         "transport": str(getattr(getattr(party, "transport", None), "value", "?")).lower(),
-        "hull": getattr(party, "ship_hull", None),
         "living": len(living),
     }
 

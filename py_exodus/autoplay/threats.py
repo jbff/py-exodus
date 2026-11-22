@@ -1,13 +1,11 @@
 """Overworld threat geometry for autoplay: pirate firing lanes and squid zones.
 
-Pirate firing lane (engine rule, ``OverworldScreen._update_creatures``): a
-pirate fires a broadside whenever the party is in its row or column at
-movement distance 2 or 3 and the pirate's broadside faces the party; a
-misaligned pirate turns to face 1-in-2 and fires next tick. Firing forfeits
-the pirate's move, so it fires every tick the party stays. The enemy cannon
-hits 1-in-3: a ship loses 10 hull (0 = party lost), on foot every member
-takes 10-25 on a coin flip. At distance 1 an aligned pirate battles instead
-(the way a ship is captured).
+Firing lane (LairWare moveshoot, ``OverworldScreen._lw_monster_shoot``):
+after its move, half the time a pirate or dragon fires toward the party,
+each axis stepping toward it on its own, up to 3 tiles. The shot only hits
+when the party is in its row, column or exact diagonal within 3 tiles; a hit
+costs every living member (rand & 0x77) + 8 HP. A monster that steps onto
+the party fights instead (the way a ship is captured).
 
 Rule (applies on foot and at sea, before every move or wait): never end a
 turn on a lane tile. Step off the line, back out past distance 3, or close
@@ -41,12 +39,26 @@ def manhattan(w: int, h: int, a: tuple[int, int], b: tuple[int, int]) -> int:
     return abs(wrap_delta(a[0], b[0], w)) + abs(wrap_delta(a[1], b[1], h))
 
 
-def lane_tiles_for(w: int, h: int, pirate: tuple[int, int]) -> set[tuple[int, int]]:
+SHOT_BLOCKERS = frozenset({"mountains", "wall", "blank"})
+
+
+def lane_tiles_for(
+    w: int, h: int, pirate: tuple[int, int], gmap=None
+) -> set[tuple[int, int]]:
+    """Tiles 2-3 away along a row, column or diagonal that the monster's
+    shot reaches; with ``gmap`` the ray stops at mountains, walls and the
+    void, as LairWare's moveshoot does."""
     px, py = pirate
     out: set[tuple[int, int]] = set()
-    for dist in (2, 3):
-        for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
-            out.add(((px + dx * dist) % w, (py + dy * dist) % h))
+    for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0), (-1, -1), (-1, 1), (1, -1), (1, 1)):
+        for dist in (1, 2, 3):
+            t = ((px + dx * dist) % w, (py + dy * dist) % h)
+            if gmap is not None:
+                tile = gmap.get_tile(*t)
+                if getattr(tile, "name", tile) in SHOT_BLOCKERS:
+                    break
+            if dist >= 2:
+                out.add(t)
     return out
 
 
@@ -67,6 +79,7 @@ class Threats:
     width: int
     height: int
     pirates: list[tuple[int, int]] = field(default_factory=list)
+    pirate_lanes: dict[tuple[int, int], set[tuple[int, int]]] = field(default_factory=dict)
     lanes: set[tuple[int, int]] = field(default_factory=set)
     squids: list[tuple[int, int]] = field(default_factory=list)
     squid_engage: set[tuple[int, int]] = field(default_factory=set)
@@ -76,7 +89,7 @@ class Threats:
         return pos in self.lanes
 
     def lane_pirates(self, pos: tuple[int, int]) -> list[tuple[int, int]]:
-        return [p for p in self.pirates if pos in lane_tiles_for(self.width, self.height, p)]
+        return [p for p in self.pirates if pos in self.pirate_lanes.get(p, ())]
 
     def unsafe_end(self, pos: tuple[int, int]) -> bool:
         """True when ending a turn on ``pos`` invites cannon fire or a squid."""
@@ -99,7 +112,10 @@ def compute_threats(gmap, party, creatures, fight_squids: bool = False) -> Threa
         pos = (c["x"], c["y"])
         if name == "pirate":
             th.pirates.append(pos)
-            th.lanes |= lane_tiles_for(w, h, pos)
+            th.pirate_lanes[pos] = lane_tiles_for(w, h, pos, gmap)
+            th.lanes |= th.pirate_lanes[pos]
+        elif name == "dragon":
+            th.lanes |= lane_tiles_for(w, h, pos, gmap)
         elif name == "squid" and avoid_squids:
             th.squids.append(pos)
             for dx in range(-3, 4):

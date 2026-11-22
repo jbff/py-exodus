@@ -57,7 +57,7 @@ def test_pirate_victory_drops_frigate_not_chest(asset_mgr, sample_party):
 
 
 def test_board_and_exit_frigate(asset_mgr, sample_party):
-    """Boarding a frigate sets transport to SHIP with full hull; exiting drops frigate and sets FOOT."""
+    """Boarding a frigate sets transport to SHIP ; exiting drops frigate and sets FOOT."""
     overworld = OverworldScreen(party=sample_party, map_id=0, asset_mgr=asset_mgr, start_x=10, start_y=10)
 
     # Place frigate exactly on the party tile at (10, 10) — boarding requires
@@ -67,7 +67,6 @@ def test_board_and_exit_frigate(asset_mgr, sample_party):
     # Press 'B' to board
     overworld.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_b, unicode="b"))
     assert sample_party.transport == Transport.SHIP
-    assert sample_party.ship_hull == 50
     assert len([o for o in sample_party.dynamic_objects if o.get("tile") == "frigate"]) == 0
     assert any("Board Frigate" in m for m in overworld.text_log.history)
 
