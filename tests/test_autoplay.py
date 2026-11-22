@@ -843,7 +843,9 @@ def test_buy_keys_before_ambrosia_and_unlock_locked_door(pygame_setup):
 
 
 def test_stats_panel_party_hud_layout(pygame_setup, monkeypatch):
-    """StatsPanel shows 3-letter SRC code, omits PARTY/TRANS headers, and places FOOD/GOLD at bottom."""
+    """The party panel (approved mockup, 2026-11-22): a card per member with
+    race, class, sex and level in words (no [n] number), then the party's
+    supplies below the cards."""
     from py_exodus.ui.stats_panel import StatsPanel
 
     party = Party()
@@ -863,13 +865,12 @@ def test_stats_panel_party_hud_layout(pygame_setup, monkeypatch):
     surf = pygame.Surface((400, 600))
     panel.render(surf, party, rect=pygame.Rect(0, 0, 300, 500))
 
-    assert any("GRUMM" in s and "ODF" in s and "L:1" in s for s in captured)
-    assert any("E:45" in s for s in captured)
-    assert not any("PARTY (" in s or "TRANS:" in s for s in captured)
-    food_idx = next(i for i, s in enumerate(captured) if "FOOD:" in s and "GOLD:" in s)
-    keys_idx = next(i for i, s in enumerate(captured) if "KEYS:" in s and "POWD:" in s)
-    member_idx = next(i for i, s in enumerate(captured) if "GRUMM" in s)
-    assert member_idx < food_idx < keys_idx
+    assert "GRUMM" in captured and "Dwarf Fighter · O · Lv 1" in captured
+    assert "XP 45" in captured and "Gold 145" in captured and "Food 592" in captured
+    assert not any(s.startswith("[1]") or "[1]" in s for s in captured)
+    member_idx = captured.index("GRUMM")
+    party_idx = captured.index("PARTY")
+    assert member_idx < party_idx < captured.index("Powders")
 
 
 def test_autoplay_syncs_auto_combat_speed(pygame_setup):
@@ -1126,46 +1127,47 @@ def test_cure_poisoned_member_by_spell_or_healer(pygame_setup):
 
 
 def test_stats_panel_autoplay_autocombat_and_turn_count(pygame_setup):
-    """StatsPanel renders Autoplay ON/OFF, Autocombat ON/OFF (forced ON when Autoplay ON), and Turn count."""
+    """The panel's last block: location, turn, Autoplay ON/OFF (with its
+    speed and goal), Autocombat ON/OFF (forced ON while Autoplay is ON); the
+    party and quest blocks above it."""
     from py_exodus.assets import AssetManager
     from py_exodus.screens.overworld import OverworldScreen
+    from py_exodus.ui.party_panel import MARK_ON
     from py_exodus.ui.stats_panel import StatsPanel
 
     party = Party(moves=42)
     party.add_member(Character("GRUMM", "O", Race.DWARF, Profession.FIGHTER))
-    captured: list[str] = []
+    captured: list[tuple[str, tuple]] = []
 
     class _FakeFont:
         def get_linesize(self):
             return 12
 
         def render(self, text, antialias, color):
-            captured.append(text)
+            captured.append((text, tuple(color)))
             return pygame.Surface((max(1, len(text) * 6), 12))
 
     fake = _FakeFont()
     panel = StatsPanel(font=fake, small_font=fake)
     surf = pygame.Surface((400, 600))
 
-    # 1. Both OFF
-    panel.render(surf, party, rect=pygame.Rect(0, 0, 300, 500), autoplay=False, auto_combat=False)
-    assert any("AUTOPLAY:" in s and "OFF" in s for s in captured)
-    assert any("AUTOCOMBAT:" in s and "OFF" in s for s in captured)
-    assert any("TURN: 42" in s for s in captured)
+    def after(label):
+        texts = [t for t, _ in captured]
+        return texts[texts.index(label) + 1]
 
-    # 2. Autoplay OFF, Autocombat ON
+    panel.render(surf, party, rect=pygame.Rect(0, 0, 300, 500), autoplay=False, auto_combat=False)
+    assert after("Autoplay") == "OFF" and after("Autocombat") == "OFF"
+    assert after("Turn") == "42"
+
     captured.clear()
     panel.render(surf, party, rect=pygame.Rect(0, 0, 300, 500), autoplay=False, auto_combat=True)
-    assert any("AUTOPLAY:" in s and "OFF" in s for s in captured)
-    assert any("AUTOCOMBAT:" in s and "ON" in s for s in captured)
+    assert after("Autoplay") == "OFF" and after("Autocombat") == "ON"
 
-    # 3. Autoplay ON always forces Autocombat ON
     captured.clear()
     panel.render(surf, party, rect=pygame.Rect(0, 0, 300, 500), autoplay=True, auto_combat=False)
-    assert any("AUTOPLAY:" in s and "ON" in s for s in captured)
-    assert any("AUTOCOMBAT:" in s and "ON" in s for s in captured)
+    assert after("Autoplay") == "ON" and after("Autocombat") == "ON"
 
-    # 4. Screen integration via StateMachine + OverworldScreen
+    # Screen integration via StateMachine + OverworldScreen
     am = AssetManager("data")
     am.load_all()
     sm = StateMachine(asset_mgr=am, audio=None)
@@ -1174,21 +1176,19 @@ def test_stats_panel_autoplay_autocombat_and_turn_count(pygame_setup):
     sm.set_screen(ow)
     sm.autoplay_enabled = True
     sm.autoplay_step_interval = 0.05
-    party.transport = Transport.SHIP
     party.members[0].gold = 77
     party.members[0].marks[0] = 1
     captured.clear()
     ow._render_stats_panel(surf, pygame.Rect(0, 0, 300, 500))
-    assert any("AUTOPLAY:" in s and "ON (0.05s)" in s for s in captured)
-    assert any("AUTOCOMBAT:" in s and "ON" in s for s in captured)
-    assert any("TURN: 42" in s for s in captured)
-    assert any("G:77" in s for s in captured)
-    assert any("TOR:" in s for s in captured)
-    assert any("MARKS: K:1 F:0 S:0 O:0" in s for s in captured)
-    assert any("CARDS: L:0 S:0 M:0 D:0" in s for s in captured)
-    assert any("EXOTICS: W:0/4 A:0/4" in s for s in captured)
-    assert any("LOC: Sosaria" in s for s in captured)
-    assert any("GOAL:" in s for s in captured)
+    texts = [t for t, _ in captured]
+    assert after("Autoplay") == "ON (0.05s)"
+    assert texts[texts.index("ON (0.05s)") + 1] != "Autocombat"  # the goal sits between
+    assert after("Turn") == "42" and after("Gold") == "77" and "Torches" in texts
+    assert ("Kings", (0, 0, 0)) in captured  # a lit chip: black on gold
+    assert dict(captured)["Fire"] != (0, 0, 0)  # unlit
+    assert "Weapons 0/1" in texts and "Armor 0/1" in texts
+    assert any(t.startswith("Sosaria (") for t in texts)
+    assert MARK_ON  # chip colour exported for the renderer
 
 
 def test_heal_rest_on_sosaria_and_walkable_coast_patrol(pygame_setup):

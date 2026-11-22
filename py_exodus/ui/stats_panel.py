@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pygame
 
-from py_exodus.constants import ArmorType, Transport, WeaponType
+from py_exodus.constants import ArmorType, WeaponType
 from py_exodus.entities.party import Party
 from py_exodus.ui.text_log import (
     EGA_BLACK,
@@ -269,13 +269,26 @@ class StatsPanel:
         member_inspect_active = (
             member_inspect_index is not None and 0 <= member_inspect_index < len(party.members)
         )
+        if is_large and member_inspect_index is None:
+            from py_exodus.ui.party_panel import PartyPanel
+
+            goal = None
+            if autoplay:
+                from py_exodus.autoplay.planner import evaluate_goal
+
+                goal = evaluate_goal(party).value
+            curr_y = PartyPanel(_equipment_display_names(self.asset_mgr), self.font).render(
+                surface, party, target_rect, autoplay=autoplay, auto_combat=auto_combat,
+                step_interval=step_interval, location_text=location_text, goal=goal,
+            )
+            self._render_debug(surface, f_text, x_left, curr_y, target_rect, is_large)
+            return
         if not member_inspect_active:
             # Party Members (up to 4), hidden while in member-inspect mode:
             # the full per-member zstats page (exodus/Party.java getZstats) needs
             # the whole panel height for its stat rows plus the complete
             # equipment listings down to the mark/card rows.
             if member_inspect_index is None:
-                w_names, a_names = _equipment_display_names(self.asset_mgr)
                 for i, pm in enumerate(party.members):
                     is_active = (i == party.active_member_index)
                     marker = ">" if is_active else " "
@@ -312,16 +325,6 @@ class StatsPanel:
                         f" H:{pm.hp} M:{pm.mp} F:{pm.food} E:{pm.exp}",
                         EGA_LIGHT_GRAY if not is_active else EGA_YELLOW,
                     )
-                    if is_large:
-                        w_key = getattr(getattr(pm, "weapon", None), "name", "NONE")
-                        a_key = getattr(getattr(pm, "armor", None), "name", "NONE")
-                        w_lbl = "Exotic" if w_key == "EXOTIC" else w_names.get(w_key, "None")
-                        a_lbl = "Exotic" if a_key == "EXOTIC" else a_names.get(a_key, "None")
-                        draw_line(
-                            f" S:{pm.str:<2} D:{pm.dex:<2} I:{pm.int:<2} W:{pm.wis:<2} G:{pm.gold:<4} {w_lbl}/{a_lbl}",
-                            EGA_LIGHT_GRAY if not is_active else EGA_YELLOW,
-                        )
-
         # 5. Inspection Section
         eff_inspect = inspect_index if inspect_index is not None else self.inspect_index
         if eff_inspect is not None:
@@ -370,42 +373,8 @@ class StatsPanel:
                 )
                 if party.torch_duration > 0:
                     draw_line(f"TORCH LIGHT: {party.torch_duration}", EGA_YELLOW)
-            if is_large and target_rect.bottom - curr_y >= line_h * 3 + 8:
-                draw_separator()
-                mk, mf, ms, mo = (
-                    sum(1 for m in party.members if m.marks[idx] > 0)
-                    for idx in range(4)
-                )
-                cl, cs, cm, cd = (
-                    sum(1 for m in party.members if m.cards[idx] > 0)
-                    for idx in (3, 1, 2, 0)
-                )
-                ew = sum(
-                    1
-                    for m in party.members
-                    if m.weapon == WeaponType.EXOTIC or m.weapons.get(WeaponType.EXOTIC, 0) > 0
-                )
-                ea = sum(
-                    1
-                    for m in party.members
-                    if m.armor == ArmorType.EXOTIC or m.armors.get(ArmorType.EXOTIC, 0) > 0
-                )
-                draw_line(
-                    f"MARKS: K:{mk} F:{mf} S:{ms} O:{mo}",
-                    EGA_BRIGHT_GREEN if (mk and mf and ms and mo) else EGA_WHITE,
-                )
-                draw_line(
-                    f"CARDS: L:{cl} S:{cs} M:{cm} D:{cd}",
-                    EGA_BRIGHT_GREEN if (cl and cs and cm and cd) else EGA_WHITE,
-                )
-                draw_line(
-                    f"EXOTICS: W:{ew}/4 A:{ea}/4",
-                    EGA_BRIGHT_GREEN if (ew == 4 and ea == 4) else EGA_LIGHT_GRAY,
-                )
             if target_rect.bottom - curr_y >= line_h * 3 + 6:
                 draw_separator()
-                if is_large and location_text:
-                    draw_line(f"LOC: {location_text}", EGA_BRIGHT_CYAN)
                 eff_auto_combat = bool(autoplay or auto_combat)
                 speed_txt = (
                     f" ({step_interval:.2f}s)"
@@ -420,27 +389,30 @@ class StatsPanel:
                     f"AUTOCOMBAT: {'ON' if eff_auto_combat else 'OFF'}",
                     EGA_BRIGHT_GREEN if eff_auto_combat else EGA_LIGHT_GRAY,
                 )
-                if is_large and autoplay:
-                    from py_exodus.autoplay.planner import evaluate_goal
-
-                    draw_line(f"GOAL: {evaluate_goal(party).value}", EGA_YELLOW)
                 draw_line(f"TURN: {party.moves}", EGA_WHITE)
-                from py_exodus import debug as _dbg
+                self._render_debug(surface, f_text, x_left, curr_y, target_rect, is_large)
 
-                active_cheats = [
-                    (idx + 1, label.replace(" ", ""))
-                    for idx, (label, _, attr) in enumerate(_dbg._MENU_ITEMS)
-                    if getattr(_dbg.CHEATS, attr, False)
-                ]
-                if (_dbg.DEBUG_MODE or active_cheats) and curr_y + line_h <= target_rect.bottom:
-                    dbg_surf = f_text.render("DEBUG", True, EGA_BRIGHT_RED)
-                    surface.blit(dbg_surf, (x_left, curr_y))
-                    if active_cheats:
-                        flags_txt = (
-                            " " + " ".join(f"{num}:{lbl}" for num, lbl in active_cheats)
-                            if is_large
-                            else " " + "".join(str(num) for num, _ in active_cheats)
-                        )
-                        flags_surf = f_text.render(flags_txt, True, EGA_YELLOW)
-                        surface.blit(flags_surf, (x_left + dbg_surf.get_width(), curr_y))
-                    curr_y += f_text.get_linesize() + (2 if is_large else 1)
+    @staticmethod
+    def _render_debug(surface, f_text, x_left, curr_y, target_rect, is_large) -> None:
+        """The DEBUG tag and the active cheat flags, when any are on."""
+        from py_exodus import debug as _dbg
+
+        active_cheats = [
+            (idx + 1, label.replace(" ", ""))
+            for idx, (label, _, attr) in enumerate(_dbg._MENU_ITEMS)
+            if getattr(_dbg.CHEATS, attr, False)
+        ]
+        if not (_dbg.DEBUG_MODE or active_cheats):
+            return
+        if curr_y + f_text.get_linesize() > target_rect.bottom:
+            return
+        dbg_surf = f_text.render("DEBUG", True, EGA_BRIGHT_RED)
+        surface.blit(dbg_surf, (x_left, curr_y))
+        if active_cheats:
+            flags_txt = (
+                " " + " ".join(f"{num}:{lbl}" for num, lbl in active_cheats)
+                if is_large
+                else " " + "".join(str(num) for num, _ in active_cheats)
+            )
+            flags_surf = f_text.render(flags_txt, True, EGA_YELLOW)
+            surface.blit(flags_surf, (x_left + dbg_surf.get_width(), curr_y))
