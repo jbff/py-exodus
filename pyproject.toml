@@ -18,6 +18,7 @@ version = "0.1.0"
 description = "Ultima III: Exodus reimplementation in Python"
 readme = "README.md"
 requires-python = ">=3.10"
+license = { text = "MIT" }
 dependencies = [
     "pygame-ce>=2.5.0",
     "sounddevice>=0.5.0",

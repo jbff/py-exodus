@@ -130,4 +130,4 @@ About **1,350 tests** covering mechanics, LairWare/Java/GBC parity, vendors, dun
 
 ## License
 
-Educational, preservation and non-commercial archival use. Original *Ultima III: Exodus* content, design and assets remain copyright © their respective owners and Richard Garriott / Origin Systems.
+py-exodus's own code is [MIT](LICENSE). Material from elsewhere keeps its own terms; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md): LairWare's port (MIT), the Barlow font (OFL), and assets still derived from gdx-exodus, which publishes no license and which are being replaced with LairWare-derived equivalents. *Ultima III: Exodus* itself remains copyright © Richard Garriott / Origin Systems; this is an unofficial, non-commercial fan port.
