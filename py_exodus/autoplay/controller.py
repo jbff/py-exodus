@@ -1170,6 +1170,7 @@ class AutoPlayController:
                 th,
                 lambda x, y: can_move_to(gmap, x, y, Transport.FOOT, party=party),
                 prefer_engage=not party_has_low_hp(party) and not th.squid_engage,
+                rank=self._capture_escape_rank(gmap, party, th),
             )
         if move.key == "attack" and move.direction is not None:
             return self._attack(state_machine, move.direction)
@@ -2140,7 +2141,7 @@ class AutoPlayController:
             engage = {t for t in engage if t in reach and not (th is not None and th.unsafe_end(t))}
             if engage:
                 tgt = self._hunt_target_for(gmap, pos, reach, engage, pirates, th)
-                return self._move_toward(state_machine, gmap, party, pos, {tgt})
+                return self._move_toward_off_lanes(state_machine, gmap, party, pos, {tgt}, th)
             coast = [
                 t for t in reach
                 if any(terr.sea_comp.get(n) in comps for n in terr.neighbours(*t))
@@ -2151,7 +2152,7 @@ class AutoPlayController:
                 closest = {t for t in coast if min(manhattan(w, h, t, p) for p in pirates) == best}
                 if pos not in closest:
                     tgt = self._hunt_target_for(gmap, pos, reach, closest, pirates, th)
-                    return self._move_toward(state_machine, gmap, party, pos, {tgt})
+                    return self._move_toward_off_lanes(state_machine, gmap, party, pos, {tgt}, th)
             # As close as land allows: it is coming (pirates home in).
             return self._emit_key(state_machine, pygame.K_SPACE)
         # Patrol: a far reachable coast tile of this water, re-picked on arrival.
@@ -2430,6 +2431,47 @@ class AutoPlayController:
         if "buy" in prompt or "what" in prompt or "wat'l" in prompt or "choice" in prompt or "(a-" in prompt:
             return self._emit_key(state_machine, _char_to_key(self._shop_item_letter) or pygame.K_b)
         return self._emit_key(state_machine, pygame.K_ESCAPE)
+
+    _capture_goal: tuple[int, int] | None = None
+    _capture_turn = -10
+
+    def _capture_escape_rank(self, gmap, party, th):
+        """While a pirate capture is under way (it acted this turn or last),
+        rank lane-escape steps by their lane-free walk on to its target."""
+        goal = self._capture_goal
+        if goal is None or self._ow_turn - self._capture_turn > 1:
+            return None
+        avoid = th.hard_avoid() - {goal}
+
+        def rank(tile):
+            if tile == goal:
+                return 0
+            _d, cost = find_2d_step_and_cost(
+                gmap, start=tile, goals={goal}, transport=Transport.FOOT, party=party, avoid_tiles=avoid
+            )
+            return cost if cost is not None else 10_000
+
+        return rank
+
+    def _move_toward_off_lanes(self, state_machine, gmap, party, pos, goals, th) -> int:
+        """``_move_toward`` around pirate firing lanes when a lane-free route
+        exists. Batch 1c7525f seed 2: the capture walked up a pirate's
+        column into its lane, the lane escape stepped back out, and in and
+        out it went, a broadside each time, until the party died."""
+        self._capture_goal = next(iter(goals)) if len(goals) == 1 else None
+        self._capture_turn = self._ow_turn
+        lanes = th.hard_avoid() if th is not None else set()
+        if lanes:
+            base = getattr(self, "_overworld_avoid", None) or set()
+            avoid = set(base) | (lanes - goals)
+            if find_2d_step(gmap, pos, goals, party.transport, party=party, avoid_tiles=avoid) is not None:
+                saved = self._overworld_avoid
+                self._overworld_avoid = avoid
+                try:
+                    return self._move_toward(state_machine, gmap, party, pos, goals)
+                finally:
+                    self._overworld_avoid = saved
+        return self._move_toward(state_machine, gmap, party, pos, goals)
 
     def _move_toward(
         self,

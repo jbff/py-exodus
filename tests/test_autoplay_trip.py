@@ -1431,3 +1431,27 @@ def test_green_parties_dont_chase_dragons(pygame_setup):
         ctrl._grind_quiet = 5
         ctrl._grind_local(sm, ow, ow.game_map, party, 42, 18, list(party.members))
         assert (ctrl._grind_quiet == 0) is chased, level
+
+
+def test_pirate_capture_escape_keeps_its_progress(pygame_setup, asset_mgr):
+    """Batch 1c7525f seed 2: a pirate at (6, 28), the party four tiles south
+    on the coast. A mountain at (7, 32) leaves (6, 31), in the lane, as the
+    only way north. The capture stepped in, the lane escape broke a tie back
+    to (6, 32), and in and out it went, a broadside each time, until the
+    party died. The escape now keeps going (7, 31) toward the hunt target."""
+    from py_exodus.autoplay.controller import _DIR_TO_KEY
+
+    party = _make_party(level=5, x=6, y=32)
+    sm, ow = _overworld(asset_mgr, party)
+    gmap = ow.game_map
+    ow.creatures = [_pirate(6, 28)]
+    th = compute_threats(gmap, party, ow.creatures)
+    assert th.unsafe_end((6, 31)) and not th.unsafe_end((6, 32)) and not th.unsafe_end((7, 31))
+    ctrl = AutoPlayController(enabled=True)
+    keys: list[int] = []
+    ctrl._emit_key = lambda _sm, key, **_kw: keys.append(key) or 0
+    ctrl._move_toward_off_lanes(sm, gmap, party, (6, 32), {(6, 29)}, th)
+    assert keys[-1] == _DIR_TO_KEY[Direction.NORTH]  # the one way on
+    party.x, party.y = 6, 31
+    ctrl._threat_escape(sm, ow, party, 6, 31)
+    assert keys[-1] == _DIR_TO_KEY[Direction.EAST]  # on toward (6, 29), not back

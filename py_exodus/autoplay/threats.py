@@ -137,7 +137,8 @@ class Move:
 
 
 def foot_escape(
-    gmap, party, pos: tuple[int, int], threats: Threats, can_enter, prefer_engage: bool
+    gmap, party, pos: tuple[int, int], threats: Threats, can_enter, prefer_engage: bool,
+    rank=None,
 ) -> Move:
     """Choose this turn's action when standing in a pirate lane on foot.
 
@@ -163,9 +164,13 @@ def foot_escape(
             n[0] == p[0] or n[1] == p[1] for p in lane_p if manhattan(w, h, n, p) == 1
         )
         unsafe = threats.unsafe_end(n)
+        # ``rank(tile)``: lower is better, e.g. the walk on to a pirate the
+        # party is hunting. Breaking ties back the way it came undid the
+        # hunt's progress every turn (batch 1c7525f seed 2).
         score = (
             unsafe,
             not (engage and prefer_engage),
+            rank(n) if rank is not None else 0,
             -dmin if not (engage and prefer_engage) else 0,
         )
         if best is None or score < best[0]:
