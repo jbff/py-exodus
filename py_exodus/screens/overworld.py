@@ -1673,6 +1673,9 @@ class OverworldScreen(BaseScreen):
                 for line in self.ENGULF_LINES:
                     self.text_log.add_message(line)
                 self.party.transport = Transport.FOOT
+                # LairWare GoWhirlPool saves the engulf spot (Party[4]/[5])
+                # and returns the party there (UltimaMain.c:3043-3046, 3093).
+                self.party.whirlpool_return = (self.party.x, self.party.y)
                 self.party.x, self.party.y = 32, 54
                 self.map_id = 13
                 self._load_world_map()

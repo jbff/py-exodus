@@ -40,13 +40,27 @@ def step_in_whirlpool_portal(screen, x: int, y: int) -> bool:
     if portal is None or str(getattr(portal, "name", "") or "").upper() != "WHIRLPOOL":
         return False
 
-    dx = random.randint(48, 53)
-    dy = random.randint(0, 8)
+    # USER-DIRECTED (2026-11-21, LairWare is the correct implementation):
+    # GoWhirlPool returns the party, on its ship, to the Sosaria tile where
+    # the whirlpool took it (Party[4]/[5], UltimaMain.c:3043-3046, 3093-3097)
+    # and the engulfing whirlpool has been moved off to (2, 62) (WhirlX/Y,
+    # UltimaMain.c:3047-3048). Java's random coast (48-53, 0-8) remains only
+    # for a party with no recorded engulf spot (old saves).
+    ret = getattr(screen.party, "whirlpool_return", None)
+    if ret is not None:
+        dx, dy = ret
+    else:
+        dx = random.randint(48, 53)
+        dy = random.randint(0, 8)
     if screen.audio is not None:
         screen.audio.play_sfx("wave") or screen.audio.play_sfx("whirlpool")
     screen.map_id = 0
     screen._load_world_map()
     screen.party.x, screen.party.y = dx, dy
+    screen.party.whirlpool_return = None
+    for c in getattr(screen, "creatures", ()):
+        if c.get("tile_name") == "whirlpool" and (c.get("x"), c.get("y")) == (dx, dy):
+            c["x"], c["y"] = 2, 62
     return True
 
 

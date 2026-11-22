@@ -89,3 +89,18 @@ def test_surface_objects_round_trip_through_save():
     assert q.objects_map_id == 13 and q.dynamic_objects == []
     q.enter_surface_map(0)
     assert q.dynamic_objects == [{"tile": "frigate", "x": 1, "y": 2}]
+
+
+def test_whirlpool_returns_party_to_engulf_spot(world):
+    """LairWare GoWhirlPool: back to the engulf tile, on a ship, and the
+    engulfing whirlpool moved to (2, 62) so it does not swallow us again."""
+    scr, party = world
+    _engulf(scr, party)
+    party.transport = Transport.SHIP
+    assert portal_entry.step_in_whirlpool_portal(scr, 32, 58)
+    assert (party.x, party.y) == (50, 13)
+    assert party.transport == Transport.SHIP
+    wp = sorted((c["x"], c["y"]) for c in scr.creatures if c["tile_name"] == "whirlpool")
+    assert wp == [(2, 62), (17, 48)]
+    scr._check_whirlpool_engulf()
+    assert scr.map_id == 0

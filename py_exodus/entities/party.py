@@ -243,6 +243,7 @@ class Party:
         dynamic_objects: list[dict[str, int]] | None = None,
         dynamic_monsters: list[dict[str, int]] | None = None,
         objects_map_id: int = 0,
+        whirlpool_return: tuple[int, int] | None = None,
         sosaria_objects: list[dict[str, int]] | None = None,
     ) -> None:
         self.members: list[PartyMember] = []
@@ -339,6 +340,11 @@ class Party:
         # Sosaria ship never exists on Ambrosia and Ambrosia's objects are
         # gone once the party leaves (see ``enter_surface_map``).
         self.objects_map_id: int = objects_map_id
+        # Where the Sosaria whirlpool took the party (LairWare Party[4]/[5],
+        # UltimaMain.c:3043-3046): the Ambrosia whirlpool returns it there.
+        self.whirlpool_return: tuple[int, int] | None = (
+            tuple(whirlpool_return) if whirlpool_return else None
+        )
         self.sosaria_objects: list[dict[str, int]] = (
             list(sosaria_objects) if sosaria_objects is not None else []
         )
@@ -924,6 +930,7 @@ class Party:
                 self.dynamic_monsters[: Party.DYNAMIC_MONSTERS_SAVE_CAP]
             ),
             "objects_map_id": self.objects_map_id,
+            "whirlpool_return": list(self.whirlpool_return) if self.whirlpool_return else None,
             "sosaria_objects": list(
                 self.sosaria_objects[: Party.DYNAMIC_OBJECTS_SAVE_CAP]
             ),
@@ -976,6 +983,7 @@ class Party:
             dynamic_objects=data.get("dynamic_objects", p_data.get("dynamic_objects", [])),
             dynamic_monsters=data.get("dynamic_monsters", p_data.get("dynamic_monsters", [])),
             objects_map_id=data.get("objects_map_id", 0),
+            whirlpool_return=data.get("whirlpool_return"),
             sosaria_objects=data.get("sosaria_objects", []),
         )
 
