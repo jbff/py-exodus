@@ -516,6 +516,13 @@ class AssetManager:
             else:
                 frames = [first]
             self.tiles[tdef.name] = frames
+        # LairWare draws a town's lone "I" (tile 46, no letter to its left,
+        # right or above) as a door: the cell beside the I
+        # (UltimaGraphics.c:585-597). Our map builder names those tiles
+        # locked_door; unlocking leaves a closed "door" with the same art.
+        door = raw(5, 14, False)
+        self.tiles["locked_door"] = [door]
+        self.tiles["door"] = [door]
         for base, cells in VARIANT_TILE_INDEX.items():
             for vname, index in zip(VARIANT_NAMES[base], cells):
                 col, row = (index // 16) * 2, index % 16
