@@ -672,7 +672,9 @@ def test_equipment_upgrades_hand_and_dawn(pygame_setup):
 
     # With 450g pooled, Fighter targets Dawn's Axe +2 (400g, dawn_only=True)
     party.members[2].gold = 450
-    up = best_shop_upgrade(party)
+    # Dawn counts only when asked (user rule 2026-11-21: Dawn is opportunistic)
+    assert best_shop_upgrade(party) is None or not best_shop_upgrade(party).dawn_only
+    up = best_shop_upgrade(party, include_dawn=True)
     assert up is not None
     assert up.member_idx == 2
     assert up.dawn_only is True
@@ -770,10 +772,20 @@ def test_buy_keys_before_ambrosia_and_unlock_locked_door(pygame_setup):
     am = AssetManager("data")
     am.load_all()
     sosaria = load_map(0, am)
-    for mid, (px, py, guild_xy) in _GUILD_TOWNS.items():
+    # User rule (2026-11-21): guilds at Grey, Devil Guard and Fawn (Dawn only
+    # while open). Grey and Dawn are on the mainland; Devil Guard and Fawn
+    # need the trip layer's ship. Inside each town the stand is reachable
+    # from the entry point (wandering town people cleared: they move).
+    assert set(_GUILD_TOWNS) == {6, 7, 11, 12}
+    for mid in (6, 11):
+        px, py, _ = _GUILD_TOWNS[mid]
         assert find_2d_step(sosaria, (46, 20), (px, py), Transport.FOOT) is not None
+    for mid, (px, py, guild_xy) in _GUILD_TOWNS.items():
+        portal = next(p for p in sosaria.portals if (p.x, p.y) == (px, py))
+        assert portal.dest_map_id == mid
         tmap = load_map(mid, am)
-        assert find_2d_step(tmap, (32, 63), guild_xy, Transport.FOOT) is not None
+        tmap.npcs = []
+        assert find_2d_step(tmap, (portal.start_x, portal.start_y), guild_xy, Transport.FOOT) is not None
 
     party = _make_party(
         level=5, exp=500, marks=[1, 1, 1, 1],
@@ -782,9 +794,9 @@ def test_buy_keys_before_ambrosia_and_unlock_locked_door(pygame_setup):
     )
     assert evaluate_goal(party) == Goal.BUY_KEYS
 
-    # In Dawn (map 11) at Guild stand (34, 21), buys Keys up to 4
+    # In Grey (map 6) at the Guild stand (33, 21), buys Keys up to 4
     sm = StateMachine(asset_mgr=am, audio=None)
-    ts = TownScreen(party=party, asset_mgr=am, map_id=11, start_x=34, start_y=21)
+    ts = TownScreen(party=party, asset_mgr=am, map_id=6, start_x=33, start_y=21)
     sm.set_screen(ts)
     ctrl = AutoPlayController(enabled=True)
     for _ in range(80):
@@ -864,7 +876,7 @@ def test_autoplay_syncs_auto_combat_speed(pygame_setup):
 
 
 def test_dawn_double_new_moon_wait_and_moongate_helper(pygame_setup):
-    """At Dawn (37, 53), passes turns until double new moon before pressing E; moongates wait adjacent."""
+    """Dawn is never waited for (entered only when open); moongates roam until about to open."""
     from py_exodus.assets import AssetManager
     from py_exodus.screens.overworld import OverworldScreen
 
@@ -883,10 +895,15 @@ def test_dawn_double_new_moon_wait_and_moongate_helper(pygame_setup):
     sm.set_screen(ow)
 
     ctrl = AutoPlayController(enabled=True)
-    # Not double new moon -> passes turn (K_SPACE)
-    assert ctrl.step(sm) == pygame.K_SPACE
-    # Once double new moon (moon_phase=0), presses K_e to enter Dawn
+    # User rule (2026-11-21): never wait for Dawn. Closed -> the party goes
+    # about its goal (keys at another guild), no turn passed at the portal.
+    assert ctrl.step(sm) != pygame.K_SPACE
+    assert ctrl._trip is None or (37, 53) not in ctrl._trip.dest.tiles
+    # Open (double new moon) while standing at its portal -> the guild
+    # trip may use it and enters.
+    party.x, party.y = 37, 53
     party.moon_phase = 0
+    ctrl._trip = None
     assert ctrl.step(sm) == pygame.K_e
 
     # Moongate leg of a trip: adjacent to gate 0, passes when the moons are
@@ -1728,7 +1745,8 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
         if sm.current_screen is not ts_eq:
             break
     assert min(m.food for m in p_eq.members) >= 400
-    assert max(m.food for m in p_eq.members) == 615
+    # 615 untouched by buying (a meal may be eaten while shopping on).
+    assert 600 <= max(m.food for m in p_eq.members) <= 615
 
     # 8. Dead member holding gold still counts toward party.gold for BUY_FOOD (poolable via J)
     p_dead_g = _make_party(level=5, exp=500, gold=0, food=0)

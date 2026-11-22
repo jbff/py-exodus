@@ -245,7 +245,9 @@ def best_hand_transfer(party: Party) -> tuple[int, int] | None:
     return None
 
 
-def best_shop_upgrade(party: Party, *, include_wizard_dagger: bool = False) -> ShopUpgrade | None:
+def best_shop_upgrade(
+    party: Party, *, include_wizard_dagger: bool = False, include_dawn: bool = False
+) -> ShopUpgrade | None:
     """Return the best affordable shop upgrade for any living party member.
 
     Starter phase: if any living member is still missing starter gear
@@ -256,6 +258,10 @@ def best_shop_upgrade(party: Party, *, include_wizard_dagger: bool = False) -> S
     Upgrade phase: once everyone has starter gear, pools living members' gold
     and targets the highest-tier affordable upgrade (including Dawn's +2/+4
     magic weapons and armor).
+
+    Dawn's items count only with ``include_dawn`` (user rule 2026-11-21:
+    Dawn is a rare double-new-moon town; shop there only opportunistically,
+    never as a goal).
     """
     living = [(i + 1, m) for i, m in enumerate(party.members) if not m.is_dead()]
     if not living:
@@ -284,6 +290,8 @@ def best_shop_upgrade(party: Party, *, include_wizard_dagger: bool = False) -> S
                 continue
             if needs_starter and (dawn_only or price > 150):
                 continue
+            if dawn_only and not include_dawn:
+                continue
             if wt == WeaponType.DAGGER and m.profession in (Profession.WIZARD, Profession.ALCHEMIST) and not include_wizard_dagger:
                 continue
             r = WEAPON_RANK.get(wt, 0)
@@ -307,6 +315,8 @@ def best_shop_upgrade(party: Party, *, include_wizard_dagger: bool = False) -> S
             if not can_use_armor(m, at):
                 continue
             if needs_starter and (dawn_only or price > 150):
+                continue
+            if dawn_only and not include_dawn:
                 continue
             r = ARMOR_RANK.get(at, 0)
             if r > cur_a_rank and spendable_gold >= price:

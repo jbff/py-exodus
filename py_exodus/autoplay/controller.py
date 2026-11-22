@@ -138,8 +138,14 @@ _SHOP_TOWNS: dict[int, tuple[int, int, tuple[int, int], tuple[int, int]]] = {
 }
 
 # Towns with Guild shops reachable on foot: map_id -> (portal_x, portal_y, guild_stand_xy)
+# Every guild sells a torches, b gems, c keys, d powder; the stand is two
+# tiles in front of the keeper, across the sign row. User rule (2026-11-21):
+# buy at Grey / Devil Guard / Fawn; Dawn only when it happens to be open.
 _GUILD_TOWNS: dict[int, tuple[int, int, tuple[int, int]]] = {
-    11: (37, 53, (34, 21)),  # Dawn
+    6: (7, 44, (33, 21)),    # Grey, The Guild
+    7: (18, 31, (48, 53)),   # Devil Guard, The Thieves Guild
+    12: (30, 2, (32, 13)),   # Fawn, Tools of Trade
+    11: (37, 53, (34, 21)),  # Dawn (only while open)
 }
 
 # Towns with Food shops reachable on foot: map_id -> (portal_x, portal_y, food_stand_xy)
@@ -833,9 +839,13 @@ class AutoPlayController:
         if gear_key is not None:
             return gear_key
 
-        if map_id in _SHOP_TOWNS and goal == Goal.OUTFIT_BRITAIN and getattr(self, "_food_shop_target", None) is None:
+        if (
+            map_id in _SHOP_TOWNS
+            and (goal == Goal.OUTFIT_BRITAIN or map_id == 11)
+            and getattr(self, "_food_shop_target", None) is None
+        ):
             _, _, wep_xy, arm_xy = _SHOP_TOWNS[map_id]
-            upgrade = best_shop_upgrade(party, include_wizard_dagger=True)
+            upgrade = best_shop_upgrade(party, include_wizard_dagger=True, include_dawn=(map_id == 11))
             if upgrade is not None and (not upgrade.dawn_only or map_id == 11):
                 buyer = party.members[upgrade.member_idx - 1]
                 if buyer.gold < upgrade.price:
@@ -1315,6 +1325,22 @@ class AutoPlayController:
             elif rest_key is not None:
                 return rest_key
 
+        # Dawn opportunistically (user rule 2026-11-21): open right now, the
+        # party is a few steps from it on foot, and it sells an upgrade we
+        # can afford -> pop in. Never wait for it.
+        if (
+            cur_map_id == _MAP_SOSARIA
+            and party.transport != Transport.SHIP
+            and self._dawn_open(screen)
+            and manhattan(gmap.width, gmap.height, (px, py), _DAWN_PORTAL) <= 3
+            and goal not in (Goal.BUY_FOOD, Goal.RESURRECT_DEAD, Goal.CURE_POISON)
+        ):
+            up = best_shop_upgrade(party, include_dawn=True)
+            if up is not None and up.dawn_only:
+                if (px, py) == _DAWN_PORTAL:
+                    return self._emit_key(state_machine, pygame.K_e)
+                return self._move_toward(state_machine, gmap, party, (px, py), {_DAWN_PORTAL})
+
         dest, on_arrive = self._destination_for(state_machine, screen, gmap, party, px, py, goal, living, cur_map_id)
         if dest is not None:
             key = self._trip_drive(state_machine, screen, gmap, party, px, py, cur_map_id, dest)
@@ -1581,12 +1607,12 @@ class AutoPlayController:
             return self._portal_dest(sm, screen, portals, "healer" + ("+dawn" if dawn else ""))
 
         if goal in (Goal.BUY_KEYS, Goal.BUY_GEMS, Goal.BUY_TORCHES):
-            return self._portal_dest(sm, screen, {(i[0], i[1]) for i in _GUILD_TOWNS.values()}, "guild")
+            dawn = self._dawn_open(screen)
+            return self._portal_dest(
+                sm, screen, {(i[0], i[1]) for mid, i in _GUILD_TOWNS.items() if mid != 11 or dawn}, "guild"
+            )
 
         if goal == Goal.OUTFIT_BRITAIN:
-            upgrade = best_shop_upgrade(party)
-            if upgrade is not None and upgrade.dawn_only:
-                return self._portal_dest(sm, screen, {_DAWN_PORTAL}, "shop_dawn")
             return self._portal_dest(
                 sm, screen, {(i[0], i[1]) for mid, i in _SHOP_TOWNS.items() if mid != 11}, "shop"
             )
