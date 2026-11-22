@@ -10,7 +10,6 @@ from py_exodus.world.loader import (
     load_conflict_map,
     load_dungeon_map,
     load_map,
-    load_shrine_map,
 )
 from py_exodus.world.map import (
     ConflictMap,
@@ -34,5 +33,4 @@ __all__ = [
     "load_conflict_map",
     "load_dungeon_map",
     "load_map",
-    "load_shrine_map",
 ]

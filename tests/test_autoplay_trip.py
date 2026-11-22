@@ -796,28 +796,6 @@ def test_shrine_plan_order_for_the_batch_party():
     ]
 
 
-def test_shrine_donation_stops_at_the_plan_target(pygame_setup, asset_mgr):
-    """At the wisdom shrine a WIS-30 Cleric buys exactly the 5 points to
-    ALCORT, then leaves: the next step (Fighter DEX 40) is another shrine."""
-    from py_exodus.autoplay import batch
-    from py_exodus.screens.shrine import ShrineScreen
-
-    party = batch.build_party()
-    cleric = party.members[2]
-    cleric.wisdom = 30
-    cleric.gold = 2000
-    sm = StateMachine(asset_mgr=asset_mgr, audio=None)
-    shrine = ShrineScreen(party=party, stat_name="wisdom", asset_mgr=asset_mgr)
-    sm.set_screen(shrine)
-    ctrl = AutoPlayController(enabled=True)
-    for _ in range(4):
-        if sm.current_screen is not shrine:
-            break
-        ctrl.step(sm)
-    assert cleric.wisdom == 35
-    assert cleric.gold == 1500
-
-
 def test_return_trips_for_stats_and_no_pointless_raids():
     """User ruling 2026-11-22: with all cards, raid Death Gulch and sail
     back to Ambrosia for the plan's return-trip steps (DEX 40 all, caster

@@ -106,18 +106,9 @@ def enter_portal(screen, x: int, y: int) -> bool:
         screen.party.x, screen.party.y = start_x, start_y
         return True
 
-    if dest_id in (55, 56, 57, 58):  # Shrine
-        from py_exodus.screens.shrine import ShrineScreen
-
-        stat_names = {55: "wisdom", 56: "dexterity", 57: "intelligence", 58: "strength"}
-        shrine = ShrineScreen(
-            party=screen.party,
-            stat_name=stat_names.get(dest_id, "strength"),
-            asset_mgr=screen.asset_mgr,
-            return_screen=screen,
-            manager=screen.manager,
-        )
-        _push(screen, shrine)
+    if dest_id in (55, 56, 57, 58):  # Shrine: LairWare has no shrine screen
+        if hasattr(screen, "begin_shrine"):
+            screen.begin_shrine()
         return True
 
     if dest_id in (14, 15, 16, 17, 18, 19, 20):  # Dungeons

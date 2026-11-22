@@ -7,7 +7,6 @@ from py_exodus.world.loader import (
     load_conflict_map,
     load_dungeon_map,
     load_map,
-    load_shrine_map,
 )
 from py_exodus.world.map import ConflictMap, DungeonMap, DungeonTile, GameMap
 
@@ -150,15 +149,6 @@ def test_load_dungeon_map(asset_mgr):
     assert dmap_upper.get_tile(1, 1, 0) == DungeonTile.LADDER_UP
 
 
-def test_load_shrine_map(asset_mgr):
-    loader = MapLoader(asset_mgr)
-    shrine = loader.load_map(55)  # Shrine of Wisdom
-    assert isinstance(shrine, GameMap)
-    assert shrine.width == 11 and shrine.height == 11
-    assert shrine.map_type == MapType.SHRINE
-    assert len(shrine.tiles) == 121
-
-
 def test_load_by_name_and_id_variants(asset_mgr):
     loader = MapLoader(asset_mgr)
     # Load by map name string
@@ -177,9 +167,6 @@ def test_load_by_name_and_id_variants(asset_mgr):
     dungeon_by_id = loader.load_dungeon_map(14)
     assert dungeon_by_id.levels == 8
 
-    # Load shrine by integer ID
-    shrine_by_id = loader.load_shrine_map(55)
-    assert shrine_by_id.width == 11
 
 
 def test_map_queries_and_helpers(asset_mgr):
@@ -313,8 +300,6 @@ def test_module_level_helpers(asset_mgr):
     assert conflict.width == 11
     dungeon = load_dungeon_map("dardin.json", asset_mgr)
     assert dungeon.width == 16
-    shrine = load_shrine_map("shrine.json", asset_mgr)
-    assert shrine.width == 11
 
 
 def test_invalid_map_errors(asset_mgr):

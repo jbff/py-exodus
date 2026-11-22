@@ -28,7 +28,6 @@ from py_exodus.entities.party import Party
 from py_exodus.screens.combat_screen import CombatScreen
 from py_exodus.screens.final import FinalScreen
 from py_exodus.screens.overworld import OverworldScreen
-from py_exodus.screens.shrine import ShrineScreen
 from py_exodus.screens.town import TownScreen
 from py_exodus.state_machine import StateMachine
 from py_exodus.world.loader import load_conflict_map, load_dungeon_map, load_map
@@ -414,20 +413,6 @@ def test_autoplay_controller_combat_screen(pygame_setup, asset_mgr):
     combat.arena.is_defeat = False
     ctrl.step(sm)
     assert sm.current_screen is not combat
-
-
-def test_autoplay_controller_shrine_screen(pygame_setup, asset_mgr):
-    party = _make_party(level=5, gold=400)
-    sm = StateMachine(asset_mgr=asset_mgr)
-    shrine = ShrineScreen(party=party, shrine_type="wisdom", asset_mgr=asset_mgr)
-    sm.push_screen(shrine)
-
-    ctrl = AutoPlayController(enabled=True, step_interval=0.05)
-    for _ in range(5):
-        if sm.current_screen is not shrine:
-            break
-        ctrl.step(sm)
-    assert sm.current_screen is not shrine
 
 
 def test_autoplay_controller_overworld_dig_exotics(pygame_setup, asset_mgr):
@@ -1883,7 +1868,7 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
     p_shr.x, p_shr.y = 55, 27  # Wisdom Shrine (Cleric prioritized first)
     sm.set_screen(ow_shr)
     ctrl._key_queue.clear()
-    assert ctrl.step(sm) == pygame.K_e  # enters ShrineScreen
+    assert ctrl.step(sm) == pygame.K_e  # enters the shrine (LairWare prompts)
 
     # Death Gulch sailing from mainland coast (46, 18) must not Board/Xit loop under Wind CALM
     p_sail = _make_party(
@@ -2200,20 +2185,6 @@ def test_cli_has_no_seed_flag():
     with pytest.raises(SystemExit):
         parse_args(["--autoplay", "--seed", "437"])
     assert not hasattr(parse_args([]), "seed")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 def test_no_castle_until_the_stat_plan_is_bought():

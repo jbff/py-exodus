@@ -9,7 +9,6 @@ from py_exodus.entities.party import Party, PartyDeathException
 from py_exodus.screens.base import BaseScreen
 from py_exodus.screens.book import BookScreen
 from py_exodus.screens.final import FinalScreen
-from py_exodus.screens.shrine import ShrineScreen
 
 
 @pytest.fixture(autouse=True)
@@ -20,104 +19,6 @@ def init_pygame():
         pygame.font.init()
     yield
     pygame.quit()
-
-
-def test_shrine_stat_boost():
-    """Verbatim test from task brief: Ambrosia Shrine stat donation."""
-    p = Party()
-    c = Character("Hero", "M", Race.HUMAN, Profession.FIGHTER)
-    c.strength = 20
-    p.add_member(c)
-    p.gold = 200
-    scr = ShrineScreen(party=p, stat_name="strength", return_screen=None)
-    scr.donate(member_idx=0)
-    assert c.strength == 21
-    assert p.gold == 100
-
-
-def test_shrine_stat_cap():
-    """Ensure donation does not exceed the racial maximum cap."""
-    p = Party()
-    c = Character("Hero", "M", Race.HUMAN, Profession.FIGHTER)
-    c.strength = Race.HUMAN.max_str  # 75
-    p.add_member(c)
-    p.gold = 200
-    scr = ShrineScreen(party=p, stat_name="strength", return_screen=None)
-    success = scr.donate(member_idx=0)
-    assert success is True
-    # Either capped at 75 or prevented from exceeding
-    assert c.strength == Race.HUMAN.max_str
-    # Gold might be deducted or refused, but stat must never exceed cap
-    assert c.strength <= Race.HUMAN.max_str
-
-
-def test_shrine_insufficient_gold():
-    """Ensure party cannot donate if they have less than 100 gold."""
-    p = Party()
-    c = Character("Hero", "M", Race.HUMAN, Profession.FIGHTER)
-    c.dexterity = 25
-    p.add_member(c)
-    p.gold = 50
-    scr = ShrineScreen(party=p, stat_name="dexterity", return_screen=None)
-    success = scr.donate(member_idx=0)
-    assert success is False
-    assert c.dexterity == 25
-    assert p.gold == 50
-
-
-def test_shrine_all_ambrosia_shrines():
-    """Verify wisdom, dexterity, intelligence, and strength shrines."""
-    p = Party()
-    c = Character("Mage", "M", Race.ELF, Profession.WIZARD)
-    c.strength = 15
-    c.dexterity = 20
-    c.intelligence = 25
-    c.wisdom = 30
-    p.add_member(c)
-    p.gold = 1000
-
-    for stat, initial in [
-        ("strength", 15),
-        ("dexterity", 20),
-        ("intelligence", 25),
-        ("wisdom", 30),
-    ]:
-        scr = ShrineScreen(party=p, stat_name=stat, return_screen=None)
-        scr.donate(member_idx=0)
-        assert getattr(c, stat) == initial + 1
-
-
-def test_shrine_event_handling_and_rendering():
-    """Verify ShrineScreen handles key events and renders to surface."""
-    p = Party()
-    c = Character("Hero", "M", Race.HUMAN, Profession.FIGHTER)
-    c.strength = 20
-    p.add_member(c)
-    p.gold = 200
-
-    dummy_return = BaseScreen()
-    scr = ShrineScreen(party=p, stat_name="strength", return_screen=dummy_return)
-
-    surface = pygame.Surface((320, 200))
-    scr.render(surface)
-
-    # Pressing '1' selects member 0
-    event_1 = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_1, unicode="1")
-    scr.handle_event(event_1)
-    assert scr.selected_member_idx == 0
-
-    # Pressing '1' (or 'Y' or Enter) offers 100 gold
-    event_y = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_1, unicode="1")
-    scr.handle_event(event_y)
-    assert c.strength == 21
-
-    # Update logic
-    scr.update(0.1)
-
-    # ESC key returns to return_screen
-    event_esc = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_ESCAPE)
-    scr.handle_event(event_esc)
-    assert scr.next_screen == dummy_return or scr.is_finished
 
 
 def test_book_screen_loads_lore_and_spell_appendix():
@@ -245,24 +146,6 @@ def test_base_screen_interface():
     scr.handle_event(pygame.event.Event(pygame.NOEVENT))
 
 
-def test_shrine_render_with_asset_manager():
-    """Verify ShrineScreen.render() uses render_viewport() and does not crash with real AssetManager."""
-    am = AssetManager(assets_dir="src/main/resources/assets")
-    am.load_tiles()
-    am.load_xml_definitions()
-
-    p = Party()
-    c = Character("Hero", "M", Race.HUMAN, Profession.FIGHTER)
-    p.add_member(c)
-    p.gold = 500
-
-    scr = ShrineScreen(party=p, stat_name="strength", return_screen=None, asset_mgr=am)
-    assert scr.game_map is not None
-
-    surface = pygame.Surface((320, 200))
-    scr.render(surface)
-
-
 def test_book_screen_pagination():
     """Verify BookScreen paginates forward and back without overlap."""
     scr = BookScreen(return_screen=None)
@@ -287,58 +170,6 @@ def test_book_screen_pagination():
     event_left = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_LEFT)
     scr.handle_event(event_left)
     assert scr.page_index == 2
-
-
-def test_shrine_near_cap_over_debit_matches_lw():
-    """LW parity (pending item 24a): the shrine charges for the FULL amount
-    requested up front (UltimaMisc.c:1071-1080 — the gold check and debit
-    happen BEFORE the stat grant, with no pro-rating), then clamps the stat
-    to the race cap (UltimaMisc.c:1087-1092). Buying 9 points at 74/75 costs
-    900 gold and yields only 1 point; that over-debit IS the LW behavior.
-    """
-    p = Party()
-    c = Character("Hero", "M", Race.HUMAN, Profession.FIGHTER)
-    c.strength = 74  # one point of room to HUMAN.max_str == 75
-    p.add_member(c)
-    p.gold = 2000
-    scr = ShrineScreen(party=p, stat_name="strength", return_screen=None)
-    success = scr.donate(member_idx=0, amount=9)
-    assert success is True
-    assert c.strength == Race.HUMAN.max_str
-    assert p.gold == 2000 - 900  # charged for points not granted, per LW
-
-
-def test_shrine_post_exodus_race_cap_lifted_to_99():
-    """LW parity (pending item 24b): post-Exodus the race cap stops applying
-    (UltimaMisc.c:1091 — the maxval clamp only runs while Party[16] == 0), so
-    a beaten-party character can buy past the racial cap up to the absolute
-    99 ceiling (UltimaMisc.c:1089-1090).
-    """
-    p = Party()
-    c = Character("Hero", "M", Race.HUMAN, Profession.FIGHTER)
-    c.strength = 74  # HUMAN.max_str == 75
-    p.add_member(c)
-    p.gold = 2000
-    p.exodus_defeated = 1  # LW Party[16] beat-Exodus flag
-    scr = ShrineScreen(party=p, stat_name="strength", return_screen=None)
-    success = scr.donate(member_idx=0, amount=5)
-    assert success is True
-    assert c.strength == 79  # rides past the race cap...
-    assert c.strength <= 99  # ...but never past the absolute 99 ceiling
-
-
-def test_shrine_post_exodus_hard_ceiling_99():
-    """LW parity (pending item 24b): the 99 clamp runs BEFORE the race-cap
-    clamp (UltimaMisc.c:1089-1092) and applies even post-Exodus."""
-    p = Party()
-    c = Character("Hero", "M", Race.HUMAN, Profession.FIGHTER)
-    c.strength = 98
-    p.add_member(c)
-    p.gold = 2000
-    p.exodus_defeated = 1
-    scr = ShrineScreen(party=p, stat_name="strength", return_screen=None)
-    assert scr.donate(member_idx=0, amount=5) is True
-    assert c.strength == 99
 
 
 def test_party_exodus_defeated_roundtrip():

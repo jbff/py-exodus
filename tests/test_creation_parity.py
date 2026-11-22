@@ -5,7 +5,6 @@ Java truth:
   reject, name <= 16 chars, health/food/gold = 150, NO starting weapon/armor)
 - exodus/SecondaryInputProcessor.java:179-202 (no resurrection, talking-member
   only level advance)
-- exodus/ShrineScreen.java:200-257 (member purse debit; messages)
 - objects/SaveGame.java:394-433 (Mark-of-Kings gate at expLvl >= 5), 164-169
   (default start 45,19), binary marks order [KINGS, FIRE, SNAKE, FORCE]
 """
@@ -20,7 +19,6 @@ from py_exodus.entities.character import Character
 from py_exodus.entities.party import Party
 from py_exodus.save_system import SaveSystem
 from py_exodus.screens.roster_screen import RosterScreen
-from py_exodus.screens.shrine import ShrineScreen
 
 
 # --------------------------------------------------------------------------- #
@@ -379,68 +377,6 @@ class TestRosterRemoval:
 # --------------------------------------------------------------------------- #
 # (d) Shrine donation
 # --------------------------------------------------------------------------- #
-class TestShrineDonation:
-    def _shrine(self, member):
-        party = _make_party(member)
-        return ShrineScreen(party=party, stat_name="wisdom")
-
-    def test_donation_debits_member_purse_shazam(self, pygame_setup):
-        m = Character(name="Donor", profession=Profession.CLERIC, wisdom=10, gold=500)
-        shrine = self._shrine(m)
-
-        assert shrine.donate(0, amount=2) is True
-        assert m.gold == 300
-        # Success message is just "Shazam!" (ShrineScreen.java:222)
-        assert shrine.last_message == "Shazam!"
-
-    def test_insufficient_gold_message_and_no_debit(self, pygame_setup):
-        m = Character(name="Pauper", profession=Profession.CLERIC, wisdom=10, gold=50)
-        shrine = self._shrine(m)
-
-        assert shrine.donate(0, amount=1) is False
-        assert m.gold == 50  # nothing debited
-        assert shrine.last_message == "You cannot cheat the gods!"
-
-    def test_insufficient_gold_screen_stays(self, pygame_setup):
-        """The donate prompt keeps the shrine open so another amount can be
-        offered (task brief binds this over Java's instant return)."""
-        m = Character(name="Pauper", profession=Profession.CLERIC, wisdom=10, gold=50)
-        shrine = self._shrine(m)
-        shrine.return_screen = object()  # sentinel; exit would set next_screen
-
-        # Select member then offer 1 (which he cannot pay)
-        shrine.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_1, unicode="1"))
-        shrine.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_1, unicode="1"))
-
-        assert shrine.state == ShrineScreen.STATE_DONATE
-        assert shrine.is_finished is False
-        assert shrine.next_screen is None
-        assert shrine.last_message == "You cannot cheat the gods!"
-
-    def test_zero_offer_begone_then_exit(self, pygame_setup):
-        m = Character(name="Scrooge", profession=Profession.CLERIC, wisdom=10, gold=500)
-        shrine = self._shrine(m)
-        shrine.state = ShrineScreen.STATE_DONATE
-
-        shrine.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_0, unicode="0"))
-
-        assert shrine.last_message == "Begone then!"
-        assert shrine.is_finished is True
-        assert m.gold == 500  # nothing debited
-
-    def test_keydown_without_unicode_does_not_crash(self, pygame_setup):
-        """KEYDOWN events without .unicode (e.g. arrow keys or programmatic events)
-        must not raise AttributeError in STATE_WHO or STATE_DONATE (Item 50)."""
-        m = Character(name="Donor", profession=Profession.CLERIC, wisdom=10, gold=500)
-        shrine = self._shrine(m)
-
-        assert shrine.state == ShrineScreen.STATE_WHO
-        shrine.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_LEFT))
-        assert shrine.state == ShrineScreen.STATE_WHO
-
-        shrine.state = ShrineScreen.STATE_DONATE
-        shrine.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RIGHT))
-        assert shrine.state == ShrineScreen.STATE_DONATE
 
 
 # --------------------------------------------------------------------------- #

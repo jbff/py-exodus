@@ -12,8 +12,8 @@ preservation and study, and is not affiliated with or endorsed by them.
 
 ## LairWare Ultima III port (MIT)
 
-Rules are ported from, and the tile sheets in `assets/graphics/lairware/`
-are copied from, LairWare's Mac port of Ultima III (`refs/ultima3`).
+Rules are ported from, and the tile sheets and shrine picture in
+`assets/graphics/lairware/` and `assets/sound/Shrine.wav` are copied from, LairWare's Mac port of Ultima III (`refs/ultima3`).
 
 Copyright (c) 2025 Leon McNeill, MIT License; the full text is in
 `assets/graphics/lairware/LICENSE-LairWare.txt`.

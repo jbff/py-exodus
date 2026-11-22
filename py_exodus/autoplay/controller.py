@@ -382,8 +382,6 @@ class AutoPlayController:
             return self._step_roster(state_machine, screen)
         if screen_name == "CombatScreen":
             return self._step_combat(state_machine, screen)
-        if screen_name == "ShrineScreen":
-            return self._step_shrine(state_machine, screen)
         if screen_name == "DungeonScreen":
             return self._step_dungeon(state_machine, screen)
         if screen_name in ("OverworldScreen", "TownScreen"):
@@ -445,25 +443,25 @@ class AutoPlayController:
         return None
 
     def _step_shrine(self, state_machine: StateMachine, screen) -> int | None:
-        """Donate toward the current planner.SHRINE_PLAN step only; leave
-        when that step belongs to another shrine or is out of gold."""
+        """Answer the LairWare shrine prompts: offer toward the current
+        planner.SHRINE_PLAN step only; offer 0 (or pick nobody) when that
+        step belongs to another shrine or is out of gold."""
+        from py_exodus.world import shrine
+
         party = screen.party
         goal = next_shrine_goal(party)
-        stat_attr = getattr(screen, "stat_attr", "strength")
-        on_plan = goal is not None and goal[1] == stat_attr
+        on_plan = goal is not None and goal[1] == shrine.shrine_stat(party.x)
         member = party.members[goal[0]] if on_plan else None
         spendable = max(0, party.gold - SHRINE_RESERVE) // 100
-        if screen.state == screen.STATE_WHO:
+        if screen.text_log.current_prompt == shrine.PROMPT_WHO:
             if member is not None and member.gold >= 100 and spendable >= 1:
                 return self._emit_key(state_machine, pygame.K_1 + goal[0])
-            return self._emit_key(state_machine, pygame.K_ESCAPE)
-        if screen.state == screen.STATE_DONATE:
-            chosen = party.get_member(screen.selected_member_idx)
-            if member is None or chosen is not member:
-                return self._emit_key(state_machine, pygame.K_0)
-            amt = min(9, member.gold // 100, spendable, goal[3] - getattr(member, stat_attr, 0))
-            return self._emit_key(state_machine, pygame.K_0 + max(0, amt))
-        return self._emit_key(state_machine, pygame.K_ESCAPE)
+            return self._emit_key(state_machine, pygame.K_0)
+        chosen = party.get_member(screen.shrine_member or 0)
+        if member is None or chosen is not member:
+            return self._emit_key(state_machine, pygame.K_0)
+        amt = min(9, member.gold // 100, spendable, goal[3] - getattr(member, goal[1], 0))
+        return self._emit_key(state_machine, pygame.K_0 + max(0, amt))
 
     _CRITICAL_HULL_THRESHOLD = 30
 
@@ -571,6 +569,10 @@ class AutoPlayController:
 
     def _step_2d(self, state_machine: StateMachine, screen) -> int | None:
         if screen.text_log.is_waiting_for_input:
+            from py_exodus.world import shrine
+
+            if screen.text_log.current_prompt in (shrine.PROMPT_WHO, shrine.PROMPT_OFFER):
+                return self._step_shrine(state_machine, screen)
             return self._handle_town_prompt(state_machine, screen)
 
         party = screen.party

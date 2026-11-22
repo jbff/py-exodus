@@ -193,8 +193,4 @@
     <map id="40" type="combat" fname="cnflct_r.json" width="11" height="11" levels="1" borderbehavior="fixed" nolineofsight="true" music="COMBAT" tileset="base" tilemap="base" />   
     <map id="41" type="combat" fname="cnflct_s.json" width="11" height="11" levels="1" borderbehavior="fixed" nolineofsight="true" music="COMBAT" tileset="base" tilemap="base" />   
      
-    <map id="55" type="shrine" fname="shrine.json" width="11" height="11" levels="1" borderbehavior="fixed" music="ALIVE" />
-    <map id="56" type="shrine" fname="shrine.json" width="11" height="11" levels="1" borderbehavior="fixed" music="ALIVE" />
-    <map id="57" type="shrine" fname="shrine.json" width="11" height="11" levels="1" borderbehavior="fixed" music="ALIVE" />
-    <map id="58" type="shrine" fname="shrine.json" width="11" height="11" levels="1" borderbehavior="fixed" music="ALIVE" />
 </maps>

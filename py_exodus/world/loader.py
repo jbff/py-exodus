@@ -1,4 +1,4 @@
-"""JSON map loader for Ultima III (world, city, CNFLCT_*, dungeon, shrine)."""
+"""JSON map loader for Ultima III (world, city, CNFLCT_*, dungeon)."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -14,13 +14,12 @@ from py_exodus.world.map_build import (
     build_conflict_map,
     build_dungeon_map,
     build_grid_map,
-    build_shrine_map,
 )
 from py_exodus.world.map_json import read_map_struct
 
 
 class MapLoader:
-    """Loads world, city, combat, dungeon, and shrine maps from JSON assets.
+    """Loads world, city, combat, and dungeon maps from JSON assets.
 
     Map names match case-insensitively by stem: legacy-style caller strings
     such as ``CNFLCT_A.ULT`` or ``perinian.ult`` resolve against the maps.xml
@@ -69,8 +68,6 @@ class MapLoader:
             return self.load_conflict_map(m_def.fname, m_def=m_def)
         if m_type == "dungeon":
             return self.load_dungeon_map(m_def.fname, m_def=m_def)
-        if m_type == "shrine":
-            return self.load_shrine_map(m_def.fname, m_def=m_def)
 
         return self._load_grid_map(m_def)
 
@@ -130,28 +127,6 @@ class MapLoader:
         map_struct["source"] = fname
         return build_dungeon_map(m_def, map_struct, self.asset_mgr)
 
-    def load_shrine_map(
-        self, fname_or_id: str | int = "shrine.json", m_def: MapDef | None = None
-    ) -> GameMap:
-        """Load 11x11 shrine map with special index remappings."""
-        if isinstance(fname_or_id, int):
-            map_id = fname_or_id
-            m_def = m_def or self.asset_mgr.map_defs.get(map_id)
-            fname = m_def.fname if m_def else "shrine.json"
-        else:
-            fname = fname_or_id
-            if m_def is None:
-                fname_stem = Path(fname).stem.lower()
-                for md in self.asset_mgr.map_defs.values():
-                    if Path(md.fname).stem.lower() == fname_stem:
-                        m_def = md
-                        break
-
-        file_path = self._resolve_json_file(fname)
-        map_struct = read_map_struct(file_path)
-        map_struct["source"] = fname
-        return build_shrine_map(m_def, map_struct, self.asset_mgr)
-
 
 def load_map(map_id: int, asset_mgr: AssetManager) -> GameMap | DungeonMap:
     """Convenience module function to load a map by ID."""
@@ -171,7 +146,3 @@ def load_dungeon_map(fname: str, asset_mgr: AssetManager) -> DungeonMap:
     return loader.load_dungeon_map(fname)
 
 
-def load_shrine_map(fname: str, asset_mgr: AssetManager) -> GameMap:
-    """Convenience module function to load a shrine map by filename."""
-    loader = MapLoader(asset_mgr)
-    return loader.load_shrine_map(fname)

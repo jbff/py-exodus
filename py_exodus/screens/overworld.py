@@ -382,6 +382,10 @@ class OverworldScreen(BaseScreen):
         self.text_log = TextLog(max_lines=5, wrap_width=64)
 
         self.cannon_fx: list[dict[str, Any]] = []
+        # LairWare shrine (world.shrine): the member at the shrine while its
+        # picture is up, and the picture itself (loaded on first use).
+        self.shrine_member: int | None = None
+        self._shrine_image: pygame.Surface | None = None
 
 
         raw_id = getattr(self.game_map, "id", None)
@@ -1759,6 +1763,67 @@ class OverworldScreen(BaseScreen):
                 }
             )
 
+    def begin_shrine(self) -> None:
+        """LairWare Enter on an Ambrosia shrine: "Who enters?-" (1-4)."""
+        from py_exodus.world import shrine
+
+        self.text_log.add_message(shrine.MSG_WHO)
+        self.text_log.prompt(shrine.PROMPT_WHO, callback=self._shrine_who, single_char=True)
+
+    def _shrine_who(self, ch: str) -> None:
+        from py_exodus.world import shrine
+
+        idx = int(ch) - 1 if ch in ("1", "2", "3", "4") else -1
+        member = self.party.get_member(idx) if 0 <= idx < len(self.party.members) else None
+        if member is None:
+            if self.audio is not None:
+                self.audio.play_sfx("blocked")
+            return
+        if member.is_disabled():  # LairWare CheckAlive: Good or Poisoned only
+            self.text_log.add_message(shrine.MSG_INCAP)
+            return
+        self.shrine_member = idx
+        self.text_log.add_message(shrine.welcome(shrine.shrine_stat(self.party.x)))
+        self.text_log.prompt(
+            shrine.PROMPT_OFFER, callback=self._shrine_offer, single_char=True,
+            on_cancel=self._shrine_close,
+        )
+
+    def _shrine_offer(self, ch: str) -> None:
+        from py_exodus.world import shrine
+
+        if not ch.isdigit():  # LairWare waits for a digit
+            self.text_log.prompt(
+                shrine.PROMPT_OFFER, callback=self._shrine_offer, single_char=True,
+                on_cancel=self._shrine_close,
+            )
+            return
+        member = self.party.get_member(self.shrine_member or 0)
+        msg = shrine.offer(self.party, member, shrine.shrine_stat(self.party.x), int(ch))
+        self.text_log.add_message(msg)
+        if self.audio is not None:
+            self.audio.play_sfx("Shrine.wav" if msg == shrine.MSG_SHAZAM else "blocked")
+        self._shrine_close()
+
+    def _shrine_close(self) -> None:
+        self.shrine_member = None
+
+    def _render_shrine_image(self, surface: pygame.Surface, size: int) -> None:
+        """LairWare ImageDisplay(7): Shrine.jpg over the map while a member
+        is at the shrine."""
+        if self.shrine_member is None or self.asset_mgr is None:
+            return
+        if self._shrine_image is None:
+            from py_exodus.assets import load_image_surface
+
+            try:
+                self._shrine_image = load_image_surface(
+                    self.asset_mgr.resolve_path("graphics", "lairware", "shrine.jpg")
+                )
+            except (FileNotFoundError, pygame.error):
+                return
+        surface.blit(pygame.transform.smoothscale(self._shrine_image, (size, size)), (0, 0))
+
     def _enter_portal(self) -> None:
         """Enter the portal at the party's tile (Java GameScreen.java:538-556).
 
@@ -2608,6 +2673,7 @@ class OverworldScreen(BaseScreen):
             scaled_v = pygame.transform.scale(temp_v, (v_size, v_size))
             surface.blit(scaled_v, (0, 0))
             self._render_sky_strip(surface, pane_right=v_size, pane_top=0)
+            self._render_shrine_image(surface, v_size)
 
             # Right Sidebar (Party Stats) at native high resolution
             self._render_stats_panel(
