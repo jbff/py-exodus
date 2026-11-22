@@ -831,3 +831,29 @@ def test_return_trips_for_stats_and_no_pointless_raids():
     assert not gold_has_a_use(party)
     assert evaluate_goal(party, 0) == Goal.GRIND_AND_LEVEL  # levels, not stats
     assert SHRINE_PLAN[RETURN_TRIP_STEPS - 1][1:] == ("intelligence", "max_int", 99)
+
+
+def test_return_trip_buys_keys_first_and_keeps_one_to_leave_ambrosia():
+    """Live run 2026-11-22: a return trip sailed in with no keys; the last
+    one went on the way in, the intelligence shrine (behind (10,6)) and the
+    exit basin (behind the water door (39,61)) were both locked, and the
+    party was stranded on Ambrosia."""
+    from py_exodus.autoplay import batch
+    from py_exodus.autoplay.planner import needs_shrine_stats, return_trip_gold
+
+    party = batch.build_party()
+    for m in party.members:
+        m.level, m.food, m.keys = 25, 300, 0
+        m.marks, m.cards = [1, 1, 1, 1], [1, 1, 1, 1]
+        m.weapon, m.armor = WeaponType.EXOTIC, ArmorType.EXOTIC
+        m.gold = 0
+    party.members[0].gold = return_trip_gold(party)
+    assert evaluate_goal(party, 0) == Goal.BUY_KEYS
+    party.members[0].keys = 4
+    assert evaluate_goal(party, 0) == Goal.SAIL_WHIRLPOOL
+    # On Ambrosia, shopping left to do: shop while keys remain, leave on the last.
+    assert needs_shrine_stats(party)
+    party.members[0].keys = 2
+    assert evaluate_goal(party, 13) == Goal.AMBROSIA_CARDS_SHRINES
+    party.members[0].keys = 1
+    assert evaluate_goal(party, 13) == Goal.EXIT_AMBROSIA

@@ -312,7 +312,8 @@ def test_evaluate_goal_progression():
     assert evaluate_goal(marked_ship) == Goal.SAIL_WHIRLPOOL
 
     # OverworldScreen map_id=13 overrides stale party.map_id=0 for Ambrosia (requires keys for Death/Moons)
-    marked_foot.members[0].keys = 1
+    # 2 keys: one door out of the arrival pocket (38,55), one back to the exit basin (39,61)
+    marked_foot.members[0].keys = 2
     assert evaluate_goal(marked_foot, map_id=13) == Goal.AMBROSIA_CARDS_SHRINES
 
     # Prematurely entering Ambrosia (below L5, missing Mark of Kings, or 0 keys) -> EXIT_AMBROSIA
@@ -322,7 +323,7 @@ def test_evaluate_goal_progression():
 
     # In Ambrosia without all cards -> AMBROSIA_CARDS_SHRINES
     ambrosia = _make_party(level=5, exp=500, marks=[1, 0, 0, 0], map_id=13, cards=[1, 0, 0, 0])
-    ambrosia.members[0].keys = 1
+    ambrosia.members[0].keys = 2  # one to leave the arrival pocket, one to the exit basin
     assert evaluate_goal(ambrosia) == Goal.AMBROSIA_CARDS_SHRINES
 
     # In Ambrosia with all 4 cards -> EXIT_AMBROSIA
@@ -1856,6 +1857,7 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
         level=15, exp=1500, gold=500, food=500, marks=[1, 1, 1, 1], cards=[1, 1, 1, 1],
         weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC,
     )
+    p_shr.members[0].keys = 2  # enough to leave again (see AMBROSIA_EXIT_KEYS)
     assert evaluate_goal(p_shr, map_id=13) == Goal.AMBROSIA_CARDS_SHRINES
     ow_shr = OverworldScreen(party=p_shr, map_id=13, asset_mgr=am, random_encounters=False)
     p_shr.x, p_shr.y = 55, 27  # Wisdom Shrine (Cleric prioritized first)

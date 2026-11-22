@@ -65,6 +65,11 @@ AMBROSIA_ABORT_FOOD = 80
 # Keys beyond the card doors: the door east of the arrival point and the
 # water door between the east basin and the whirlpool bay.
 AMBROSIA_SPARE_KEYS = 2
+# A return trip for stats needs keys too: (10,6) to the intelligence
+# shrine, (39,61) out to the whirlpool, plus spares. The last one is kept
+# for the way out.
+AMBROSIA_RETURN_KEYS = 4
+AMBROSIA_EXIT_KEYS = 1
 
 
 def alcort_wisdom_gap(party: Party) -> int | None:
@@ -345,6 +350,11 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
     has_all_cards = all(any(m.cards[i] > 0 for m in living) for i in range(4))
     has_remaining_marks = all(any(m.marks[i] > 0 for m in living) for i in (1, 2, 3))
 
+    # Live run 2026-11-22: a return trip sailed in with no keys budgeted;
+    # the intelligence shrine (6,6) lies behind the locked door (10,6) and
+    # the exit whirlpool's basin behind the water door (39,61), so with the
+    # last key spent the party was stranded on Ambrosia. Keep one key for
+    # the way out: down to it, leave.
     if cur_map_id == 13:
         has_key = any(m.keys > 0 for m in living)
         needs_key_card = any(not any(m.cards[idx] > 0 for m in living) for idx in (0, 2))
@@ -354,6 +364,7 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
             or any(m.food < AMBROSIA_ABORT_FOOD for m in living)
             or (not has_all_cards and needs_key_card and not has_key)
             or (has_all_cards and not needs_shrine_stats(party))
+            or sum(m.keys for m in living) <= AMBROSIA_EXIT_KEYS
         ):
             return Goal.EXIT_AMBROSIA
         return Goal.AMBROSIA_CARDS_SHRINES
@@ -436,6 +447,8 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
         and len(living) == len(party.members)
         and party.gold >= trip_gold
     ):
+        if sum(m.keys for m in living) < AMBROSIA_RETURN_KEYS:
+            return Goal.BUY_KEYS
         if any(m.food < AMBROSIA_ENTRY_FOOD for m in living):
             return Goal.BUY_FOOD
         return Goal.SAIL_WHIRLPOOL
