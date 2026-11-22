@@ -853,6 +853,9 @@ class TownScreen(BaseScreen):
             world_map=self.game_map,
             audio=self.audio,
             view_callback=self._show_vieda_view,
+            # The town tile under the avatar (APPAR UNEM opens the chest
+            # there); party.x/y still hold the overworld entrance.
+            position=(self.avatar_x, self.avatar_y),
         )
 
     def _show_vieda_view(self) -> None:

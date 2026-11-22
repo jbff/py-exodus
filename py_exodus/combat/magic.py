@@ -274,8 +274,14 @@ def cast_spell(
     target_member: Character | PartyMember | None = None,
     party: Party | None = None,
     spell_type: str | None = None,
+    position: tuple[int, int] | None = None,
 ) -> SpellResult:
-    """Cast a spell by caster, validating MP, profession, target, and location."""
+    """Cast a spell by caster, validating MP, profession, target, and location.
+
+    ``position`` is the caster's tile on ``world_map`` when it is not the
+    party's x/y (a town: the avatar walks the town map while party.x/y keep
+    the overworld tile it was entered from).
+    """
     # 1. Resolve spell enum
     resolved_spell = resolve_spell(spell, spell_type=spell_type, caster=caster)
     if resolved_spell is None:
@@ -470,6 +476,7 @@ def cast_spell(
         arena=arena,
         party=active_party,
         world_map=world_map,
+        position=position,
     )
 
 
@@ -482,6 +489,7 @@ def _apply_spell_effect(
     arena: CombatArena | None,
     party: Party | None,
     world_map: Any | None = None,
+    position: tuple[int, int] | None = None,
 ) -> SpellResult:
     """Dispatch and execute specific spell mechanics."""
     # --- Clerical Prayer Spells ---
@@ -782,6 +790,8 @@ def _apply_spell_effect(
 
         px = getattr(party, "x", 0) if party is not None else 0
         py = getattr(party, "y", 0) if party is not None else 0
+        if position is not None:
+            px, py = position
 
         is_dungeon = world_map is not None and hasattr(world_map, "dmap") and hasattr(world_map, "z")
 
@@ -1237,6 +1247,7 @@ def prompt_cast_party(
     audio: Any | None = None,
     view_callback: Any | None = None,
     exit_callback: Any | None = None,
+    position: tuple[int, int] | None = None,
 ) -> None:
     """Standard party spellcasting prompt flow (overworld, town, dungeon).
 
@@ -1372,6 +1383,7 @@ def prompt_cast_party(
                         world_map=world_map,
                         target_member=target,
                         target_dir=direction,
+                        position=position,
                     )
                     if res.message:
                         text_log.add_message(res.message)
