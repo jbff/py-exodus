@@ -55,6 +55,17 @@ def needs_cure(party: Party) -> bool:
     return False
 
 
+# Ambrosia budget (user rule 2026-11-21: never go there about to starve;
+# abort for food in time). Surface eating is 1 food per member every 10
+# moves (Party.consume_food, decr_interval 40 vs 400 submorsels); a visit
+# runs ~1500-2500 moves, and finding a pirate and sailing out ~500-800.
+AMBROSIA_ENTRY_FOOD = 300
+AMBROSIA_ABORT_FOOD = 80
+# Keys beyond the card doors: the door east of the arrival point and the
+# water door between the east basin and the whirlpool bay.
+AMBROSIA_SPARE_KEYS = 2
+
+
 def needs_food(party: Party) -> bool:
     """Return True if party food supply or any living member's food is low."""
     if party.food < 300:
@@ -200,8 +211,7 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
         if (
             max(m.level for m in living) < 5
             or not all(m.marks[0] > 0 for m in party.members)
-            or party.food < 150
-            or any(m.food < 40 for m in living)
+            or any(m.food < AMBROSIA_ABORT_FOOD for m in living)
             or (not has_all_cards and needs_key_card and not has_key)
             or (has_all_cards and not needs_shrine_stats(party))
         ):
@@ -273,12 +283,14 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
         needed_keys = sum(
             1 for idx in (0, 2) if not any(m.cards[idx] > 0 for m in living)
         )
-        if needed_keys > 0 and sum(m.keys for m in living) < needed_keys:
+        if sum(m.keys for m in living) < needed_keys + AMBROSIA_SPARE_KEYS:
             if party.gold >= 50:
                 return Goal.BUY_KEYS
             return Goal.GRIND_AND_LEVEL
-        if (party.food < 500 or any(m.food < 120 for m in living)) and party.gold >= 100:
-            return Goal.BUY_FOOD
+        if any(m.food < AMBROSIA_ENTRY_FOOD for m in living):
+            if party.gold >= 100:
+                return Goal.BUY_FOOD
+            return Goal.GRIND_AND_LEVEL  # earn it; never sail in hungry
         return Goal.SAIL_WHIRLPOOL
 
     if cur_map_id == 13:

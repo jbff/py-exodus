@@ -307,6 +307,8 @@ def test_evaluate_goal_progression():
         m.armors[ArmorType.EXOTIC] = 1
         m.weapon = WeaponType.EXOTIC
         m.armor = ArmorType.EXOTIC
+    for _m in marked_ship.members:  # Ambrosia entry budget (user rule 2026-11-21)
+        _m.food = max(_m.food, 300)
     assert evaluate_goal(marked_ship) == Goal.SAIL_WHIRLPOOL
 
     # OverworldScreen map_id=13 overrides stale party.map_id=0 for Ambrosia (requires keys for Death/Moons)
@@ -791,6 +793,8 @@ def test_buy_keys_before_ambrosia_and_unlock_locked_door(pygame_setup):
             break
     assert sum(m.keys for m in party.members) >= 4
     # Formerly CAPTURE_SHIP on foot; goals no longer depend on the transport.
+    for _m in party.members:  # Ambrosia entry budget (user rule 2026-11-21)
+        _m.food = max(_m.food, 300)
     assert evaluate_goal(party) == Goal.SAIL_WHIRLPOOL
 
     # On Ambrosia (map 13), party at (11, 6) east of locked_door (10, 6) unlocks it with U
@@ -1318,6 +1322,8 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
     ow_s.creatures = [{"x": 54, "y": 15, "tile_name": "serpent"}]
     sm.set_screen(ow_s)
     ctrl._key_queue.clear()
+    for _m in p_ship.members:  # Ambrosia entry budget (user rule 2026-11-21)
+        _m.food = max(_m.food, 300)
     assert evaluate_goal(p_ship) == Goal.SAIL_WHIRLPOOL
     assert ctrl.step(sm) == pygame.K_f
     assert ctrl.step(sm) == pygame.K_RIGHT
@@ -1420,6 +1426,8 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
     ow_c2 = OverworldScreen(party=p_cap2, asset_mgr=am, random_encounters=False)
     sm.set_screen(ow_c2)
     ctrl._key_queue.clear()
+    for _m in p_cap2.members:  # Ambrosia entry budget (user rule 2026-11-21)
+        _m.food = max(_m.food, 300)
     assert evaluate_goal(p_cap2) == Goal.SAIL_WHIRLPOOL
     assert ctrl.step(sm) == pygame.K_DOWN
 
@@ -1511,6 +1519,8 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
     assert all(
         ow_c.game_map.get_tile(49 + dx, 11 + dy).name == "water" for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0))
     )
+    for _m in p_cap.members:  # Ambrosia entry budget (user rule 2026-11-21)
+        _m.food = max(_m.food, 300)
     assert evaluate_goal(p_cap) == Goal.SAIL_WHIRLPOOL
     ctrl.step(sm)
     assert ctrl._trip is not None and ctrl._trip.legs[0].action == "CAPTURE"

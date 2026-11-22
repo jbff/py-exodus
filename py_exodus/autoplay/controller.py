@@ -885,7 +885,9 @@ class AutoPlayController:
                     if total_gold >= 1500:
                         self._food_shop_target = 400
                     elif total_gold >= 700:
-                        self._food_shop_target = 200
+                        # >= AMBROSIA_ENTRY_FOOD, so a pre-Ambrosia food run
+                        # never ends short of the entry budget.
+                        self._food_shop_target = 300
                     else:
                         self._food_shop_target = 150
                 shop_target = getattr(self, "_food_shop_target", None)
