@@ -984,3 +984,47 @@ def test_ship_escape_sails_on_through_the_lane_rather_than_sit_under_fire():
     # Never wait under fire: LairWare's cannon bears on the pirate astern
     # (any direction), so the ship shoots back rather than sit.
     assert move.key == "fire" and move.direction == Direction.EAST
+
+
+def test_the_tested_party_is_lairware_legal_and_shared_with_the_reset_script(tmp_path):
+    """User 2026-11-22: live runs start from scripts/reset_new_game.py; the
+    batches built the same four with 60 points each, over LairWare's 50
+    (UltimaMacIF.c:2373). One definition now serves both."""
+    import importlib.util
+
+    from py_exodus.autoplay.batch import PARTY_SETUP, build_party
+    from py_exodus.save_system import SaveSystem
+
+    assert all(sum(row[4:]) == 50 for row in PARTY_SETUP)
+    spec = importlib.util.spec_from_file_location("reset_new_game", "scripts/reset_new_game.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    mod.reset_new_game(tmp_path)
+    roster = SaveSystem.load_roster(tmp_path / "roster.json")
+    stats = lambda c: (c.name, c.race, c.profession, c.strength, c.dexterity, c.intelligence, c.wisdom)
+    assert [stats(c) for c in roster] == [stats(m) for m in build_party().members]
+
+
+def test_autoplay_on_an_empty_roster_creates_the_tested_party(pygame_setup):
+    """User 2026-11-22: with no roster, autoplay creates the same party as
+    scripts/reset_new_game.py (it used to roll four Human Fighters)."""
+    from py_exodus.autoplay.batch import build_party
+    from py_exodus.autoplay.controller import AutoPlayController
+    from py_exodus.entities.party import Party
+    from py_exodus.screens.roster_screen import RosterScreen
+    from py_exodus.state_machine import StateMachine
+
+    am = AssetManager(assets_dir="assets")
+    am.load_tiles()
+    am.load_xml_definitions()
+    party = Party()
+    rs = RosterScreen(party=party, roster=[], asset_mgr=am)
+    sm = StateMachine(asset_mgr=am, audio=None)
+    sm.set_screen(rs)
+    ctrl = AutoPlayController(enabled=True)
+    for _ in range(600):
+        if len(party.members) == 4:
+            break
+        ctrl.step(sm)
+    stats = lambda c: (c.name, c.race, c.profession, c.strength, c.dexterity, c.intelligence, c.wisdom)
+    assert [stats(m) for m in party.members] == [stats(m) for m in build_party().members]

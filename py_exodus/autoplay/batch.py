@@ -29,11 +29,15 @@ from typing import Any
 FRAME_DT = 1.0 / 60.0
 
 #: Canonical autoplay party: (name, sex, race, profession, str, dex, int, wis).
+# The one party autoplay is tested and tuned with (README), shared with
+# scripts/reset_new_game.py so batches and live runs start alike. 50 points
+# each, LairWare's creation budget (UltimaMacIF.c:2373); the batches used
+# 60-point characters until 2026-11-22.
 PARTY_SETUP = (
-    ("SHADOW", "M", "ELF", "THIEF", 15, 25, 10, 10),
-    ("GRUMM", "M", "DWARF", "FIGHTER", 25, 15, 10, 10),
-    ("SERENA", "F", "BOBBIT", "CLERIC", 15, 15, 10, 25),
-    ("ZIRCON", "M", "FUZZY", "WIZARD", 15, 15, 25, 10),
+    ("SHADOW", "M", "ELF", "THIEF", 15, 25, 5, 5),
+    ("GRUMM", "M", "DWARF", "FIGHTER", 25, 15, 5, 5),
+    ("SERENA", "F", "BOBBIT", "CLERIC", 15, 5, 5, 25),
+    ("ZIRCON", "M", "FUZZY", "WIZARD", 15, 5, 25, 5),
 )
 
 _ASSETS = None

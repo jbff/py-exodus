@@ -301,7 +301,10 @@ class AutoPlayController:
 
     _WHY_SKIP = frozenset({"_emit_key", "_step_or_unlock", "_move_toward", "_attack"})
 
-    def _emit_key(self, state_machine: StateMachine, key: int, guarded: bool = True) -> int:
+    def _emit_key(self, state_machine: StateMachine, key: int | str, guarded: bool = True) -> int:
+        typed = None
+        if isinstance(key, str):  # a shifted letter from _queue_text(keep_case=True)
+            typed, key = key, _char_to_key(key)
         # Trace "why": the autoplay functions that chose this key (nearest
         # first), so a loop in a trace names its branch.
         f = sys._getframe(1)
@@ -319,17 +322,20 @@ class AutoPlayController:
         event = pygame.event.Event(
             pygame.KEYDOWN,
             key=key,
-            mod=0,
-            unicode=_key_to_unicode(key),
+            mod=pygame.KMOD_SHIFT if typed else 0,
+            unicode=typed or _key_to_unicode(key),
         )
         state_machine.handle_event(event)
         return key
 
-    def _queue_text(self, text: str, enter: bool = True) -> None:
+    def _queue_text(self, text: str, enter: bool = True, keep_case: bool = False) -> None:
+        """Queue ``text`` as key presses. With ``keep_case`` an uppercase
+        letter is queued as the character itself and sent shifted, so a
+        typed name keeps its capitals."""
         for ch in text:
             k = _char_to_key(ch)
             if k is not None:
-                self._key_queue.append(k)
+                self._key_queue.append(ch if keep_case and ch.isupper() else k)
         if enter:
             self._key_queue.append(pygame.K_RETURN)
 
@@ -396,20 +402,28 @@ class AutoPlayController:
 
     def _step_roster(self, state_machine: StateMachine, screen) -> int | None:
         if screen.text_log.is_waiting_for_input:
-            prompt = (getattr(screen.text_log, "prompt_text", "") or "").lower()
+            prompt = (getattr(screen.text_log, "current_prompt", "") or "").lower()
+            # An empty roster gets the one tested party, the same four that
+            # scripts/reset_new_game.py writes (user 2026-11-22).
+            from py_exodus.autoplay.batch import PARTY_SETUP
+
+            name, sex, race, prof, st, dx, it, ws = PARTY_SETUP[len(screen.roster) % len(PARTY_SETUP)]
             if "name" in prompt:
-                idx = len(screen.roster) + 1
-                self._queue_text(f"HERO{idx}", enter=True)
-            elif "strength" in prompt or "dexterity" in prompt:
-                self._queue_text("15", enter=True)
-            elif "intelligence" in prompt or "wisdom" in prompt:
-                self._queue_text("10", enter=True)
+                self._queue_text(name, enter=True, keep_case=True)
+            elif "strength" in prompt:
+                self._queue_text(str(st), enter=True)
+            elif "dexterity" in prompt:
+                self._queue_text(str(dx), enter=True)
+            elif "intelligence" in prompt:
+                self._queue_text(str(it), enter=True)
+            elif "wisdom" in prompt:
+                self._queue_text(str(ws), enter=True)
             elif "sex" in prompt:
-                self._queue_text("M", enter=False)
+                self._queue_text(sex, enter=False)
             elif "race" in prompt:
-                self._queue_text("H", enter=False)
+                self._queue_text(race[0], enter=False)  # Elf, Dwarf, Bobbit, Fuzzy
             elif "profession" in prompt or "class" in prompt:
-                self._queue_text("F", enter=False)
+                self._queue_text(prof[0], enter=False)  # Thief, Fighter, Cleric, Wizard
             else:
                 return self._emit_key(state_machine, pygame.K_RETURN)
             if self._key_queue:
