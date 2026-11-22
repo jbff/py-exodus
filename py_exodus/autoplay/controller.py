@@ -1025,6 +1025,14 @@ class AutoPlayController:
         pos = (px, py)
         on_ship = party.transport == Transport.SHIP
 
+        # The trip's moongate is open right now and one step away: take it,
+        # lane or not; the gate carries the party out of reach. Escaping
+        # the lane instead missed every opening (live trace 2026-11-22:
+        # 1,800 steps beside gate (57,46) with a pirate offshore, starved).
+        gate_key = self._open_gate_step(screen, gmap, party, pos)
+        if gate_key is not None:
+            return self._emit_key(state_machine, gate_key, guarded=False)
+
         # A pirate orthogonally adjacent: attack it (battle, then its frigate).
         if th.pirates and not party_has_low_hp(party):
             for d in (Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST):
@@ -1919,6 +1927,26 @@ class AutoPlayController:
             return False
         w, h = gmap.width, gmap.height
         return all(manhattan(w, h, pos, (x, y)) > 3 for x, y, _ in plan.path)
+
+    def _open_gate_step(self, screen, gmap, party, pos) -> int | None:
+        """Key for the step onto the trip's moongate when it is open now
+        (trammel == src, felucca == dst) and orthogonally adjacent; else None."""
+        plan = self._trip
+        if plan is None or not plan.legs or plan.legs[0].action != "GATE":
+            return None
+        leg = plan.legs[0]
+        gates = getattr(gmap, "moongates", ()) or ()
+        src, dst = leg.gate_src, leg.gate_dest
+        if src is None or dst is None or src >= len(gates):
+            return None
+        if getattr(screen, "trammel_phase", -1) != src or getattr(screen, "felucca_phase", -1) != dst:
+            return None
+        site = (gates[src].x, gates[src].y)
+        w, h = gmap.width, gmap.height
+        for d in (Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST):
+            if ((pos[0] + d.dx) % w, (pos[1] + d.dy) % h) == site:
+                return _DIR_TO_KEY[d]
+        return None
 
     def _drive_gate(self, state_machine, screen, gmap, party, pos, leg: Leg) -> int:
         """Take moongate ``src`` to ``dst`` without standing around.

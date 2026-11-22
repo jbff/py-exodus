@@ -70,3 +70,46 @@ def test_pirate_hunt_on_ambrosia_reaches_the_pirate_instead_of_pacing():
     finally:
         random.setstate(rng)
         tile_effects._rng.setstate(trng)
+
+
+def test_open_moongate_is_taken_even_from_a_pirate_lane():
+    """Live trace 2026-11-22: a level-5 party on the strip reachable only by
+    moongate (57,46) needed food; a pirate offshore put the tile beside the
+    gate in its firing lane, the threat escape stepped out of the lane at
+    every opening, and the party paced for 1,800 steps until it starved."""
+    pygame.init()
+    pygame.font.init()
+    rng = random.getstate()
+    try:
+        random.seed(1)
+        am = batch._assets()
+        p = batch.build_party()
+        for m in p.members:
+            m.level = 5
+            m.max_hp = 550
+            m.hp = 500
+            m.food = 70
+            m.gold = 88
+            m.marks = [1, 1, 1, 1]
+            m.gems = 2
+            m.keys = 0
+            m.weapon = WeaponType.EXOTIC
+            m.armor = ArmorType.EXOTIC
+        sm = StateMachine(asset_mgr=am, audio=None)
+        ow = OverworldScreen(party=p, asset_mgr=am)
+        sm.set_screen(ow)
+        p.x, p.y = 58, 44  # Dungeon 19's door, on the gate-only strip
+        p.transport = Transport.FOOT
+        ow.creatures = [c for c in ow.creatures if abs(c["x"] - 58) + abs(c["y"] - 44) > 12] + [
+            {"tile_name": "pirate", "tile": "pirate", "x": 61, "y": 44}
+        ]
+        ctrl = AutoPlayController(enabled=True)
+        sm.autoplay_enabled = True
+        for _ in range(200):
+            ctrl.step(sm)
+            sm.update(0.1)
+            if not (54 <= p.x <= 59 and 43 <= p.y <= 47):
+                break
+        assert not (54 <= p.x <= 59 and 43 <= p.y <= 47), (p.x, p.y)
+    finally:
+        random.setstate(rng)
