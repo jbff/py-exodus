@@ -91,6 +91,18 @@ class GameApp:
         self.state_machine.autoplay_step_interval = self.autoplay.step_interval
         self.clock = pygame.time.Clock()
 
+        # LairWare MainLoop: Intro(), then the View, then the main menu.
+        # Never in headless or autoplay runs.
+        if not self.headless and not autoplay:
+            try:
+                from py_exodus.screens.intro import IntroScreen
+
+                self.state_machine.push_screen(
+                    IntroScreen(asset_mgr=self.asset_mgr, audio=self.audio)
+                )
+            except Exception:
+                pass
+
     def run(self, max_frames: int | None = None) -> None:
         """Execute the main game loop at 60 FPS (closing the trace on exit or crash)."""
         try:

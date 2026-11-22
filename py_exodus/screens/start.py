@@ -46,6 +46,7 @@ class StartScreen(BaseScreen):
             ("Journey Onward", self._start_journey),
             ("New Game / Roster", self._new_game),
             ("Book of Lore", self._open_book),
+            ("Return to the View", self._open_view),
         ]
         self.selected_idx = 0
         self.anim_time: float = 0.0
@@ -99,6 +100,9 @@ class StartScreen(BaseScreen):
         elif event.key in (pygame.K_3, pygame.K_b):
             self.selected_idx = 2
             self._open_book()
+        elif event.key in (pygame.K_4, pygame.K_r):  # LairWare MainMenu 'R'
+            self.selected_idx = 3
+            self._open_view()
 
     def update(self, dt: float) -> None:
         self.anim_time += dt
@@ -166,7 +170,7 @@ class StartScreen(BaseScreen):
             y += t.get_height() + px(2)
 
         small = get_hud_font(size=px(14))
-        lines = ["Arrows and Enter, or 1-3"] + list(self.CREDITS)
+        lines = ["Arrows and Enter, or 1-4"] + list(self.CREDITS)
         yb = h - px(8) - len(lines) * small.get_linesize()
         for i, line in enumerate(lines):
             t = small.render(line, True, EGA_DARK_GRAY if i == 0 else EGA_LIGHT_GRAY)
@@ -258,6 +262,17 @@ class StartScreen(BaseScreen):
             self.manager.push_screen(roster_scr)
         else:
             self.next_screen = roster_scr
+            self.is_finished = True
+
+    def _open_view(self) -> None:
+        """LairWare's 'R': the View (Demo()) until a key."""
+        from py_exodus.screens.intro import IntroScreen
+
+        view = IntroScreen(asset_mgr=self.asset_mgr, audio=self.audio, view_only=True)
+        if self.manager is not None:
+            self.manager.push_screen(view)
+        else:
+            self.next_screen = view
             self.is_finished = True
 
     def _open_book(self) -> None:
