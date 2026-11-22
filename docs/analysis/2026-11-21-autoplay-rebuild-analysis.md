@@ -13,7 +13,7 @@ caused the regression; where it disagrees with the user, the user is right.
 5. Rebuild the transport/trip layer as ONE authority; judge every change on ≥100 seeds.
 
 Tooling:
-- Live: `uv run exodus --autoplay --seed N --trace` → `traces/trace_seed<N>_<time>.jsonl.gz`
+- Live: `uv run exodus --autoplay --trace` → `traces/trace_<time>.jsonl.gz` (live runs are not seed-reproducible; --seed removed 2026-11-22)
 - Batch: `uv run python -m py_exodus.autoplay.batch --seeds 0-99 --workers 18 --out-dir traces/<name>`
   (emulates GameApp's 60 FPS loop minus rendering; canonical Thief/Fighter/Cleric/Wizard party;
   seed-reproducible; ~780 steps/s per worker, ~3 min per full game)

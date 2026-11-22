@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import random
 import sys
 from pathlib import Path
 from typing import Any
@@ -192,15 +191,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Start in Full Autoplay (Watch Mode); F9 toggles at runtime.",
     )
     parser.add_argument(
-        "--seed",
-        type=int,
-        default=None,
-        help="Seed Python's RNG for reproducible runs.",
-    )
-    parser.add_argument(
         "--trace",
         action="store_true",
-        help="Record the autoplay run to traces/trace_seed<N>_<time>.jsonl.gz.",
+        help="Record the autoplay run to traces/trace_<time>.jsonl.gz.",
     )
     return parser.parse_args(argv)
 
@@ -208,13 +201,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> None:
     """CLI execution entrypoint."""
     args = parse_args(argv)
-    if args.seed is None:
-        # Always have a printable, rerunnable seed.
-        args.seed = random.SystemRandom().randrange(10_000_000, 99_999_999)
-    random.seed(args.seed)
-    print(f"[py-exodus] seed {args.seed} (rerun with --seed {args.seed})")
+    # No --seed (user 2026-11-22): live play steps on wall-clock time and
+    # the ] / [ speed keys change how many frames run between steps, so a
+    # seed never replayed a live run. Use --trace to record one; headless
+    # batches (fixed frame time) remain seed-reproducible.
     debug.set_debug(args.debug)
-    app = GameApp(autoplay=args.autoplay, seed=args.seed, trace=args.trace)
+    app = GameApp(autoplay=args.autoplay, trace=args.trace)
     try:
         app.run()
     except KeyboardInterrupt:

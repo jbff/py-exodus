@@ -980,6 +980,12 @@ def test_dungeon_peer_gem_once_per_level_and_touch_mark(pygame_setup):
     from py_exodus.assets import AssetManager
     from py_exodus.screens.dungeon_screen import DungeonScreen
 
+    # Pinned: unseeded, the dungeon walk depended on whatever RNG state the
+    # tests before it left, and failed now and then.
+    import random
+
+    random.seed(42)
+
     am = AssetManager("data")
     am.load_all()
     party = _make_party(
@@ -2162,12 +2168,15 @@ def test_no_resting_on_unsafe_town_maps(pygame_setup):
     assert ctrl.step(sm) != pygame.K_SPACE
 
 
-def test_cli_seed_flag():
-    """CLI parse_args accepts --seed as an int (default None)."""
+def test_cli_has_no_seed_flag():
+    """--seed is gone (user 2026-11-22): a seed never replayed a live run
+    (wall-clock stepping, ] / [ speed keys), so offering it misled."""
+    import pytest
     from py_exodus.__main__ import parse_args
 
-    assert parse_args(["--autoplay", "--seed", "437"]).seed == 437
-    assert parse_args([]).seed is None
+    with pytest.raises(SystemExit):
+        parse_args(["--autoplay", "--seed", "437"])
+    assert not hasattr(parse_args([]), "seed")
 
 
 

@@ -138,7 +138,8 @@ class RunTracer:
         if self._fixed_path is not None:
             self._path = self._fixed_path
         else:
-            self._path = self.out_dir / f"trace_seed{self.seed}_{stamp}.jsonl.gz"
+            tag = f"seed{self.seed}_" if self.seed is not None else ""
+            self._path = self.out_dir / f"trace_{tag}{stamp}.jsonl.gz"
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._file = gzip.open(self._path, "wt", encoding="utf-8")
         self._emit({"t": "start", "seed": self.seed, "when": stamp})
