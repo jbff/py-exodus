@@ -2216,6 +2216,11 @@ class AutoPlayController:
             and all(m.hp * 10 >= m.max_hp * 3 for m in living)
         )
 
+    # Patrol moves with no land monster within 12 tiles before the early
+    # Britain loop gives way to the wide Sosaria patrol.
+    _GRIND_QUIET_LIMIT = 150
+    _grind_quiet = 0
+
     def _grind_local(self, state_machine, screen, gmap, party, px, py, living) -> int:
         # Actively chase nearby reachable land creatures (skip if hurt,
         # unless broke & starving with no naval threat nearby so we can earn 30g for food!)
@@ -2233,13 +2238,26 @@ class AutoPlayController:
                 if manhattan(gmap.width, gmap.height, (px, py), (cx, cy)) <= 12:
                     land_targets.add((cx, cy))
             if land_targets:
+                self._grind_quiet = 0
                 d = find_2d_step(gmap, (px, py), land_targets, Transport.FOOT, party=party, avoid_tiles=self._overworld_avoid)
                 if d is not None:
                     return self._emit_key(state_machine, _DIR_TO_KEY[d])
+            else:
+                self._grind_quiet += 1
 
         if transport == Transport.FOOT:
             early_patrol = ((42, 18), (38, 17), (35, 17), (40, 22), (45, 22), (46, 20))
-            patrol = early_patrol if (living and min(m.level for m in living) < 3) else _SOSARIA_PATROL
+            # User 2026-11-22: circling Britain forever starves the party when
+            # nothing turns up (batch 775884a seeds 35, 50, 60...: ~1,900
+            # patrol steps, no fight, no gold, food to 0). Loop near Britain
+            # for a while, then widen to the whole continent until a monster
+            # shows up again.
+            near_ok = self._grind_quiet < self._GRIND_QUIET_LIMIT
+            patrol = (
+                early_patrol
+                if (near_ok and living and min(m.level for m in living) < 3)
+                else _SOSARIA_PATROL
+            )
             for _ in range(len(patrol)):
                 target = patrol[self._patrol_idx % len(patrol)]
                 if (px, py) == target:

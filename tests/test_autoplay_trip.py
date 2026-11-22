@@ -864,6 +864,39 @@ def test_card_trip_carries_keys_enough_to_reach_the_moons_card():
     assert evaluate_goal(party, 0) == Goal.SAIL_WHIRLPOOL
 
 
+def test_grind_patrol_widens_when_nothing_shows_up(pygame_setup):
+    """User 2026-11-22: circling Britain forever starves the party when no
+    monster comes (batch 775884a seeds 35, 50, 60: ~1,900 patrol steps, no
+    fight, food to 0). After _GRIND_QUIET_LIMIT quiet moves the level-1 party
+    takes the wide Sosaria patrol; a monster in range resets it."""
+    from py_exodus.autoplay.controller import _SOSARIA_PATROL, AutoPlayController
+    from py_exodus.screens.overworld import OverworldScreen
+    from py_exodus.state_machine import StateMachine
+
+    am = AssetManager(assets_dir="assets")
+    am.load_tiles()
+    am.load_xml_definitions()
+    party = _make_party(level=1)
+    party.x, party.y = 42, 18  # the first point of the Britain loop
+    ow = OverworldScreen(party=party, asset_mgr=am, start_x=42, start_y=18, random_encounters=False)
+    ow.creatures = []
+    sm = StateMachine(asset_mgr=am, audio=None)
+    sm.set_screen(ow)
+    ctrl = AutoPlayController(enabled=True)
+    living = list(party.members)
+
+    key = ctrl._grind_local(sm, ow, ow.game_map, party, 42, 18, living)
+    assert key in (pygame.K_LEFT, pygame.K_UP)  # toward (38,17)
+    assert ctrl._grind_quiet == 1
+    ctrl._grind_quiet = ctrl._GRIND_QUIET_LIMIT
+    ctrl._patrol_idx = 0
+    key = ctrl._grind_local(sm, ow, ow.game_map, party, 42, 18, living)
+    assert _SOSARIA_PATROL[0] == (44, 22) and key in (pygame.K_RIGHT, pygame.K_DOWN)
+    ow.creatures = [{"tile_name": "orc", "tile": "orc", "x": 46, "y": 18}]
+    ctrl._grind_local(sm, ow, ow.game_map, party, 42, 18, living)
+    assert ctrl._grind_quiet == 0
+
+
 def test_resurrection_money_comes_before_food_that_can_wait():
     """Batch 775884a seed 3: the Cleric dead, 490 gold of the 500 to raise
     her, food 74 each: the party bought food, fell further short, and wiped.
