@@ -150,6 +150,7 @@ class GameMap:
     portals: list[PortalDef] = field(default_factory=list)
     moongates: list[MoongateDef] = field(default_factory=list)
     labels: list[LabelDef] = field(default_factory=list)
+    revision = 0  # tile-edit counter (not a dataclass field)
 
     @property
     def people(self) -> list[MapNpc]:
@@ -177,6 +178,9 @@ class GameMap:
             idx = y * self.width + x
             if idx < len(self.tiles):
                 self.tiles[idx] = tile
+                # Bumped on every edit so caches built from the tiles (the
+                # autoplay terrain) see opened snakes, chests and doors.
+                self.revision = self.revision + 1
 
     def get_portal(self, x: int, y: int) -> PortalDef | None:
         """Find teleport portal at grid coordinate (x, y)."""

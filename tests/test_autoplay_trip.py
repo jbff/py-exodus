@@ -640,3 +640,32 @@ def test_capture_leg_hands_control_to_the_hunt_off_its_end_tile(
     monkeypatch.setattr(ctrl, "_drive_capture", lambda *a, **k: calls.append(a[4]) or pygame.K_SPACE)
     ctrl._trip_drive(None, ow, ow.game_map, party, 45, 20, 0, dest)
     assert calls == [(45, 20)]
+
+
+def test_terrain_sees_the_snake_turn_to_water_after_evocare():
+    """rules-f162646: the terrain cache keyed on id(gmap) kept the serpent
+    after EVOCARE, so 4-card parties found no route to Exodus and starved."""
+    import os
+
+    os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+    import pygame
+
+    pygame.init()
+    from py_exodus.autoplay import batch
+    from py_exodus.autoplay.trip import terrain_for
+    from py_exodus.screens.overworld import OverworldScreen
+
+    import random
+
+    rng_state = random.getstate()  # later tests depend on the global RNG
+    try:
+        am = batch._assets()
+        party = batch.build_party()
+        ow = OverworldScreen(party=party, map_id=0, asset_mgr=am)
+        gmap = ow.game_map
+        assert (10, 58) not in terrain_for(gmap, party, 0).sea_comp
+        ow._replace_tile("water", 10, 57)
+        ow._replace_tile("water", 10, 58)
+        assert (10, 58) in terrain_for(gmap, party, 0).sea_comp
+    finally:
+        random.setstate(rng_state)

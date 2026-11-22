@@ -203,6 +203,7 @@ def terrain_for(gmap: GameMap, party: Party, map_id: int) -> _Terrain:
     key = (
         map_id,
         id(gmap),
+        getattr(gmap, "revision", 0),
         has_key,
         any(not m.is_dead() and m.marks[1] > 0 for m in party.members),
         tile_effects.all_members_mark_of_force(party),
