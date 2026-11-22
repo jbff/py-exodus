@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 import pygame
 
 from py_exodus.constants import Direction, Transport
+from py_exodus.entities.party import objects_on
 from py_exodus.screens.overworld import can_move_to
 from py_exodus.world import tile_effects
 from py_exodus.world.dungeon import turn_left_dir, turn_right_dir
@@ -80,7 +81,7 @@ def find_2d_step_and_cost(
     frigate_coords = (
         {
             (obj.get("x"), obj.get("y"))
-            for obj in getattr(party, "dynamic_objects", [])
+            for obj in objects_on(party, game_map)
             if str(obj.get("tile", "")).lower() == "frigate"
         }
         if party is not None

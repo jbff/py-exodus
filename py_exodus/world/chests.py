@@ -20,7 +20,7 @@ py/Java (the refs' gold bands mutually diverge).
 from __future__ import annotations
 
 import random
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from py_exodus import special_commands
 from py_exodus.constants import Status
@@ -49,14 +49,17 @@ class ChestOpenResult(list):
         self.item_lines: list[str] = []
 
 
-def take_chest_object(party: Party, x: int, y: int) -> dict:
+def take_chest_object(party: Party, x: int, y: int, game_map: Any = None) -> dict:
     """Pop the chest dynamic object exactly at (x, y) and return it.
 
     Java scans current-map Drawables for cx == x && cy == y (GameScreen.getChest:1041-1050)
     — there is no adjacency scan, and G "Not Here!" when nothing matches.
     Raises ChestNotFound when no chest object is there.
     """
-    for obj in party.dynamic_objects:
+    from py_exodus.entities.party import objects_on  # noqa: F811
+
+    objs = party.dynamic_objects if game_map is None else objects_on(party, game_map)
+    for obj in objs:
         if obj.get("tile") == "chest" and obj.get("x", -1) == x and obj.get("y", -1) == y:
             party.dynamic_objects.remove(obj)
             return obj

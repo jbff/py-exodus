@@ -637,13 +637,14 @@ def test_town_chest_acid_trap_wipe_transitions_to_start_screen(sm, asset_mgr, mo
     monkeypatch.setattr(chests_mod, "random", _FakeRandom())
 
     party = single_member_party(hp=10)
-    # Fix round 2 (final): G opens the chest at the party's own tile.
-    party.dynamic_objects.append({"tile": "chest", "x": 10, "y": 10})
     from py_exodus.screens.town import TownScreen
 
     town = TownScreen(
         party=party, map_id=1, asset_mgr=asset_mgr, start_x=10, start_y=10, manager=sm
     )
+    # G opens the chest at the party's own tile: a town chest is a map tile
+    # (the party's objects belong to the surface map, user ruling 2026-11-22).
+    town.game_map.set_tile(10, 10, asset_mgr.get_tile_by_name("chest"))
     sm.set_screen(town)
 
     from py_exodus.screens.start import StartScreen

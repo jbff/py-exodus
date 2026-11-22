@@ -229,7 +229,9 @@ class TestExitTransport:
         sample_party.transport = Transport.HORSE
         key(town, pygame.K_x)
         assert sample_party.transport == Transport.FOOT
-        assert {"tile": "horse", "x": 10, "y": 10} in sample_party.dynamic_objects
+        # User ruling 2026-11-22: what is left in a town stays there; it never
+        # joins the surface map's objects at the town's coordinates.
+        assert {"tile": "horse", "x": 10, "y": 10} not in sample_party.dynamic_objects
         assert not town.is_finished
 
     def test_town_x_without_transport_stays_in_town(self, town, sample_party):

@@ -16,6 +16,7 @@ from py_exodus.autoplay.equipment import (
     best_owned_weapon,
     best_shop_upgrade,
 )
+from py_exodus.entities.party import objects_on
 from py_exodus.autoplay.nav import (
     find_2d_step,
     find_2d_step_and_cost,
@@ -1104,7 +1105,7 @@ class AutoPlayController:
         # back in for it, again and again (user report 2026-11-21).
         if not on_ship and not self._chest_too_risky(party) and any(
             str(o.get("tile", "")).lower() == "chest" and (o.get("x"), o.get("y")) == pos
-            for o in getattr(party, "dynamic_objects", ()) or ()
+            for o in objects_on(party, gmap)
         ):
             return self._open_chest(state_machine, party, guarded=False)
 
@@ -1286,7 +1287,7 @@ class AutoPlayController:
             # never walk across one as a shortcut.
             avoid |= {
                 (obj.get("x"), obj.get("y"))
-                for obj in getattr(party, "dynamic_objects", ())
+                for obj in objects_on(party, gmap)
                 if str(obj.get("tile", "")).lower() == "frigate"
             }
             avg_max_hp = sum(m.max_hp for m in party.members) // max(1, len(party.members))
@@ -1334,7 +1335,7 @@ class AutoPlayController:
         ):
             chests = {
                 (obj.get("x"), obj.get("y"))
-                for obj in getattr(party, "dynamic_objects", [])
+                for obj in objects_on(party, gmap)
                 if str(obj.get("tile", "")).lower() == "chest"
             }
             if (px, py) in chests:
@@ -1840,7 +1841,7 @@ class AutoPlayController:
         last_ship = getattr(party, "last_ship", None)
         low_hull = self._is_hull_critical(party, screen)
         out: dict[tuple[int, int], float] = {}
-        for obj in getattr(party, "dynamic_objects", ()):
+        for obj in objects_on(party, getattr(screen, "game_map", None)):
             if str(obj.get("tile", "")).lower() != "frigate":
                 continue
             wreck = low_hull and (obj is last_ship or last_ship is None)

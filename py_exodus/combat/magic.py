@@ -825,18 +825,20 @@ def _apply_spell_effect(
         else:
             # GameScreen.getChest: chest object exactly at the party's tile.
             if party is not None and hasattr(party, "dynamic_objects"):
+                from py_exodus.entities.party import objects_on
+
                 # Peek presence without mutating it: the fizzle must roll
                 # before the chest object is taken (same GBC ordering as the
-                # tile path above).
+                # tile path above). Only this map's objects (user 2026-11-22).
                 chest_object_present = any(
                     o.get("tile") == "chest" and o.get("x", -1) == px and o.get("y", -1) == py
-                    for o in party.dynamic_objects
+                    for o in objects_on(party, world_map)
                 )
                 if chest_object_present and _appar_unem_fizzle():
                     # EXECUTED (Task 4): effect-branch fizzle (see above).
                     return SpellResult(success=False, message="FAILED", spell=spell)
                 try:
-                    take_chest_object(party, px, py)
+                    take_chest_object(party, px, py, world_map)
                     lines.extend(open_chest(party, member, dungeon=False, disarmed=True))
                     opened = True
                 except ChestNotFound:

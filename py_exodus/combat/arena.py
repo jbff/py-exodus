@@ -1439,8 +1439,18 @@ class CombatArena:
         chest_x = self.encounter_x if self.encounter_x is not None else self.party.x
         chest_y = self.encounter_y if self.encounter_y is not None else self.party.y
         walkable = self.encounter_tile_walkable if self.encounter_tile_walkable is not None else True
+        # The drop belongs to the surface map the party's objects live on. A
+        # fight raised in a town or castle (context_map_id 10, 12, ...) has
+        # no encounter tile and fell back to the party's overworld x,y: the
+        # Death Gulch pub merchant left a chest on Sosaria at the town's
+        # gate (user ruling 2026-11-22: nothing crosses between maps).
+        on_surface = self.context_map_id is None or str(self.context_map_id) == str(
+            getattr(self.party, "objects_map_id", 0)
+        )
 
-        if not is_nochest and walkable:
+        if not on_surface:
+            self.chest_spawned = False
+        elif not is_nochest and walkable:
             self.chest_spawned = True
             if hasattr(self.party, "dynamic_objects"):
                 self.party.dynamic_objects.append({"tile": "chest", "x": chest_x, "y": chest_y})

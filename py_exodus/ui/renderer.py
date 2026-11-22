@@ -15,6 +15,7 @@ from py_exodus.constants import (
 )
 from py_exodus.world.field_of_view import compute_fov
 from py_exodus.world import tile_effects
+from py_exodus.entities.party import objects_on
 
 if TYPE_CHECKING:
     from py_exodus.assets import AssetManager
@@ -115,13 +116,11 @@ def can_move_to(
         # raid walked onto the pub counter, the merchant behind it attacked,
         # and the party looted the chests behind it (live traces 2026-11-22).
         if not tile.walkable:
-            if party is not None and str(getattr(game_map, "id", "")) == str(
-                getattr(party, "objects_map_id", 0)
-            ) and any(
+            if any(
                 str(obj.get("tile", "")).lower() == "frigate"
                 and obj.get("x") == target_x
                 and obj.get("y") == target_y
-                for obj in getattr(party, "dynamic_objects", [])
+                for obj in objects_on(party, game_map)
             ):
                 return True
             return False
@@ -249,8 +248,8 @@ class WorldRenderer:
 
         # 2. Render dynamic map objects (ships, horses, chests)
         dynamic_objs: list[Any] = []
-        if party is not None and hasattr(party, "dynamic_objects") and getattr(game_map, "id", 0) in (0, 13):
-            dynamic_objs.extend(party.dynamic_objects)
+        if party is not None and getattr(game_map, "id", 0) in (0, 13):
+            dynamic_objs.extend(objects_on(party, game_map))
         if kwargs.get("dynamic_objects"):
             dynamic_objs.extend(kwargs["dynamic_objects"])
         if kwargs.get("objects"):

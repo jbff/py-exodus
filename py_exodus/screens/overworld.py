@@ -834,7 +834,7 @@ class OverworldScreen(BaseScreen):
 
             px, py = self.party.x, self.party.y
             try:
-                take_chest_object(self.party, px, py)
+                take_chest_object(self.party, px, py, self.game_map)
             except ChestNotFound:
                 # Java getChest: a chest *tile* under the party is replaced
                 # with floor (GameScreen.java:1069-1071).

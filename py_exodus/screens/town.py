@@ -155,13 +155,16 @@ class TownScreen(BaseScreen):
             return
 
         # Frigate object on the party's exact tile
-        for idx, obj in enumerate(self.party.dynamic_objects):
+        # Only this map's objects: a ship parked on Sosaria at the same
+        # coordinates is not here (user ruling 2026-11-22).
+        objs = self.party.objects_on(self.game_map)
+        for idx, obj in enumerate(objs):
             tile = str(obj.get("tile", "")).lower()
             # Java matches the exact tile name: `"frigate".equals(
             # d.getTile().getName())` (GameScreen.java:955) — no "ship"
             # superset ("ship" is not a tile name Java can match).
             if tile == "frigate" and obj.get("x") == x and obj.get("y") == y:
-                self.party.dynamic_objects.pop(idx)
+                objs.pop(idx)
                 self.party.transport = Transport.SHIP
                 if self.party.last_ship is not obj:
                     self.party.adjust_ship_hull(50)
@@ -869,7 +872,7 @@ class TownScreen(BaseScreen):
 
             px, py = self.avatar_x, self.avatar_y
             try:
-                take_chest_object(self.party, px, py)
+                take_chest_object(self.party, px, py, self.game_map)
             except ChestNotFound:
                 # Java getChest: a chest *tile* under the party is replaced
                 # with floor (GameScreen.java:1069-1071).
@@ -1078,14 +1081,18 @@ class TownScreen(BaseScreen):
 
         old_t = self.party.transport
         self.party.transport = Transport.FOOT
+        # A transport left in a town stays with the town (which reloads),
+        # never in the surface map's list at the town's coordinates (user
+        # ruling 2026-11-22: nothing parked on one map shows on another).
+        objs = self.party.objects_on(self.game_map)
         if old_t == Transport.HORSE:
-            self.party.dynamic_objects.append({"tile": "horse", "x": self.avatar_x, "y": self.avatar_y})
+            objs.append({"tile": "horse", "x": self.avatar_x, "y": self.avatar_y})
             self.text_log.add_message("Dismounted horse.")
         else:
             existing = next(
                 (
                     obj
-                    for obj in self.party.dynamic_objects
+                    for obj in objs
                     if str(obj.get("tile", "")).lower() == "frigate"
                     and obj.get("x") == self.avatar_x
                     and obj.get("y") == self.avatar_y
@@ -1094,7 +1101,7 @@ class TownScreen(BaseScreen):
             )
             if existing is None:
                 ship = {"tile": "frigate", "x": self.avatar_x, "y": self.avatar_y}
-                self.party.dynamic_objects.append(ship)
+                objs.append(ship)
             else:
                 ship = existing
             self.party.last_ship = ship

@@ -874,6 +874,11 @@ class Party:
             m.hp = 0
         self.active_member_index = 0
 
+    def objects_on(self, game_map: Any) -> list[dict[str, Any]]:
+        """``dynamic_objects`` when ``game_map`` is the surface map they were
+        left on, else an empty list. See :func:`objects_on`."""
+        return objects_on(self, game_map)
+
     def enter_surface_map(self, map_id: int) -> None:
         """Swap ``dynamic_objects`` to the surface map being loaded.
 
@@ -1014,3 +1019,22 @@ class Party:
                 # (Utils.adjustValue(food, v, 999900, 0) — Party.java:604).
                 p.members[0].food = max(0, min(999900, food_total + legacy_food))
         return p
+
+
+def objects_on(party: Any, game_map: Any) -> list[dict[str, Any]]:
+    """The party's parked ships/horses and dropped chests, only on the
+    surface map they belong to (``objects_map_id``); every other map gets an
+    empty list. User ruling 2026-11-22: nothing parked on one map may show
+    through on another. Unscoped, a frigate left on Sosaria at (54,31) made
+    Death Gulch's counter letter at (54,31) walkable. A map without an
+    ``id`` (test doubles) is taken as the objects' own map."""
+    if party is None:
+        return []
+    objs = getattr(party, "dynamic_objects", None)
+    if objs is None:
+        return []
+    if not hasattr(game_map, "id"):
+        return objs
+    if str(game_map.id) != str(getattr(party, "objects_map_id", 0)):
+        return []
+    return objs
