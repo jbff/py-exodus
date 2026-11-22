@@ -226,20 +226,21 @@ _HEALERS = (Profession.CLERIC,)
 _MAGES = (Profession.WIZARD,)
 _EVERYONE = tuple(Profession)
 SHRINE_PLAN: tuple[tuple[tuple[Profession, ...], str, str, int], ...] = (
-    (_HEALERS, "wisdom", "max_wis", 35),            # ALCORT (cure poison)
+    # Healer WIS to the race cap first (user ruling 2026-11-22): ALCORT,
+    # SANCTU_MANI and ZXKUQYB on the way, and the biggest APPAR UNEM pool,
+    # so Death Gulch raids stop waiting for MP and every later trip comes
+    # sooner.
+    (_HEALERS, "wisdom", "max_wis", 99),
     ((Profession.DRUID,), "wisdom", "max_wis", 70),  # Druid MP = WIS // 2
     (_MELEE_FIRST, "dexterity", "max_dex", 40),      # always hit
     (_DEX_SECOND, "dexterity", "max_dex", 40),
     (_HEALERS, "dexterity", "max_dex", 40),
     (_MAGES, "dexterity", "max_dex", 40),
     (_EVERYONE, "dexterity", "max_dex", 40),
-    (_HEALERS, "wisdom", "max_wis", 50),            # SANCTU_MANI (major heal)
     (_MAGES, "intelligence", "max_int", 50),        # NOXUM (multi-fireball)
-    (_HEALERS, "wisdom", "max_wis", 70),            # ZXKUQYB (multi-death bolt)
     (_MAGES, "intelligence", "max_int", 75),        # UNSPEAKABLE (multi-death bolt)
     (_MELEE_FIRST, "strength", "max_str", 99),      # damage
     (_DEX_SECOND, "strength", "max_str", 99),
-    (_HEALERS, "wisdom", "max_wis", 99),            # bigger MP pools
     (_MAGES, "intelligence", "max_int", 99),
     # ---- return trips stop here: DEX 40 all, maxed caster MP (user ruling
     # 2026-11-22); the steps below are bought only with leftover gold.

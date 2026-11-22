@@ -1652,6 +1652,15 @@ class AutoPlayController:
             party = screen.party
             if (party.x, party.y) == _DAWN_PORTAL and not self._dawn_open(screen):
                 return self._emit_key(state_machine, pygame.K_SPACE)
+            if label == "death_gulch":
+                # Fill the APPAR UNEM caster at the gate: MP comes back +1 a
+                # turn out here, +1 every 4 inside, where a raid otherwise
+                # waits for it (user 2026-11-22: the standing still on
+                # raids is MP; entering with 1-8 MP was common). Re-entry
+                # costs bribes and keys, so this is the free refill point.
+                caster = self._mana_caster(party)
+                if caster is not None and caster.mp < caster.max_mp:
+                    return self._emit_key(state_machine, pygame.K_SPACE)
             return self._emit_key(state_machine, pygame.K_e)
 
         return Destination(frozenset(portals), Transport.FOOT, label), _enter

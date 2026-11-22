@@ -788,18 +788,17 @@ def test_shrine_plan_order_for_the_batch_party():
         steps.append((party.members[idx].profession.name, stat, target))
         setattr(party.members[idx], stat, target)
     assert steps == [
-        ("CLERIC", "wisdom", 35),
+        # Cleric WIS to the race cap first (user ruling 2026-11-22): ALCORT
+        # and the biggest APPAR UNEM pool for faster raids.
+        ("CLERIC", "wisdom", 99),
         ("FIGHTER", "dexterity", 40),
         ("THIEF", "dexterity", 40),
         ("CLERIC", "dexterity", 40),
         ("WIZARD", "dexterity", 40),
-        ("CLERIC", "wisdom", 50),
         ("WIZARD", "intelligence", 50),
-        ("CLERIC", "wisdom", 70),
         ("WIZARD", "intelligence", 75),
         ("FIGHTER", "strength", 99),
         ("THIEF", "strength", 75),
-        ("CLERIC", "wisdom", 99),
         ("WIZARD", "intelligence", 99),
         ("CLERIC", "strength", 75),
         ("WIZARD", "strength", 25),
@@ -1178,3 +1177,25 @@ def test_return_trip_food_run_stays_over_the_trip_gold(pygame_setup):
     assert all(m.food >= AMBROSIA_ENTRY_FOOD for m in party.members)
     assert all(m.food < AMBROSIA_ENTRY_FOOD + 50 for m in party.members)
     assert party.gold >= return_trip_gold(party)
+
+
+def test_death_gulch_raid_starts_with_a_full_caster(pygame_setup, asset_mgr):
+    """User 2026-11-22: raids stand still waiting for APPAR UNEM MP, which
+    comes back +1 every 4 turns inside and +1 a turn on the surface. At the
+    Death Gulch gate the party passes turns until the caster is full."""
+    from py_exodus.autoplay import batch
+
+    party = batch.build_party()
+    party.x, party.y = 56, 31
+    sm, ow = _overworld(asset_mgr, party)
+    ctrl = AutoPlayController(enabled=True)
+    keys: list[int] = []
+    ctrl._emit_key = lambda _sm, key: keys.append(key) or 0
+    _dest, enter = ctrl._portal_dest(sm, ow, {(56, 31)}, "death_gulch")
+    cleric = party.members[2]
+    cleric.max_mp, cleric.mp = 70, 6
+    enter()
+    assert keys[-1] == pygame.K_SPACE
+    cleric.mp = 70
+    enter()
+    assert keys[-1] == pygame.K_e

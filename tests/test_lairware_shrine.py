@@ -120,8 +120,9 @@ def test_the_shrine_picture_covers_the_map_while_offering(amb):
 
 
 def test_autoplay_offers_up_to_the_plan_target(amb):
-    """At the wisdom shrine a WIS-30 Cleric buys exactly the 5 points to
-    ALCORT, then the shrine closes (the old ShrineScreen test, ported)."""
+    """At the wisdom shrine a WIS-30 Cleric offers toward the plan target
+    (race-cap WIS since the user's 2026-11-22 ruling; one offering is at
+    most 9 points), paying 100 a point (the old ShrineScreen test, ported)."""
     from py_exodus.autoplay import batch
     from py_exodus.autoplay.controller import AutoPlayController
     from py_exodus.state_machine import StateMachine
@@ -139,4 +140,5 @@ def test_autoplay_offers_up_to_the_plan_target(amb):
         if not amb.text_log.is_waiting_for_input:
             break
         ctrl.step(sm)  # the controller presses the key itself
-    assert cleric.wisdom == 35 and cleric.gold == 1500
+    assert cleric.wisdom > 35
+    assert cleric.gold == 2000 - 100 * (cleric.wisdom - 30)

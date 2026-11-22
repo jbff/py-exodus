@@ -43,7 +43,8 @@ def test_pirate_hunt_on_ambrosia_reaches_the_pirate_instead_of_pacing():
             m.cards = [1, 1, 1, 1]
             m.weapon = WeaponType.EXOTIC
             m.armor = ArmorType.EXOTIC
-        party.members[2].wisdom = 35
+        from py_exodus.autoplay.planner import stat_cap
+        party.members[2].wisdom = stat_cap(party.members[2], "max_wis")  # plan step 1 done
         sm = StateMachine(asset_mgr=am, audio=None)
         scr = OverworldScreen(party=party, asset_mgr=am)
         sm.set_screen(scr)
