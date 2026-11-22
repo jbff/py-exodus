@@ -1002,6 +1002,7 @@ def test_dungeon_peer_gem_once_per_level_and_touch_mark(pygame_setup):
     sm = StateMachine(asset_mgr=am, audio=None)
     ds = DungeonScreen(party=party, dungeon_map=dmap, asset_mgr=am)
     ds.state.wandering_creatures = []
+    ds.state.rng.seed(42)  # the dungeon's own RNG, which random.seed misses
     sm.set_screen(ds)
 
     ctrl = AutoPlayController(enabled=True)
