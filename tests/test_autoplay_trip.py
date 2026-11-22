@@ -1407,3 +1407,27 @@ def test_no_flee_into_a_town_the_party_would_walk_straight_out_of(pygame_setup, 
     ctrl.step(sm)
     assert not ctrl._fleeing
     assert ctrl._trip is None or ctrl._trip.dest.label != "rest"
+
+
+def test_green_parties_dont_chase_dragons(pygame_setup):
+    """Batch 1c7525f: about 15 of 49 wipes were level 1-5 parties walking up
+    to dragons while grinding. Below level 8 the grind leaves them alone
+    (user OK 2026-11-22); from level 8 a dragon is a target like any other."""
+    from py_exodus.autoplay.controller import AutoPlayController
+    from py_exodus.screens.overworld import OverworldScreen
+    from py_exodus.state_machine import StateMachine
+
+    am = AssetManager(assets_dir="assets")
+    am.load_tiles()
+    am.load_xml_definitions()
+    for level, chased in ((5, False), (8, True)):
+        party = _make_party(level=level)
+        party.x, party.y = 42, 18
+        ow = OverworldScreen(party=party, asset_mgr=am, start_x=42, start_y=18, random_encounters=False)
+        ow.creatures = [{"tile_name": "dragon", "tile": "dragon", "x": 44, "y": 22}]
+        sm = StateMachine(asset_mgr=am, audio=None)
+        sm.set_screen(ow)
+        ctrl = AutoPlayController(enabled=True)
+        ctrl._grind_quiet = 5
+        ctrl._grind_local(sm, ow, ow.game_map, party, 42, 18, list(party.members))
+        assert (ctrl._grind_quiet == 0) is chased, level

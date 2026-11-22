@@ -115,6 +115,7 @@ def party_has_low_hp(party) -> bool:
 
 _MAP_SOSARIA = 0
 _DEATH_GULCH_GOLD_CAP = 9000  # same cap as the raid inside
+_DRAGON_CHASE_LEVEL = 8  # the grind leaves dragons alone below this
 # A party this strong walks up to pirates and fights them from land.
 _PIRATE_HUNT_MIN_LEVEL = 8
 _PIRATE_HUNT_RANGE = 10
@@ -2297,9 +2298,16 @@ class AutoPlayController:
         broke_and_starving = self._broke_and_starving(screen, gmap, party, px, py, living)
         if transport == Transport.FOOT and (not needs_heal(party) or broke_and_starving):
             land_targets: set[tuple[int, int]] = set()
+            # Not dragons while anyone is below level 8 (user OK 2026-11-22;
+            # batch 1c7525f: about 15 of 49 wipes were level 1-5 parties
+            # walking up to dragons). Fleeing is unchanged: chased, a
+            # healthy party still fights them (user ruling 2026-11-21).
+            green = any(m.level < _DRAGON_CHASE_LEVEL for m in living)
             for c in getattr(screen, "creatures", []):
                 tname = creature_name(c)
                 if tname == "whirlpool" or tname in SEA_MONSTERS:
+                    continue
+                if green and tname == "dragon":
                     continue
                 cx, cy = c.get("x"), c.get("y")
                 if cx is None or cy is None:
