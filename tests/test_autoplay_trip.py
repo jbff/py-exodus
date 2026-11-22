@@ -594,3 +594,49 @@ def test_chest_opener_never_risks_a_trap_when_it_can_avoid_it(pygame_setup):
     assert ctrl._chest_opener(party) is None
     party.members[0].dex = 74
     assert ctrl._chest_opener(party) == ("get", 1)
+
+
+def test_no_capture_planned_in_a_pond_pirates_never_reach(sosaria):
+    """rules-c84c7c6 batch: parties took the moongate onto Exodus island and
+    paced the 5-tile inner pond's shore for a pirate that can never appear
+    there, until they starved. Capture waits need open water."""
+    from py_exodus.autoplay.trip import terrain_for
+
+    party = _make_party(level=25, marks=[1, 1, 1, 1], cards=[1, 1, 1, 1])
+    terr = terrain_for(sosaria, party, 0)
+    pond = terr.sea_comp[(10, 56)]
+    assert terr.sea_comp_size[pond] < 100
+    island = {(8, 54), (8, 55), (9, 55), (11, 55), (12, 54), (12, 55)}
+    dest = Destination(frozenset({(10, 59)}), Transport.SHIP, "snake")
+    plan = plan_trip(sosaria, party, 0, (12, 55), Transport.FOOT, dest, {},
+                     pirates=frozenset(), pirates_spawn=True)
+    assert plan is None or not any(
+        leg.action == "CAPTURE" and leg.end in island for leg in plan.legs
+    )
+
+
+def test_capture_leg_hands_control_to_the_hunt_off_its_end_tile(
+    pygame_setup, asset_mgr, monkeypatch
+):
+    """rules-c84c7c6 batch: the trip pulled the party back to the planned
+    capture tile every turn, undoing each hunt/patrol step (pacing two
+    tiles for thousands of turns). Off that tile but on the same land, the
+    capture driver steers."""
+    from py_exodus.autoplay.trip import Leg, TripPlan
+
+    party = _make_party(level=10)
+    party.x, party.y = 45, 20
+    ow = OverworldScreen(party=party, map_id=0, asset_mgr=asset_mgr, random_encounters=False)
+    ow.creatures = []
+    ctrl = AutoPlayController(enabled=True)
+    dest = Destination(frozenset({(33, 3)}), Transport.FOOT, "dig")
+    end = (44, 20)
+    assert end in ctrl._foot_reachable(ow.game_map, party, (45, 20))
+    ctrl._trip = TripPlan(dest, [Leg(Transport.FOOT, end, "CAPTURE"), Leg(Transport.FOOT, (33, 3), "ARRIVE")], 0.0, 0)
+    ctrl._trip_frigates = frozenset(ctrl._frigate_costs(party, ow))
+    ctrl._trip_planned_at = ctrl._ow_turn
+    calls = []
+    monkeypatch.setattr(ctrl, "_off_route", lambda *a, **k: False)
+    monkeypatch.setattr(ctrl, "_drive_capture", lambda *a, **k: calls.append(a[4]) or pygame.K_SPACE)
+    ctrl._trip_drive(None, ow, ow.game_map, party, 45, 20, 0, dest)
+    assert calls == [(45, 20)]

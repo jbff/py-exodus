@@ -1886,6 +1886,13 @@ class AutoPlayController:
         if leg.action == "GATE":
             return self._drive_gate(state_machine, screen, gmap, party, pos, leg)
 
+        # A capture leg is a hunt/patrol along that water's coast: once the
+        # planned coast tile is reachable on foot, the capture driver steers.
+        # (Pulling the party back to leg.end first undid every patrol step,
+        # pacing two tiles forever; rules-c84c7c6 batch, 2026-11-22.)
+        if leg.action == "CAPTURE" and leg.end in self._foot_reachable(gmap, party, pos):
+            return self._drive_capture(state_machine, screen, gmap, party, pos, leg, map_id)
+
         if pos != leg.end:
             return self._move_toward(state_machine, gmap, party, pos, {leg.end})
 

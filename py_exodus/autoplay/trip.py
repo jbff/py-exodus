@@ -56,6 +56,12 @@ EXIT_COST = 1.0
 GATE_COST = 50.0
 CAPTURE_COST = 250.0
 PATROL_CAPTURE_EXTRA = 250.0
+# Smallest body of water worth waiting on for a pirate to appear (or the
+# map's largest, on small maps). Exodus
+# island's inner pond (5 tiles behind the serpent) never gets one: routing
+# a capture there left parties pacing its shore until they starved
+# (rules-c84c7c6 batch, 2026-11-22).
+OPEN_WATER_MIN = 100
 CRITICAL_SHIP_BOARD_PENALTY = 300.0
 REVERSE_TRANSITION_PENALTY = 200.0
 
@@ -166,6 +172,9 @@ class _Terrain:
                         comp[n] = cid
                         stack.append(n)
         self.sea_comp = comp
+        self.sea_comp_size: dict[int, int] = {}
+        for c in comp.values():
+            self.sea_comp_size[c] = self.sea_comp_size.get(c, 0) + 1
         self.landing = frozenset(
             (x, y)
             for (x, y) in sea
@@ -268,7 +277,12 @@ def plan_trip(
                 for p in ps
             )
             return CAPTURE_COST + near
-        return CAPTURE_COST + PATROL_CAPTURE_EXTRA if pirates_spawn else None
+        if not pirates_spawn:
+            return None
+        size = terr.sea_comp_size.get(terr.sea_comp.get(n, -1), 0)
+        if size < min(OPEN_WATER_MIN, max(terr.sea_comp_size.values(), default=0)):
+            return None
+        return CAPTURE_COST + PATROL_CAPTURE_EXTRA
     goal_tiles = dest.tiles
     if not goal_tiles:
         return None
