@@ -871,12 +871,9 @@ class AutoPlayController:
                     self._shop_item_letter = letter
                     self._talk_dir_key = self._direction_to_npc(gmap, px, py)
                     return self._emit_key(state_machine, pygame.K_t)
-                d = find_2d_step(
-                    gmap, (px, py), guild_xy, Transport.FOOT, party=party,
-                    avoid_tiles=npc_tiles, prefer_paths=True,
-                )
-                if d is not None:
-                    return self._emit_key(state_machine, _DIR_TO_KEY[d])
+                key = self._town_step_patient(state_machine, gmap, party, px, py, guild_xy, npc_tiles)
+                if key is not None:
+                    return key
 
         if map_id in _FOOD_TOWNS and goal not in (Goal.CURE_POISON, Goal.RESURRECT_DEAD):
             _, _, food_xy = _FOOD_TOWNS[map_id]
@@ -2038,6 +2035,49 @@ class AutoPlayController:
         if self._patrol_target is None:
             return self._emit_key(state_machine, pygame.K_SPACE)
         return self._move_toward(state_machine, gmap, party, pos, {self._patrol_target})
+
+    _TOWN_WAIT_LIMIT = 40
+
+    def _town_step_patient(self, sm, gmap, party, px, py, goal_xy, npc_tiles) -> int | None:
+        """Step toward ``goal_xy`` in a town, waiting out the crowd.
+
+        Town people move now (LW MoveMonsters), so a lane full of wanderers
+        clears in a turn or two. If no route is open this turn but one is
+        once people are ignored, walk it and pass a turn when a non-FIXED
+        person stands on the next tile (user 2026-11-22: Grey's pub is
+        crowded, but patience reaches the guild; autoplay used to give up
+        and walk straight back out). Gives up after _TOWN_WAIT_LIMIT waits
+        in a row; FIXED people stay walls."""
+        has_key = any(not m.is_dead() and m.keys > 0 for m in party.members)
+        d = find_2d_step(
+            gmap, (px, py), goal_xy, Transport.FOOT, party=party,
+            avoid_tiles=npc_tiles, prefer_paths=True, allow_locked_doors=has_key,
+        )
+        if d is not None:
+            self._town_waits = 0
+            return self._step_or_unlock(sm, gmap, party, px, py, d)
+        saved = gmap.npcs
+        fixed = [n for n in saved if getattr(n, "movement", "FIXED") == "FIXED"]
+        gmap.npcs = fixed  # people who never move stay walls
+        try:
+            d = find_2d_step(
+                gmap, (px, py), goal_xy, Transport.FOOT, party=party,
+                avoid_tiles={(n.x, n.y) for n in fixed}, prefer_paths=True,
+                allow_locked_doors=has_key,
+            )
+        finally:
+            gmap.npcs = saved
+        if d is None:
+            return None
+        nxt = (px + d.dx, py + d.dy)
+        blocker = next((n for n in saved if (n.x, n.y) == nxt), None)
+        if blocker is None:
+            self._town_waits = 0
+            return self._step_or_unlock(sm, gmap, party, px, py, d)
+        self._town_waits = getattr(self, "_town_waits", 0) + 1
+        if self._town_waits > self._TOWN_WAIT_LIMIT:
+            return None
+        return self._emit_key(sm, pygame.K_SPACE)
 
     _HUNT_KEEP_RADIUS = 3
 
