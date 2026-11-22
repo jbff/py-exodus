@@ -340,9 +340,27 @@ def test_lane_guard_blocks_a_step_into_a_lane(pygame_setup, asset_mgr):
     sm, ow = _overworld(asset_mgr, party)
     ctrl = AutoPlayController(enabled=True)
     ctrl._threats = compute_threats(ow.game_map, party, [_pirate(party.x + 4, party.y)])
-    # Stepping east lands at distance 3 in the pirate's row.
-    assert ctrl._lane_guard(sm, pygame.K_RIGHT) == pygame.K_SPACE
+    # User rule (2026-11-21): a healthy party may step into the lane only
+    # while advancing on the pirate (east, distance 4 -> 3).
+    assert ctrl._lane_guard(sm, pygame.K_RIGHT) == pygame.K_RIGHT
     assert ctrl._lane_guard(sm, pygame.K_UP) == pygame.K_UP
+    # A badly hurt party refuses, bars the tile and re-plans: no waiting.
+    for m in party.members:
+        m.hp = max(1, m.max_hp // 5)
+    assert ctrl._lane_guard(sm, pygame.K_RIGHT) == pygame.K_SPACE
+    assert (party.x + 1, party.y) in ctrl._active_blocks()
+    assert ctrl._trip is None
+
+
+def test_lane_guard_refuses_backing_along_a_lane(pygame_setup, asset_mgr):
+    """Moving within a lane away from the pirate (distance 2 -> 3) is not
+    advancing: refused, the tile is barred and the trip re-plans."""
+    party = _make_party(level=5)
+    sm, ow = _overworld(asset_mgr, party)
+    ctrl = AutoPlayController(enabled=True)
+    ctrl._threats = compute_threats(ow.game_map, party, [_pirate(party.x + 2, party.y)])
+    assert ctrl._lane_guard(sm, pygame.K_LEFT) == pygame.K_SPACE
+    assert (party.x - 1, party.y) in ctrl._active_blocks()
 
 
 def test_dead_member_without_exotics_does_not_pin_dig_exotics():

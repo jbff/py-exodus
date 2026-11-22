@@ -73,8 +73,7 @@ _ARRIVED = object()
 _TRIP_REPLAN_TURNS = 300
 _TRIP_STUCK_TURNS = 30
 _NEIGHBOURS4 = ((0, -1), (0, 1), (-1, 0), (1, 0))
-_SQUID_PATIENCE = 150
-_LANE_PATIENCE = 20
+_BLOCK_TURNS = 40  # a refused threatened tile stays barred this long
 # Planning cost for entering a tile under threat when the trip is planned.
 _DANGER_HARD = 60.0
 _DANGER_SQUID_COAST = 5.0
@@ -238,8 +237,7 @@ class AutoPlayController:
         # Coast tiles where a capture wait timed out, per map id.
         self._last_transition: Transition | None = None
         self._ow_turn = 0
-        self._squid_blocked = 0
-        self._lane_blocked = 0
+        self._blocked_tiles: dict[tuple[int, int], int] = {}
 
     def toggle(self) -> bool:
         """Flip autoplay enabled state and clear any queued keystrokes."""
@@ -1092,31 +1090,43 @@ class AutoPlayController:
             return key  # a turn: the ship stays on its (already safe) tile
         gmap = screen.game_map
         dest = ((party.x + d.dx) % gmap.width, (party.y + d.dy) % gmap.height)
+        here = (party.x, party.y)
+        w, h = gmap.width, gmap.height
+        healthy = not party_has_low_hp(party) and (
+            party.transport != Transport.SHIP or getattr(party, "ship_hull", 50) >= 20
+        )
         if dest in th.lanes:
-            # Never wait in a lane, but a parked pirate must not wall the party
-            # in for good: after _LANE_PATIENCE blocked turns, pass through
-            # (the next tick's escape moves on out of the lane).
-            self._lane_blocked += 1
-            if self._lane_blocked >= _LANE_PATIENCE and dest not in th.squid_engage:
-                self._lane_blocked = 0
+            # User rule (2026-11-21): step into a lane only to keep advancing
+            # on the pirate (fight and take its ship) with a party that can
+            # take the fire; otherwise go somewhere else. Never wait.
+            if healthy and all(
+                manhattan(w, h, dest, p) < manhattan(w, h, here, p)
+                for p in th.lane_pirates(dest)
+            ):
                 return key
-            return pygame.K_SPACE
+            return self._blocked_elsewhere(dest)
         if dest in th.squid_engage:
-            # A squid parked by the only way in (e.g. the Castle British moat)
-            # never leaves. After _SQUID_PATIENCE blocked turns a healthy,
-            # unpoisoned party accepts the fight rather than starve waiting.
-            self._squid_blocked += 1
-            healthy = all(
-                m.status != Status.POISONED and m.hp * 10 >= m.max_hp * 3
-                for m in party.members if not m.is_dead()
-            )
-            if self._squid_blocked >= _SQUID_PATIENCE and healthy:
-                self._squid_blocked = 0
+            # User rule: fight the squid on foot when healthy (from a ship the
+            # cannons deal with it); a hurt or poisoned party goes elsewhere.
+            if healthy and party.transport != Transport.SHIP and all(
+                m.status != Status.POISONED for m in party.members if not m.is_dead()
+            ):
                 return key
-            return pygame.K_SPACE
-        self._squid_blocked = 0
-        self._lane_blocked = 0
+            return self._blocked_elsewhere(dest)
         return key
+
+    def _blocked_elsewhere(self, tile: tuple[int, int]) -> int:
+        """Refuse a threatened step: bar the tile for a while and re-plan
+        around it (or toward another destination) from the next tick."""
+        self._blocked_tiles[tile] = self._ow_turn + _BLOCK_TURNS
+        self._trip = None
+        return pygame.K_SPACE
+
+    def _active_blocks(self) -> set[tuple[int, int]]:
+        now = self._ow_turn
+        for t in [t for t, until in self._blocked_tiles.items() if until < now]:
+            del self._blocked_tiles[t]
+        return set(self._blocked_tiles)
 
     def _monster_avoid(self, screen, party, px: int, py: int, goal: Goal, living) -> set[tuple[int, int]]:
         """Soft avoid tiles for path planning (hard threats come from _threats)."""
@@ -1126,6 +1136,7 @@ class AutoPlayController:
         th = self._threats
         if th is not None:
             avoid |= th.hard_avoid()
+        avoid |= self._active_blocks()
         creatures = getattr(screen, "creatures", []) or []
         if cur_map_id in _PIRATE_SEA_MAPS and party.transport == Transport.SHIP:
             avg_max_hp = sum(m.max_hp for m in living) // max(1, len(living)) if living else 0
@@ -1610,6 +1621,8 @@ class AutoPlayController:
                 danger[t] = _DANGER_HARD
             for t in th.squid_engage:
                 danger[t] = _DANGER_HARD
+        for t in self._active_blocks():
+            danger[t] = float("inf")
         plan = plan_trip(
             gmap,
             party,
@@ -2021,8 +2034,8 @@ class AutoPlayController:
                 allow_locked_doors=has_key,
             )
             if d is None and hard:
-                # Walled in by threats: take the plain route; _lane_guard holds
-                # each threatened step until its patience runs out.
+                # Walled in by threats: take the plain route; _lane_guard lets a
+                # healthy party advance on the threat and bars the tile otherwise.
                 d = find_2d_step(
                     game_map,
                     start=start,
