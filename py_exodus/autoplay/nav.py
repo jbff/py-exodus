@@ -284,10 +284,16 @@ def find_dungeon_step(
     z: int,
     facing: Direction,
     goals: set[tuple[int, int, int]],
+    penalty_tiles: set[tuple[int, int, int]] | None = None,
 ) -> int | None:
-    """Return the pygame.K_* key for the next step toward the nearest 3D dungeon goal."""
+    """Return the pygame.K_* key for the next step toward the nearest 3D dungeon goal.
+
+    With ``penalty_tiles`` (gremlins, say), the route crosses as few of
+    them as it can, then is the shortest; without, plain BFS."""
     if not goals or (x, y, z) in goals:
         return None
+    if penalty_tiles:
+        return _find_dungeon_step_weighted(dmap, x, y, z, facing, goals, penalty_tiles)
 
     start_state = (x, y, z, facing)
     queue: deque[tuple[int, int, int, Direction, int | None]] = deque(
@@ -328,4 +334,50 @@ def find_dungeon_step(
                 visited.add(state)
                 queue.append((nx, ny, nz, nfacing, step_key))
 
+    return None
+
+
+def _find_dungeon_step_weighted(
+    dmap: DungeonMap,
+    x: int,
+    y: int,
+    z: int,
+    facing: Direction,
+    goals: set[tuple[int, int, int]],
+    penalty_tiles: set[tuple[int, int, int]],
+) -> int | None:
+    """Dijkstra twin of ``find_dungeon_step``: entering a penalty tile costs
+    far more than any number of plain moves."""
+
+    big = 10_000
+    start = (x, y, z, facing)
+    best: dict[tuple[int, int, int, Direction], int] = {start: 0}
+    order = 0
+    heap: list[tuple[int, int, int, int, int, Direction, int | None]] = [(0, order, x, y, z, facing, None)]
+    while heap:
+        cost, _o, cx, cy, cz, cfacing, first_key = heapq.heappop(heap)
+        if (cx, cy, cz) in goals:
+            return first_key
+        if cost > best.get((cx, cy, cz, cfacing), cost):
+            continue
+        cur_tile = dmap.get_tile(cx, cy, cz)
+        candidates: list[tuple[int, int, int, Direction, int]] = []
+        fx = (cx + cfacing.dx) % dmap.width
+        fy = (cy + cfacing.dy) % dmap.height
+        if dmap.get_tile(fx, fy, cz) not in _BLOCKED_DUNGEON_TILES:
+            candidates.append((fx, fy, cz, cfacing, pygame.K_UP))
+        if cur_tile in _LADDER_DOWN_TILES and cz + 1 < dmap.levels:
+            candidates.append((cx, cy, cz + 1, cfacing, pygame.K_d))
+        if cur_tile in _LADDER_UP_TILES and cz - 1 >= 0:
+            candidates.append((cx, cy, cz - 1, cfacing, pygame.K_k))
+        candidates.append((cx, cy, cz, turn_left_dir(cfacing), pygame.K_LEFT))
+        candidates.append((cx, cy, cz, turn_right_dir(cfacing), pygame.K_RIGHT))
+        for nx, ny, nz, nfacing, key in candidates:
+            moved = (nx, ny, nz) != (cx, cy, cz)
+            ncost = cost + 1 + (big if moved and (nx, ny, nz) in penalty_tiles else 0)
+            state = (nx, ny, nz, nfacing)
+            if ncost < best.get(state, ncost + 1):
+                best[state] = ncost
+                order += 1
+                heapq.heappush(heap, (ncost, order, nx, ny, nz, nfacing, first_key if first_key is not None else key))
     return None

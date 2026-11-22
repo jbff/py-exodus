@@ -564,6 +564,9 @@ class AutoPlayController:
         if (screen.state.x, screen.state.y, screen.state.z) == (1, 1, 0) and target_tiles == {(1, 1, 0)}:
             return self._emit_key(state_machine, pygame.K_k)
 
+        # Gremlins take 100 food from a member per tile stepped on (batch
+        # 1c7525f: about 13 of 49 wipes starved after the Fire dungeon).
+        # Cross as few as possible; the tile clears once triggered.
         key = find_dungeon_step(
             dmap,
             screen.state.x,
@@ -571,6 +574,7 @@ class AutoPlayController:
             screen.state.z,
             screen.state.dir,
             target_tiles,
+            penalty_tiles=self._find_dungeon_tiles(dmap, {DungeonTile.GREMLINS}),
         )
         if key is not None:
             return self._emit_key(state_machine, key)

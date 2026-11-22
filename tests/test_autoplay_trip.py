@@ -1199,3 +1199,57 @@ def test_death_gulch_raid_starts_with_a_full_caster(pygame_setup, asset_mgr):
     cleric.mp = 70
     enter()
     assert keys[-1] == pygame.K_e
+
+
+def _walk_dungeon(dmap, start, facing, goals, penalty):
+    """Follow find_dungeon_step on one level; return the tiles entered."""
+    from py_exodus.autoplay.nav import find_dungeon_step
+    from py_exodus.world.dungeon import turn_left_dir, turn_right_dir
+
+    x, y, z = start
+    entered = []
+    for _ in range(100):
+        if (x, y, z) in goals:
+            return entered
+        key = find_dungeon_step(dmap, x, y, z, facing, goals, penalty_tiles=penalty)
+        if key == pygame.K_UP:
+            x, y = x + facing.dx, y + facing.dy
+            entered.append((x, y, z))
+        elif key == pygame.K_LEFT:
+            facing = turn_left_dir(facing)
+        elif key == pygame.K_RIGHT:
+            facing = turn_right_dir(facing)
+        else:
+            raise AssertionError(f"unexpected key {key}")
+    raise AssertionError("never arrived")
+
+
+def test_dungeon_route_goes_around_gremlins():
+    """Gremlins take 100 food from a member per tile (batch 1c7525f: about
+    13 of 49 wipes starved after the Fire dungeon). With a way around, the
+    party takes it; with none, it crosses as few as it must."""
+    from py_exodus.world.map import DungeonMap, DungeonTile
+
+    dmap = DungeonMap(id=99, name="TestDungeon", width=8, height=8, levels=8)
+    dmap.tiles = [
+        [
+            [DungeonTile.WALL if x in (0, 7) or y in (0, 7) else DungeonTile.FLOOR for x in range(8)]
+            for y in range(8)
+        ]
+        for _z in range(8)
+    ]
+    gremlins = {(3, 3, 0), (4, 3, 0)}
+    for gx, gy, gz in gremlins:
+        dmap.set_tile(gx, gy, gz, DungeonTile.GREMLINS)
+    start, goal = (1, 3, 0), {(6, 3, 0)}
+    # Plain BFS walks straight through both.
+    assert gremlins <= set(_walk_dungeon(dmap, start, Direction.EAST, goal, None))
+    # With them as penalties: around, none entered.
+    assert not gremlins & set(_walk_dungeon(dmap, start, Direction.EAST, goal, gremlins))
+    # A corridor with no way around: still arrives, crossing only those.
+    for y in range(1, 7):
+        if y != 3:
+            for x in (3, 4):
+                dmap.set_tile(x, y, 0, DungeonTile.WALL)
+    entered = _walk_dungeon(dmap, start, Direction.EAST, goal, gremlins)
+    assert entered[-1] == (6, 3, 0) and set(entered) & gremlins == gremlins
