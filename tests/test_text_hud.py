@@ -361,8 +361,8 @@ def test_clear_resets_scroll_offset():
 
 
 def test_log_font_uses_measured_row_budget():
-    """Secondary ruling: measured font metrics leave no readable row unused
-    (floor: size 10 / linesize 12 — the port never goes below readable)."""
+    """User 2026-11-22: the log was too small. Three rows at the largest size
+    that fits them, measured with the font's real line size (floor 10)."""
     pygame.font.init()
     log = TextLog(max_lines=5)
     for i in range(12):
@@ -370,8 +370,8 @@ def test_log_font_uses_measured_row_budget():
     # The real scale-3 log strip: 528x72 native
     big = pygame.Surface((960, 600))
     log.render(big, rect=(0, 528, 528, 72))
-    assert log.visible_rows >= 4
-    assert log.font_size >= 10
+    assert log.visible_rows == 3
+    assert log.font_size >= 16
     assert log.visible_line_texts(log.visible_rows)[-1] == "row 11"
 
     # The 320x200 log strip keeps at least one readable row

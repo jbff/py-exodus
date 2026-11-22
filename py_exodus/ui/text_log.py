@@ -59,7 +59,11 @@ EGA_WHITE = (255, 255, 255)
 
 _FONT_CACHE: dict[tuple[str | None, int], pygame.font.Font] = {}
 
+_DEFAULT_FONT = "BarlowSemiCondensed-Medium.ttf"  # OFL, assets/fonts/OFL-Barlow.txt
+
 _CANDIDATE_FONT_PATHS = [
+    Path("assets/fonts/BarlowSemiCondensed-Medium.ttf"),
+    Path(__file__).parent.parent.parent / "assets/fonts/BarlowSemiCondensed-Medium.ttf",
     Path("src/main/resources/assets/fonts/gnuolane.ttf"),
     Path("assets/fonts/gnuolane.ttf"),
     Path("src/main/resources/assets/fonts/ultima.ttf"),
@@ -86,8 +90,8 @@ def get_hud_font(size: int = 16, font_name: str | None = None) -> pygame.font.Fo
 
     font_obj: pygame.font.Font | None = None
 
-    # Preferred font search: default to gnuolane.ttf (the official LibGDX Exodus UI font)
-    search_name = font_name if font_name not in (None, "default", "hud") else "gnuolane.ttf"
+    # Default UI font: Barlow Semi Condensed (user's pick, 2026-11-22)
+    search_name = font_name if font_name not in (None, "default", "hud") else _DEFAULT_FONT
 
     for base in _CANDIDATE_FONT_PATHS:
         candidate = base.parent / search_name
@@ -525,41 +529,30 @@ class TextLog:
         draw_x = target_rect.x + 4
         draw_y = target_rect.y + 2
         for idx, (text, col) in enumerate(lines_to_draw):
-            line_surf = f.render(text, False, col)
+            line_surf = f.render(text, True, col)
             surface.blit(line_surf, (draw_x, draw_y + idx * line_height))
 
         indicator = self.scroll_indicator_text()
         if indicator:
-            ind_surf = f.render(indicator, False, EGA_YELLOW)
+            ind_surf = f.render(indicator, True, EGA_YELLOW)
             surface.blit(
                 ind_surf,
                 (target_rect.right - ind_surf.get_width() - 3, target_rect.y + 2),
             )
 
-    # Readable floor: size 10 / linesize 12 (the dungeon status font). Any
-    # larger candidate font must not cost a single row of that budget.
+    # The log shows at least three rows, in the largest size that fits them
+    # (user 2026-11-22: the old 5-row, size-13 log was too small to read).
     _MIN_FONT_SIZE = 10
+    _MIN_ROWS = 3
     _FONT_SIZE_LADDER = (20, 18, 16, 14, 12, 10)
 
     @classmethod
     def _pick_font_size(cls, height: int) -> int:
-        """Largest font size that leaves no readable row unused.
-
-        Rows are measured with each candidate's real ``get_linesize()``
-        against the usable height (rect minus the 2px frame padding on each
-        edge). The size-10 floor fixes the row budget; a bigger font is only
-        chosen when it still fits that same number of rows.
-        """
+        """Largest font size that still fits three rows in the rect (rows
+        measured with each size's real ``get_linesize()`` against the height
+        minus 2px padding on each edge); size 10 when nothing fits three."""
         usable = max(1, height - 4)
-
-        def rows_for(size: int) -> int:
-            line_height = get_hud_font(size=size).get_linesize()
-            return usable // max(1, line_height)
-
-        budget = rows_for(cls._MIN_FONT_SIZE)
         for size in cls._FONT_SIZE_LADDER:
-            if size < cls._MIN_FONT_SIZE:
-                break
-            if rows_for(size) >= budget:
+            if usable // max(1, get_hud_font(size=size).get_linesize()) >= cls._MIN_ROWS:
                 return size
         return cls._MIN_FONT_SIZE

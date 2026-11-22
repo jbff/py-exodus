@@ -91,7 +91,7 @@ class CombatScreen(BaseScreen):
             WorldRenderer(asset_mgr) if asset_mgr is not None else None
         )
         self.stats_panel = StatsPanel(asset_mgr=self.asset_mgr)
-        self.text_log = TextLog(max_lines=5, wrap_width=28)
+        self.text_log = TextLog(max_lines=5, wrap_width=64)
 
         # Message parity (item 3): Java logs NOTHING when a combat opens
         # (the encounter tile spawns the CombatScreen silently) — the

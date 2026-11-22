@@ -75,7 +75,7 @@ def test_overworld_spawn_names_the_variant(asset_mgr, monkeypatch):
 
 def test_tiles_flag_loads_a_lairware_sheet_with_variant_art():
     """--tiles c64: every tile 0-63 comes from the C64 sheet, at our tile
-    size; the variants get their own art; the default set is untouched."""
+    size; the variants get their own art; the default is LairWare Standard."""
     from pathlib import Path
 
     from py_exodus.assets import LAIRWARE_TILESETS, AssetManager
@@ -92,7 +92,7 @@ def test_tiles_flag_loads_a_lairware_sheet_with_variant_art():
     c64.load_tiles()
     assert c64.tiles["orc"][0].get_at((8, 8)) != plain.tiles["orc"][0].get_at((8, 8)) or \
         c64.tiles["water"][0].get_at((3, 3)) != plain.tiles["water"][0].get_at((3, 3))
-    assert "goblin" not in plain.tiles
+    assert "goblin" in plain.tiles and plain.tileset is None
 
 
 def test_unknown_tile_set_is_refused():

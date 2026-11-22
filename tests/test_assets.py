@@ -24,15 +24,22 @@ def test_tile_frames():
     am = AssetManager(assets_dir="src/main/resources/assets")
     am.load_tiles()
 
-    # Water has 4 animation frames
-    assert len(am.tiles["water"]) == 4
-    for i in range(4):
+    # Water scrolls one pixel a frame, LairWare ScrollThings: 16 frames
+    assert len(am.tiles["water"]) == 16
+    for i in range(16):
         f = am.get_tile_surface("water", frame=i)
         assert f.get_width() == 16 and f.get_height() == 16
+    w0, w1 = am.tiles["water"][0], am.tiles["water"][1]
+    assert w1.get_at((3, 0)) == w0.get_at((3, 1))  # scrolled up a pixel
 
     # Test modulo wrap-around for animation frames
-    f_wrapped = am.get_tile_surface("water", frame=4)
+    f_wrapped = am.get_tile_surface("water", frame=16)
     assert f_wrapped == am.tiles["water"][0]
+
+    # Exodus cycles four lights; walls stay still; people swap two cells
+    assert len(am.tiles["exodus"]) == 4
+    assert len(am.tiles["wall"]) == 1
+    assert len(am.tiles["fighter"]) == 2
 
 
 def test_tile_attributes_and_rules():

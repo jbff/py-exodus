@@ -244,7 +244,7 @@ class StatsPanel:
         ) -> None:
             nonlocal curr_y
             f = f_title if use_title_font else f_text
-            txt_surf = f.render(text, False, col)
+            txt_surf = f.render(text, True, col)
             surface.blit(txt_surf, (x_left, curr_y))
             curr_y += f.get_linesize() + (2 if is_large else 1)
 
@@ -349,7 +349,7 @@ class StatsPanel:
                     target_pm, self.asset_mgr, per_row=(3 if is_large else 2)
                 ):
                     surface.blit(
-                        f_text.render(row, False, inspect_row_color(row)),
+                        f_text.render(row, True, inspect_row_color(row)),
                         (x_left, curr_y),
                     )
                     curr_y += ls
@@ -435,7 +435,7 @@ class StatsPanel:
                     if getattr(_dbg.CHEATS, attr, False)
                 ]
                 if (_dbg.DEBUG_MODE or active_cheats) and curr_y + line_h <= target_rect.bottom:
-                    dbg_surf = f_text.render("DEBUG", False, EGA_BRIGHT_RED)
+                    dbg_surf = f_text.render("DEBUG", True, EGA_BRIGHT_RED)
                     surface.blit(dbg_surf, (x_left, curr_y))
                     if active_cheats:
                         flags_txt = (
@@ -443,6 +443,6 @@ class StatsPanel:
                             if is_large
                             else " " + "".join(str(num) for num, _ in active_cheats)
                         )
-                        flags_surf = f_text.render(flags_txt, False, EGA_YELLOW)
+                        flags_surf = f_text.render(flags_txt, True, EGA_YELLOW)
                         surface.blit(flags_surf, (x_left + dbg_surf.get_width(), curr_y))
                     curr_y += f_text.get_linesize() + (2 if is_large else 1)

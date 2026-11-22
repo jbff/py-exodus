@@ -1366,7 +1366,7 @@ def test_dungeon_climb_out_logs_exit_message_once(pygame_setup, asset_mgr, test_
     assert screen.is_finished is True
     joined = " ".join(" ".join(screen.text_log.history).split())
     assert joined.count("You climb out of the dungeon to the surface!") == 1
-    assert screen.text_log.history.count("You climb out of the dungeon") == 1
+    assert screen.text_log.history.count("You climb out of the dungeon to the surface!") == 1
 
 
 def test_spell_exit_uses_java_map_label(asset_mgr, test_party):

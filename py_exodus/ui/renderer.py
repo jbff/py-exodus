@@ -23,18 +23,9 @@ if TYPE_CHECKING:
     from py_exodus.world.map import GameMap
 
 
-_FRIGATE_HEADING_FRAME: dict[Direction, int] = {
-    Direction.WEST: 0,
-    Direction.NORTH: 1,
-    Direction.EAST: 2,
-    Direction.SOUTH: 3,
-}
-
-
 def _avatar_frame(avatar_name: str, anim_frame: int, heading: Any) -> int:
-    """Return the directional sprite frame for 'frigate', or anim_frame otherwise."""
-    if avatar_name.lower() == "frigate":
-        return _FRIGATE_HEADING_FRAME.get(heading, 0)
+    """The party's tile frame. LairWare's ship faces one way and twiddles its
+    flag (TwiddleFlags), so the frigate animates like any other tile."""
     return anim_frame
 
 

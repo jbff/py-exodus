@@ -83,7 +83,7 @@ class TownScreen(BaseScreen):
             WorldRenderer(asset_mgr) if asset_mgr is not None else None
         )
         self.stats_panel = StatsPanel(asset_mgr=self.asset_mgr)
-        self.text_log = TextLog(max_lines=5, wrap_width=28)
+        self.text_log = TextLog(max_lines=5, wrap_width=64)
 
         # Town-local creature objects (e.g. horses spawned by the horse
         # vendor); Java keeps map creatures on the map object, not the save.
@@ -1241,7 +1241,7 @@ class TownScreen(BaseScreen):
         self.anim_timer += dt
         if self.anim_timer >= 0.2:
             self.anim_timer = 0.0
-            self.anim_frame = (self.anim_frame + 1) % 4
+            self.anim_frame = (self.anim_frame + 1) % 16  # LW scrolls water in 16 steps
 
     def render(self, surface: pygame.Surface) -> None:
         surface.fill(EGA_BLACK)

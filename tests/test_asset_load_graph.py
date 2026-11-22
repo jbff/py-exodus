@@ -28,5 +28,5 @@ def test_all_map_defs_resolve(asset_mgr):
 
 
 def test_atlas_and_text_assets_exist():
-    assert AssetManager().resolve_path("graphics", "latest-atlas.txt").exists()
+    assert AssetManager().resolve_path("graphics", "lairware", "standard.png").exists()
     assert AssetManager().resolve_path("data", "ultima3.txt").exists()

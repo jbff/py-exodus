@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pygame
 
-from py_exodus.constants import TileAttrib, TileEffect, TileSpeed
+from py_exodus.constants import TILE_SIZE, TileAttrib, TileEffect, TileSpeed
 from py_exodus.entities.defs import (
     ArmorDef,
     CaseInsensitiveDict,
@@ -320,6 +320,13 @@ LAIRWARE_TILESETS: dict[str, str] = {
 }
 
 
+DEFAULT_TILESET = "standard"
+# LairWare tile indexes that animate, and how (UltimaMain.c FullUpdate):
+LW_SWAPPED = {6, 7, 11, 13, 14, 15, *range(16, 31), 63}  # two cells side by side
+LW_SCROLL_STEP = {0: 1, 33: 1, 32: 2, 34: 2}  # water, lava: slow; field, moongate: fast
+LW_EXODUS = 31  # four light frames at column 5, rows 0-3 (ExodusLights)
+
+
 def load_image_surface(path: Path | str) -> pygame.Surface:
     """Load an image into a Pygame Surface with PNG and BMP fallback support."""
     path = Path(path)
@@ -447,29 +454,24 @@ class AssetManager:
         return curr
 
     def load_tiles(self) -> None:
-        """Parse latest-atlas.txt, slice ultima-ega.png, and parse tileset-base.xml."""
-        atlas_path = self.resolve_path("graphics", "latest-atlas.txt")
-        if not atlas_path.exists():
-            raise FileNotFoundError(f"Texture atlas not found: {atlas_path}")
-
+        """Parse tileset-base.xml, then slice the LairWare tile sheet."""
         xml_path = self.resolve_path("xml", "tileset-base.xml")
         if not xml_path.exists():
             raise FileNotFoundError(f"Tileset XML not found: {xml_path}")
-
-        # 1. Parse LibGDX texture atlas
-        self._load_atlas(atlas_path)
-
-        # 2. Parse tileset XML
         self._load_tileset_xml(xml_path)
+        self._load_lairware_sheet(self.tileset or DEFAULT_TILESET)
 
-        # 3. --tiles: overlay a LairWare sheet; tiles it lacks keep the atlas art
-        if self.tileset:
-            self._apply_lairware_sheet(self.tileset)
+    def _load_lairware_sheet(self, name: str) -> None:
+        """Build every tile's frames from a LairWare sheet, scaled to TILE_SIZE.
 
-    def _apply_lairware_sheet(self, name: str) -> None:
-        """Replace each tile's frames with the LairWare sheet's two cells,
-        scaled to the tile's current size; add the monster-variant art
-        (Brigand, Goblin, ... at LairWare sheet cells 80-95) under variant names."""
+        Animation follows LairWare's main loop (UltimaMain.c FullUpdate):
+        TwiddleFlags/AnimateTiles swap the people, monsters, flags and ships
+        with the cell beside them; ScrollThings scrolls water, lava, force
+        fields and moongates; ExodusLights cycles Exodus through the four
+        cells at column 5, rows 0-3. Every other tile is one still frame (the
+        cell beside it is unrelated art). The variants (Brigand ... Devil,
+        cells 80-95) are added under their own names.
+        """
         from py_exodus.world.monster_variants import VARIANT_NAMES, VARIANT_TILE_INDEX
 
         filename = LAIRWARE_TILESETS.get(name.lower())
@@ -479,116 +481,45 @@ class AssetManager:
             )
         sheet = load_image_surface(self.resolve_path("graphics", "lairware", filename))
         cell_w, cell_h = sheet.get_width() // 12, sheet.get_height() // 16
+        size = (TILE_SIZE, TILE_SIZE)
 
-        def cell(index: int, frame: int, size: tuple[int, int], entity: bool) -> pygame.Surface:
-            col = (index // 16) * 2 + frame
-            rect = pygame.Rect(col * cell_w, (index % 16) * cell_h, cell_w, cell_h)
-            surf = sheet.subsurface(rect).copy()
+        def raw(col: int, row: int, entity: bool) -> pygame.Surface:
+            surf = sheet.subsurface(pygame.Rect(col * cell_w, row * cell_h, cell_w, cell_h)).copy()
             if surf.get_size() != size:
                 surf = pygame.transform.scale(surf, size)
             if entity:
                 surf.set_colorkey((0, 0, 0))
             return surf
 
-        default_size = (16, 16)
-        for index, tdef in self.tile_defs.items():
-            if not 0 <= index < 64 or tdef.name not in self.tiles:
-                continue
-            size = self.tiles[tdef.name][0].get_size()
-            entity = tdef.name.lower() in ENTITY_TILES
-            # The cell beside a still tile (wall, lava...) is other art in
-            # LairWare's sheets, not a second frame: animate only the tiles
-            # our own art animates.
-            frames = (0, 1) if len(self.tiles[tdef.name]) > 1 else (0,)
-            self.tiles[tdef.name] = [cell(index, f, size, entity) for f in frames]
-        for base, (i1, i2) in VARIANT_TILE_INDEX.items():
-            size = self.tiles[base][0].get_size() if base in self.tiles else default_size
-            for vname, index in zip(VARIANT_NAMES[base], (i1, i2)):
-                self.tiles[vname.lower()] = [cell(index, f, size, True) for f in (0, 1)]
-
-    def _load_atlas(self, atlas_path: Path) -> None:
-        """Parse LibGDX atlas and slice subsurfaces from the atlas page image."""
-        with open(atlas_path, "r", encoding="utf-8") as f:
-            lines = [line.rstrip("\r\n") for line in f]
+        def scrolled(base: pygame.Surface, step: int) -> list[pygame.Surface]:
+            frames = []
+            for off in range(0, TILE_SIZE, step):
+                f = pygame.Surface(size)
+                f.blit(base, (0, -off))
+                f.blit(base, (0, TILE_SIZE - off))
+                frames.append(f)
+            return frames
 
         self.tiles.clear()
-        # Temporary frame accumulator: name -> list of (frame_index, surface)
-        temp_frames: dict[str, list[tuple[int, pygame.Surface]]] = {}
-
-        current_surface: pygame.Surface | None = None
-        i = 0
-        total_lines = len(lines)
-
-        while i < total_lines:
-            line = lines[i]
-            if not line:
-                i += 1
+        for index, tdef in self.tile_defs.items():
+            if not 0 <= index < 64:
                 continue
-
-            # Check if this line is an image file page header
-            if not line.startswith(" ") and (
-                i + 1 < total_lines and lines[i + 1].strip().startswith("format:")
-            ):
-                image_name = line.strip()
-                image_path = self.resolve_path("graphics", image_name)
-                current_surface = load_image_surface(image_path)
-                i += 1
-                # Skip page property lines (format, filter, repeat)
-                while i < total_lines and lines[i].startswith(" "):
-                    i += 1
-                continue
-
-            # Otherwise, line is a region entry name
-            if not line.startswith(" "):
-                region_name = line.strip()
-                i += 1
-                props: dict[str, str] = {}
-                while i < total_lines and lines[i].startswith(" "):
-                    prop_line = lines[i].strip()
-                    if ":" in prop_line:
-                        k, v = prop_line.split(":", 1)
-                        props[k.strip()] = v.strip()
-                    i += 1
-
-                if current_surface is None:
-                    continue
-
-                # Parse xy: x, y
-                xy_str = props.get("xy", "0, 0")
-                xy_parts = [int(p.strip()) for p in xy_str.split(",")]
-                x, y = xy_parts[0], xy_parts[1]
-
-                # Parse size: w, h
-                size_str = props.get("size", "16, 16")
-                size_parts = [int(p.strip()) for p in size_str.split(",")]
-                w, h = size_parts[0], size_parts[1]
-
-                # Parse frame index
-                idx_str = props.get("index", "-1")
-                try:
-                    frame_idx = int(idx_str)
-                except ValueError:
-                    frame_idx = -1
-
-                rect = pygame.Rect(x, y, w, h)
-                sub = current_surface.subsurface(rect).copy()
-                if region_name.lower() in ENTITY_TILES:
-                    sub.set_colorkey((0, 0, 0))
-
-                if region_name not in temp_frames:
-                    temp_frames[region_name] = []
-                temp_frames[region_name].append((frame_idx, sub))
-                continue
-
-            i += 1
-
-        # Populate self.tiles ensuring ordered frames
-        for name, frame_list in temp_frames.items():
-            # If all frames have index >= 0 and are distinct, sort by index
-            indices = [idx for idx, _ in frame_list]
-            if all(idx >= 0 for idx in indices) and len(set(indices)) == len(indices):
-                frame_list.sort(key=lambda t: t[0])
-            self.tiles[name] = [surf for _, surf in frame_list]
+            entity = tdef.name.lower() in ENTITY_TILES
+            col, row = (index // 16) * 2, index % 16
+            first = raw(col, row, entity)
+            if index == LW_EXODUS:
+                frames = [raw(5, r, entity) for r in (3, 2, 1, 0)]
+            elif index in LW_SCROLL_STEP:
+                frames = scrolled(first, LW_SCROLL_STEP[index])
+            elif index in LW_SWAPPED:
+                frames = [first, raw(col + 1, row, entity)]
+            else:
+                frames = [first]
+            self.tiles[tdef.name] = frames
+        for base, cells in VARIANT_TILE_INDEX.items():
+            for vname, index in zip(VARIANT_NAMES[base], cells):
+                col, row = (index // 16) * 2, index % 16
+                self.tiles[vname.lower()] = [raw(col, row, True), raw(col + 1, row, True)]
 
     def _load_tileset_xml(self, xml_path: Path) -> None:
         """Parse tileset-base.xml and build TileDef mapping."""

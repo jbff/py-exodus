@@ -268,14 +268,16 @@ def build_shrine_map(
     for tile_row in struct["tiles"]:
         for b in tile_row:
             idx = b
+            # Java drew boulders/ankh/altar art LairWare's sheets lack; the
+            # same spots use LairWare tiles: mountains, the shrine, a flame.
             if idx == 4:
                 idx = 1
             elif idx in (55, 57):
-                idx = 102
+                idx = 4
             elif idx == 61:
-                idx = 101
+                idx = 62
             elif idx == 31:
-                idx = 103
+                idx = 61
             tile = asset_mgr.tile_defs.get(idx)
             if tile is None:
                 tile = asset_mgr.tile_defs.get(36)

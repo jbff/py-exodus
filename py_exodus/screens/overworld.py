@@ -379,7 +379,7 @@ class OverworldScreen(BaseScreen):
             WorldRenderer(asset_mgr) if asset_mgr is not None else None
         )
         self.stats_panel = StatsPanel(asset_mgr=self.asset_mgr)
-        self.text_log = TextLog(max_lines=5, wrap_width=28)
+        self.text_log = TextLog(max_lines=5, wrap_width=64)
 
         # Heading / facing direction (for broadside cannon checks)
         self.heading: Direction = Direction.NORTH
@@ -478,7 +478,7 @@ class OverworldScreen(BaseScreen):
         y = pane_top + margin
         aura = self.party.aura.get_type()
         if aura != AuraType.NONE:
-            surface.blit(f.render(aura.name, False, EGA_YELLOW), (margin, y))
+            surface.blit(f.render(aura.name, True, EGA_YELLOW), (margin, y))
             y += f.get_linesize()
 
         wind = self.party.wind_direction
@@ -487,7 +487,7 @@ class OverworldScreen(BaseScreen):
             if wind is None
             else f"Wind {wind.name}"
         )
-        surface.blit(f.render(wind_txt, False, EGA_LIGHT_GRAY), (margin, y))
+        surface.blit(f.render(wind_txt, True, EGA_LIGHT_GRAY), (margin, y))
 
         size = 2 * radius + 3
         gx2 = pane_right - margin - radius - 2
@@ -2533,7 +2533,7 @@ class OverworldScreen(BaseScreen):
         self.anim_timer += dt
         if self.anim_timer >= 0.2:
             self.anim_timer = 0.0
-            self.anim_frame = (self.anim_frame + 1) % 4
+            self.anim_frame = (self.anim_frame + 1) % 16  # LW scrolls water in 16 steps
 
         # The moon phase is move-driven — Party.advance_moons runs from
         # _finish_turn per consumed turn (GBC funcs5.c:1272-1279) — and the

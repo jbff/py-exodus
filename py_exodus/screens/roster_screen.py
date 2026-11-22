@@ -533,7 +533,7 @@ class RosterScreen(BaseScreen):
         pygame.draw.rect(surface, border_col, p_rect, max(1, scale))
 
         p_header = f"PARTY ({len(self.party.members)}/4)"
-        surface.blit(f_hud.render(p_header, False, EGA_BRIGHT_CYAN), (10 * scale, 26 * scale))
+        surface.blit(f_hud.render(p_header, True, EGA_BRIGHT_CYAN), (10 * scale, 26 * scale))
 
         for slot in range(4):
             slot_y = (42 + slot * 24) * scale
@@ -545,11 +545,11 @@ class RosterScreen(BaseScreen):
                 p_name = m.name.upper()[:7]
                 prof_name = getattr(m.profession, "name", str(m.profession))[:5]
                 col = EGA_YELLOW if is_sel else EGA_WHITE
-                surface.blit(f_small.render(f"{marker}[{slot+1}] {p_name} ({prof_name})", False, col), (10 * scale, slot_y))
-                surface.blit(f_small.render(f"    H:{m.hp} M:{m.mp} S:{m.str:<2} D:{m.dex:<2} I:{m.int:<2} W:{m.wis:<2}", False, EGA_LIGHT_GRAY), (10 * scale, slot_y + 11 * scale))
+                surface.blit(f_small.render(f"{marker}[{slot+1}] {p_name} ({prof_name})", True, col), (10 * scale, slot_y))
+                surface.blit(f_small.render(f"    H:{m.hp} M:{m.mp} S:{m.str:<2} D:{m.dex:<2} I:{m.int:<2} W:{m.wis:<2}", True, EGA_LIGHT_GRAY), (10 * scale, slot_y + 11 * scale))
             else:
                 col = EGA_YELLOW if is_sel else EGA_DARK_GRAY
-                surface.blit(f_small.render(f"{marker}[{slot+1}] <EMPTY SLOT>", False, col), (10 * scale, slot_y + 4 * scale))
+                surface.blit(f_small.render(f"{marker}[{slot+1}] <EMPTY SLOT>", True, col), (10 * scale, slot_y + 4 * scale))
 
         # 3. Roster Box (Right)
         r_rect = pygame.Rect(154 * scale, 22 * scale, (w - 160 * scale), 122 * scale)
@@ -558,7 +558,7 @@ class RosterScreen(BaseScreen):
         pygame.draw.rect(surface, r_border, r_rect, max(1, scale))
 
         r_header = f"ROSTER ({len(self.roster)} RECRUITS)"
-        surface.blit(f_hud.render(r_header, False, EGA_BRIGHT_CYAN), (158 * scale, 26 * scale))
+        surface.blit(f_hud.render(r_header, True, EGA_BRIGHT_CYAN), (158 * scale, 26 * scale))
 
         # Show up to 5 recruits at a time
         max_visible = 5
@@ -575,21 +575,21 @@ class RosterScreen(BaseScreen):
             name = rec.name.upper()[:8]
             prof = getattr(rec.profession, "name", str(rec.profession))[:4]
             race = getattr(rec.race, "name", str(rec.race))[:3]
-            surface.blit(f_small.render(f"{marker}{actual_idx+1}:{name:<8} {prof} {race}", False, col), (158 * scale, row_y))
-            surface.blit(f_small.render(f"   H:{rec.hp:<3} S:{rec.str:<2} D:{rec.dex:<2} I:{rec.int:<2} W:{rec.wis:<2}", False, EGA_LIGHT_GRAY), (158 * scale, row_y + 9 * scale))
+            surface.blit(f_small.render(f"{marker}{actual_idx+1}:{name:<8} {prof} {race}", True, col), (158 * scale, row_y))
+            surface.blit(f_small.render(f"   H:{rec.hp:<3} S:{rec.str:<2} D:{rec.dex:<2} I:{rec.int:<2} W:{rec.wis:<2}", True, EGA_LIGHT_GRAY), (158 * scale, row_y + 9 * scale))
 
         if not self.roster:
-            surface.blit(f_small.render("No recruits in roster.", False, EGA_DARK_GRAY), (162 * scale, 50 * scale))
-            surface.blit(f_small.render("Press [C] to create one!", False, EGA_BRIGHT_GREEN), (162 * scale, 65 * scale))
+            surface.blit(f_small.render("No recruits in roster.", True, EGA_DARK_GRAY), (162 * scale, 50 * scale))
+            surface.blit(f_small.render("Press [C] to create one!", True, EGA_BRIGHT_GREEN), (162 * scale, 65 * scale))
 
         # 4. Command Bar
         cmd_y = 146 * scale
         c1 = "[A] Add to Party   [R] Remove from Party"
         c2 = "[C] Create Hero    [P] Save Party"
         c3 = "[E/ENTER] Embark!  [ESC] Back to Title"
-        surface.blit(f_small.render(c1, False, EGA_BRIGHT_GREEN), (10 * scale, cmd_y))
-        surface.blit(f_small.render(c2, False, EGA_BRIGHT_CYAN), (10 * scale, cmd_y + 11 * scale))
-        surface.blit(f_small.render(c3, False, EGA_YELLOW), (10 * scale, cmd_y + 22 * scale))
+        surface.blit(f_small.render(c1, True, EGA_BRIGHT_GREEN), (10 * scale, cmd_y))
+        surface.blit(f_small.render(c2, True, EGA_BRIGHT_CYAN), (10 * scale, cmd_y + 11 * scale))
+        surface.blit(f_small.render(c3, True, EGA_YELLOW), (10 * scale, cmd_y + 22 * scale))
 
         # 5. Bottom Interactive Text Log
         self.text_log.render(

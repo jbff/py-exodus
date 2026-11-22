@@ -7,7 +7,8 @@ A Python 3 / Pygame-CE reimplementation of *Ultima III: Exodus*, with **Auto-Com
 ## Reference Implementations & Assets
 
 - **Original game**: [*Ultima III: Exodus*](https://wiki.ultimacodex.com/wiki/Ultima_III:_Exodus) (1983) by Richard Garriott / Origin Systems.
-- **Port base: [pantinor/gdx-exodus](https://github.com/pantinor/gdx-exodus)**. `py-exodus` started as a port of Paul Antinori's LibGDX Java implementation, which also supplied the tile atlases, sound effects, `.ogg` soundtrack (transcoded from MIDI), XML definitions (`maps.xml`, `vendor.xml`, `creatures.xml`, `weapons.xml`, `armors.xml`) and the world maps/rosters (now JSON).
+- **Port base: [pantinor/gdx-exodus](https://github.com/pantinor/gdx-exodus)**. `py-exodus` started as a port of Paul Antinori's LibGDX Java implementation, which also supplied the sound effects, `.ogg` soundtrack (transcoded from MIDI), XML definitions (`maps.xml`, `vendor.xml`, `creatures.xml`, `weapons.xml`, `armors.xml`) and the world maps/rosters (now JSON).
+- **Graphics: the LairWare Mac port's tile sheets** (LairWare Standard by default, any of its 12 sets with `--tiles`), animated the way LairWare animates them: people and monsters swap frames, water and lava scroll, Exodus blinks. Text is set in [Barlow Semi Condensed](https://github.com/jpt/barlow) (SIL Open Font License, `assets/fonts/OFL-Barlow.txt`).
 - **Rules authority: the LairWare Mac port** (`UltimaMain.c`, `UltimaMisc.c`, `UltimaSpellCombat.c`, ...). Where the Java port and the classic releases disagree, **LairWare is the correct implementation**. Recent LairWare ports include:
   - **People move in towns and castles** (`MoveMonsters`): wanderers wander, shopkeepers follow, attackers close in and start a fight; in Castle Exodus the defenders come to you.
   - **The dead leave the combat board** and no longer block the living.
@@ -16,7 +17,7 @@ A Python 3 / Pygame-CE reimplementation of *Ultima III: Exodus*, with **Auto-Com
   - **Monsters move and attack diagonally** on Sosaria (the party still can't).
   - **Chest traps** are dodged by DEX, with a big bonus for Thieves; nobody is trap-proof.
   - **UNSPEAKABLE** kills like ZXKUQYB: each monster has a 75% chance to die outright.
-  - **Monster variants**: half of Sosaria's wanderers come as a named variant: Brigands and Cutpurses, Goblins and Trolls, Ghouls and Zombies, Golems and Titans, Gargoyles and Manes, Snatches and Bradles, Griffons and Wyverns, Orcuses and Devils. Same stats, new name (and their own art with `--tiles`).
+  - **Monster variants**: half of Sosaria's wanderers come as a named variant: Brigands and Cutpurses, Goblins and Trolls, Ghouls and Zombies, Golems and Titans, Gargoyles and Manes, Snatches and Bradles, Griffons and Wyverns, Orcuses and Devils. Same stats, new name, their own art.
 - **Other classic references**: the Game Boy Color port (`u3gbc`) for moongate routing, ship-battle cannon barrages, meal-crossing starvation/regen and the `QUICKNESS` aura; the NES `MoonGateTbl` for the 8-site moongate table.
 
 ---
@@ -77,7 +78,7 @@ python3 -m py_exodus
 |---|---|
 | `--autoplay` | Start in Full Autoplay (Watch Mode); `F9` still toggles it. |
 | `--trace` | Record the run to `traces/trace_<time>.jsonl.gz` (written when the game exits). |
-| `--tiles NAME` | Draw with one of LairWare's tile sets: `standard`, `apple2`, `apple2-tv`, `apple2-mono`, `c64`, `mac-bw`, `nes`, `cga`, `ega`, `mcga`, `vga`, `ultima5` (`--tiles list` prints them). The named monster variants get their own art. |
+| `--tiles NAME` | Draw with one of LairWare's tile sets (default `standard`): `standard`, `apple2`, `apple2-tv`, `apple2-mono`, `c64`, `mac-bw`, `nes`, `cga`, `ega`, `mcga`, `vga`, `ultima5` (`--tiles list` prints them). |
 | `--debug` | Enable the debug cheat harness (`F10`). |
 
 Live play runs on wall-clock time and the `[` / `]` speed keys change it, so a live run can't be replayed exactly. There is no `--seed` flag.
