@@ -105,3 +105,21 @@ def test_unknown_tile_set_is_refused():
     am = AssetManager(assets_dir=Path("assets"), tileset="atari")
     with pytest.raises(ValueError):
         am.load_tiles()
+
+
+def test_lairware_sheet_does_not_animate_still_tiles():
+    """User 2026-11-22: C64 town walls blinked with Exodus castle art. The
+    cell beside a still tile is other art, not a second frame."""
+    from pathlib import Path
+
+    from py_exodus.assets import LAIRWARE_TILESETS, AssetManager
+
+    plain = AssetManager(assets_dir=Path("assets"))
+    plain.load_tiles()
+    for sheet in LAIRWARE_TILESETS:  # c64 and ultima5 were both reported
+        am = AssetManager(assets_dir=Path("assets"), tileset=sheet)
+        am.load_tiles()
+        for name, frames in plain.tiles.items():
+            if name in am.tiles and len(frames) == 1:
+                assert len(am.tiles[name]) == 1, (sheet, name)
+        assert len(am.tiles["wall"]) == 1

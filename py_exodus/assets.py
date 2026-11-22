@@ -496,7 +496,11 @@ class AssetManager:
                 continue
             size = self.tiles[tdef.name][0].get_size()
             entity = tdef.name.lower() in ENTITY_TILES
-            self.tiles[tdef.name] = [cell(index, f, size, entity) for f in (0, 1)]
+            # The cell beside a still tile (wall, lava...) is other art in
+            # LairWare's sheets, not a second frame: animate only the tiles
+            # our own art animates.
+            frames = (0, 1) if len(self.tiles[tdef.name]) > 1 else (0,)
+            self.tiles[tdef.name] = [cell(index, f, size, entity) for f in frames]
         for base, (i1, i2) in VARIANT_TILE_INDEX.items():
             size = self.tiles[base][0].get_size() if base in self.tiles else default_size
             for vname, index in zip(VARIANT_NAMES[base], (i1, i2)):
