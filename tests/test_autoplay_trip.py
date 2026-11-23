@@ -1393,7 +1393,7 @@ def test_a_starving_member_turns_the_party_for_the_exit(pygame_setup, monkeypatc
     assert keys[-1] == to_exit
 
 
-def test_no_flee_into_a_town_the_party_would_walk_straight_out_of(pygame_setup, asset_mgr):
+def test_no_flee_into_a_town_the_party_would_walk_straight_out_of(pygame_setup, asset_mgr, monkeypatch):
     """Batch 1c7525f seed 38: hurt and chased beside the Exotic dig site,
     the party fled into town 12 (30, 2) to rest. Near the site the food
     check waits; inside the town it fires, BUY_FOOD walks out (town 12 sells
@@ -1403,7 +1403,18 @@ def test_no_flee_into_a_town_the_party_would_walk_straight_out_of(pygame_setup, 
         m.food = 56
     _hurt(party)
     assert evaluate_goal(party, 0) != Goal.BUY_FOOD
-    assert evaluate_goal(party, 12) == Goal.BUY_FOOD
+    # Town 12 now counts as the island, so its goal matches the gate's and
+    # fleeing in there is fine. Keep the guard covered: make the inside
+    # goal one the party walks out for, as it was in seed 38.
+    assert evaluate_goal(party, 12) == evaluate_goal(party, 0)
+    import py_exodus.autoplay.controller as controller_mod
+
+    real = controller_mod.evaluate_goal
+    monkeypatch.setattr(
+        controller_mod,
+        "evaluate_goal",
+        lambda p, map_id=None: Goal.BUY_FOOD if map_id == 12 else real(p, map_id),
+    )
     sm, ow = _overworld(asset_mgr, party)
     ow.creatures = [{"tile_name": "orc", "tile": "orc", "x": 30, "y": 8}]
     ctrl = AutoPlayController(enabled=True)
@@ -1540,3 +1551,42 @@ def test_bobbing_pirate_lanes_dont_keep_the_party_out_of_a_town_steps_away(pygam
         dx, dy = key_to_step[keys[-1]]
         party.x, party.y = party.x + dx, party.y + dy
     assert (party.x, party.y) == (7, 44)
+
+
+def test_town_12_wants_what_its_gate_wants():
+    """Batch 8d3aef0 seeds 113 and 119: at the gate (30, 2), beside the
+    Exotic dig site, the island rule held resurrection back and the party
+    went in for gems; inside town 12 the rule didn't apply, RESURRECT_DEAD
+    walked it out, and in and out it went for ~28,000 steps."""
+    from py_exodus.constants import Status
+
+    party = _make_party(level=5, x=30, y=2)
+    for m in party.members:
+        m.food, m.gold = 255, 0
+    party.members[0].gold = 537
+    party.members[2].hp = 0
+    party.members[2].status = Status.DEAD
+    outside = evaluate_goal(party, 0)
+    assert outside != Goal.RESURRECT_DEAD
+    party.x, party.y = 1, 32  # inside town 12
+    assert evaluate_goal(party, 12) == outside
+
+
+def test_chest_detour_limit_is_a_walk_not_a_straight_line(pygame_setup, asset_mgr):
+    """Batch 8d3aef0 seed 111: on the way to its frigate at (17, 11), a
+    chest at (18, 9) four tiles off but ten to walk pulled the party west to
+    (15, 11), one past the limit, where the trip led back east; ~11,000
+    steps between the two."""
+    party = _make_party(level=5, x=16, y=11)
+    cleric = next(m for m in party.members if m.profession == Profession.CLERIC)
+    cleric.wisdom, cleric.max_mp, cleric.mp = 25, 25, 25  # APPAR UNEM: chests are safe
+    assert not AutoPlayController(enabled=True)._chest_too_risky(party)
+    party.dynamic_objects = [{"tile": "chest", "x": 18, "y": 9}]
+    party.objects_map_id = 0
+    sm, ow = _overworld(asset_mgr, party)
+    ow.creatures = []
+    ctrl = AutoPlayController(enabled=True)
+    called = []
+    ctrl._move_toward = lambda _sm, _g, _p, _pos, goals: called.append(set(goals)) or 0
+    ctrl._step_overworld(sm, ow, party, 16, 11, Goal.DIG_EXOTICS)
+    assert {(18, 9)} not in called

@@ -383,7 +383,11 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
     # Goals never depend on the transport mode: the trip layer
     # (autoplay/trip.py) decides walking, sailing, capturing or moongates, so
     # boarding or landing can never flip the goal (the old B/X loops).
-    at_exotic_island = (
+    # Town 12 (its only gate is (30, 2)) is on the (33, 3) island: inside it
+    # counts as being there, or its goals differ from the gate's and the
+    # party walks in and out (batch 8d3aef0 seeds 113 and 119: BUY_GEMS at
+    # the gate, RESURRECT_DEAD inside, ~28,000 steps until the party wiped).
+    at_exotic_island = cur_map_id == 12 or (
         cur_map_id == 0
         and any(abs(party.x - tx) + abs(party.y - ty) <= 4 for tx, ty in ((33, 3), (19, 44)))
     )

@@ -1398,10 +1398,24 @@ class AutoPlayController:
                 or (goal not in (Goal.BUY_FOOD, Goal.RESURRECT_DEAD, Goal.CURE_POISON) and not needs_heal(party))
             ):
                 max_chest_dist = None if goal in (Goal.GRIND_AND_LEVEL, Goal.OUTFIT_BRITAIN, Goal.AMBROSIA_CARDS_SHRINES) else 4
+                # The detour limit is a WALK, not a straight line: a chest 4
+                # tiles off but 10 to walk led away from the trip's next leg,
+                # one step past 4 the trip led back, and so on (batch 8d3aef0
+                # seed 111: ~11,000 steps between (15, 11) and (16, 11)).
+                def _walk(pos):
+                    _d, cost = find_2d_step_and_cost(
+                        gmap, start=(px, py), goals={pos}, transport=Transport.FOOT, party=party
+                    )
+                    return cost
+
                 reachable_chests = {
                     pos for pos in chests
-                    if (max_chest_dist is None or abs(pos[0] - px) + abs(pos[1] - py) <= max_chest_dist)
-                    and find_2d_step(gmap, (px, py), {pos}, Transport.FOOT, party=party) is not None
+                    if (
+                        find_2d_step(gmap, (px, py), {pos}, Transport.FOOT, party=party) is not None
+                        if max_chest_dist is None
+                        else abs(pos[0] - px) + abs(pos[1] - py) <= max_chest_dist
+                        and (_walk(pos) or 10_000) <= max_chest_dist
+                    )
                 }
                 if reachable_chests:
                     self._overworld_avoid = self._monster_avoid(screen, party, px, py, goal, living)
