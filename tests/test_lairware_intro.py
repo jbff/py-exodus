@@ -98,3 +98,98 @@ def test_headless_runs_skip_the_intro():
     app = GameApp(assets_dir="assets", headless=True, sound_enabled=False)
     assert not isinstance(app.state_machine.current_screen, IntroScreen)
     assert intro_mod.VIEW_SONGS
+
+
+# --- Sound and pace of the opening (user 2026-11-23) --------------------------
+
+
+class FakeAudio:
+    """Records what plays; a track 'plays' until stop_music or until the
+    test says it ended."""
+
+    enabled = True
+
+    def __init__(self):
+        self.log: list[tuple[str, str]] = []
+        self.current: str | None = None
+
+    def play_music(self, name, loops=-1, volume=None):
+        self.log.append(("music", name))
+        self.current = name
+        return True
+
+    def stop_music(self):
+        self.log.append(("stop", ""))
+        self.current = None
+
+    def music_busy(self) -> bool:
+        return self.current is not None
+
+    def play_sfx(self, name, volume=None):
+        self.log.append(("sfx", name))
+        return True
+
+
+def _run(scr, seconds):
+    for _ in range(round(seconds * 60)):
+        scr.update(1 / 60)
+
+
+def test_main_menu_plays_no_crackle(am):
+    """The crackle looped forever on the main menu (play_music's default
+    loops=-1) and, still playing, kept the View's songs from starting."""
+    audio = FakeAudio()
+    sm = StateMachine(asset_mgr=am, audio=audio)
+    assert isinstance(sm.current_screen, StartScreen)
+    assert ("music", "title_fade") not in audio.log
+    assert not audio.music_busy()
+
+
+def test_the_crackle_plays_only_while_each_logo_dissolves_in(am):
+    """LW FadeOnExodusUltima: the noise runs for each dissolve (pyExodus,
+    then Ultima III) and stops when the picture is complete."""
+    audio = FakeAudio()
+    scr = IntroScreen(asset_mgr=am, audio=audio)
+    scr.on_enter()
+    assert audio.log == []  # nothing before the first dissolve
+    scr.render(pygame.Surface((960, 600)))
+    _run(scr, 2.0)  # 80-tick wait, then into the pyExodus dissolve
+    assert audio.current == "title_fade"
+    _run(scr, 3.0)  # pyExodus complete (43 passes x 5 ticks), 60-tick wait
+    assert audio.current is None
+    _run(scr, 1.5)  # into the Ultima III dissolve
+    assert audio.current == "title_fade"
+    _run(scr, 3.0)
+    assert audio.current is None
+    assert [e for e in audio.log if e[0] == "music"] == [("music", "title_fade")] * 2
+
+
+def test_the_view_is_a_jukebox(am):
+    """DemoUpdate: one song after another, in LW's order, each played once
+    (loops=0) and the next started when it ends."""
+    audio = FakeAudio()
+    scr = IntroScreen(asset_mgr=am, audio=audio, view_only=True)
+    scr.render(pygame.Surface((960, 600)))
+    _run(scr, 1.0)
+    assert audio.current == intro_mod.VIEW_SONGS[0]
+    _run(scr, 1.0)
+    assert [e for e in audio.log if e[0] == "music"] == [("music", intro_mod.VIEW_SONGS[0])]
+    audio.current = None  # the song ends
+    _run(scr, 0.5)
+    assert audio.current == intro_mod.VIEW_SONGS[1]
+
+
+def test_the_view_animates_tiles_at_the_game_pace(am):
+    """Tiles changed frame every DrawDemo (4 ticks, 15 per second): the
+    daemons flapped like they were about to fly off. The View now steps
+    tile frames every 0.2 s, as the town and overworld do."""
+    scr = IntroScreen(asset_mgr=am, view_only=True)
+    scr.render(pygame.Surface((960, 600)))
+    _run(scr, 0.25)
+    start = scr.anim
+    _run(scr, 2.0)
+    assert 9 <= scr.anim - start <= 11  # 5 frames per second
+
+
+def test_main_menu_credits_name_py_exodus():
+    assert any("py-exodus © 2026" in line for line in StartScreen.CREDITS)

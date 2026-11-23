@@ -72,8 +72,11 @@ class StartScreen(BaseScreen):
 
     def on_enter(self) -> None:
         super().on_enter()
+        # The main menu is quiet. It used to loop the intro's dissolve noise
+        # (title_fade) forever, which also kept the View's songs from
+        # starting (user 2026-11-23).
         if self.audio is not None:
-            self.audio.play_music("title_fade")
+            self.audio.stop_music()
 
     def handle_event(self, event: pygame.event.Event) -> None:
         if event.type != pygame.KEYDOWN:
@@ -108,7 +111,7 @@ class StartScreen(BaseScreen):
         self.anim_time += dt
 
     CREDITS = (
-        "Ultima III: Exodus \u00a9 1983 Richard Garriott / Origin Systems",
+        "Ultima III: Exodus \u00a9 1983 Richard Garriott / Origin Systems  \u00b7  py-exodus \u00a9 2026",
         "Java port gdx-exodus by Paul Antinori  \u00b7  Mac port by LairWare (Leon McNeill)",
     )
 

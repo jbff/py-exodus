@@ -120,6 +120,7 @@ class IntroScreen(BaseScreen):
         self.frames_due = 0
         self.anim = 0
         self.song = 0
+        self._draws = 0
 
     # -- geometry ---------------------------------------------------------
 
@@ -174,11 +175,6 @@ class IntroScreen(BaseScreen):
 
     # -- lifecycle --------------------------------------------------------
 
-    def on_enter(self) -> None:
-        super().on_enter()
-        if self.audio is not None and not self.in_view:
-            self.audio.play_music("title_fade", loops=0)
-
     def _finish(self) -> None:
         self.done = True
         if self.audio is not None:
@@ -198,6 +194,7 @@ class IntroScreen(BaseScreen):
 
     def _start_view(self) -> None:
         self.in_view = True
+        self._crackle(False)  # a key during a dissolve cuts its noise
         self._script = None
         self.canvas = None
         self.wait = 0.0
@@ -256,6 +253,7 @@ class IntroScreen(BaseScreen):
         import numpy as np
 
         img = pygame.surfarray.array3d(self._scaled(name, rect.size))
+        self._crackle(True)
         rng = np.random.default_rng()
         w, h = rect.size
         cw = (w + chunk - 1) // chunk
@@ -268,6 +266,15 @@ class IntroScreen(BaseScreen):
             yield ticks
             p += 1536
         self._draw(name, rect)
+        self._crackle(False)
+
+    def _crackle(self, on: bool) -> None:
+        """FadeOnExodusUltima's noise runs only while a picture dissolves in."""
+        if self.audio is None:
+            return
+        self.audio.stop_music()
+        if on:
+            self.audio.play_music("title_fade", loops=0)
 
     def _intro(self) -> Iterator[float]:
         self.canvas.fill((0, 0, 0))
@@ -324,18 +331,20 @@ class IntroScreen(BaseScreen):
             else:
                 repeat = what
             for _ in range(repeat * 4):
-                self.anim += 1
+                # Tile frames step every 3rd DrawDemo (12 ticks, 0.2 s), the
+                # town/overworld pace; stepping every 4 ticks made the
+                # daemons flap like they were about to fly away.
+                self._draws += 1
+                if self._draws % 3 == 0:
+                    self.anim += 1
                 self._draw_demo()
                 yield 4  # DrawDemo idles until gTime + 4
 
     def _next_song(self) -> None:
+        """DemoUpdate's jukebox: the next song once the last one has ended."""
         if self.audio is None or not getattr(self.audio, "enabled", False):
             return
-        try:
-            busy = pygame.mixer.get_init() and pygame.mixer.music.get_busy()
-        except pygame.error:
-            return
-        if not busy:
+        if not self.audio.music_busy():
             self.audio.play_music(VIEW_SONGS[self.song % len(VIEW_SONGS)], loops=0)
             self.song += 1
 

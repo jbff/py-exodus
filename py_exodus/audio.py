@@ -184,6 +184,15 @@ class AudioManager:
             except Exception:
                 pass
 
+    def music_busy(self) -> bool:
+        """True while a music track is still playing."""
+        if not self._mixer_initialized:
+            return False
+        try:
+            return bool(pygame.mixer.music.get_busy())
+        except (NotImplementedError, AttributeError, pygame.error, Exception):
+            return False
+
     def pause_music(self) -> None:
         """Pause active background music."""
         if not self._mixer_initialized:
