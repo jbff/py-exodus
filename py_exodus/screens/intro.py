@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any, Iterator
 import pygame
 
 from py_exodus.screens.base import BaseScreen
+from py_exodus.ui.hit_orb import HIT_ORB_COLOURS, draw_hit_orb
 from py_exodus.ui.text_log import get_hud_font
 
 #: C64-style title art (assets/graphics/title, user 2026-11-23), 236x67 and
@@ -443,12 +444,20 @@ class IntroScreen(BaseScreen):
             self.audio.play_music(VIEW_SONGS[self.song % len(VIEW_SONGS)], loops=0)
             self.song += 1
 
-    def _tile(self, value: int) -> pygame.Surface | None:
+    def _tile_name(self, value: int) -> str | None:
         index = value // 2
         if 64 <= index <= 67:  # LairWare's party-member art: the class tiles
             index -= 44
         try:
-            name = self.asset_mgr.get_tile_by_index(index).name
+            return self.asset_mgr.get_tile_by_index(index).name
+        except KeyError:
+            return None
+
+    def _tile(self, value: int) -> pygame.Surface | None:
+        name = self._tile_name(value)
+        if name is None:
+            return None
+        try:
             return self.asset_mgr.get_tile_surface(name, self.anim)
         except KeyError:
             return None
@@ -463,3 +472,6 @@ class IntroScreen(BaseScreen):
                 t = self._tile(v)
                 if t is not None:
                     self.canvas.blit(pygame.transform.scale(t, r.size), r)
+                orb = HIT_ORB_COLOURS.get(self._tile_name(v) or "")
+                if orb is not None:  # an attack: combat's hit orb over the tile
+                    draw_hit_orb(self.canvas, r.center, orb, r.width / 16)

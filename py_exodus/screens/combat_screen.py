@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING, Any
 
 import pygame
 
+from py_exodus.ui.hit_orb import HIT_ORB_COLOURS, draw_hit_orb
+
 from py_exodus import debug
 from py_exodus.combat.arena import Action, ActionType, CombatArena
 from py_exodus.combat.auto_combat import choose_auto_combat_action
@@ -641,8 +643,8 @@ class CombatScreen(BaseScreen):
                     w_def = self.asset_mgr.get_weapon(w_name)
 
                 is_magic = w_def is not None and (w_def.magic or getattr(w_def, "hit_tile", "") == "magic")
-                color = (85, 255, 255) if is_magic else (255, 85, 85)
                 hit_tile = "magic" if is_magic else "fire"
+                color = HIT_ORB_COLOURS[hit_tile]
 
                 target_pos = ares.target_pos
                 if not target_pos and ares.projectile_path:
@@ -878,17 +880,13 @@ class CombatScreen(BaseScreen):
                 px = int(curr_x * TILE_SIZE + TILE_SIZE // 2)
                 py = int(curr_y * TILE_SIZE + TILE_SIZE // 2)
 
-                # Outer glowing orb (radius 4, 8px diameter)
-                pygame.draw.circle(surface, color, (px, py), 4)
-                # Inner bright white core (radius 2)
-                pygame.draw.circle(surface, (255, 255, 255), (px, py), 2)
+                draw_hit_orb(surface, (px, py), color)
             else:
                 path = fx.get("path", [])
                 for pt in path:
                     px = pt[0] * TILE_SIZE + TILE_SIZE // 2
                     py = pt[1] * TILE_SIZE + TILE_SIZE // 2
-                    pygame.draw.circle(surface, color, (px, py), 4)
-                    pygame.draw.circle(surface, (255, 255, 255), (px, py), 2)
+                    draw_hit_orb(surface, (px, py), color)
 
             # Hit burst on target once projectile arrives
             if progress >= 0.5 and target_pos and hit_tile and self.asset_mgr is not None:

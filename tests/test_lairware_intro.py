@@ -256,3 +256,19 @@ def test_the_moving_party_leaves_no_trail(am):
     for y in range(band.top, band.bottom):
         for x in range(0, 960, 1):
             assert played.canvas.get_at((x, y)) == fresh.canvas.get_at((x, y)), (x, y)
+
+
+@pytest.mark.parametrize("value, colour", [(122, (255, 85, 85)), (120, (85, 255, 255))])
+def test_the_views_attack_tiles_are_the_combat_hit_orbs(am, value, colour):
+    """The View's attacks (tiles 60 magic / 61 fire) drew the bare tile: in
+    the EGA sheet 'fire' is a white dot. Combat draws its hit as an orb (a
+    coloured disc with a white core), so the View now does too."""
+    scr = IntroScreen(asset_mgr=am, view_only=True)
+    scr.render(pygame.Surface((960, 600)))
+    scr.tiles[0] = value
+    scr._draw_demo()
+    r = scr._rect(1, 11, 3, 13)
+    k = r.width / 16
+    cx, cy = r.center
+    assert tuple(scr.canvas.get_at((cx, cy)))[:3] == (255, 255, 255)
+    assert tuple(scr.canvas.get_at((cx + round(3 * k), cy)))[:3] == colour
