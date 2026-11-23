@@ -15,6 +15,7 @@ A Python 3 / Pygame-CE reimplementation of *Ultima III: Exodus*, with **Auto-Com
   - **Wind** steers ships on Ambrosia as on Sosaria, and is shown there too.
   - **Monster attacks**: hit chance by armor (`RandNum(0, armor+16) < 8`), damage that grows with the target's max HP, and a location bonus (+16 dungeon, +32 town, +48 castles and Ambrosia). Castle Exodus is a real fight now. Dragon fire always hits.
   - **Monsters move and attack diagonally** on Sosaria (the party still can't).
+  - **Selling weapons and armour** pays the shop's full price, only for what that shop stocks (Dawn's magic gear sells only at Dawn), never past 9999 gold (the sale is cancelled), and the readied weapon or worn armour can go too (back to hands or skin).
   - **Chest traps** are dodged by DEX, with a big bonus for Thieves; nobody is trap-proof.
   - **UNSPEAKABLE** kills like ZXKUQYB: each monster has a 75% chance to die outright.
   - **Shrines**: no shrine screen. Enter on an Ambrosia shrine, name who enters, offer 0-9 hundred gold; LairWare's shrine picture covers the map meanwhile. The stat goes up by the offering, capped by race (the cap lifts after Exodus, never past 99).

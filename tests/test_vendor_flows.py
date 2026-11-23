@@ -645,10 +645,10 @@ def test_weapon_cannot_pay_single():
     assert town.text_log.is_waiting_for_input
 
 
-def test_weapon_sell_half_price_and_purse_credit():
-    """WeaponVendor.java: WAIT_SELL_INPUT lists the FULL class catalog with
-    owned counts and half price; sell credits member.gold directly
-    (gold = gold + price/2 * count, no adjustGold clamp)."""
+def test_weapon_sell_full_price_and_purse_credit():
+    """LairWare (UltimaMisc.c shop case 3): the sell branch pays the same
+    WeaponsArmour price the buy branch charges. WAIT_SELL_INPUT lists the
+    shop's stock filtered to what the member owns (Java: half price)."""
     vendor = make_weapon_vendor()
     party = make_party((50,))
     member = party.members[0]
@@ -661,18 +661,18 @@ def test_weapon_sell_half_price_and_purse_credit():
     log = logtext(town)
     assert "Excellent!" in log
     # full class catalog filtered to owned items only
-    assert "K - Sword +2 for 400gp. (2)" in log
-    assert "N - Bow +4 for 3275gp. (1)" in log
+    assert "K - Sword +2 for 800gp. (2)" in log
+    assert "N - Bow +4 for 6550gp. (1)" in log
     assert "Which wouldst you sell?" in log
 
     town.text_log.submit_input("k")
-    assert "I will give you 400gp each." in logtext(town)
+    assert "I will give you 800gp each." in logtext(town)
     assert "How many would thee like to sell?" in logtext(town)
     town.text_log.submit_input("2")
 
     assert member.weapons[WeaponType.SWORD_P2] == 0
     assert member.weapons[WeaponType.BOW_P4] == 1
-    assert member.gold == 50 + 800
+    assert member.gold == 50 + 1600
     assert "Fine! Anything else?" in logtext(town)
 
 
@@ -688,11 +688,11 @@ def test_weapon_sell_single_deal_string():
     town._start_vendor_shopping(vendor, buyer=member)
     town.text_log.submit_input("s")
     town.text_log.submit_input("b")
-    assert "I will give you 2gp for that Dagger. Deal?" in logtext(town)
-    assert "I will give you 2gp each." not in logtext(town)
+    assert "I will give you 5gp for that Dagger. Deal?" in logtext(town)
+    assert "I will give you 5gp each." not in logtext(town)
     town.text_log.submit_input("y")
     assert member.weapons[WeaponType.DAGGER] == 0
-    assert member.gold == 2
+    assert member.gold == 5
 
 
 def test_weapon_sell_too_many_swine():
@@ -872,8 +872,8 @@ def test_armor_buy_one_no_description_line():
 
 
 def test_armor_sell_flow():
-    """ArmorVendor.java sell flow: half price (75//2 == 37), gold credited
-    with the direct write (no adjustGold), catalog filtered to owned."""
+    """Armour sell flow at LairWare's full price (Leather 195), the shop's
+    stock filtered to what the member owns."""
     vendor = make_armor_vendor()
     party = make_party((0,))
     member = party.members[0]
@@ -883,14 +883,102 @@ def test_armor_sell_flow():
     town._start_vendor_shopping(vendor, buyer=member)
     town.text_log.submit_input("s")
     # only owned armor appears (5th+ items unowned -> skipped)
-    assert "C - Leather for 97gp. (3)" in logtext(town)
+    assert "C - Leather for 195gp. (3)" in logtext(town)
     assert "D - Chain Mail" not in logtext(town)
     town.text_log.submit_input("c")
-    assert "I will give you 97gp each." in logtext(town)
+    assert "I will give you 195gp each." in logtext(town)
     town.text_log.submit_input("2")
     assert member.armors[ArmorType.LEATHER] == 1
-    assert member.gold == 194
+    assert member.gold == 390
     assert "Fine! Anything else?" in logtext(town)
+
+
+def _grey_weaponry():
+    from py_exodus.assets import AssetManager
+
+    am = AssetManager(assets_dir="src/main/resources/assets")
+    am.load_xml_definitions()
+    return am.vendors.get("kruppe's weaponry")
+
+
+def test_sell_only_what_this_shop_stocks():
+    """LairWare: the sell letter must be below the shop's opnum, so an
+    ordinary weapon shop (Dagger..2-H-Sword) won't buy a +2 Axe; Dawn will."""
+    party = make_party((0,))
+    member = party.members[0]
+    member.weapons[WeaponType.AXE_P2] = 1
+    member.weapons[WeaponType.SWORD] = 1
+    town = TownScreen(party=party, map_id=1)
+    grey = _grey_weaponry()
+    assert len(grey.items) == 7
+    town._start_vendor_shopping(grey, buyer=member)
+    town.text_log.submit_input("s")
+    assert "Sword for 200gp. (1)" in logtext(town)
+    assert "Axe +2" not in logtext(town)
+    town.text_log.submit_input("i")  # the +2 Axe's letter at Dawn
+    assert "You don't have that many swine!" in logtext(town)
+    assert member.weapons[WeaponType.AXE_P2] == 1 and member.gold == 0
+
+
+def test_sell_nothing_owned_is_refused():
+    """LairWare 212 "You don't own one of those!": an unowned item is not
+    sold (Java went on to "Deal?" and paid for nothing)."""
+    party = make_party((0,))
+    member = party.members[0]
+    town = TownScreen(party=party, map_id=1)
+    town._start_vendor_shopping(make_weapon_vendor(), buyer=member)
+    town.text_log.submit_input("s")
+    town.text_log.submit_input("g")  # Sword, none owned
+    assert "You don't have that many swine!" in logtext(town)
+    assert member.gold == 0 and member.weapons[WeaponType.SWORD] == 0
+
+
+def test_sell_past_9999_gold_is_cancelled():
+    """LairWare AddGold(..., FALSE): a sale that would take the purse past
+    9999 is cancelled and the item kept."""
+    party = make_party((9800,))
+    member = party.members[0]
+    member.armors[ArmorType.PLATE] = 1
+    town = TownScreen(party=party, map_id=1)
+    town._start_vendor_shopping(make_armor_vendor(), buyer=member)
+    town.text_log.submit_input("s")
+    town.text_log.submit_input("e")  # Plate, 2500
+    town.text_log.submit_input("y")
+    assert "More gold than thou can carry! Sale cancelled." in logtext(town)
+    assert member.armors[ArmorType.PLATE] == 1 and member.gold == 9800
+
+
+def test_sell_the_readied_weapon_leaves_hands():
+    """LairWare counts the readied weapon as owned; selling the last one
+    leaves the member on hands (Player[48] = 0)."""
+    party = make_party((0,))
+    member = party.members[0]
+    member.weapon = WeaponType.SWORD
+    town = TownScreen(party=party, map_id=1)
+    town._start_vendor_shopping(make_weapon_vendor(), buyer=member)
+    town.text_log.submit_input("s")
+    assert "Sword for 200gp. (1)" in logtext(town)
+    town.text_log.submit_input("g")
+    town.text_log.submit_input("y")
+    assert member.weapon == WeaponType.NONE
+    assert member.gold == 200
+
+
+def test_sell_spares_before_the_readied_one():
+    """Selling fewer than owned takes the spares and keeps the readied."""
+    party = make_party((0,))
+    member = party.members[0]
+    member.armor = ArmorType.CHAIN
+    member.armors[ArmorType.CHAIN] = 1
+    town = TownScreen(party=party, map_id=1)
+    town._start_vendor_shopping(make_armor_vendor(), buyer=member)
+    town.text_log.submit_input("s")
+    assert "Chain" in logtext(town) and "(2)" in logtext(town)
+    town.text_log.submit_input("d")
+    town.text_log.submit_input("1")
+    assert member.armor == ArmorType.CHAIN
+    assert member.armors[ArmorType.CHAIN] == 0
+    assert member.gold == 575
 
 
 # --- Guild (GuildVendor.java) ----------------------------------------------

@@ -608,11 +608,20 @@ class BuySellVendorDialog(BaseVendorDialog):
     except for the inventory array they touch and one display quirk (Armor's
     WAIT_BUY_ONE prints only "Take it?", Weapon prints the description too).
     Buying credits the member's own weapon/armor list and debits the member's
-    purse (`adjust_gold`); selling credits `member.gold` with the direct
-    Java write ``gold = gold + (price / 2) * count`` (NOT adjustGold, so no
-    9999 clamp) and removes the units from the same list. The sell menu lists
-    the FULL vendor-class catalog (`vendor.getVendorClass()
-    .getItemCatalog()`), filtered to items the member owns."""
+    purse (`adjust_gold`).
+
+    Selling keeps the Java conversation but follows LairWare's rules
+    (``UltimaMisc.c`` shop cases 3 and 4, user 2026-11-23):
+
+    - the shop pays its full price (the sell branch reads the same
+      ``WeaponsArmour`` price as the buy branch; Java paid half);
+    - it buys only what it stocks (the letter must be below the shop's
+      ``opnum``; Java took the whole class catalog anywhere);
+    - a sale that would take the seller past 9999 gold is cancelled and the
+      item kept (``AddGold(..., FALSE)``, "More gold than thou can carry!
+      Sale cancelled.");
+    - the readied weapon / worn armour counts as owned and can be sold; when
+      the last one goes, the member is back to hands / skin."""
 
     #: Java WeaponVendor.java:36-39 prints the description before "Take it?";
     #: ArmorVendor.java:35-37 does not (only "Take it?").
@@ -633,20 +642,24 @@ class BuySellVendorDialog(BaseVendorDialog):
         raise NotImplementedError
 
     # --- common machine -----------------------------------------------------
+    def _readied(self):
+        """The member's readied weapon / worn armour (subclass hook)."""
+        raise NotImplementedError
+
+    def _unready(self) -> None:
+        """Back to hands / skin (subclass hook)."""
+        raise NotImplementedError
+
     def _owned(self, item: VendorItemDef) -> int:
-        return self._count_bucket().get(self._unit_key(item), 0)
+        """LW counts include the readied piece (``Player[49 + n]``)."""
+        key = self._unit_key(item)
+        return self._count_bucket().get(key, 0) + (1 if self._readied() == key else 0)
 
     def _sell_catalog(self) -> list[VendorItemDef]:
-        """Java ``vendor.getVendorClass().getItemCatalog()`` (full catalog);
-        vendors without a wired class fall back to their own items."""
-        cls = getattr(self.vendor, "vendor_class", None)
-        return list(cls.item_catalog) if cls is not None else list(self.vendor.items)
+        """LW: only what this shop stocks (letters below its ``opnum``)."""
+        return list(self.vendor.items)
 
     def _catalog_item_for_choice(self, choice: str) -> VendorItemDef | None:
-        """Java ``vendor.getVendorClass().getItemForChoice(input)``."""
-        cls = getattr(self.vendor, "vendor_class", None)
-        if cls is not None:
-            return cls.get_item(choice)
         return self.vendor.get_item(choice)
 
     def next_dialog(self) -> bool:
@@ -693,32 +706,38 @@ class BuySellVendorDialog(BaseVendorDialog):
                 if count > 0:
                     sell_list += (
                         f"{item.choice.upper()} - {item.name}"
-                        f" for {item.price // 2}gp. ({count})\n"
+                        f" for {item.price}gp. ({count})\n"
                     )
             sell_list += "Which wouldst you sell?"
             self.display(sell_list)
         elif self.state == ConvState.WAIT_SELL_HOW_MANY:
             self.display(
-                f"I will give you {self.current_selected_item.price // 2}gp each."
+                f"I will give you {self.current_selected_item.price}gp each."
             )
             self.display("How many would thee like to sell?")
         elif self.state == ConvState.WAIT_SELL_ONE:
             self.display(
-                f"I will give you {self.current_selected_item.price // 2}gp for that"
+                f"I will give you {self.current_selected_item.price}gp for that"
                 f" {self.current_selected_item.name}. Deal?"
             )
         elif self.state == ConvState.WAIT_SELL_DONT_HAVE_THAT_MANY:
             self.display("You don't have that many swine! Anything else?")
             self.state = ConvState.ASK_BUY_SELL
         elif self.state == ConvState.SELL_ITEM:
-            # Java WeaponVendor.java:74-79 — direct gold write, no clamp
+            player = self._player()
+            amount = self.current_selected_item.price * self.current_count
+            if player.gold + amount > 9999:
+                # LW AddGold(rosNum, amount, FALSE) -> message 214
+                self.display("More gold than thou can carry! Sale cancelled.")
+                self.state = ConvState.ASK_BUY_SELL
+                return True
             bucket = self._count_bucket()
             key = self._unit_key(self.current_selected_item)
-            bucket[key] = bucket.get(key, 0) - self.current_count
-            player = self._player()
-            player.gold = player.gold + (
-                self.current_selected_item.price // 2
-            ) * self.current_count
+            spare = bucket.get(key, 0)
+            bucket[key] = max(0, spare - self.current_count)
+            if self.current_count > spare:
+                self._unready()  # the readied one went too: hands / skin
+            player.gold = player.gold + amount
             self.display("Fine! Anything else?")
         elif self.state == ConvState.FAREWELL:
             self.display(f"{self.vendor.owner} says: Fare thee well!")
@@ -765,7 +784,9 @@ class BuySellVendorDialog(BaseVendorDialog):
             # Java assigns currentSelectedItem even when null
             item = self._catalog_item_for_choice(inp)
             self.current_selected_item = item
-            if item is None:
+            if item is None or self._owned(item) < 1:
+                # LW 212 "You don't own one of those!" (Java let an unowned
+                # item through to "Deal?" and sold it from nothing)
                 self.state = ConvState.WAIT_SELL_DONT_HAVE_THAT_MANY
             elif self._owned(item) > 1:
                 self.state = ConvState.WAIT_SELL_HOW_MANY
@@ -837,6 +858,14 @@ class WeaponVendorDialog(BuySellVendorDialog):
     def _count_bucket(self) -> dict:
         return self._player().weapons
 
+    def _readied(self):
+        return self._player().weapon
+
+    def _unready(self) -> None:
+        from py_exodus.constants import WeaponType
+
+        self._player().weapon = WeaponType.NONE
+
 
 class ArmorVendorDialog(BuySellVendorDialog):
     """Java ``vendor/ArmorVendor.java``."""
@@ -850,6 +879,14 @@ class ArmorVendorDialog(BuySellVendorDialog):
 
     def _count_bucket(self) -> dict:
         return self._player().armors
+
+    def _readied(self):
+        return self._player().armor
+
+    def _unready(self) -> None:
+        from py_exodus.constants import ArmorType
+
+        self._player().armor = ArmorType.NONE
 
 
 class GuildVendorDialog(BaseVendorDialog):
