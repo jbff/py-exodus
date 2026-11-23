@@ -922,7 +922,7 @@ class AutoPlayController:
                 if buyer.gold < upgrade.price:
                     self._join_gold_member_idx = upgrade.member_idx
                     return self._emit_key(state_machine, pygame.K_j)
-                stand_xy = wep_xy if upgrade.kind == "weapon" else arm_xy
+                stand_xy = self._shop_spot(gmap, (px, py), wep_xy if upgrade.kind == "weapon" else arm_xy)
                 if (px, py) == stand_xy:
                     self._shop_member_idx = upgrade.member_idx
                     self._shop_item_letter = upgrade.item_letter
@@ -937,6 +937,7 @@ class AutoPlayController:
 
         if map_id in _GUILD_TOWNS and goal in (Goal.BUY_KEYS, Goal.BUY_GEMS, Goal.BUY_TORCHES):
             _, _, guild_xy = _GUILD_TOWNS[map_id]
+            guild_xy = self._shop_spot(gmap, (px, py), guild_xy)
             living = [(i + 1, m) for i, m in enumerate(party.members) if not m.is_dead()]
             if living:
                 if goal == Goal.BUY_KEYS:
@@ -960,6 +961,7 @@ class AutoPlayController:
 
         if map_id in _FOOD_TOWNS and goal not in (Goal.CURE_POISON, Goal.RESURRECT_DEAD):
             _, _, food_xy = _FOOD_TOWNS[map_id]
+            food_xy = self._shop_spot(gmap, (px, py), food_xy)
             living = [(i + 1, m) for i, m in enumerate(party.members) if not m.is_dead()]
             if living:
                 total_gold = party.gold
@@ -1012,6 +1014,7 @@ class AutoPlayController:
 
         if map_id in _HEALER_TOWNS and goal in (Goal.RESURRECT_DEAD, Goal.CURE_POISON):
             _, _, healer_xy = _HEALER_TOWNS[map_id]
+            healer_xy = self._shop_spot(gmap, (px, py), healer_xy)
             living = [(i + 1, m) for i, m in enumerate(party.members) if not m.is_dead()]
             if goal == Goal.RESURRECT_DEAD:
                 patient = next(
@@ -2783,6 +2786,52 @@ class AutoPlayController:
                     return self._emit_key(state_machine, pygame.K_u)
             return self._emit_key(state_machine, _DIR_TO_KEY[d])
         return self._emit_key(state_machine, pygame.K_SPACE)
+
+    @staticmethod
+    def _shop_spot(game_map, pos: tuple[int, int], stand: tuple[int, int]) -> tuple[int, int]:
+        """The spot to Transact from: ``stand`` when a merchant is across its
+        counter, else the nearest spot along the same counter that faces one.
+
+        Merchants wander along the row behind their counter, and Talk only
+        reaches the tile right behind the sign (TownScreen._talk_to_direction).
+        Montor East's shops have two merchants each, and autoplay Transacted
+        across the fixed stand to nobody (user 2026-11-23). Stands with no
+        counter (adjacent keepers) are returned as they are."""
+        npcs = list(getattr(game_map, "npcs", ()))
+        merchants = {
+            (n.x, n.y) for n in npcs
+            if str(getattr(n, "tile_name", "")).lower() == "merchant"
+        }
+        anyone = {(n.x, n.y) for n in npcs}
+
+        def is_sign(x: int, y: int) -> bool:
+            t = game_map.get_tile(x, y)
+            return t is not None and getattr(t, "rule", "") == "signs"
+
+        sx, sy = stand
+        counter = next(
+            ((dx, dy) for dx, dy in ((0, -1), (0, 1), (1, 0), (-1, 0)) if is_sign(sx + dx, sy + dy)),
+            None,
+        )
+        if counter is None:
+            return stand
+        dx, dy = counter
+        if (sx + 2 * dx, sy + 2 * dy) in anyone:
+            return stand  # a keeper (merchant, healer, ...) is across already
+        ux, uy = dy, dx  # along the counter
+        best: tuple[int, int] | None = None
+        for sign in (1, -1):
+            for k in range(1, 8):
+                x, y = sx + sign * k * ux, sy + sign * k * uy
+                if not is_sign(x + dx, y + dy):
+                    break  # end of this counter
+                if (x + 2 * dx, y + 2 * dy) in merchants:
+                    if best is None or (
+                        abs(x - pos[0]) + abs(y - pos[1]) < abs(best[0] - pos[0]) + abs(best[1] - pos[1])
+                    ):
+                        best = (x, y)
+                    break
+        return best if best is not None else stand
 
     @staticmethod
     def _direction_to_npc(game_map, px: int, py: int) -> int:

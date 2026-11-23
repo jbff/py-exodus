@@ -1837,3 +1837,56 @@ def test_a_ship_goes_ashore_for_a_chest_its_fight_dropped(pygame_setup, asset_mg
         if lands:
             assert ctrl._trip.dest.tiles == frozenset({shore})
             assert any(leg.action == "X" for leg in ctrl._trip.legs)
+
+
+def _montor_east_armour(asset_mgr, monkeypatch, merchants):
+    """Party at Montor East's armour stand (35,12) wanting an armour upgrade,
+    with the shop's two merchants at ``merchants`` on the row behind the
+    counter (they wander along it)."""
+    from py_exodus.autoplay.equipment import ShopUpgrade
+    from py_exodus.screens.town import TownScreen
+
+    party = _make_party(level=3, gold=500)
+    monkeypatch.setattr(controller_mod, "evaluate_goal", lambda *a, **k: Goal.OUTFIT_BRITAIN)
+    monkeypatch.setattr(
+        controller_mod, "best_shop_upgrade",
+        lambda *a, **k: ShopUpgrade(member_idx=1, kind="armor", item_letter="c",
+                                    price=195, dawn_only=False, rank_gain=1),
+    )
+    monkeypatch.setattr(AutoPlayController, "_maybe_manage_gear", lambda *a, **k: None)
+    sm = StateMachine(asset_mgr=asset_mgr, audio=None)
+    ts = TownScreen(party=party, asset_mgr=asset_mgr, map_id=8, start_x=35, start_y=12)
+    sm.set_screen(ts)
+    shop = [n for n in ts.game_map.npcs if n.tile_name == "merchant" and n.y == 10 and n.x >= 33]
+    assert len(shop) == 2
+    for n, (x, y) in zip(shop, merchants):
+        n.x, n.y = x, y
+    return sm, ts
+
+
+def test_shop_transacts_only_with_a_merchant_across_the_counter(pygame_setup, asset_mgr, monkeypatch):
+    """User report (2026-11-23): Montor East's Ace Armour has two merchants
+    who wander along their counter, and autoplay Transacted north across
+    the fixed stand to nobody. It walks along the counter to the spot
+    facing a merchant first."""
+    sm, ts = _montor_east_armour(asset_mgr, monkeypatch, [(37, 10), (38, 10)])
+    ctrl = AutoPlayController(enabled=True)
+    assert ctrl._shop_spot(ts.game_map, (35, 12), (35, 12)) == (37, 12)
+    assert ctrl.step(sm) == pygame.K_RIGHT
+
+
+def test_shop_transacts_at_once_when_the_merchant_is_across(pygame_setup, asset_mgr, monkeypatch):
+    sm, ts = _montor_east_armour(asset_mgr, monkeypatch, [(35, 10), (38, 10)])
+    ctrl = AutoPlayController(enabled=True)
+    assert ctrl._shop_spot(ts.game_map, (35, 12), (35, 12)) == (35, 12)
+    assert ctrl.step(sm) == pygame.K_t
+    assert ctrl._talk_dir_key == pygame.K_UP
+
+
+def test_shop_spot_stays_on_its_own_counter(pygame_setup, asset_mgr, monkeypatch):
+    """With both armour merchants gone from the counter, the stand doesn't
+    reach for the weapon shop's merchants behind the next counter over:
+    it keeps the stand (and waits for one to wander back)."""
+    sm, ts = _montor_east_armour(asset_mgr, monkeypatch, [(50, 50), (51, 50)])
+    ctrl = AutoPlayController(enabled=True)
+    assert ctrl._shop_spot(ts.game_map, (35, 12), (35, 12)) == (35, 12)
