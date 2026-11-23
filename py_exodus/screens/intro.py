@@ -23,6 +23,11 @@ import pygame
 from py_exodus.screens.base import BaseScreen
 from py_exodus.ui.text_log import get_hud_font
 
+#: C64-style title art (assets/graphics/title, user 2026-11-23), 236x67 and
+#: 204x45 pixels, in LairWare's EXODUS and Ultima-logo slots (same aspect).
+TITLE_ART = "title/pyexodus.png"
+ULTIMA_ART = "title/ultima3.png"
+
 if TYPE_CHECKING:
     from py_exodus.assets import AssetManager
     from py_exodus.audio import AudioManager
@@ -131,14 +136,41 @@ class IntroScreen(BaseScreen):
             from py_exodus.assets import load_image_surface
 
             parts = name.split("/")
-            img = load_image_surface(self.asset_mgr.resolve_path("graphics", "lairware", *parts))
+            if parts[0] != "title":  # our own title art; the rest is LairWare's
+                parts.insert(0, "lairware")
+            img = load_image_surface(self.asset_mgr.resolve_path("graphics", *parts))
             rgba = pygame.Surface(img.get_size(), pygame.SRCALPHA)
             rgba.blit(img, (0, 0))
             self._images[name] = rgba
         return self._images[name]
 
+    #: The intro's copyright line: the game's left, the port's right (user
+    #: 2026-11-23; was LairWare's baked "Origin Systems / Macintosh version"
+    #: credits image). Ancestry and licences stay on the main menu.
+    CREDITS = ("Ultima III \u00a9 1983 Lord British / Richard Garriott", "py-exodus \u00a9 2026")
+
+    def _credits(self, rect: pygame.Rect) -> None:
+        left, right = self.CREDITS
+        size = max(8, round(rect.height * 0.7))
+        while True:
+            bold = get_hud_font(size=size, font_name="BarlowSemiCondensed-SemiBold.ttf")
+            plain = get_hud_font(size=size, font_name="BarlowSemiCondensed-Medium.ttf")
+            a = bold.render(left, True, (255, 255, 255))
+            b = plain.render(right, True, (255, 255, 255))
+            if a.get_width() + b.get_width() + rect.height <= rect.width or size <= 8:
+                break
+            size -= 1
+        self.canvas.blit(a, (rect.x, rect.centery - a.get_height() // 2))
+        self.canvas.blit(b, (rect.right - b.get_width(), rect.centery - b.get_height() // 2))
+
+    def _scaled(self, name: str, size: tuple[int, int]) -> pygame.Surface:
+        """The title art is C64-style pixel art: nearest-neighbour keeps it
+        blocky (at 960 wide its slots are exactly 3x the art)."""
+        scale = pygame.transform.scale if name.startswith("title/") else pygame.transform.smoothscale
+        return scale(self._image(name), size)
+
     def _draw(self, name: str, rect: pygame.Rect) -> None:
-        self.canvas.blit(pygame.transform.smoothscale(self._image(name), rect.size), rect)
+        self.canvas.blit(self._scaled(name, rect.size), rect)
 
     # -- lifecycle --------------------------------------------------------
 
@@ -223,7 +255,7 @@ class IntroScreen(BaseScreen):
         with chance (pass + 32767) / 65535, pass rising by 1536."""
         import numpy as np
 
-        img = pygame.surfarray.array3d(pygame.transform.smoothscale(self._image(name), rect.size))
+        img = pygame.surfarray.array3d(self._scaled(name, rect.size))
         rng = np.random.default_rng()
         w, h = rect.size
         cw = (w + chunk - 1) // chunk
@@ -242,9 +274,9 @@ class IntroScreen(BaseScreen):
         self._draw("intro/stalagtites.png", self._rect(1, 19, 39, 21.125))
         self._fighters(2, -25)
         yield 80
-        yield from self._dissolve("exodus.png", self._rect(5.25, 1.25, 34.75, 9.625), 5, 8)
+        yield from self._dissolve(TITLE_ART, self._rect(5.25, 1.25, 34.75, 9.625), 5, 8)
         yield 60
-        yield from self._dissolve("ultima_logo.png", self._rect(7.25, 9.9375, 32.75, 15.5625), 4, 4)
+        yield from self._dissolve(ULTIMA_ART, self._rect(7.25, 9.9375, 32.75, 15.5625), 4, 4)
         yield 120
         self._draw("intro/by.png", self._rect(11.25, 15.75, 12.875, 17.1875))
         yield 10
@@ -256,7 +288,7 @@ class IntroScreen(BaseScreen):
                 self.canvas.fill((255, 255, 255), (int((x + 244) * s), top + int((y + 253) * s), *dot))
             if n % 2:
                 yield 1
-        self._draw("intro/credits.png", self._rect(1, 17.5625, 39, 19))
+        self._credits(self._rect(1, 17.5625, 39, 19))
         for shape, x in fight_frames():
             self._fighters(shape, x)
             yield 8
@@ -276,7 +308,7 @@ class IntroScreen(BaseScreen):
 
     def _view(self) -> Iterator[float]:
         self.canvas.fill((0, 0, 0))
-        self._draw("exodus.png", self._rect(5.25, 1.25, 34.75, 9.625))
+        self._draw(TITLE_ART, self._rect(5.25, 1.25, 34.75, 9.625))
         font = get_hud_font(size=max(10, round(self._blk() * 0.9)), font_name="BarlowSemiCondensed-SemiBold.ttf")
         img = font.render("ULTIMA III", True, (255, 255, 255))
         self.canvas.blit(img, ((self.size[0] - img.get_width()) // 2, self._rect(0, 10, 1, 11).y))

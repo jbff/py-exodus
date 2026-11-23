@@ -51,22 +51,22 @@ class StartScreen(BaseScreen):
         self.selected_idx = 0
         self.anim_time: float = 0.0
 
-        # Title art (LairWare)
+        # Title art (C64-style, assets/graphics/title)
         self.logo_image: pygame.Surface | None = None
         self.exodus_image: pygame.Surface | None = None
         self._load_visual_assets()
 
     def _load_visual_assets(self) -> None:
-        """LairWare's title art: the "Ultima III" logo and EXODUS."""
+        """The C64-style title art: "Ultima III" and "pyExodus"."""
         if self.asset_mgr is None:
             return
         try:
             from py_exodus.assets import load_image_surface
 
             self.logo_image = load_image_surface(
-                self.asset_mgr.resolve_path("graphics", "lairware", "ultima_logo.png"))
+                self.asset_mgr.resolve_path("graphics", "title", "ultima3.png"))
             self.exodus_image = load_image_surface(
-                self.asset_mgr.resolve_path("graphics", "lairware", "exodus.png"))
+                self.asset_mgr.resolve_path("graphics", "title", "pyexodus.png"))
         except Exception:
             pass
 
@@ -118,20 +118,18 @@ class StartScreen(BaseScreen):
         k = w / 960.0
         px = lambda v: max(1, int(round(v * k)))  # noqa: E731
 
-        def blit_scaled(img, width, y):
-            if img.get_bitsize() < 24:  # paletted PNG: smoothscale needs 32-bit
-                rgba = pygame.Surface(img.get_size(), pygame.SRCALPHA)
-                rgba.blit(img, (0, 0))
-                img = rgba
-            sh = int(img.get_height() * width / img.get_width())
-            surface.blit(pygame.transform.smoothscale(img, (width, sh)), ((w - width) // 2, y))
+        def blit_pixel_art(img, times, y):
+            """Whole-number nearest-neighbour scale: the art stays blocky."""
+            n = max(1, round(times * k))
+            sw, sh = img.get_width() * n, img.get_height() * n
+            surface.blit(pygame.transform.scale(img, (sw, sh)), ((w - sw) // 2, y))
             return y + sh
 
-        y = px(14)
+        y = px(6)
         if self.logo_image is not None:
-            y = blit_scaled(self.logo_image, px(400), y) + px(6)
+            y = blit_pixel_art(self.logo_image, 2, y) + px(4)
         if self.exodus_image is not None:
-            y = blit_scaled(self.exodus_image, px(600), y) + px(10)
+            y = blit_pixel_art(self.exodus_image, 3, y) + px(4)
         else:
             t = get_hud_font(size=px(48), font_name="ultima.ttf").render(
                 "ULTIMA III: EXODUS", True, EGA_YELLOW)
@@ -139,7 +137,7 @@ class StartScreen(BaseScreen):
             y += t.get_height() + px(10)
 
         tag_font = get_hud_font(size=px(24), font_name="BarlowSemiCondensed-SemiBold.ttf")
-        for line in ("From the depths of hell", "he comes for vengeance!"):
+        for line in ("From the depths of hell...", "...he comes for vengeance!"):
             t = tag_font.render(line, True, EGA_BRIGHT_RED)
             surface.blit(t, ((w - t.get_width()) // 2, y))
             y += t.get_height()

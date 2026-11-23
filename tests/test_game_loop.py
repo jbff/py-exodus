@@ -352,8 +352,8 @@ def test_start_screen_renders_tagline(pygame_setup, asset_mgr, monkeypatch):
     surface = pygame.Surface((640, 480))
     scr.render(surface)
     # Two lines (user 2026-11-22), and the credits at the bottom.
-    assert "From the depths of hell" in rendered_texts
-    assert "he comes for vengeance!" in rendered_texts
+    assert "From the depths of hell..." in rendered_texts
+    assert "...he comes for vengeance!" in rendered_texts
     assert any("Richard Garriott" in t for t in rendered_texts)
     assert any("Paul Antinori" in t and "LairWare" in t for t in rendered_texts)
 
