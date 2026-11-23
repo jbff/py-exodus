@@ -1637,3 +1637,26 @@ def test_lane_escape_leaves_the_last_steps_into_town_to_the_trip(pygame_setup, a
     ctrl._emit_key = lambda _sm, key, **_kw: keys.append(key) or 0
     assert ctrl._threat_escape(sm, ow, party, 8, 44) is None
     assert not keys
+
+
+def test_town_gate_exception_doesnt_cut_off_a_pirate_hunt(pygame_setup, asset_mgr):
+    """Batch 2eacc2d seeds 131-138: one step from Death Gulch's gate, the
+    last-steps-into-town exception returned before a strong party's pirate
+    hunt; at the gate the hunt stepped south, at (56, 32) the trip stepped
+    north, thousands of times (seed 137 starved there with 822 gold)."""
+    from py_exodus.autoplay.controller import _DIR_TO_KEY
+
+    party = _make_party(level=25, x=56, y=32)
+    sm, ow = _overworld(asset_mgr, party)
+    gmap = ow.game_map
+    ow.creatures = [_pirate(55, 36)]
+    ctrl = AutoPlayController(enabled=True)
+    assert ctrl._strong_vs_pirates(party)
+    ctrl._threats = compute_threats(gmap, party, ow.creatures)
+    dest = Destination(frozenset({(56, 31)}), Transport.FOOT, "death_gulch")
+    ctrl._replan(gmap, party, ow, 0, (56, 32), Transport.FOOT, dest)
+    assert ctrl._trip is not None and ctrl._trip.legs[0].action == "ARRIVE"
+    keys: list[int] = []
+    ctrl._emit_key = lambda _sm, key, **_kw: keys.append(key) or 0
+    ctrl._threat_escape(sm, ow, party, 56, 32)
+    assert keys and keys[-1] == _DIR_TO_KEY[Direction.SOUTH]

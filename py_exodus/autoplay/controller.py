@@ -1138,18 +1138,6 @@ class AutoPlayController:
             and pos in self._frigate_costs(party, screen)
         ):
             return None
-        # Likewise a few steps from the town gate the trip is walking into
-        # (batch 0442fe7 seed 128: the escape stepped off the lane at (8, 44)
-        # beside the gate at (7, 44), the trip stepped back, and so on for
-        # ~2,600 steps until the party starved with 884 gold).
-        if (
-            not on_ship
-            and plan is not None
-            and plan.legs
-            and plan.legs[0].action == "ARRIVE"
-            and self._last_steps_into_town(gmap, party, pos, {plan.legs[0].end})
-        ):
-            return None
 
         # A pirate orthogonally adjacent: attack it (battle, then its frigate).
         if th.pirates and not party_has_low_hp(party):
@@ -1168,6 +1156,21 @@ class AutoPlayController:
                 return self._emit_key(state_machine, _DIR_TO_KEY[hunt], guarded=False)
 
         if not th.unsafe_end(pos):
+            return None
+        # A few steps from the town gate the trip is walking into
+        # (batch 0442fe7 seed 128: the escape stepped off the lane at (8, 44)
+        # beside the gate at (7, 44), the trip stepped back, and so on for
+        # ~2,600 steps until the party starved with 884 gold). Only the
+        # escape: checked before the pirate hunt it cut a strong party's hunt
+        # off one step from Death Gulch's gate, and the hunt and the trip took
+        # turns there for thousands of steps (batch 2eacc2d seeds 131-138).
+        if (
+            not on_ship
+            and plan is not None
+            and plan.legs
+            and plan.legs[0].action == "ARRIVE"
+            and self._last_steps_into_town(gmap, party, pos, {plan.legs[0].end})
+        ):
             return None
 
         # Standing on a chest under fire: take it now (one action), then the
