@@ -1765,3 +1765,43 @@ def test_a_hurt_party_doesnt_cross_the_map_for_chests(pygame_setup, asset_mgr):
         ctrl._move_toward = lambda _sm, _g, _p, _pos, goals: called.append(set(goals)) or 0
         ctrl._step_overworld(sm, ow, party, 44, 20, Goal.GRIND_AND_LEVEL)
         assert any((44, 12) in g for g in called) is chased, hurt
+
+
+def test_errands_pick_up_a_dropped_chest_unless_it_is_an_emergency(pygame_setup, asset_mgr):
+    """User rule 2026-11-23: a dropped chest is two moves; take it unless
+    that courts catastrophe. Errands take it; not a poisoned member near
+    death on the way to the cure, nor a badly hurt party with a monster
+    closing in."""
+    from py_exodus.constants import Status
+
+    def chases(goal, setup=None, creatures=()):
+        party = _make_party(level=10, x=44, y=20)
+        cleric = next(m for m in party.members if m.profession == Profession.CLERIC)
+        cleric.wisdom, cleric.max_mp, cleric.mp = 25, 25, 25
+        party.dynamic_objects = [{"tile": "chest", "x": 44, "y": 17}]  # 3 steps north
+        party.objects_map_id = 0
+        if setup:
+            setup(party)
+        sm, ow = _overworld(asset_mgr, party)
+        ow.creatures = list(creatures)
+        ctrl = AutoPlayController(enabled=True)
+        called: list[set] = []
+        ctrl._move_toward = lambda _sm, _g, _p, _pos, goals: called.append(set(goals)) or 0
+        ctrl._step_overworld(sm, ow, party, 44, 20, goal)
+        return any((44, 17) in g for g in called)
+
+    def poisoned_near_death(p):
+        p.members[0].status = Status.POISONED
+        p.members[0].hp = 20
+
+    def badly_hurt(p):
+        for m in p.members:
+            m.hp = m.max_hp // 4
+
+    assert chases(Goal.BUY_FOOD)
+    assert chases(Goal.RESURRECT_DEAD)
+    assert chases(Goal.CURE_POISON)
+    assert not chases(Goal.CURE_POISON, poisoned_near_death)
+    orc = {"tile_name": "orc", "tile": "orc", "x": 44, "y": 25}
+    assert chases(Goal.BUY_FOOD, badly_hurt)  # nothing near: still two moves
+    assert not chases(Goal.BUY_FOOD, badly_hurt, [orc])

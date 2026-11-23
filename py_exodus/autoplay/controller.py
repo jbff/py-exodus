@@ -1415,12 +1415,29 @@ class AutoPlayController:
                 for obj in objects_on(party, gmap)
                 if str(obj.get("tile", "")).lower() == "chest"
             }
-            if (px, py) in chests:
+            # User rule 2026-11-23: a dropped chest is two moves; pick it up
+            # unless spending them courts catastrophe. Errands (food,
+            # resurrection, a cure) take it too; the exceptions are a
+            # poisoned member a few HP from death on the way to the cure,
+            # and a badly hurt party with monsters closing in (the flee
+            # below gets the turn). Chests in a firing lane are already
+            # unreachable (the walk avoids lanes), and a weak party with no
+            # safe opener leaves them (_chest_too_risky, above).
+            emergency = (
+                goal == Goal.CURE_POISON
+                and any(m.status == Status.POISONED and m.hp <= 25 for m in living)
+            ) or (
+                party_has_low_hp(party)
+                and any(
+                    "x" in c and "y" in c
+                    and creature_name(c) not in SEA_MONSTERS and creature_name(c) != "whirlpool"
+                    and manhattan(gmap.width, gmap.height, (px, py), (c["x"], c["y"])) <= _CHASE_RADIUS
+                    for c in getattr(screen, "creatures", ()) or ()
+                )
+            )
+            if (px, py) in chests and not emergency:
                 return self._open_chest(state_machine, party)
-            if chests and (
-                goal in (Goal.GRIND_AND_LEVEL, Goal.OUTFIT_BRITAIN, Goal.AMBROSIA_CARDS_SHRINES)
-                or (goal not in (Goal.BUY_FOOD, Goal.RESURRECT_DEAD, Goal.CURE_POISON) and not needs_heal(party))
-            ):
+            if chests and not emergency:
                 # Hurt, only the chests a few steps off (a fight's own drop):
                 # chests anywhere on the map came before resting, and a
                 # level 9-16 party walked from one to the next, fighting
