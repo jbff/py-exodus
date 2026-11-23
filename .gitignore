@@ -22,3 +22,6 @@ refs/
 # autoplay traces (batch + live --trace)
 traces/
 .superpowers/
+
+# Claude Code local state (settings.local.json, agent worktrees)
+.claude/
