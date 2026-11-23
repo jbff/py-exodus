@@ -326,14 +326,23 @@ def return_trip_gold(party: Party) -> int:
     return min(cost, RETURN_TRIP_MAX_GOLD - 500 - most_extras) + extras
 
 
+# Raids for a return trip run this far past what the trip costs. The cost
+# counts the food still to buy, so every step eaten raised it: stopping at
+# exactly the cost left the party bouncing at the line, re-entering Death
+# Gulch for ~100 gold and a key, then sailing to Grey for that key (user
+# live trace 2026-11-23, trace_20261123-060407, steps ~99,000-122,000).
+RAID_TRIP_MARGIN = 500
+
+
 def raid_gold_target(party: Party, cap: int) -> int:
-    """Gold a Death Gulch raid stops at. On return trips for stats, just
-    what the rest of the plan costs (user 2026-11-22: a party 1,100 gold
-    short of its last INT points raided on to 8,500); otherwise ``cap``."""
+    """Gold a Death Gulch raid stops at. On return trips for stats, what the
+    rest of the plan costs plus ``RAID_TRIP_MARGIN`` (user 2026-11-22: a
+    party 1,100 gold short of its last INT points raided on to 8,500);
+    otherwise ``cap``."""
     living = [m for m in party.members if not m.is_dead()]
     has_all_cards = all(any(m.cards[i] > 0 for m in living) for i in range(4))
     trip = return_trip_gold(party) if has_all_cards else 0
-    return min(trip, cap) if trip else cap
+    return min(trip + RAID_TRIP_MARGIN, cap) if trip else cap
 
 
 def death_gulch_key_stock(party: Party) -> int:
@@ -346,6 +355,20 @@ def death_gulch_key_stock(party: Party) -> int:
     wanted = DEATH_GULCH_KEYS + -(-short // DEATH_GULCH_GOLD_PER_KEY)
     affordable = keys + max(0, party.gold - DEATH_GULCH_BRIBE_GOLD) // 50
     return min(wanted, affordable, 99)
+
+
+def _death_gulch_keys_goal(party: Party, living: list, cur_map_id: int) -> Goal | None:
+    """BUY_KEYS when the raids need keys, else None."""
+    keys = sum(m.keys for m in living)
+    keys_short = DEATH_GULCH_KEYS - keys
+    # Buy them only while the bribe gold survives the purchase.
+    if keys_short > 0 and party.gold >= DEATH_GULCH_BRIBE_GOLD + 50 * keys_short:
+        return Goal.BUY_KEYS
+    # Already at the guild: stock up for every raid still to come, one key
+    # at a time while the bribe gold survives each purchase.
+    if cur_map_id in GUILD_TOWN_IDS and keys < death_gulch_key_stock(party):
+        return Goal.BUY_KEYS
+    return None
 
 
 def gold_has_a_use(party: Party) -> bool:
@@ -582,6 +605,15 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
             return Goal.BUY_FOOD
         return Goal.SAIL_WHIRLPOOL
 
+    # Keys for Death Gulch, whose raids pay for the return trips: also
+    # while still levelling (user live trace 2026-11-23, trace_20261123-
+    # 060407: 3 keys from step 38,000 to 82,000, so no raid until all four
+    # reached level 25 and the branch below bought the fourth).
+    if cur_map_id != 2 and return_trip_cost(party) > 0:
+        keys_goal = _death_gulch_keys_goal(party, living, cur_map_id)
+        if keys_goal is not None:
+            return keys_goal
+
     if cur_map_id != 2 and min(m.level for m in living) < 25:
         return Goal.GRIND_AND_LEVEL
 
@@ -590,19 +622,10 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
     # 70/75 caster MP lost a member in Castle Exodus. Grinding here raids
     # Death Gulch for the gold, and the return-trip goal above sails.
     if cur_map_id != 2 and return_trip_cost(party) > 0:
-        # The gold comes from Death Gulch, and the raid needs 4 keys for its
-        # doors (user live trace 2026-11-22, trace_20261122-151023: all
-        # cards and marks, level 25+, 3 keys: no raid after step 53,837, and
-        # 5,549 gold went on food until the party was broke).
-        keys = sum(m.keys for m in living)
-        keys_short = DEATH_GULCH_KEYS - keys
-        # Buy them only while the bribe gold survives the purchase.
-        if keys_short > 0 and party.gold >= DEATH_GULCH_BRIBE_GOLD + 50 * keys_short:
-            return Goal.BUY_KEYS
-        # Already at the guild: stock up for every raid still to come, one
-        # key at a time while the bribe gold survives each purchase.
-        if cur_map_id in GUILD_TOWN_IDS and keys < death_gulch_key_stock(party):
-            return Goal.BUY_KEYS
+        # The gold comes from Death Gulch, whose keys are bought above (user
+        # live trace 2026-11-22, trace_20261122-151023: all cards and marks,
+        # level 25+, 3 keys: no raid after step 53,837, and 5,549 gold went
+        # on food until the party was broke).
         return Goal.GRIND_AND_LEVEL
 
     return Goal.CONQUER_EXODUS

@@ -363,6 +363,9 @@ def test_evaluate_goal_progression():
         weapon=WeaponType.EXOTIC,
         armor=ArmorType.EXOTIC,
     )
+    # With the 4 keys a Death Gulch raid needs (a levelling party short of
+    # them buys them first: test_a_levelling_party_buys_death_gulch_keys).
+    need_l25.members[0].keys = 4
     assert evaluate_goal(need_l25) == Goal.GRIND_AND_LEVEL
 
     ready_exodus = _make_party(

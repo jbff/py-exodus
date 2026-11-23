@@ -1153,7 +1153,7 @@ def test_return_trip_raids_only_for_what_the_stats_cost(pygame_setup):
     from py_exodus.autoplay import batch
     from py_exodus.autoplay.controller import _DEATH_GULCH_GOLD_CAP, AutoPlayController
     from py_exodus.autoplay.planner import (
-        raid_gold_target, return_trip_cost, return_trip_gold, stat_cap,
+        RAID_TRIP_MARGIN, raid_gold_target, return_trip_cost, return_trip_gold, stat_cap,
     )
 
     party = batch.build_party()
@@ -1171,7 +1171,7 @@ def test_return_trip_raids_only_for_what_the_stats_cost(pygame_setup):
     party.members[0].gold = 4000
     target = return_trip_gold(party)
     assert target < 2000
-    assert raid_gold_target(party, _DEATH_GULCH_GOLD_CAP) == target
+    assert raid_gold_target(party, _DEATH_GULCH_GOLD_CAP) == target + RAID_TRIP_MARGIN
     living = list(party.members)
     ctrl = AutoPlayController(enabled=True)
     assert not ctrl._wants_death_gulch(party, living, 0, Goal.GRIND_AND_LEVEL)
@@ -1935,3 +1935,48 @@ def test_planner_guild_towns_match_the_controller():
     from py_exodus.autoplay.planner import GUILD_TOWN_IDS
 
     assert GUILD_TOWN_IDS == frozenset(controller_mod._GUILD_TOWNS)
+
+
+def _all_cards_party(level=25, keys=4, gold=2000):
+    from py_exodus.autoplay import batch
+
+    party = batch.build_party()
+    for m in party.members:
+        m.level, m.food, m.keys, m.gold = level, 300, 0, 0
+        m.marks, m.cards = [1, 1, 1, 1], [1, 1, 1, 1]
+        m.weapon, m.armor = WeaponType.EXOTIC, ArmorType.EXOTIC
+    party.members[0].keys = keys
+    party.members[0].gold = gold
+    return party
+
+
+def test_a_raid_for_a_return_trip_ends_clear_of_the_trip_line(pygame_setup):
+    """User live trace 2026-11-23 (trace_20261123-060407, steps ~99,000-
+    122,000): the raid stopped at exactly the trip's gold, which counts the
+    food still to buy, so each step eaten put the party back under it: in
+    and out of Death Gulch for ~100 gold and a key, then to Grey for that
+    key. A raid ends far enough over that the walk to the guild, the shop
+    and the whirlpool can't drop it back under."""
+    from py_exodus.autoplay.controller import _DEATH_GULCH_GOLD_CAP
+    from py_exodus.autoplay.planner import raid_gold_target, return_trip_gold
+
+    party = _all_cards_party(keys=7)
+    for m in party.members:
+        m.food = 200
+    party.members[0].gold = raid_gold_target(party, _DEATH_GULCH_GOLD_CAP)
+    assert party.gold < _DEATH_GULCH_GOLD_CAP
+    for m in party.members:
+        m.food = 120  # a long walk later
+    assert party.gold >= return_trip_gold(party)
+    assert evaluate_goal(party, 0) == Goal.BUY_KEYS  # for the trip, then sail
+
+
+def test_a_levelling_party_buys_death_gulch_keys(pygame_setup):
+    """User live trace 2026-11-23 (trace_20261123-060407): with every card
+    and 3 keys, the party ground on the mainland from step 38,000 to 82,000
+    without a raid: the planner's "level below 25 -> grind" answered before
+    the Death Gulch keys. Levelling, it buys them too."""
+    party = _all_cards_party(level=20, keys=3, gold=2000)
+    assert evaluate_goal(party, 0) == Goal.BUY_KEYS
+    party.members[0].keys = 4
+    assert evaluate_goal(party, 0) == Goal.GRIND_AND_LEVEL
