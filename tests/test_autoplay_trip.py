@@ -1660,3 +1660,29 @@ def test_town_gate_exception_doesnt_cut_off_a_pirate_hunt(pygame_setup, asset_mg
     ctrl._emit_key = lambda _sm, key, **_kw: keys.append(key) or 0
     ctrl._threat_escape(sm, ow, party, 56, 32)
     assert keys and keys[-1] == _DIR_TO_KEY[Direction.SOUTH]
+
+
+def test_a_ship_doesnt_sheer_off_from_land_monsters(pygame_setup, asset_mgr):
+    """Batch db59b20 seed 145: a level-25 party sailing for food dodged an
+    orc ashore three tiles off, back and forth by (5, 40)/(5, 41) for ~4,600
+    steps, and starved with 5,781 gold. Nothing ashore can follow a ship."""
+    from py_exodus.ui.renderer import can_move_to
+
+    party = _make_party(level=25, x=5, y=41, transport=Transport.SHIP)
+    party.wind_direction = Direction.NORTH
+    sm, ow = _overworld(asset_mgr, party)
+    gmap = ow.game_map
+    assert can_move_to(gmap, 5, 41, transport=Transport.SHIP, party=party)
+    land = next(
+        (x, y)
+        for x in range(0, 12)
+        for y in range(36, 47)
+        if abs(x - 5) + abs(y - 41) == 3 and can_move_to(gmap, x, y, transport=Transport.FOOT, party=party)
+    )
+    ow.creatures = [{"tile_name": "orc", "tile": "orc", "x": land[0], "y": land[1]}]
+    ctrl = AutoPlayController(enabled=True)
+    ctrl._threats = compute_threats(gmap, party, ow.creatures)
+    keys: list[int] = []
+    ctrl._emit_key = lambda _sm, key, **_kw: keys.append(key) or 0
+    ctrl._evade_or_rest(sm, ow, gmap, party, 5, 41, Goal.BUY_FOOD, list(party.members), 0)
+    assert not keys

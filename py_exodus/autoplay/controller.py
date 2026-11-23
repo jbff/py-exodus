@@ -1533,11 +1533,17 @@ class AutoPlayController:
         # On foot a step away from an adjacent monster only delays the fight
         # (user rule: outrun it to a town, or fight it); ships still sheer off.
         evade_rad = 3 if party.transport == Transport.SHIP else -1
+        # A ship sheers off only from what can follow it on the water: land
+        # monsters ashore can't, and dodging them sent a level-25 party back
+        # and forth off the coast for ~4,600 steps, food running out
+        # (batch db59b20 seed 145, starved with 5,781 gold).
+        on_ship = party.transport == Transport.SHIP
         nearby = [
             (c["x"], c["y"])
             for c in getattr(screen, "creatures", [])
             if "x" in c and "y" in c
             and creature_name(c) != "whirlpool"
+            and (not on_ship or creature_name(c) in SEA_MONSTERS)
             and manhattan(gmap.width, gmap.height, (c["x"], c["y"]), (px, py)) <= evade_rad
         ]
         if nearby:
