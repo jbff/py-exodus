@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 import pygame
 
 from py_exodus.autoplay.equipment import (
+    excess_gear,
     best_hand_transfer,
     best_owned_armor,
     best_owned_weapon,
@@ -155,6 +156,9 @@ _SHOP_TOWNS: dict[int, tuple[int, int, tuple[int, int], tuple[int, int]]] = {
     9: (47, 58, (50, 35), (51, 28)),   # Montor West
     11: (37, 53, (27, 19), (19, 20)),  # Dawn
 }
+
+# Sell talks per town visit at most: a refused sale can't loop the party.
+_SELL_TALKS_PER_VISIT = 12
 
 # Towns with Guild shops reachable on foot: map_id -> (portal_x, portal_y, guild_stand_xy)
 # Every guild sells a torches, b gems, c keys, d powder; the stand is two
@@ -685,6 +689,7 @@ class AutoPlayController:
         return self._step_overworld(state_machine, screen, party, px, py, goal)
 
     def _step_town(self, state_machine: StateMachine, screen, party, px: int, py: int, goal: Goal) -> int | None:
+        self._sell_plan = None  # a talk in progress answers prompts, not steps
         gmap = screen.game_map
         map_id = getattr(gmap, "id", getattr(screen, "map_id", party.map_id))
         if (
@@ -1041,6 +1046,13 @@ class AutoPlayController:
                 if d is not None:
                     return self._emit_key(state_machine, _DIR_TO_KEY[d])
 
+        # On the way out of a shop town: sell spare weapons and armour first.
+        # Checked when leaving, not entering: buying during the visit is what
+        # leaves gear spare (user 2026-11-23).
+        key = self._sell_spare_gear(state_machine, screen, gmap, party, map_id, px, py, npc_tiles)
+        if key is not None:
+            return key
+
         # Default in town: walk to nearest exit border (e.g. Britain's east gate)
         if py == gmap.height - 1:
             return self._emit_key(state_machine, pygame.K_DOWN)
@@ -1069,6 +1081,70 @@ class AutoPlayController:
         if d is not None:
             return self._step_or_unlock(state_machine, gmap, party, px, py, d)
         return self._emit_key(state_machine, pygame.K_SPACE)
+
+    _sell_plan: tuple[int, str, int] | None = None
+    _sell_asked = False
+    _sell_visit: int | None = None
+    _sell_talks = 0
+
+    def _sell_spare_gear(self, state_machine, screen, gmap, party, map_id, px, py, npc_tiles) -> int | None:
+        """Sell the party's spare weapons and armour (``excess_gear``) to this
+        town's shops, one piece type per talk. Only in a town with weapon and
+        armour shops the party is in anyway: never a trip to sell (user
+        2026-11-23). Skipped in an emergency (a poisoned member near death,
+        anyone out of food): leaving comes first."""
+        if map_id not in _SHOP_TOWNS:
+            return None
+        if self._sell_visit != id(screen):
+            self._sell_visit, self._sell_talks = id(screen), 0
+        if self._sell_talks >= _SELL_TALKS_PER_VISIT:
+            return None
+        living = [m for m in party.members if not m.is_dead()]
+        if any(m.food <= 0 for m in living) or any(
+            m.status == Status.POISONED and m.hp <= 25 for m in living
+        ):
+            return None
+        asset_mgr = getattr(screen, "asset_mgr", None)
+        if asset_mgr is None:
+            return None
+        from py_exodus.screens.vendor_dialog import _typed_key
+
+        stock: dict[str, dict] = {"weapon": {}, "armor": {}}
+        for v in asset_mgr.get_vendors_for_map(map_id):
+            vt = (v.vendor_type or "").upper()
+            for it in v.items:
+                if vt == "WEAPON" and it.weapon_type:
+                    stock["weapon"][_typed_key(WeaponType, it.weapon_type)] = it
+                elif vt == "ARMOR" and it.armor_type:
+                    stock["armor"][_typed_key(ArmorType, it.armor_type)] = it
+        sales = excess_gear(
+            party, set(stock["weapon"]), set(stock["armor"]),
+            prefer_ranged=prefer_ranged_weapons(party),
+        )
+        _, _, wep_xy, arm_xy = _SHOP_TOWNS[map_id]
+        for sale in sorted(sales, key=lambda s: s.kind != "weapon"):  # weapons first
+            item = stock[sale.kind][sale.item]
+            owner = party.members[sale.member_idx - 1]
+            # A sale past 9999 gold is cancelled by the shop (LairWare).
+            count = min(sale.count, max(0, 9999 - owner.gold) // max(1, item.price))
+            if count <= 0:
+                continue
+            spot = self._shop_spot(gmap, (px, py), wep_xy if sale.kind == "weapon" else arm_xy)
+            if (px, py) == spot:
+                self._sell_plan = (sale.member_idx, item.choice, count)
+                self._sell_asked = False
+                self._sell_talks += 1
+                self._shop_member_idx = sale.member_idx
+                self._talk_dir_key = self._direction_to_npc(gmap, px, py)
+                return self._emit_key(state_machine, pygame.K_t)
+            d = find_2d_step(
+                gmap, (px, py), spot, Transport.FOOT, party=party,
+                avoid_tiles=npc_tiles, prefer_paths=True,
+            )
+            if d is not None:
+                return self._emit_key(state_machine, _DIR_TO_KEY[d])
+            return None
+        return None
 
     def _step_or_unlock(self, state_machine: StateMachine, gmap, party, px: int, py: int, d: Direction) -> int:
         nx, ny = px + d.dx, py + d.dy
@@ -2572,6 +2648,19 @@ class AutoPlayController:
             return self._emit_key(state_machine, _char_to_key(self._wear_item_letter) or pygame.K_b)
         if "who is in need" in prompt:
             return self._emit_key(state_machine, pygame.K_0 + self._heal_patient_idx)
+        if self._sell_plan is not None:
+            _idx, letter, count = self._sell_plan
+            if "buy" in prompt and "sell" in prompt:
+                if self._sell_asked:  # back at the question: refused, leave
+                    self._sell_plan = None
+                    return self._emit_key(state_machine, pygame.K_ESCAPE)
+                self._sell_asked = True
+                return self._emit_key(state_machine, pygame.K_s)
+            if "wouldst you sell" in prompt:
+                return self._emit_key(state_machine, _char_to_key(letter) or pygame.K_ESCAPE)
+            if "like to sell" in prompt:
+                self._queue_text(str(count), enter=True)
+                return self._emit_key(state_machine, self._key_queue.popleft())
         if "your need" in prompt or "wat'l it be" in prompt:
             return self._emit_key(state_machine, _char_to_key(self._shop_item_letter) or pygame.K_c)
         if "talk" in prompt or "which" in prompt or "who" in prompt:

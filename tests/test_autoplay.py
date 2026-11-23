@@ -1703,6 +1703,9 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
     from py_exodus.screens.town import TownScreen
 
     p_br = _make_party(level=1, exp=0, gold=0, food=500)
+    for m in p_br.members:  # no spare gear to sell on the way out
+        m.weapons[WeaponType.DAGGER] = 0
+        m.armors[ArmorType.CLOTH] = 0
     ts_br = TownScreen(party=p_br, asset_mgr=am, map_id=3, start_x=63, start_y=32)
     sm.set_screen(ts_br)
     assert ctrl.step(sm) == pygame.K_RIGHT

@@ -353,3 +353,74 @@ def best_shop_upgrade(
         return (1 if is_empty else 0, can_self_pay if needs_starter else 0, effective_gain, -up.price)
 
     return max(candidates, key=_priority)
+
+
+@dataclass(frozen=True)
+class SpareGear:
+    """One sale: ``count`` of ``item`` from member ``member_idx`` (1-based)."""
+
+    member_idx: int
+    kind: str  # "weapon" or "armor"
+    item: WeaponType | ArmorType
+    count: int
+
+
+def excess_gear(
+    party: Party,
+    weapon_stock: frozenset[WeaponType] | set[WeaponType],
+    armor_stock: frozenset[ArmorType] | set[ArmorType],
+    *,
+    prefer_ranged: bool = True,
+) -> list[SpareGear]:
+    """Spare weapons and armour the party can sell at a shop stocking
+    ``weapon_stock`` / ``armor_stock`` (user 2026-11-23: sell excess gear in
+    shop towns, never travel to sell).
+
+    Never the readied weapon or worn armour, and never a dead member's gear
+    (it waits for the resurrection). Of each type, the party keeps one per
+    living member who can use it and would rate it above what they have
+    readied: in either weapon mode while the party still prefers ranged
+    weapons (``prefer_ranged``), in melee only after (that flip is final:
+    cards, marks and exotics). That is the same test ``best_shop_upgrade``
+    buys by, so nothing sold is bought back. Spares come off members who
+    don't want them first."""
+    living = [(i + 1, m) for i, m in enumerate(party.members) if not m.is_dead()]
+    modes = (True, False) if prefer_ranged else (False,)
+    sales: list[SpareGear] = []
+
+    def wants_weapon(m: Character, wt: WeaponType) -> bool:
+        return can_use_weapon(m, wt) and any(
+            _weapon_score(wt, mode) > _weapon_score(m.weapon, mode) for mode in modes
+        )
+
+    def wants_armor(m: Character, at: ArmorType) -> bool:
+        return can_use_armor(m, at) and ARMOR_RANK.get(at, 0) > ARMOR_RANK.get(m.armor, 0)
+
+    for kind, stock, bucket_of, wants in (
+        ("weapon", weapon_stock, lambda m: m.weapons, wants_weapon),
+        ("armor", armor_stock, lambda m: m.armors, wants_armor),
+    ):
+        for item in stock:
+            if item in (WeaponType.NONE, ArmorType.NONE):
+                continue
+            holders = [(idx, m, bucket_of(m).get(item, 0)) for idx, m in living]
+            supply = sum(c for _, _, c in holders)
+            if supply <= 0:
+                continue
+            demand = sum(1 for _, m in living if wants(m, item))
+            to_sell = supply - demand
+            if to_sell <= 0:
+                continue
+            # Keep spares on members who want them; sell from the rest first.
+            for idx, m, cnt in sorted(holders, key=lambda h: (wants(h[1], item), -h[2])):
+                if to_sell <= 0:
+                    break
+                if cnt <= 0:
+                    continue
+                n = min(cnt, to_sell)
+                if wants(m, item):
+                    n = min(n, cnt - 1)  # this member keeps one
+                if n > 0:
+                    sales.append(SpareGear(idx, kind, item, n))
+                    to_sell -= n
+    return sales
