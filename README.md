@@ -88,7 +88,7 @@ python3 -m py_exodus
 |---|---|
 | `--autoplay` | Start in Full Autoplay (Watch Mode); `F9` still toggles it. |
 | `--trace` | Record the run to `traces/trace_<time>.jsonl.gz` (written when the game exits). |
-| `--tiles NAME` | Tile set, from LairWare's sheets: `ega` (default), `lairware`, `apple2`, `c64`, `mcga`, `ultima5` (`--tiles list` prints them). |
+| `--tiles NAME` | Tile set, from LairWare's sheets: `ega` (default), `lairware`, `apple2`, `c64`, `mcga`, `ultima5` (`--tiles list` prints them, the default first, marked `[default]`). |
 | `--debug` | Enable the debug cheat harness (`F10`). |
 
 Live play runs on wall-clock time and the `[` / `]` speed keys change it, so a live run can't be replayed exactly. There is no `--seed` flag.

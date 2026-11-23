@@ -315,6 +315,12 @@ LAIRWARE_TILESETS: dict[str, str] = {
 
 
 DEFAULT_TILESET = "ega"  # user 2026-11-22: closest to the old Java art
+
+
+def tileset_listing() -> str:
+    """The '--tiles list' line: the default set first, marked [default]."""
+    rest = [name for name in LAIRWARE_TILESETS if name != DEFAULT_TILESET]
+    return ", ".join([f"{DEFAULT_TILESET} [default]", *rest])
 # LairWare tile indexes that animate, and how (UltimaMain.c FullUpdate):
 LW_SWAPPED = {6, 7, 11, 13, 14, 15, *range(16, 31), 63}  # two cells side by side
 LW_SCROLL_STEP = {0: 1, 33: 1, 32: 2, 34: 2}  # water, lava: slow; field, moongate: fast

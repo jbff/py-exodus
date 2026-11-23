@@ -226,12 +226,12 @@ def main(argv: list[str] | None = None) -> None:
     # batches (fixed frame time) remain seed-reproducible.
     debug.set_debug(args.debug)
     if args.tiles is not None:
-        from py_exodus.assets import LAIRWARE_TILESETS
+        from py_exodus.assets import LAIRWARE_TILESETS, tileset_listing
 
         if args.tiles.lower() == "list" or args.tiles.lower() not in LAIRWARE_TILESETS:
             if args.tiles.lower() != "list":
                 print(f"Unknown tile set: {args.tiles}")
-            print("Tile sets: " + ", ".join(LAIRWARE_TILESETS))
+            print("Tile sets: " + tileset_listing())
             sys.exit(0 if args.tiles.lower() == "list" else 2)
     app = GameApp(autoplay=args.autoplay, trace=args.trace, tiles=args.tiles)
     try:
