@@ -193,3 +193,42 @@ def test_the_view_animates_tiles_at_the_game_pace(am):
 
 def test_main_menu_credits_name_py_exodus():
     assert any("py-exodus © 2026" in line for line in StartScreen.CREDITS)
+
+
+# --- The duel strip and stalactites: own art (user 2026-11-23) ----------------
+
+
+def test_the_duel_is_built_from_the_tile_set():
+    """Shapes 1-3: the four classes and the dragon, alternating frames;
+    4: the breath covers the whole party; 5: the dragon over the embers."""
+    s1, s2 = intro_mod.duel_sprites(1), intro_mod.duel_sprites(2)
+    assert [n for n, *_ in s1] == ["cleric", "wizard", "fighter", "thief", "dragon"]
+    assert {f for _, f, *_ in s1} == {0} and {f for _, f, *_ in s2} == {1}
+    assert [n for n, *_ in intro_mod.duel_sprites(4)] == ["dragon"]
+    (_, x, _, w, _, embers), = intro_mod.duel_flames(4)
+    assert not embers and x <= intro_mod.DUEL_PARTY_X[0]
+    assert x + 2 * w >= intro_mod.DUEL_PARTY_X[-1] + intro_mod.DUEL_TILE  # covers the thief
+    assert len(intro_mod.duel_flames(5)) == 4 and all(e[-1] for e in intro_mod.duel_flames(5))
+
+
+def test_flames_are_blocky_ega_colours():
+    surf = intro_mod.flame_pixels(4, 20, 16, embers=False)
+    colours = {tuple(surf.get_at((x, y))) for x in range(20) for y in range(16)}
+    opaque = {c[:3] for c in colours if c[3]}
+    assert opaque and opaque <= set(intro_mod._FLAME)
+
+
+def test_the_intro_draws_the_duel_and_stalactites(am):
+    """The whole intro runs to the waiting PRESS SPACE on our own art (no
+    LairWare stalactite or duel pictures)."""
+    scr = IntroScreen(asset_mgr=am)
+    surf = pygame.Surface((960, 600))
+    scr.render(surf)
+    _run(scr, 30)
+    assert not scr.in_view
+    canvas = scr.canvas
+    band = scr._rect(10, 21.2, 30, 23)
+    colours = {tuple(canvas.get_at((x, y)))[:3] for x in range(band.left, band.right, 3)
+               for y in range(band.top, band.bottom, 3)}
+    assert len(colours) > 3  # the dragon (and embers) are on screen
+    assert not (am.resolve_path("graphics", "lairware", "intro", "opening_anim_1.png")).exists()

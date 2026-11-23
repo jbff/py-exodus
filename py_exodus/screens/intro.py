@@ -27,6 +27,8 @@ from py_exodus.ui.text_log import get_hud_font
 #: 204x45 pixels, in LairWare's EXODUS and Ultima-logo slots (same aspect).
 TITLE_ART = "title/pyexodus.png"
 ULTIMA_ART = "title/ultima3.png"
+#: The cave ceiling over the duel, 304x17 pixels (3x in its slot at 960 wide).
+STALACTITES_ART = "title/stalactites.png"
 
 if TYPE_CHECKING:
     from py_exodus.assets import AssetManager
@@ -56,6 +58,68 @@ def fight_frames() -> list[tuple[int, int]]:
         anim = anim + 1 if anim < 4 else 1
     out += [(_ANIM_ORDER[anim], 10)] * 4
     return out
+
+
+#: The duel's cast, left to right (LairWare's order), in strip units.
+DUEL_PARTY = ("cleric", "wizard", "fighter", "thief")
+DUEL_PARTY_X = (40, 72, 104, 136)
+DUEL_DRAGON_X = 178
+DUEL_TILE = 32  # a 16-px tile at 2x fills the 32-unit strip; 1 tile pixel = 2 units
+
+
+def duel_sprites(shape: int) -> list[tuple[str, int, int, int]]:
+    """(tile name, frame, x, y) for FightScene shapes 1-5 in the strip's
+    255x32 units. Shapes 1-3 are the walk/swing cycle (animorder 0,1,2,3,2),
+    4 the breath, 5 the dragon alone over the ashes."""
+    out: list[tuple[str, int, int, int]] = []
+    if shape in (1, 2, 3):
+        step = (shape - 1) % 2
+        out += [(name, step, x, 0) for name, x in zip(DUEL_PARTY, DUEL_PARTY_X)]
+        out.append(("dragon", step, DUEL_DRAGON_X, 0))
+    elif shape in (4, 5):
+        out.append(("dragon", shape - 4, DUEL_DRAGON_X, 0))
+    return out
+
+
+def duel_flames(shape: int) -> list[tuple[int, int, int, int, int, bool]]:
+    """(seed, x, y, width, height, embers) flame patches, x/y in strip units,
+    width/height in tile pixels (2 units each)."""
+    if shape == 1:  # a puff at the dragon's mouth
+        return [(1, DUEL_DRAGON_X - 10, 14, 5, 6, False)]
+    if shape == 4:  # the breath over the whole party
+        x0 = DUEL_PARTY_X[0] - 6
+        return [(4, x0, 0, (DUEL_DRAGON_X - x0) // 2, 16, False)]
+    if shape == 5:  # embers where each member stood
+        return [(10 + i, x + 6, 26, 10, 3, True) for i, x in enumerate(DUEL_PARTY_X)]
+    return []
+
+
+#: EGA fire colours, hottest last.
+_EMBER = ((85, 0, 0), (170, 0, 0), (255, 85, 85))
+_FLAME = ((170, 0, 0), (255, 85, 85), (255, 255, 85), (255, 255, 255))
+
+
+def flame_pixels(seed: int, width: int, height: int, embers: bool) -> pygame.Surface:
+    """A blocky fire patch, one surface pixel per tile pixel: each column
+    rises to a random height, hot at the core and red at the edges."""
+    import random
+
+    rng = random.Random(seed)
+    surf = pygame.Surface((width, height), pygame.SRCALPHA)
+    colours = _EMBER if embers else _FLAME
+    for x in range(width):
+        edge = min(x, width - 1 - x)
+        top = rng.randint(0, max(0, height // 2 - min(edge, 3)))
+        if not embers and edge == 0:
+            top = max(top, height // 2)
+        if embers and rng.random() < 0.35:
+            continue
+        for y in range(top, height):
+            depth = (y - top) / max(1, height - top)
+            heat = depth + rng.uniform(-0.25, 0.25) + (0.15 if edge > 2 else -0.2)
+            level = max(0, min(len(colours) - 1, int(heat * len(colours))))
+            surf.set_at((x, y), colours[level])
+    return surf
 
 
 def signature_points(sig: list[int]) -> list[list[tuple[int, int]]]:
@@ -239,13 +303,41 @@ class IntroScreen(BaseScreen):
     # -- the intro ----------------------------------------------------------
 
     def _fighters(self, shape: int, offset: int) -> None:
-        """DrawIntro: a 255x32 strip at (192 + offset, 335) in 16-px units."""
+        """DrawIntro: a 255x32 strip at (192 + offset, 335) in 16-px units.
+
+        LairWare blits one of five baked pictures. Here the strip is built
+        from the active tile set (user 2026-11-23): the party and the dragon
+        are 2x tiles (one tile fills the strip's height), shapes 1-3 swap
+        their two frames, 4 is the dragon's breath, 5 the
+        dragon over the embers. The fire is drawn as blocky EGA-coloured
+        flames (flame_pixels), since no tile set has a usable fire wall."""
+        if not 1 <= shape <= 5:
+            return
         s = self._blk() / 16.0
         r = pygame.Rect(round((192 + offset) * s), 0, round(255 * s), round(32 * s))
         r.y = self._rect(0, 0, 1, 1).y + round(335 * s)
-        if 1 <= shape <= 5:
-            self.canvas.blit(pygame.transform.smoothscale(
-                self._image(f"intro/opening_anim_{shape}.png"), r.size), r)
+        # Clear the band the strip moves in (below the stalactites' rect).
+        top = max(r.y, self._rect(0, 21.125, 1, 22).y)
+        self.canvas.fill((0, 0, 0), (0, top, self.size[0], r.bottom - top))
+        px = round(DUEL_TILE * s)
+        for name, frame, x, y in duel_sprites(shape):
+            tile = self._duel_tile(name, frame)
+            if tile is not None:
+                img = pygame.transform.scale(tile, (px, px))
+                self.canvas.blit(img, (r.x + round(x * s), r.y + round(y * s)))
+        unit = 2 * s  # one tile pixel
+        for seed, x, y, w, h, embers in duel_flames(shape):
+            fire = flame_pixels(seed, w, h, embers)
+            img = pygame.transform.scale(fire, (round(w * unit), round(h * unit)))
+            self.canvas.blit(img, (r.x + round(x * s), r.y + round(y * s)))
+
+    def _duel_tile(self, name: str, frame: int) -> pygame.Surface | None:
+        if self.asset_mgr is None:
+            return None
+        try:
+            return self.asset_mgr.get_tile_surface(name, frame)
+        except KeyError:
+            return None
 
     def _dissolve(self, name: str, rect: pygame.Rect, ticks: int, chunk: int) -> Iterator[float]:
         """FadeOnExodusUltima: each pass copies each chunk of the picture
@@ -278,7 +370,7 @@ class IntroScreen(BaseScreen):
 
     def _intro(self) -> Iterator[float]:
         self.canvas.fill((0, 0, 0))
-        self._draw("intro/stalagtites.png", self._rect(1, 19, 39, 21.125))
+        self._draw(STALACTITES_ART, self._rect(1, 19, 39, 21.125))
         self._fighters(2, -25)
         yield 80
         yield from self._dissolve(TITLE_ART, self._rect(5.25, 1.25, 34.75, 9.625), 5, 8)
