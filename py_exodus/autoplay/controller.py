@@ -1909,9 +1909,38 @@ class AutoPlayController:
                 caster = self._mana_caster(party)
                 if caster is not None and caster.mp < caster.max_mp:
                     return self._emit_key(state_machine, pygame.K_SPACE)
+            if label == "exodus":
+                key = self._ready_for_exodus(state_machine, party)
+                if key is not None:
+                    return key
             return self._emit_key(state_machine, pygame.K_e)
 
         return Destination(frozenset(portals), Transport.FOOT, label), _enter
+
+    def _ready_for_exodus(self, state_machine, party) -> int | None:
+        """At Castle Exodus's gate: everyone to full HP (heal spells while a
+        healer has the MP), then pass turns until every caster's MP is full,
+        then go in (user 2026-11-23). Nothing rests inside the castle, so
+        this is the last refill before the final fight."""
+        living = [(i + 1, m) for i, m in enumerate(party.members) if not m.is_dead()]
+        hurt = [(i, m) for i, m in living if m.hp < m.max_hp]
+        if hurt:
+            healer = next(
+                (
+                    i for i, m in living
+                    if m.profession in (Profession.CLERIC, Profession.PALADIN, Profession.DRUID)
+                    and m.mp >= 10
+                ),
+                None,
+            )
+            if healer is not None:
+                patient = min(hurt, key=lambda im: im[1].hp / max(1, im[1].max_hp))[0]
+                self._queue_text(f"{healer}c{patient}", enter=False)
+                return self._emit_key(state_machine, pygame.K_c)
+            return self._emit_key(state_machine, pygame.K_SPACE)
+        if any(m.mp < m.max_mp for _, m in living):
+            return self._emit_key(state_machine, pygame.K_SPACE)
+        return None
 
     @staticmethod
     def _dawn_open(screen) -> bool:

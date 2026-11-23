@@ -1977,3 +1977,39 @@ def test_a_levelling_party_buys_death_gulch_keys(pygame_setup):
     assert evaluate_goal(party, 0) == Goal.BUY_KEYS
     party.members[0].keys = 4
     assert evaluate_goal(party, 0) == Goal.GRIND_AND_LEVEL
+
+
+def test_exodus_gate_waits_for_full_hp_and_mp(pygame_setup, asset_mgr):
+    """User 2026-11-23: at Castle Exodus's gate, heal everyone to full HP
+    and wait for every caster's MP to fill before going in (nothing rests
+    inside the castle)."""
+    from py_exodus.autoplay import batch
+
+    party = batch.build_party()
+    for m in party.members:
+        m.level, m.food = 25, 300
+        m.hp = m.max_hp = 1500
+        m.max_mp, m.mp = 50, 50
+    sm = StateMachine(asset_mgr=asset_mgr, audio=None)
+    ow = OverworldScreen(party=party, asset_mgr=asset_mgr, random_encounters=False)
+    sm.set_screen(ow)
+    ctrl = AutoPlayController(enabled=True)
+    _dest, enter = ctrl._portal_dest(sm, ow, {(10, 53)}, "exodus")
+
+    party.members[1].hp = 1400  # hurt: the healer casts on them
+    assert enter() == pygame.K_c
+    healer = next(i + 1 for i, m in enumerate(party.members) if m.profession == Profession.CLERIC)
+    assert "".join(chr(k) for k in ctrl._key_queue if k < 256).startswith(f"{healer}c2")
+    ctrl._key_queue.clear()
+
+    party.members[1].hp = 1500
+    party.members[3].mp = 30  # full HP, a caster short of MP: wait
+    assert enter() == pygame.K_SPACE
+
+    party.members[3].mp = 50
+    assert enter() == pygame.K_e  # topped up: in
+
+    for m in party.members:  # no healer MP left: wait for it
+        m.mp = 0 if m.max_mp else m.mp
+    party.members[1].hp = 1400
+    assert enter() == pygame.K_SPACE
