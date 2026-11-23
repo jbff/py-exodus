@@ -84,8 +84,8 @@ def duel_sprites(shape: int) -> list[tuple[str, int, int, int]]:
 def duel_flames(shape: int) -> list[tuple[int, int, int, int, int, bool]]:
     """(seed, x, y, width, height, embers) flame patches, x/y in strip units,
     width/height in tile pixels (2 units each)."""
-    if shape == 1:  # a puff at the dragon's mouth
-        return [(1, DUEL_DRAGON_X - 10, 14, 5, 6, False)]
+    # No puff while the dragon walks (shape 1): it sat at his feet and read
+    # as a stray flicker (user 2026-11-23); the tile has its own breath.
     if shape == 4:  # the breath over the whole party
         x0 = DUEL_PARTY_X[0] - 6
         return [(4, x0, 0, (DUEL_DRAGON_X - x0) // 2, 16, False)]
@@ -316,9 +316,12 @@ class IntroScreen(BaseScreen):
         s = self._blk() / 16.0
         r = pygame.Rect(round((192 + offset) * s), 0, round(255 * s), round(32 * s))
         r.y = self._rect(0, 0, 1, 1).y + round(335 * s)
-        # Clear the band the strip moves in (below the stalactites' rect).
-        top = max(r.y, self._rect(0, 21.125, 1, 22).y)
-        self.canvas.fill((0, 0, 0), (0, top, self.size[0], r.bottom - top))
+        # Clear the band the strip moves in. Its top overlaps the stalactites'
+        # rect by a few pixels, so clear from the strip's own top and redraw
+        # the stalactites under the sprites; clearing only below them left
+        # the heads' top rows behind as a trail (user 2026-11-23).
+        self.canvas.fill((0, 0, 0), (0, r.y, self.size[0], r.height))
+        self._draw(STALACTITES_ART, self._rect(1, 19, 39, 21.125))
         px = round(DUEL_TILE * s)
         for name, frame, x, y in duel_sprites(shape):
             tile = self._duel_tile(name, frame)

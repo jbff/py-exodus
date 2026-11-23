@@ -209,6 +209,8 @@ def test_the_duel_is_built_from_the_tile_set():
     assert not embers and x <= intro_mod.DUEL_PARTY_X[0]
     assert x + 2 * w >= intro_mod.DUEL_PARTY_X[-1] + intro_mod.DUEL_TILE  # covers the thief
     assert len(intro_mod.duel_flames(5)) == 4 and all(e[-1] for e in intro_mod.duel_flames(5))
+    # no flame while they fight: it flickered at the dragon's feet
+    assert intro_mod.duel_flames(1) == intro_mod.duel_flames(2) == intro_mod.duel_flames(3) == []
 
 
 def test_flames_are_blocky_ega_colours():
@@ -232,3 +234,25 @@ def test_the_intro_draws_the_duel_and_stalactites(am):
                for y in range(band.top, band.bottom, 3)}
     assert len(colours) > 3  # the dragon (and embers) are on screen
     assert not (am.resolve_path("graphics", "lairware", "intro", "opening_anim_1.png")).exists()
+
+
+def test_the_moving_party_leaves_no_trail(am):
+    """The strip's top edge overlaps the stalactites' rect by a few pixels;
+    clearing only below the stalactites left the heads' top rows behind as
+    the party moved (user 2026-11-23: a multicoloured line over their
+    heads). After the whole fight the strip matches a fresh draw of the
+    last frame."""
+    played = IntroScreen(asset_mgr=am)
+    fresh = IntroScreen(asset_mgr=am)
+    for scr in (played, fresh):
+        scr.render(pygame.Surface((960, 600)))
+        scr.canvas.fill((0, 0, 0))
+        scr._draw(intro_mod.STALACTITES_ART, scr._rect(1, 19, 39, 21.125))
+    for shape, x in fight_frames():
+        played._fighters(shape, x)
+    shape, x = fight_frames()[-1]
+    fresh._fighters(shape, x)
+    band = played._rect(0, 19, 40, 23.5)
+    for y in range(band.top, band.bottom):
+        for x in range(0, 960, 1):
+            assert played.canvas.get_at((x, y)) == fresh.canvas.get_at((x, y)), (x, y)
