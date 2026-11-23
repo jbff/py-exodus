@@ -1702,3 +1702,26 @@ def test_a_strong_party_doesnt_dodge_dragon_breath(pygame_setup, asset_mgr):
         ctrl._emit_key = lambda _sm, key, **_kw: keys.append(key) or 0
         ctrl._threat_escape(sm, ow, party, 53, 30)
         assert bool(keys) is dodges, level
+
+
+def test_chest_pickup_ignores_chests_it_cannot_route_to(pygame_setup, asset_mgr):
+    """Batch 493f49a seed 164: grinding at (44, 20), a dropped chest at
+    (14, 18) lay inside a firing lane (in the avoid set). A plain path check
+    called it reachable, the move couldn't route to it and fell back east,
+    from one tile west it could; the party paced (44..48, 20) for ~10,000
+    steps without a fight and starved."""
+    party = _make_party(level=10, x=44, y=20)
+    cleric = next(m for m in party.members if m.profession == Profession.CLERIC)
+    cleric.wisdom, cleric.max_mp, cleric.mp = 25, 25, 25
+    party.dynamic_objects = [{"tile": "chest", "x": 14, "y": 18}]
+    party.objects_map_id = 0
+    sm, ow = _overworld(asset_mgr, party)
+    ow.creatures = []
+    ctrl = AutoPlayController(enabled=True)
+    lane = {(11, 13), (11, 16), (11, 19), (12, 14), (12, 16), (12, 18), (14, 13), (14, 14),
+            (14, 18), (14, 19), (16, 14), (16, 16), (16, 18), (17, 13), (17, 16), (17, 19)}
+    ctrl._monster_avoid = lambda *_a, **_k: set(lane)
+    called: list[set] = []
+    ctrl._move_toward = lambda _sm, _g, _p, _pos, goals: called.append(set(goals)) or 0
+    ctrl._step_overworld(sm, ow, party, 44, 20, Goal.GRIND_AND_LEVEL)
+    assert not any((14, 18) in g for g in called)

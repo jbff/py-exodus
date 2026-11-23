@@ -1426,24 +1426,45 @@ class AutoPlayController:
                 # tiles off but 10 to walk led away from the trip's next leg,
                 # one step past 4 the trip led back, and so on (batch 8d3aef0
                 # seed 111: ~11,000 steps between (15, 11) and (16, 11)).
+                # Reachable means by the walk the move will take, with the
+                # same avoid tiles: a chest inside a firing lane passed a
+                # plain path check, the move couldn't route to it and fell
+                # back east, from one tile west it could, and the party
+                # paced (44..48, 20) for ~10,000 steps without a fight and
+                # starved (batch 493f49a seed 164).
+                avoid = self._monster_avoid(screen, party, px, py, goal, living)
+
                 def _walk(pos):
+                    if pos in avoid:
+                        return None
                     _d, cost = find_2d_step_and_cost(
-                        gmap, start=(px, py), goals={pos}, transport=Transport.FOOT, party=party
+                        gmap, start=(px, py), goals={pos}, transport=Transport.FOOT, party=party,
+                        avoid_tiles=avoid or None,
                     )
                     return cost
 
                 reachable_chests = {
                     pos for pos in chests
                     if (
-                        find_2d_step(gmap, (px, py), {pos}, Transport.FOOT, party=party) is not None
+                        _walk(pos) is not None
                         if max_chest_dist is None
                         else abs(pos[0] - px) + abs(pos[1] - py) <= max_chest_dist
                         and (_walk(pos) or 10_000) <= max_chest_dist
                     )
                 }
                 if reachable_chests:
-                    self._overworld_avoid = self._monster_avoid(screen, party, px, py, goal, living)
-                    return self._move_toward(state_machine, gmap, party, (px, py), reachable_chests)
+                    # Head for ONE chest until it's taken or out of reach:
+                    # aiming at the set, two chests ~30 tiles off either way
+                    # traded "nearest" with every step and the party paced
+                    # between them for ~10,000 steps, unfed, until it starved
+                    # (batch 493f49a seed 164; seed 142 ~3,000 steps).
+                    target = self._chest_target
+                    if target not in reachable_chests:
+                        costs = {c: _walk(c) for c in reachable_chests}
+                        target = min(reachable_chests, key=lambda c: (costs[c] is None, costs[c] or 0, c))
+                        self._chest_target = target
+                    self._overworld_avoid = avoid
+                    return self._move_toward(state_machine, gmap, party, (px, py), {target})
 
         gear_key = self._maybe_manage_gear(
             state_machine, party, prefer_ranged=prefer_ranged_weapons(party)
@@ -2546,6 +2567,7 @@ class AutoPlayController:
             return set()
         return lanes
 
+    _chest_target: tuple[int, int] | None = None
     _capture_goal: tuple[int, int] | None = None
     _capture_turn = -10
 
