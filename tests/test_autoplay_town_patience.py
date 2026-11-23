@@ -42,14 +42,14 @@ def test_grey_guild_reached_through_the_crowded_pub():
         sm = StateMachine(asset_mgr=am, audio=None)
         ts = TownScreen(party=p, asset_mgr=am, map_id=6, start_x=1, start_y=32)
         sm.set_screen(ts)
-        assert evaluate_goal(p, 6) == Goal.BUY_GEMS
+        assert evaluate_goal(p, 6) == Goal.BUY_TORCHES
         ctrl = AutoPlayController(enabled=True)
         for _ in range(400):
             ctrl.step(sm)
             sm.update(0.1)
-            if sum(m.gems for m in p.members) > 0 or sm.current_screen is not ts:
+            if sum(m.torches for m in p.members) > 0 or sm.current_screen is not ts:
                 break
-        assert sum(m.gems for m in p.members) > 0, (ts.avatar_x, ts.avatar_y)
+        assert sum(m.torches for m in p.members) > 0, (ts.avatar_x, ts.avatar_y)
     finally:
         random.setstate(rng)
 

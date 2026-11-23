@@ -254,7 +254,6 @@ class AutoPlayController:
         self._food_packs: int = 1
         self._heal_patient_idx: int = 1
         self._talk_dir_key: int = pygame.K_UP
-        self._mapped_dungeon_levels: set[tuple[int, int]] = set()
         # Overworld threat geometry for this tick (None off the overworld).
         self._threats = None
         self._overworld_avoid: set[tuple[int, int]] = set()
@@ -505,16 +504,6 @@ class AutoPlayController:
         party = screen.party
         dmap = getattr(screen, "dungeon_map", None) or getattr(screen, "dmap", None) or screen.state.dmap
         goal = evaluate_goal(party, map_id=self._screen_map_id(screen, party))
-
-        # Peer a gem once per unseen dungeon level to legitimately map its layout
-        level_key = (int(getattr(dmap, "id", 0)), int(screen.state.z))
-        if level_key not in self._mapped_dungeon_levels:
-            self._mapped_dungeon_levels.add(level_key)
-            gem_holder = next((m for m in party.members if not m.is_dead() and m.gems > 0), None)
-            if gem_holder is not None:
-                gem_holder.gems -= 1
-                if not getattr(screen, "show_minimap", False):
-                    return self._emit_key(state_machine, pygame.K_p)
 
         # Touch a Mark tile when standing on one that living members still need
         mark_map = {
@@ -936,15 +925,13 @@ class AutoPlayController:
                 if d is not None:
                     return self._emit_key(state_machine, _DIR_TO_KEY[d])
 
-        if map_id in _GUILD_TOWNS and goal in (Goal.BUY_KEYS, Goal.BUY_GEMS, Goal.BUY_TORCHES):
+        if map_id in _GUILD_TOWNS and goal in (Goal.BUY_KEYS, Goal.BUY_TORCHES):
             _, _, guild_xy = _GUILD_TOWNS[map_id]
             guild_xy = self._shop_spot(gmap, (px, py), guild_xy)
             living = [(i + 1, m) for i, m in enumerate(party.members) if not m.is_dead()]
             if living:
                 if goal == Goal.BUY_KEYS:
                     cost, letter = 50, "c"
-                elif goal == Goal.BUY_GEMS:
-                    cost, letter = 75, "b"
                 else:
                     cost, letter = 30, "a"
                 buyer_idx, buyer = max(living, key=lambda im: im[1].gold)
@@ -1942,7 +1929,7 @@ class AutoPlayController:
             portals = {(i[0], i[1]) for mid, i in _HEALER_TOWNS.items() if mid != 11 or dawn}
             return self._portal_dest(sm, screen, portals, "healer" + ("+dawn" if dawn else ""))
 
-        if goal in (Goal.BUY_KEYS, Goal.BUY_GEMS, Goal.BUY_TORCHES):
+        if goal in (Goal.BUY_KEYS, Goal.BUY_TORCHES):
             dawn = self._dawn_open(screen)
             return self._portal_dest(
                 sm, screen, {(i[0], i[1]) for mid, i in _GUILD_TOWNS.items() if mid != 11 or dawn}, "guild"

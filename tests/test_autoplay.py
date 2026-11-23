@@ -985,8 +985,9 @@ def test_bulk_food_buying_strategy(pygame_setup):
     assert party2.food >= 700
 
 
-def test_dungeon_peer_gem_once_per_level_and_touch_mark(pygame_setup):
-    """Entering DungeonScreen doesn't crash, peers 1 Gem per unseen level, and touches Marks with S."""
+def test_dungeon_never_peers_gems_and_touches_mark(pygame_setup):
+    """Entering DungeonScreen doesn't crash, never peers a gem (the conceit
+    was removed, user 2026-11-23), and touches Marks with S."""
     from py_exodus.assets import AssetManager
     from py_exodus.screens.dungeon_screen import DungeonScreen
 
@@ -1012,13 +1013,9 @@ def test_dungeon_peer_gem_once_per_level_and_touch_mark(pygame_setup):
     sm.set_screen(ds)
 
     ctrl = AutoPlayController(enabled=True)
-    # First step on (15, 0): peers 1 gem -> gems 2 -> 1, minimap visible
-    ctrl.step(sm)
-    assert party.members[0].gems == 1
-    assert ds.show_minimap is True
-    # Subsequent steps on (15, 0) do not consume another gem
-    ctrl.step(sm)
-    assert party.members[0].gems == 1
+    # First step on (15, 0): no peer, the gems are untouched
+    assert ctrl.step(sm) != pygame.K_p
+    assert party.members[0].gems == 2
 
     # Place party on MARK_KINGS at (11, 3, 1) -> touches mark for all 4 living members
     ds.state.x, ds.state.y, ds.state.z = 11, 3, 1
@@ -1027,8 +1024,7 @@ def test_dungeon_peer_gem_once_per_level_and_touch_mark(pygame_setup):
         if all(m.marks[0] > 0 for m in party.members):
             break
     assert all(m.marks[0] > 0 for m in party.members)
-    # Only 1 additional gem used for level (15, 1)
-    assert party.members[0].gems == 0
+    assert party.members[0].gems == 2
 
 
 def test_dungeon_buys_torches_and_lights_darkness(pygame_setup):
@@ -2156,3 +2152,16 @@ def test_no_castle_until_the_stat_plan_is_bought():
     fighter.strength = 99
     _max_shrine_stats(party)
     assert evaluate_goal(party, map_id=0) == Goal.CONQUER_EXODUS
+
+
+def test_planner_never_buys_gems():
+    """User 2026-11-23: buying gems to peer on every dungeon level was a
+    conceit; it's gone. A party headed for the Marks buys torches only."""
+    assert not hasattr(Goal, "BUY_GEMS")
+    p = _make_party(
+        level=9, exp=2000, gold=2000, food=500, marks=[1, 0, 0, 0],
+        weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC,
+    )
+    for m in p.members:
+        m.gems, m.torches = 0, 4
+    assert evaluate_goal(p, 0) == Goal.GET_REMAINING_MARKS

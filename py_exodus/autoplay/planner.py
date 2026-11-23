@@ -24,7 +24,6 @@ class Goal(str, Enum):
     CURE_POISON = "cure_poison"
     OUTFIT_BRITAIN = "outfit_britain"
     GRIND_AND_LEVEL = "grind_and_level"
-    BUY_GEMS = "buy_gems"
     BUY_TORCHES = "buy_torches"
     GET_MARK_KINGS = "get_mark_kings"
     BUY_KEYS = "buy_keys"
@@ -430,7 +429,7 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
     # boarding or landing can never flip the goal (the old B/X loops).
     # Town 12 (its only gate is (30, 2)) is on the (33, 3) island: inside it
     # counts as being there, or its goals differ from the gate's and the
-    # party walks in and out (batch 8d3aef0 seeds 113 and 119: BUY_GEMS at
+    # party walks in and out (batch 8d3aef0 seeds 113 and 119: buying gems at
     # the gate, RESURRECT_DEAD inside, ~28,000 steps until the party wiped).
     at_exotic_island = cur_map_id == 12 or (
         cur_map_id == 0
@@ -535,10 +534,9 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
 
     if not all(m.marks[0] > 0 for m in party.members):
         if cur_map_id not in (13, 15, 16, 17, 18, 19, 20):
-            gems = sum(m.gems for m in living)
+            # No gems: peering a gem on every dungeon level was a conceit,
+            # removed (user 2026-11-23); navigation never needed it.
             torches = sum(m.torches for m in living)
-            if gems < 2 and party.gold >= (125 if gems == 0 else 200):
-                return Goal.BUY_GEMS
             if torches < 4 and party.gold >= (80 if torches == 0 else 150):
                 return Goal.BUY_TORCHES
         return Goal.GET_MARK_KINGS
@@ -550,10 +548,7 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
 
     if not has_remaining_marks:
         if cur_map_id not in (13, 15, 16, 17, 18, 19, 20):
-            gems = sum(m.gems for m in living)
             torches = sum(m.torches for m in living)
-            if gems < 8 and party.gold >= (125 if gems == 0 else 225):
-                return Goal.BUY_GEMS
             if torches < 4 and party.gold >= (80 if torches == 0 else 150):
                 return Goal.BUY_TORCHES
             # A member with no food turns a dungeon round at the door (it

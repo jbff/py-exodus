@@ -1104,7 +1104,7 @@ def test_one_laggard_does_not_hold_the_party_from_the_mark_of_kings(pygame_setup
     party = _make_party(level=5, food=300, gold=60)
     cleric = next(m for m in party.members if m.profession == Profession.CLERIC)
     cleric.level = 2
-    assert evaluate_goal(party, 0) in (Goal.GET_MARK_KINGS, Goal.BUY_GEMS, Goal.BUY_TORCHES)
+    assert evaluate_goal(party, 0) in (Goal.GET_MARK_KINGS, Goal.BUY_TORCHES)
     party.members[0].level = 4  # two below 5: keep grinding
     assert evaluate_goal(party, 0) == Goal.GRIND_AND_LEVEL
 
@@ -1328,7 +1328,6 @@ def test_dungeon_chest_underfoot_is_opened_with_appar_unem(pygame_setup):
     sm = StateMachine(asset_mgr=None, audio=None)
     sm.set_screen(ds)
     ctrl = AutoPlayController(enabled=True)
-    ctrl._mapped_dungeon_levels.add((99, 0))
     gold0 = party.gold
     for _ in range(10):
         if dmap.get_tile(2, 2, 0) != DungeonTile.CHEST:
@@ -1355,7 +1354,6 @@ def test_dungeon_chest_is_left_while_the_cleric_lacks_mp(pygame_setup):
     sm = StateMachine(asset_mgr=None, audio=None)
     sm.set_screen(ds)
     ctrl = AutoPlayController(enabled=True)
-    ctrl._mapped_dungeon_levels.add((99, 0))
     keys: list[int] = []
     ctrl._emit_key = lambda _sm, key, **_kw: keys.append(key) or 0
     ctrl._step_dungeon(sm, ds)
@@ -1379,7 +1377,6 @@ def test_a_starving_member_turns_the_party_for_the_exit(pygame_setup, monkeypatc
     sm = StateMachine(asset_mgr=None, audio=None)
     sm.set_screen(ds)
     ctrl = AutoPlayController(enabled=True)
-    ctrl._mapped_dungeon_levels.add((99, 0))
     keys: list[int] = []
     ctrl._emit_key = lambda _sm, key, **_kw: keys.append(key) or 0
     st = ds.state
