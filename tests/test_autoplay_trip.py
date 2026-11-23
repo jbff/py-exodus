@@ -1890,3 +1890,48 @@ def test_shop_spot_stays_on_its_own_counter(pygame_setup, asset_mgr, monkeypatch
     sm, ts = _montor_east_armour(asset_mgr, monkeypatch, [(50, 50), (51, 50)])
     ctrl = AutoPlayController(enabled=True)
     assert ctrl._shop_spot(ts.game_map, (35, 12), (35, 12)) == (35, 12)
+
+
+def test_death_gulch_key_run_stocks_up_for_many_raids(pygame_setup):
+    """User 2026-11-23: raiding Death Gulch, autoplay walked back to the
+    guild for keys over and over, buying only the 4 of one raid. On the
+    overworld it still sets out at 4; once at a guild it buys keys for every
+    raid still to come (one per ~850 gold short of the raid target, plus the
+    gate's 4), as far as it can above the guards' 400 bribe gold."""
+    from py_exodus.autoplay import batch
+    from py_exodus.autoplay.planner import (
+        DEATH_GULCH_GOLD_CAP, death_gulch_key_stock, raid_gold_target, return_trip_gold,
+    )
+
+    party = batch.build_party()
+    for m in party.members:
+        m.level, m.food, m.keys, m.gold = 25, 300, 0, 0
+        m.marks, m.cards = [1, 1, 1, 1], [1, 1, 1, 1]
+        m.weapon, m.armor = WeaponType.EXOTIC, ArmorType.EXOTIC
+    party.members[0].keys = 4
+    party.members[0].gold = 2000
+    assert party.gold < return_trip_gold(party)
+    short = raid_gold_target(party, DEATH_GULCH_GOLD_CAP) - party.gold
+    stock = death_gulch_key_stock(party)
+    assert stock == 4 + -(-short // 850) and stock > 8
+    assert evaluate_goal(party, 0) == Goal.GRIND_AND_LEVEL  # no trip for more
+    assert evaluate_goal(party, 6) == Goal.BUY_KEYS  # in Grey, with its guild
+    party.members[0].keys = stock
+    assert evaluate_goal(party, 6) == Goal.GRIND_AND_LEVEL
+    # Poorer: as many as the gold allows, keeping the 400 bribe gold.
+    party.members[0].keys = 4
+    party.members[0].gold = 600
+    assert death_gulch_key_stock(party) == 8
+    party.members[0].keys, party.members[0].gold = 8, 400  # after the 4 bought
+    assert evaluate_goal(party, 6) == Goal.GRIND_AND_LEVEL
+    party.members[0].keys = 5
+    party.members[0].gold = 449
+    assert evaluate_goal(party, 6) == Goal.GRIND_AND_LEVEL
+    party.members[0].gold = 450
+    assert evaluate_goal(party, 6) == Goal.BUY_KEYS
+
+
+def test_planner_guild_towns_match_the_controller():
+    from py_exodus.autoplay.planner import GUILD_TOWN_IDS
+
+    assert GUILD_TOWN_IDS == frozenset(controller_mod._GUILD_TOWNS)

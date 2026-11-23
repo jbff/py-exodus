@@ -37,6 +37,7 @@ from py_exodus.autoplay.planner import (
     needs_heal,
     prefer_ranged_weapons,
     raid_gold_target,
+    DEATH_GULCH_GOLD_CAP,
     return_trip_gold,
 )
 from py_exodus.autoplay.threats import (
@@ -115,7 +116,7 @@ def party_has_low_hp(party) -> bool:
     return any(not m.is_dead() and m.max_hp > 0 and m.hp * 10 < m.max_hp * 4 for m in party.members)
 
 _MAP_SOSARIA = 0
-_DEATH_GULCH_GOLD_CAP = 9000  # same cap as the raid inside
+_DEATH_GULCH_GOLD_CAP = DEATH_GULCH_GOLD_CAP  # same cap as the raid inside
 _DRAGON_CHASE_LEVEL = 8  # the grind leaves dragons alone below this
 # A party this strong walks up to pirates and fights them from land.
 _PIRATE_HUNT_MIN_LEVEL = 8

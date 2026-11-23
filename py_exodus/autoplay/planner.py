@@ -73,6 +73,16 @@ AMBROSIA_EXIT_KEYS = 1
 # guards (user 2026-11-22).
 DEATH_GULCH_KEYS = 4
 DEATH_GULCH_BRIBE_GOLD = 400
+# Raids stop at this much gold (or what the return trips still cost).
+DEATH_GULCH_GOLD_CAP = 9000
+# A key run stocks up for every raid still to come instead of walking back
+# to the guild after each (user 2026-11-23: fewer Grey runs, less time,
+# food and danger). Batch traces (6,628 Death Gulch visits, b10-*/r100-*):
+# 859 gold and 0.98 keys a visit, ~875 gold a key; rounded down so the
+# stock errs long.
+DEATH_GULCH_GOLD_PER_KEY = 850
+# Towns with a guild (controller._GUILD_TOWNS): Grey, Devil Guard, Dawn, Fawn.
+GUILD_TOWN_IDS = frozenset({6, 7, 11, 12})
 # Card trips budget the same 8 (user live trace 2026-11-22): the Moons card
 # alone sits behind (45,17), (50,6) and (11,6), and the exit rule fires on
 # the last key, so the old needed+2 budget (4 keys) turned back five tiles
@@ -326,6 +336,18 @@ def raid_gold_target(party: Party, cap: int) -> int:
     return min(trip, cap) if trip else cap
 
 
+def death_gulch_key_stock(party: Party) -> int:
+    """Keys to hold when leaving a guild for Death Gulch: the 4 the gate
+    asks for plus one per ``DEATH_GULCH_GOLD_PER_KEY`` gold still to raid,
+    capped by what the party can buy above the guards' bribe gold."""
+    living = [m for m in party.members if not m.is_dead()]
+    keys = sum(m.keys for m in living)
+    short = max(0, raid_gold_target(party, DEATH_GULCH_GOLD_CAP) - party.gold)
+    wanted = DEATH_GULCH_KEYS + -(-short // DEATH_GULCH_GOLD_PER_KEY)
+    affordable = keys + max(0, party.gold - DEATH_GULCH_BRIBE_GOLD) // 50
+    return min(wanted, affordable, 99)
+
+
 def gold_has_a_use(party: Party) -> bool:
     """Raid for gold only while it will be spent: cards still to fetch, or
     return trips for stats still pending (user ruling 2026-11-22)."""
@@ -572,9 +594,14 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
         # doors (user live trace 2026-11-22, trace_20261122-151023: all
         # cards and marks, level 25+, 3 keys: no raid after step 53,837, and
         # 5,549 gold went on food until the party was broke).
-        keys_short = DEATH_GULCH_KEYS - sum(m.keys for m in living)
+        keys = sum(m.keys for m in living)
+        keys_short = DEATH_GULCH_KEYS - keys
         # Buy them only while the bribe gold survives the purchase.
         if keys_short > 0 and party.gold >= DEATH_GULCH_BRIBE_GOLD + 50 * keys_short:
+            return Goal.BUY_KEYS
+        # Already at the guild: stock up for every raid still to come, one
+        # key at a time while the bribe gold survives each purchase.
+        if cur_map_id in GUILD_TOWN_IDS and keys < death_gulch_key_stock(party):
             return Goal.BUY_KEYS
         return Goal.GRIND_AND_LEVEL
 
