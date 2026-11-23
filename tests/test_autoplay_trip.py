@@ -871,6 +871,9 @@ def test_return_trips_for_stats_and_no_pointless_raids():
     assert evaluate_goal(party, 0) == Goal.SAIL_WHIRLPOOL
     for m in party.members:
         m.food = 100
+    # The food to buy is part of the target (so buying it never drops the
+    # party back under): with that gold too, it stocks up.
+    party.members[0].gold = return_trip_gold(party)
     assert evaluate_goal(party, 0) == Goal.BUY_FOOD
     # Buy every return-trip step: no more trips, no more raiding.
     while (g := next_shrine_goal(party, RETURN_TRIP_STEPS)) is not None:
@@ -1455,3 +1458,27 @@ def test_pirate_capture_escape_keeps_its_progress(pygame_setup, asset_mgr):
     party.x, party.y = 6, 31
     ctrl._threat_escape(sm, ow, party, 6, 31)
     assert keys[-1] == _DIR_TO_KEY[Direction.EAST]  # on toward (6, 29), not back
+
+
+def test_buying_trip_keys_never_drops_a_capped_trip_back_to_raiding():
+    """Batch ccd5f52 seeds 100, 101, 105, 108: stats costing more than one
+    trip capped the target at 8,500; with 8,516 gold and 3 keys the party
+    bought one key (8,466), fell under, raided (using keys), came back short
+    of keys, and so on for ~100,000 steps."""
+    from py_exodus.autoplay import batch
+    from py_exodus.autoplay.planner import return_trip_cost, return_trip_gold
+
+    party = batch.build_party()
+    for m in party.members:
+        m.level, m.food, m.keys, m.gold = 25, 300, 0, 0
+        m.marks, m.cards = [1, 1, 1, 1], [1, 1, 1, 1]
+        m.weapon, m.armor = WeaponType.EXOTIC, ArmorType.EXOTIC
+    assert return_trip_cost(party) > 9000  # capped
+    party.members[0].keys = 3
+    party.members[0].gold = return_trip_gold(party)
+    for _ in range(5):
+        assert evaluate_goal(party, 0) == Goal.BUY_KEYS
+        party.members[0].keys += 1
+        party.members[0].gold -= 50
+        assert party.gold >= return_trip_gold(party)
+    assert evaluate_goal(party, 0) != Goal.GRIND_AND_LEVEL

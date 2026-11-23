@@ -78,6 +78,8 @@ def test_raid_waits_for_mana_instead_of_walking_out_and_back():
     try:
         random.seed(1)
         p = _raid_party()
+        for m in p.members:
+            m.gold = 1000  # still short of the trip, so still raiding
         cleric = next(m for m in p.members if m.profession == Profession.CLERIC)
         cleric.wisdom = 35
         cleric.mp = 0

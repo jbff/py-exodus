@@ -302,8 +302,18 @@ def return_trip_gold(party: Party) -> int:
     # drops the party back under it (and back to raiding).
     keys_gold = 50 * max(0, AMBROSIA_RETURN_KEYS - sum(m.keys for m in living))
     extras = SHRINE_RESERVE + food_gold + keys_gold
-    # The stats are capped so the whole target stays below the raid cap.
-    return min(cost, RETURN_TRIP_MAX_GOLD - 500 - extras) + extras
+    # The stats are capped by a FIXED amount that leaves room for the most
+    # food and keys a trip can need, so the target stays below the raid cap
+    # and buying keys or food lowers it exactly as much as the gold. (Capping
+    # by the current extras held it at 8,500: one key at 50 dropped the party
+    # under, back to raiding, which uses keys; batch ccd5f52 seeds 100, 101,
+    # 105, 108 looped there for ~100,000 steps.)
+    most_extras = (
+        SHRINE_RESERVE
+        + len(party.members) * AMBROSIA_ENTRY_FOOD * 6 // 5
+        + 50 * AMBROSIA_RETURN_KEYS
+    )
+    return min(cost, RETURN_TRIP_MAX_GOLD - 500 - most_extras) + extras
 
 
 def raid_gold_target(party: Party, cap: int) -> int:
