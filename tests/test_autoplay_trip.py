@@ -1743,3 +1743,25 @@ def test_a_member_with_no_food_and_no_gold_grinds_instead_of_a_dungeon():
     assert evaluate_goal(party, 0) == Goal.GET_REMAINING_MARKS
     party.members[2].food = 0
     assert evaluate_goal(party, 0) == Goal.GRIND_AND_LEVEL
+
+
+def test_a_hurt_party_doesnt_cross_the_map_for_chests(pygame_setup, asset_mgr):
+    """User run 2026-11-23: grinding, chests anywhere on the map came before
+    resting; a level 9-16 party walked from chest to chest, fighting on the
+    way, down from full HP to a wipe (skeletons finished it) with 1,500
+    gold. Hurt, it takes only the chests a few steps off."""
+    party = _make_party(level=10, x=44, y=20)
+    cleric = next(m for m in party.members if m.profession == Profession.CLERIC)
+    cleric.wisdom, cleric.max_mp, cleric.mp = 25, 25, 25
+    party.dynamic_objects = [{"tile": "chest", "x": 44, "y": 12}]  # 8 steps north
+    party.objects_map_id = 0
+    sm, ow = _overworld(asset_mgr, party)
+    ow.creatures = []
+    for hurt, chased in ((False, True), (True, False)):
+        for m in party.members:
+            m.hp = m.max_hp // 2 if hurt else m.max_hp
+        ctrl = AutoPlayController(enabled=True)
+        called: list[set] = []
+        ctrl._move_toward = lambda _sm, _g, _p, _pos, goals: called.append(set(goals)) or 0
+        ctrl._step_overworld(sm, ow, party, 44, 20, Goal.GRIND_AND_LEVEL)
+        assert any((44, 12) in g for g in called) is chased, hurt

@@ -1421,7 +1421,17 @@ class AutoPlayController:
                 goal in (Goal.GRIND_AND_LEVEL, Goal.OUTFIT_BRITAIN, Goal.AMBROSIA_CARDS_SHRINES)
                 or (goal not in (Goal.BUY_FOOD, Goal.RESURRECT_DEAD, Goal.CURE_POISON) and not needs_heal(party))
             ):
-                max_chest_dist = None if goal in (Goal.GRIND_AND_LEVEL, Goal.OUTFIT_BRITAIN, Goal.AMBROSIA_CARDS_SHRINES) else 4
+                # Hurt, only the chests a few steps off (a fight's own drop):
+                # chests anywhere on the map came before resting, and a
+                # level 9-16 party walked from one to the next, fighting
+                # on the way, from full HP down to a wipe in ~5,000 steps
+                # with 1,500 gold (user run 2026-11-23).
+                max_chest_dist = (
+                    None
+                    if goal in (Goal.GRIND_AND_LEVEL, Goal.OUTFIT_BRITAIN, Goal.AMBROSIA_CARDS_SHRINES)
+                    and not needs_heal(party)
+                    else 4
+                )
                 # The detour limit is a WALK, not a straight line: a chest 4
                 # tiles off but 10 to walk led away from the trip's next leg,
                 # one step past 4 the trip led back, and so on (batch 8d3aef0
