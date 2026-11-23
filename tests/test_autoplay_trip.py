@@ -1482,3 +1482,27 @@ def test_buying_trip_keys_never_drops_a_capped_trip_back_to_raiding():
         party.members[0].gold -= 50
         assert party.gold >= return_trip_gold(party)
     assert evaluate_goal(party, 0) != Goal.GRIND_AND_LEVEL
+
+
+def test_lane_escape_leaves_a_frigate_about_to_be_boarded_to_the_trip(pygame_setup, asset_mgr):
+    """Batch ccd5f52 seed 107: the frigate at (31, 3) beside the Exotic dig
+    site sat in a dragon's lane. Each arrival the lane escape stepped back
+    off it before the trip could board; off and on for ~1,000 steps, the
+    party stranded on the island until it starved. Boarding is the way out."""
+    party = _make_party(level=5, x=31, y=3)
+    party.dynamic_objects = [{"tile": "frigate", "x": 31, "y": 3}]
+    party.objects_map_id = 0
+    sm, ow = _overworld(asset_mgr, party)
+    gmap = ow.game_map
+    ow.creatures = [{"tile_name": "dragon", "tile": "dragon", "x": 31, "y": 6}]
+    th = compute_threats(gmap, party, ow.creatures)
+    assert th.unsafe_end((31, 3))
+    ctrl = AutoPlayController(enabled=True)
+    ctrl._threats = th
+    dest = Destination(frozenset({(30, 2)}), Transport.FOOT, "guild")
+    ctrl._replan(gmap, party, ow, 0, (31, 3), Transport.FOOT, dest)
+    assert ctrl._trip is not None and ctrl._trip.legs[0].action == "B"
+    keys: list[int] = []
+    ctrl._emit_key = lambda _sm, key, **_kw: keys.append(key) or 0
+    assert ctrl._threat_escape(sm, ow, party, 31, 3) is None
+    assert not keys

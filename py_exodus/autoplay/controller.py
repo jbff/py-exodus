@@ -1122,6 +1122,22 @@ class AutoPlayController:
         if gate_key is not None:
             return self._emit_key(state_machine, gate_key, guarded=False)
 
+        # Standing on the frigate the trip boards next: boarding is the way
+        # out, so leave it to the trip (the one owner of B). Stepping off the
+        # lane instead undid every arrival (batch ccd5f52 seed 107: a dragon's
+        # lane over the frigate at (31, 3), off and on for ~1,000 steps, the
+        # party stranded on the Exotic island until it starved).
+        plan = self._trip
+        if (
+            not on_ship
+            and plan is not None
+            and plan.legs
+            and plan.legs[0].action == "B"
+            and plan.legs[0].end == pos
+            and pos in self._frigate_costs(party, screen)
+        ):
+            return None
+
         # A pirate orthogonally adjacent: attack it (battle, then its frigate).
         if th.pirates and not party_has_low_hp(party):
             for d in (Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST):
