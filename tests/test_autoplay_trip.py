@@ -1590,3 +1590,50 @@ def test_chest_detour_limit_is_a_walk_not_a_straight_line(pygame_setup, asset_mg
     ctrl._move_toward = lambda _sm, _g, _p, _pos, goals: called.append(set(goals)) or 0
     ctrl._step_overworld(sm, ow, party, 16, 11, Goal.DIG_EXOTICS)
     assert {(18, 9)} not in called
+
+
+def test_pirate_lanes_dont_keep_the_party_off_its_moongate(pygame_setup, asset_mgr):
+    """Batch 0442fe7 seed 125: a pirate at (57, 48) had lanes over moongate
+    1 at (57, 46) and over (57, 45), its one open neighbour from the north.
+    The party waited two tiles off for ~2,500 steps and starved with 974
+    gold. Through the gate the threat is gone."""
+    from py_exodus.autoplay.controller import _DIR_TO_KEY
+    from py_exodus.autoplay.trip import Leg
+
+    party = _make_party(level=12, x=57, y=44)
+    party.moon_phase = 2  # gate 1 -> 3 opens next phase
+    sm, ow = _overworld(asset_mgr, party)
+    gmap = ow.game_map
+    assert (gmap.moongates[1].x, gmap.moongates[1].y) == (57, 46)
+    ow.creatures = [_pirate(57, 48)]
+    living = list(party.members)
+    ctrl = AutoPlayController(enabled=True)
+    ctrl._threats = compute_threats(gmap, party, ow.creatures)
+    assert ctrl._threats.unsafe_end((57, 45))
+    ctrl._overworld_avoid = ctrl._monster_avoid(ow, party, 57, 44, Goal.BUY_FOOD, living)
+    keys: list[int] = []
+    ctrl._emit_key = lambda _sm, key, **_kw: keys.append(key) or 0
+    leg = Leg(Transport.FOOT, (57, 46), "GATE", gate_src=1, gate_dest=3)
+    ctrl._drive_gate(sm, ow, gmap, party, (57, 44), leg)
+    assert keys and keys[-1] == _DIR_TO_KEY[Direction.SOUTH]  # to (57, 45), beside the gate
+
+
+def test_lane_escape_leaves_the_last_steps_into_town_to_the_trip(pygame_setup, asset_mgr):
+    """Batch 0442fe7 seed 128: beside the town gate at (7, 44), the escape
+    stepped off a pirate's lane at (8, 44) to (8, 45) and the trip stepped
+    back, ~2,600 steps, until the party starved with 884 gold."""
+    party = _make_party(level=5, x=8, y=44)
+    sm, ow = _overworld(asset_mgr, party)
+    gmap = ow.game_map
+    ow.creatures = [_pirate(5, 44)]
+    th = compute_threats(gmap, party, ow.creatures)
+    assert th.unsafe_end((8, 44))
+    ctrl = AutoPlayController(enabled=True)
+    ctrl._threats = th
+    dest = Destination(frozenset({(7, 44)}), Transport.FOOT, "food")
+    ctrl._replan(gmap, party, ow, 0, (8, 44), Transport.FOOT, dest)
+    assert ctrl._trip is not None and ctrl._trip.legs[0].action == "ARRIVE"
+    keys: list[int] = []
+    ctrl._emit_key = lambda _sm, key, **_kw: keys.append(key) or 0
+    assert ctrl._threat_escape(sm, ow, party, 8, 44) is None
+    assert not keys

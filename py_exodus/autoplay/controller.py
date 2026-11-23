@@ -1138,6 +1138,18 @@ class AutoPlayController:
             and pos in self._frigate_costs(party, screen)
         ):
             return None
+        # Likewise a few steps from the town gate the trip is walking into
+        # (batch 0442fe7 seed 128: the escape stepped off the lane at (8, 44)
+        # beside the gate at (7, 44), the trip stepped back, and so on for
+        # ~2,600 steps until the party starved with 884 gold).
+        if (
+            not on_ship
+            and plan is not None
+            and plan.legs
+            and plan.legs[0].action == "ARRIVE"
+            and self._last_steps_into_town(gmap, party, pos, {plan.legs[0].end})
+        ):
+            return None
 
         # A pirate orthogonally adjacent: attack it (battle, then its frigate).
         if th.pirates and not party_has_low_hp(party):
@@ -2087,6 +2099,30 @@ class AutoPlayController:
         return None
 
     def _drive_gate(self, state_machine, screen, gmap, party, pos, leg: Leg) -> int:
+        """Within a few steps of the moongate, firing lanes don't block the
+        way in: through it, the threat is gone (batch 0442fe7 seed 125: a
+        pirate's lanes covered the gate at (57, 46) and its one open
+        neighbour; the party waited two tiles off for ~2,500 steps and
+        starved with 974 gold)."""
+        gates = getattr(gmap, "moongates", ()) or ()
+        src = leg.gate_src
+        th = self._threats
+        if (
+            th is not None
+            and party.transport == Transport.FOOT
+            and src is not None
+            and src < len(gates)
+            and manhattan(gmap.width, gmap.height, pos, (gates[src].x, gates[src].y)) <= _TOWN_DASH_STEPS
+        ):
+            saved = self._overworld_avoid
+            self._overworld_avoid = set(saved or ()) - th.hard_avoid()
+            try:
+                return self._drive_gate_inner(state_machine, screen, gmap, party, pos, leg)
+            finally:
+                self._overworld_avoid = saved
+        return self._drive_gate_inner(state_machine, screen, gmap, party, pos, leg)
+
+    def _drive_gate_inner(self, state_machine, screen, gmap, party, pos, leg: Leg) -> int:
         """Take moongate ``src`` to ``dst`` without standing around.
 
         User rule (2026-11-21): watch the phases, roam the area fighting what
