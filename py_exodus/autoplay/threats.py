@@ -99,9 +99,13 @@ class Threats:
         return self.lanes | self.squid_engage
 
 
-def compute_threats(gmap, party, creatures, fight_squids: bool = False) -> Threats:
+def compute_threats(
+    gmap, party, creatures, fight_squids: bool = False, dragon_lanes: bool = True
+) -> Threats:
     """``fight_squids``: the party meets squids instead of keeping clear
-    (user rule 2026-11-21: fight the squid on foot, cannon it from a ship)."""
+    (user rule 2026-11-21: fight the squid on foot, cannon it from a ship).
+    ``dragon_lanes``: False for a party strong enough to go and fight the
+    dragon (the escape only knows how to close on pirates)."""
     w, h = gmap.width, gmap.height
     th = Threats(w, h)
     avoid_squids = not party_has_alcort(party) and not fight_squids
@@ -114,7 +118,7 @@ def compute_threats(gmap, party, creatures, fight_squids: bool = False) -> Threa
             th.pirates.append(pos)
             th.pirate_lanes[pos] = lane_tiles_for(w, h, pos, gmap)
             th.lanes |= th.pirate_lanes[pos]
-        elif name == "dragon":
+        elif name == "dragon" and dragon_lanes:
             th.lanes |= lane_tiles_for(w, h, pos, gmap)
         elif name == "squid" and avoid_squids:
             th.squids.append(pos)

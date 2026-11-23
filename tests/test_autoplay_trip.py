@@ -1686,3 +1686,19 @@ def test_a_ship_doesnt_sheer_off_from_land_monsters(pygame_setup, asset_mgr):
     ctrl._emit_key = lambda _sm, key, **_kw: keys.append(key) or 0
     ctrl._evade_or_rest(sm, ow, gmap, party, 5, 41, Goal.BUY_FOOD, list(party.members), 0)
     assert not keys
+
+
+def test_a_strong_party_doesnt_dodge_dragon_breath(pygame_setup, asset_mgr):
+    """Batch dbeb0c9 seed 159: a level-25 party at full strength hopped
+    between (53, 29) and (53, 30) in a dragon's range, the escape unable to
+    close on it, until it wiped. Strong parties fight dragons; weak ones
+    still keep out of their lanes."""
+    for level, dodges in ((25, False), (5, True)):
+        party = _make_party(level=level, x=53, y=30)
+        sm, ow = _overworld(asset_mgr, party)
+        ow.creatures = [{"tile_name": "dragon", "tile": "dragon", "x": 53, "y": 27}]
+        ctrl = AutoPlayController(enabled=True)
+        keys: list[int] = []
+        ctrl._emit_key = lambda _sm, key, **_kw: keys.append(key) or 0
+        ctrl._threat_escape(sm, ow, party, 53, 30)
+        assert bool(keys) is dodges, level

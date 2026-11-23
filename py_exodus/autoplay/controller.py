@@ -1110,7 +1110,16 @@ class AutoPlayController:
             and not party_has_low_hp(party)
             and all(m.status != Status.POISONED for m in party.members if not m.is_dead())
         )
-        th = compute_threats(gmap, party, getattr(screen, "creatures", ()) or (), fight_squids=fight_squids)
+        # A strong party fights a dragon rather than dodging its breath: the
+        # escape can't close on one, so a level-25 party hopped between two
+        # tiles in its range until it wiped (batch dbeb0c9 seed 159).
+        th = compute_threats(
+            gmap,
+            party,
+            getattr(screen, "creatures", ()) or (),
+            fight_squids=fight_squids,
+            dragon_lanes=not self._strong_vs_pirates(party),
+        )
         self._threats = th
         pos = (px, py)
         on_ship = party.transport == Transport.SHIP
