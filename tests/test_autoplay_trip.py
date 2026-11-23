@@ -1725,3 +1725,21 @@ def test_chest_pickup_ignores_chests_it_cannot_route_to(pygame_setup, asset_mgr)
     ctrl._move_toward = lambda _sm, _g, _p, _pos, goals: called.append(set(goals)) or 0
     ctrl._step_overworld(sm, ow, party, 44, 20, Goal.GRIND_AND_LEVEL)
     assert not any((14, 18) in g for g in called)
+
+
+def test_a_member_with_no_food_and_no_gold_grinds_instead_of_a_dungeon():
+    """Batch cab7a2a seeds 170, 172: one member at 0 food, 7 gold (too
+    little for food); inside dungeon 17 the starving exit turned the party
+    round, outside the marks sent it back in, ~75,000 steps each."""
+    from py_exodus.autoplay import batch
+
+    party = batch.build_party()
+    for m in party.members:
+        m.level, m.food, m.gold = 15, 86, 0
+        m.marks, m.cards = [1, 0, 0, 0], [0, 0, 0, 0]
+        m.weapon, m.armor = WeaponType.EXOTIC, ArmorType.EXOTIC
+        m.gems, m.torches = 8, 4
+    party.members[0].gold = 7
+    assert evaluate_goal(party, 0) == Goal.GET_REMAINING_MARKS
+    party.members[2].food = 0
+    assert evaluate_goal(party, 0) == Goal.GRIND_AND_LEVEL

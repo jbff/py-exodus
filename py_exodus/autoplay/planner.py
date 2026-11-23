@@ -511,6 +511,13 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
                 return Goal.BUY_GEMS
             if torches < 4 and party.gold >= (80 if torches == 0 else 150):
                 return Goal.BUY_TORCHES
+            # A member with no food turns a dungeon round at the door (it
+            # leaves the moment anyone's food is 0), so too broke to buy
+            # food it grinds for the gold instead of walking in and out
+            # (batch cab7a2a seeds 170, 172: ~75,000 steps each at dungeon
+            # 17's door).
+            if any(m.food <= 0 for m in living):
+                return Goal.GRIND_AND_LEVEL
         return Goal.GET_REMAINING_MARKS
 
     if not has_all_cards:
