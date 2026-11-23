@@ -36,8 +36,13 @@ def asset_mgr():
 
 
 def logtext(town: TownScreen) -> str:
-    """Wrapped log lines re-joined into one normalized string."""
-    return " ".join(" ".join(town.text_log.history).split())
+    """What the player sees: wrapped log lines plus the open prompt row,
+    re-joined into one normalized string. (A shop's question is asked once,
+    as the prompt, so it reaches the history only when answered.)"""
+    lines = list(town.text_log.history)
+    if town.text_log.is_waiting_for_input:
+        lines.append(town.text_log.current_prompt)
+    return " ".join(" ".join(lines).split())
 
 
 def make_party(gold_by_member=(1000,)):
@@ -606,7 +611,8 @@ def test_weapon_buy_multiple_via_member_purse():
 
     assert member.weapons[WeaponType.DAGGER] == 3
     assert member.gold == 1000 - 15
-    assert "Winston says: A fine choice! anything else?" in logtext(town)
+    assert "Winston says: A fine choice!" in logtext(town)
+    assert town.text_log.current_prompt == "Anything else? (y or n)"
 
 
 def test_weapon_buy_one_take_it_prompt():
@@ -696,8 +702,9 @@ def test_weapon_sell_single_deal_string():
 
 
 def test_weapon_sell_too_many_swine():
-    """WAIT_SELL_DONT_HAVE_THAT_MANY: selling more than owned (or a choice
-    not on the catalog) prints the swine line and returns to buy-or-sell."""
+    """WAIT_SELL_DONT_HAVE_THAT_MANY: selling more than owned prints the
+    swine line and ends the visit, as LairWare ends it on a failed sale
+    (Java said "Anything else?" but sat at Buy or Sell)."""
     vendor = make_weapon_vendor()
     party = make_party((0,))
     member = party.members[0]
@@ -708,9 +715,10 @@ def test_weapon_sell_too_many_swine():
     town.text_log.submit_input("s")
     town.text_log.submit_input("b")  # 2 owned -> the how-many prompt
     town.text_log.submit_input("5")
-    assert "You don't have that many swine! Anything else?" in logtext(town)
+    assert "You don't have that many swine!" in logtext(town)
+    assert "Anything else?" not in logtext(town)
     assert member.weapons[WeaponType.DAGGER] == 2
-    assert "Art thou here to Buy or Sell?" in logtext(town)  # re-welcomed
+    assert not town.text_log.is_waiting_for_input  # visit over
 
 
 # --- Buy-or-Sell key semantics (playtest-1 fix batch, item 2) --------------
@@ -749,7 +757,7 @@ def test_weapon_invalid_key_rewelcomes_and_reprompts():
     town.text_log.handle_char("x")  # single-char prompt: flushes immediately
 
     assert town.text_log.is_waiting_for_input, "dialog must stay open"
-    assert town.text_log.current_prompt == "Buy or Sell? (b or s)"
+    assert town.text_log.current_prompt == "Art thou here to Buy or Sell? (b or s)"
     assert logtext(town).count("Art thou here to Buy or Sell?") == 2, (
         "Java re-prints the welcome message on an unrecognized answer"
     )
@@ -792,7 +800,7 @@ def test_weapon_distinct_yn_prompts_per_state():
     assert town.text_log.current_prompt == "Anything else? (y or n)"
 
     town.text_log.submit_input("y")  # non-y would FAREWELL (Java BUY_ITEM:63-66)
-    assert town.text_log.current_prompt == "Buy or Sell? (b or s)"
+    assert town.text_log.current_prompt == "Art thou here to Buy or Sell? (b or s)"
     town.text_log.submit_input("s")  # -> WAIT_SELL_INPUT
     assert town.text_log.current_prompt == "Which wouldst you sell?"
     town.text_log.submit_input("b")  # one dagger owned -> WAIT_SELL_ONE
@@ -829,7 +837,8 @@ def test_weapon_sell_unknown_choice_swine():
     town._start_vendor_shopping(vendor, buyer=member)
     town.text_log.submit_input("s")
     town.text_log.submit_input("z")
-    assert "You don't have that many swine!" in logtext(town)
+    assert "You don't own one of those!" in logtext(town)
+    assert not town.text_log.is_waiting_for_input
 
 
 def test_weapon_multi_count_cannot_pay():
@@ -916,7 +925,7 @@ def test_sell_only_what_this_shop_stocks():
     assert "Sword for 200gp. (1)" in logtext(town)
     assert "Axe +2" not in logtext(town)
     town.text_log.submit_input("i")  # the +2 Axe's letter at Dawn
-    assert "You don't have that many swine!" in logtext(town)
+    assert "You don't own one of those!" in logtext(town)
     assert member.weapons[WeaponType.AXE_P2] == 1 and member.gold == 0
 
 
@@ -929,7 +938,8 @@ def test_sell_nothing_owned_is_refused():
     town._start_vendor_shopping(make_weapon_vendor(), buyer=member)
     town.text_log.submit_input("s")
     town.text_log.submit_input("g")  # Sword, none owned
-    assert "You don't have that many swine!" in logtext(town)
+    assert "You don't own one of those!" in logtext(town)
+    assert not town.text_log.is_waiting_for_input  # LW `return`: visit over
     assert member.gold == 0 and member.weapons[WeaponType.SWORD] == 0
 
 
@@ -946,6 +956,7 @@ def test_sell_past_9999_gold_is_cancelled():
     town.text_log.submit_input("y")
     assert "More gold than thou can carry! Sale cancelled." in logtext(town)
     assert member.armors[ArmorType.PLATE] == 1 and member.gold == 9800
+    assert not town.text_log.is_waiting_for_input  # LW `return`: visit over
 
 
 def test_sell_the_readied_weapon_leaves_hands():
@@ -1551,3 +1562,50 @@ def test_generic_menu_lists_full_catalog():
     assert "a) W0 - 1gp" in log
     assert "h) W7 - 8gp" in log
     assert "i) W8 - 9gp" in log
+
+
+# --- Each question asked once (user 2026-11-23) ------------------------------
+
+
+def _drive(vendor, inputs, gold=1000, setup=None):
+    party = make_party((gold,))
+    member = party.members[0]
+    if setup:
+        setup(member)
+    town = TownScreen(party=party, map_id=1)
+    town._start_vendor_shopping(vendor, buyer=member)
+    for value in inputs:
+        assert town.text_log.is_waiting_for_input
+        town.text_log.submit_input(value)
+    return town
+
+
+@pytest.mark.parametrize(
+    "vendor_fn, inputs, gold, setup",
+    [
+        (make_weapon_vendor, ["b", "b", "2", "y", "b", "c", "n"], 1000, None),
+        (make_weapon_vendor, ["b", "c", "y", "n"], 40, None),
+        (make_weapon_vendor, ["s", "b", "2", "n"], 0,
+         lambda m: m.weapons.__setitem__(WeaponType.DAGGER, 3)),
+        (make_weapon_vendor, ["s", "b", "y", "n"], 0,
+         lambda m: m.weapons.__setitem__(WeaponType.DAGGER, 1)),
+        (make_armor_vendor, ["b", "b", "y", "n"], 100, None),
+        (make_food_vendor, ["y", "1", "n"], 1000, None),
+        (make_tavern_vendor, ["f", "1", "a", "2", "n"], 1000, None),
+        (make_horse_vendor, ["y", "n"], 1000, None),
+        (make_oracle_vendor, ["1"], 1000, None),
+        (make_guild_vendor, ["y", "b", "y", "n"], 1000, None),
+        (make_healer_vendor, ["y", "b", "1", "y", "n"], 1000, None),
+    ],
+)
+def test_no_shop_question_is_asked_twice(vendor_fn, inputs, gold, setup):
+    """Java printed each question in the log and again beside its input
+    field, so the port asked every shop question twice ("How many would you
+    like?" then "How many would you like? 2"). The question is now the
+    prompt: no line in the log may end with a question that the next line
+    (the answered prompt) repeats."""
+    town = _drive(vendor_fn(), inputs, gold, setup)
+    hist = [h.strip() for h in town.text_log.history if h.strip()]
+    for before, after in zip(hist, hist[1:]):
+        if before.endswith("?"):
+            assert not after.startswith(before.split(": ")[-1]), (before, after)

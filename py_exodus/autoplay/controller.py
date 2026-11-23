@@ -2706,7 +2706,7 @@ class AutoPlayController:
         # the goal brings the party back if it still needs more.
         if (
             "anything else" in prompt or "anything else" in last_msg or "see more" in last_msg
-            or "give blood" in prompt or "more help" in prompt
+            or "see more" in prompt or "give blood" in prompt or "more help" in prompt
         ):
             return self._emit_key(state_machine, pygame.K_n)
         if "(y or n)" in prompt or "take it" in prompt or "deal" in prompt:
@@ -2717,6 +2717,10 @@ class AutoPlayController:
         if "how many" in prompt:
             self._queue_text("1", enter=True)
             return self._emit_key(state_machine, self._key_queue.popleft())
+        # The tavern asks "What'll it be, Food er Ale?" as its prompt; it was
+        # always walked away from, not answered with an item letter.
+        if "food er ale" in prompt or "somethin' else" in prompt:
+            return self._emit_key(state_machine, pygame.K_ESCAPE)
         if "buy" in prompt or "what" in prompt or "wat'l" in prompt or "choice" in prompt or "(a-" in prompt:
             return self._emit_key(state_machine, _char_to_key(self._shop_item_letter) or pygame.K_b)
         return self._emit_key(state_machine, pygame.K_ESCAPE)

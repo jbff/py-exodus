@@ -536,8 +536,8 @@ def test_town_screen_vendor_shopping(pygame_setup, asset_mgr, sample_party):
 
     # Task 8: WEAPON vendors run the WeaponVendor state machine (Java
     # WeaponVendor.java), not the generic menu. Wrapped log lines rejoin.
-    log = " ".join(" ".join(town.text_log.history).split())
-    assert "Art thou here to Buy or Sell?" in log
+    # The question is asked once, as the prompt (user 2026-11-23).
+    assert town.text_log.current_prompt == "Art thou here to Buy or Sell? (b or s)"
 
     # Buy Dagger (choice 'a') from the catalog ("b" = Buy); single-char
     # prompts auto-commit on handle_char.
@@ -550,7 +550,7 @@ def test_town_screen_vendor_shopping(pygame_setup, asset_mgr, sample_party):
     assert sample_party.gold == 45
     assert buyer.weapons.get(WeaponType.DAGGER, 0) == 1
     log = " ".join(" ".join(town.text_log.history).split())
-    assert "A fine choice! anything else?" in log
+    assert "A fine choice!" in log
 
 
 def test_town_screen_all_vendor_types_shopping(pygame_setup, asset_mgr, sample_party):
