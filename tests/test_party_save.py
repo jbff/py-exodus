@@ -628,9 +628,10 @@ def test_pool_gold_no_duplication():
     assert p.members[1].gold == 0
 
 
-def test_pool_gold_clamps_to_9999_cap():
-    """GBC menucmd2.c:965-987 clamps the JOIN GOLD total to 9999
-    (LW UltimaMain.c:1982-2000 corroborates the cap)."""
+def test_pool_gold_clamps_to_9999_cap_and_keeps_the_rest():
+    """LW JoinGold (UltimaMain.c:1976-2006): the receiver tops out at 9999;
+    each giver hands over only what fits and keeps the rest. No gold is
+    destroyed (the old port zeroed every purse and clamped the sum)."""
     p = Party()
     p.add_member(Character(name="C1", gold=4000))
     p.add_member(Character(name="C2", gold=4000))
@@ -640,8 +641,8 @@ def test_pool_gold_clamps_to_9999_cap():
     assert total == 9999
     assert p.members[0].gold == 9999
     assert p.members[1].gold == 0
-    assert p.members[2].gold == 0
-    assert p.gold == 9999  # clamped excess is not in play
+    assert p.members[2].gold == 501
+    assert p.gold == 10500  # all of it still in play
 
 
 def test_pool_gold_below_cap_unclamped():

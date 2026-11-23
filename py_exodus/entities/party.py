@@ -621,23 +621,28 @@ class Party:
                     break
 
     def pool_gold(self, target_index: int = 0) -> int | None:
-        """Pool every member's gold into member ``target_index``.
+        """Pool every member's gold into member ``target_index``, up to 9999.
 
-        Java truth: ``exodus/Party.java:88-97`` — ``poolGold(index)`` zeroes
-        every member's purse and credits the whole sum to ``members[index]``.
-        There is no party-level pool to pool into in the per-member model.
-
-        USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): pooled gold clamps to the 9999 cap (GBC menucmd2.c:965-987; LW UltimaMain.c:1982-2000)
+        LairWare ``JoinGold`` (UltimaMain.c:1976-2006): each other member, in
+        order, hands over what fits under the 9999 cap and keeps the rest. The
+        old port zeroed every purse and clamped the sum, destroying anything
+        past 9999 (batch ba92658 seed 213: 19,246 gold became 9,999 at
+        Grey's food stall).
         """
         if target_index >= len(self.members) or target_index < 0:
             return None
 
-        total = 0
-        for m in self.members:
-            total += m.gold
-            m.gold = 0
-        self.members[target_index].gold = min(total, 9999)
-        return self.members[target_index].gold
+        target = self.members[target_index]
+        total = target.gold
+        for i, m in enumerate(self.members):
+            if i == target_index:
+                continue
+            transfer = min(m.gold, 9999 - total)
+            if transfer > 0:
+                total += transfer
+                m.gold -= transfer
+        target.gold = total
+        return target.gold
 
     def end_turn(
         self, surface: bool = True, sosaria: bool = False, combat: bool = False
