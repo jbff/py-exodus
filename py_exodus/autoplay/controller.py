@@ -88,6 +88,7 @@ _NEIGHBOURS4 = ((0, -1), (0, 1), (-1, 0), (1, 0))
 _GATE_WAIT_TURNS = 6  # be at the gate this many turns before it opens
 _GATE_ROAM_RADIUS = 5
 _CHASE_RADIUS = 8  # land monsters this close count as chasing
+_SHIP_CHEST_CLEAR = 6  # no sea monster this close to go ashore for a chest
 _BLOCK_TURNS = 40  # a refused threatened tile stays barred this long
 # Planning cost for entering a tile under threat when the trip is planned.
 _DANGER_HARD = 60.0
@@ -1403,6 +1404,44 @@ class AutoPlayController:
         gmap = screen.game_map
         cur_map_id = self._screen_map_id(screen, party)
         living = [m for m in party.members if not m.is_dead()]
+
+        # A chest dropped ashore by a fight fought from the ship (user rule
+        # 2026-11-23): leave the ship, step over, open it, board again, a few
+        # turns for gold and maybe gear, unless sea monsters are about or a
+        # badly hurt party is in no state to spend them. The trip owns the
+        # X and the B; the chest code below opens it once underfoot.
+        if (
+            cur_map_id in _PIRATE_SEA_MAPS
+            and party.transport == Transport.SHIP
+            and not self._chest_too_risky(party)
+            and not party_has_low_hp(party)
+            and not (
+                goal == Goal.CURE_POISON
+                and any(m.status == Status.POISONED and m.hp <= 25 for m in living)
+            )
+            and not any(
+                "x" in c and "y" in c and creature_name(c) in SEA_MONSTERS
+                and manhattan(gmap.width, gmap.height, (px, py), (c["x"], c["y"])) <= _SHIP_CHEST_CLEAR
+                for c in getattr(screen, "creatures", ()) or ()
+            )
+        ):
+            ashore = {
+                (obj.get("x"), obj.get("y"))
+                for obj in objects_on(party, gmap)
+                if str(obj.get("tile", "")).lower() == "chest"
+                and manhattan(gmap.width, gmap.height, (px, py), (obj.get("x"), obj.get("y"))) <= 2
+            }
+            # Same limits as on foot, or it lands for a chest the foot code
+            # then won't fetch, boards, and lands again.
+            lanes = self._threats.hard_avoid() if self._threats is not None else set()
+            ashore -= lanes | set(self._active_blocks())
+            if ashore:
+                key = self._trip_drive(
+                    state_machine, screen, gmap, party, px, py, cur_map_id,
+                    Destination(frozenset(ashore), Transport.FOOT, "chest"),
+                )
+                if key is not None and key is not _ARRIVED:
+                    return key
 
         # Loot dropped chests on foot on Sosaria or Ambrosia (prefer APPAR_UNEM, else G with member 1)
         if (

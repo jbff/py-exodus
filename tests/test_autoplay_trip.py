@@ -1805,3 +1805,35 @@ def test_errands_pick_up_a_dropped_chest_unless_it_is_an_emergency(pygame_setup,
     orc = {"tile_name": "orc", "tile": "orc", "x": 44, "y": 25}
     assert chases(Goal.BUY_FOOD, badly_hurt)  # nothing near: still two moves
     assert not chases(Goal.BUY_FOOD, badly_hurt, [orc])
+
+
+def test_a_ship_goes_ashore_for_a_chest_its_fight_dropped(pygame_setup, asset_mgr):
+    """User rule 2026-11-23: a chest dropped ashore by a fight from the
+    ship is worth the turns to leave, open it and board again, unless sea
+    monsters are about."""
+    from py_exodus.ui.renderer import can_move_to
+
+    for squid, lands in ((False, True), (True, False)):
+        party = _make_party(level=10, x=5, y=41, transport=Transport.SHIP)
+        party.wind_direction = Direction.NORTH
+        cleric = next(m for m in party.members if m.profession == Profession.CLERIC)
+        cleric.wisdom, cleric.max_mp, cleric.mp = 25, 25, 25
+        sm, ow = _overworld(asset_mgr, party)
+        gmap = ow.game_map
+        shore = next(
+            (x, y)
+            for x, y in ((4, 41), (6, 41), (5, 40), (5, 42), (3, 41), (7, 41), (5, 39), (5, 43))
+            if can_move_to(gmap, x, y, transport=Transport.FOOT, party=party)
+        )
+        party.dynamic_objects = [{"tile": "chest", "x": shore[0], "y": shore[1]}]
+        party.objects_map_id = 0
+        ow.creatures = [{"tile_name": "squid", "tile": "squid", "x": 5, "y": 44}] if squid else []
+        ctrl = AutoPlayController(enabled=True)
+        keys: list[int] = []
+        ctrl._emit_key = lambda _sm, key, **_kw: keys.append(key) or 0
+        ctrl._step_overworld(sm, ow, party, 5, 41, Goal.GRIND_AND_LEVEL)
+        heading = ctrl._trip is not None and ctrl._trip.dest.label == "chest"
+        assert heading is lands, (squid, keys)
+        if lands:
+            assert ctrl._trip.dest.tiles == frozenset({shore})
+            assert any(leg.action == "X" for leg in ctrl._trip.legs)
