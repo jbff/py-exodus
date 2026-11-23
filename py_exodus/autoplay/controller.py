@@ -127,6 +127,7 @@ _PIRATE_SEA_MAPS: tuple[int, ...] = (_MAP_SOSARIA, _MAP_AMBROSIA)
 _UNSAFE_REST_TOWN_MAPS: tuple[int, ...] = (_MAP_EXODUS, _MAP_DEATH_GULCH)
 # ~2x a typical mainland town food run; leaves HP margin before starvation ticks kill a 0-food party.
 _STARVING_AVOID_MAX_STEPS = 40
+_TOWN_DASH_STEPS = 4  # this close to a town gate, firing lanes don't block the walk in
 
 # EXODUS card panels: (x, y, bit_mask, card_letter, card_index)
 _EXODUS_PANELS: tuple[tuple[int, int, int, str, int], ...] = (
@@ -2003,6 +2004,14 @@ class AutoPlayController:
             # Head for the tile the plan chose; only drifting targets
             # (whirlpools) are re-read every tick.
             target = set(dest.tiles) if dest.moving else {leg.end}
+            near = self._last_steps_into_town(gmap, party, pos, target)
+            if near:
+                saved = self._overworld_avoid
+                self._overworld_avoid = set(saved or ()) - near
+                try:
+                    return self._move_toward(state_machine, gmap, party, pos, target)
+                finally:
+                    self._overworld_avoid = saved
             return self._move_toward(state_machine, gmap, party, pos, target)
 
         if leg.action == "GATE":
@@ -2447,6 +2456,27 @@ class AutoPlayController:
         if "buy" in prompt or "what" in prompt or "wat'l" in prompt or "choice" in prompt or "(a-" in prompt:
             return self._emit_key(state_machine, _char_to_key(self._shop_item_letter) or pygame.K_b)
         return self._emit_key(state_machine, pygame.K_ESCAPE)
+
+    def _last_steps_into_town(self, gmap, party, pos, target) -> set[tuple[int, int]]:
+        """On foot within a few steps of a town gate: the firing lanes to drop
+        from the avoid set. Inside, the threat is gone; one broadside costs
+        less than dancing outside. (Batch ccd5f52 seed 103: a pirate bobbing
+        between (5, 43) and (5, 44) lane-blocked each route to the gate at
+        (7, 44) in turn; the party swapped routes ~1,900 times, three tiles
+        from food, and starved.)"""
+        th = self._threats
+        if party.transport != Transport.FOOT or th is None or len(target) != 1:
+            return set()
+        gate = next(iter(target))
+        if not any((p.x, p.y) == gate for p in getattr(gmap, "portals", ())):
+            return set()
+        if abs(gate[0] - pos[0]) + abs(gate[1] - pos[1]) > _TOWN_DASH_STEPS:
+            return set()
+        lanes = th.hard_avoid()
+        _d, cost = find_2d_step_and_cost(gmap, start=pos, goals=target, transport=Transport.FOOT, party=party)
+        if cost is None or cost > _TOWN_DASH_STEPS:
+            return set()
+        return lanes
 
     _capture_goal: tuple[int, int] | None = None
     _capture_turn = -10

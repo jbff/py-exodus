@@ -1506,3 +1506,37 @@ def test_lane_escape_leaves_a_frigate_about_to_be_boarded_to_the_trip(pygame_set
     ctrl._emit_key = lambda _sm, key, **_kw: keys.append(key) or 0
     assert ctrl._threat_escape(sm, ow, party, 31, 3) is None
     assert not keys
+
+
+def test_bobbing_pirate_lanes_dont_keep_the_party_out_of_a_town_steps_away(pygame_setup, asset_mgr):
+    """Batch ccd5f52 seed 103: three tiles from the town gate at (7, 44), a
+    pirate bobbing between (5, 44) and (5, 43) lane-blocked each route in
+    turn; the party swapped routes ~1,900 times and starved there."""
+    from py_exodus.autoplay.controller import _DIR_TO_KEY
+
+    key_to_step = {
+        _DIR_TO_KEY[Direction.NORTH]: (0, -1),
+        _DIR_TO_KEY[Direction.SOUTH]: (0, 1),
+        _DIR_TO_KEY[Direction.EAST]: (1, 0),
+        _DIR_TO_KEY[Direction.WEST]: (-1, 0),
+    }
+    party = _make_party(level=5, x=10, y=43)
+    sm, ow = _overworld(asset_mgr, party)
+    gmap = ow.game_map
+    assert any((p.x, p.y) == (7, 44) for p in gmap.portals)
+    ctrl = AutoPlayController(enabled=True)
+    keys: list[int] = []
+    ctrl._emit_key = lambda _sm, key, **_kw: keys.append(key) or 0
+    dest = Destination(frozenset({(7, 44)}), Transport.FOOT, "food")
+    living = [m for m in party.members if not m.is_dead()]
+    for turn in range(6):
+        if (party.x, party.y) == (7, 44):
+            break
+        ow.creatures = [_pirate(5, 44 if turn % 2 == 0 else 43)]
+        ctrl._threats = compute_threats(gmap, party, ow.creatures)
+        ctrl._overworld_avoid = ctrl._monster_avoid(ow, party, party.x, party.y, Goal.BUY_FOOD, living)
+        ctrl._ow_turn = turn
+        ctrl._trip_drive(sm, ow, gmap, party, party.x, party.y, 0, dest)
+        dx, dy = key_to_step[keys[-1]]
+        party.x, party.y = party.x + dx, party.y + dy
+    assert (party.x, party.y) == (7, 44)
