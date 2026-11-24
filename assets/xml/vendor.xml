@@ -159,26 +159,28 @@
     </vendorClass>
 
     <vendorClass type="FOOD" music="SHOPPING">
+        <!-- LairWare Shop case 1 (UltimaMisc.c:1658-1690): rations are 1 gold each,
+             bought by the ration (message 192), never past 9999 food. -->
         <vendor id="DAWN" name="The Sage Deli" owner="Shaman" type="FOOD" startX="29" startY="43">
-            <item type="FOOD" price="25" quant="25" />
+            <item type="FOOD" price="1" quant="1" />
         </vendor>
         <vendor id="DEVIL" name="Adventure Food" owner="Windrick" type="FOOD" startX="42" startY="31">
-            <item type="FOOD" price="35" quant="25" />
+            <item type="FOOD" price="1" quant="1" />
         </vendor>
         <vendor id="GREY" name="The Dry Goods" owner="Donnar" type="FOOD" startX="26" startY="23">
-            <item type="FOOD" price="30" quant="25" />
+            <item type="FOOD" price="1" quant="1" />
         </vendor>
         <vendor id="YEW" name="Food For Thought" owner="Mintol" type="FOOD" startX="31" startY="15">
-            <item type="FOOD" price="20" quant="25" />
+            <item type="FOOD" price="1" quant="1" />
         </vendor>
         <vendor id="LCB" name="The Market" owner="Max" type="FOOD" startX="48" startY="51">
-            <item type="FOOD" price="25" quant="25" />
+            <item type="FOOD" price="1" quant="1" />
         </vendor>
         <vendor id="BRITISH" name="Not Sea Food" owner="Arfandil" type="FOOD" startX="16" startY="21">
-            <item type="FOOD" price="20" quant="25" />
+            <item type="FOOD" price="1" quant="1" />
         </vendor>
         <vendor id="FAWN" name="Food For Thought" owner="Mintol" type="FOOD" startX="25" startY="51">
-            <item type="FOOD" price="20" quant="25" />
+            <item type="FOOD" price="1" quant="1" />
         </vendor>
     </vendorClass>
 

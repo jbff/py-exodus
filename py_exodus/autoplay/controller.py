@@ -176,12 +176,13 @@ _GUILD_TOWNS: dict[int, tuple[int, int, tuple[int, int]]] = {
 }
 
 # Towns with Food shops reachable on foot: map_id -> (portal_x, portal_y, food_stand_xy)
+# Rations are 1 gold each everywhere (LairWare Shop case 1).
 _FOOD_TOWNS: dict[int, tuple[int, int, tuple[int, int]]] = {
-    1: (45, 18, (16, 20)),   # Castle British (20gp / 25 food; no counter, stand adjacent)
-    3: (46, 19, (48, 49)),   # Britain (25gp / 25 food)
-    4: (34, 16, (31, 17)),   # Yew (20gp / 25 food)
-    6: (7, 44, (26, 25)),    # Grey (30gp / 25 food)
-    11: (37, 53, (29, 41)),  # Dawn (25gp / 25 food; only selected when Dawn is open)
+    1: (45, 18, (16, 20)),   # Castle British (no counter, stand adjacent)
+    3: (46, 19, (48, 49)),   # Britain
+    4: (34, 16, (31, 17)),   # Yew
+    6: (7, 44, (26, 25)),    # Grey
+    11: (37, 53, (29, 41)),  # Dawn (only selected when Dawn is open)
 }
 
 # Towns with Healers reachable on foot: map_id -> (portal_x, portal_y, healer_stand_xy)
@@ -964,7 +965,7 @@ class AutoPlayController:
             living = [(i + 1, m) for i, m in enumerate(party.members) if not m.is_dead()]
             if living:
                 total_gold = party.gold
-                food_price = {1: 20, 3: 25, 4: 20, 6: 30, 11: 25}.get(map_id, 30)
+                food_price = 1  # a ration, LairWare Shop case 1
                 if goal == Goal.BUY_FOOD and getattr(self, "_food_shop_target", None) is None:
                     trip_gold = return_trip_gold(party)
                     if trip_gold and total_gold >= trip_gold:
@@ -989,7 +990,9 @@ class AutoPlayController:
                     and any(m.food < shop_target for _, m in living)
                 ):
                     buyer_idx, buyer = min(living, key=lambda im: im[1].food)
-                    packs_needed = max(1, (shop_target - buyer.food + 24) // 25)
+                    # Rations, in the 25s it bought as Java packs (a meal
+                    # eaten on the way out must not leave it 1 short).
+                    packs_needed = max(1, (shop_target - buyer.food + 24) // 25) * 25
                     low_food_count = sum(1 for _, m in living if m.food < shop_target)
                     if low_food_count > 1:
                         fair_packs = max(1, (total_gold // food_price) // low_food_count)
@@ -998,7 +1001,7 @@ class AutoPlayController:
                         self._join_gold_member_idx = buyer_idx
                         return self._emit_key(state_machine, pygame.K_j)
                     if (px, py) == food_xy:
-                        self._food_packs = max(1, min(20, packs_needed, buyer.gold // food_price))
+                        self._food_packs = max(1, min(500, packs_needed, buyer.gold // food_price))
                         self._shop_member_idx = buyer_idx
                         self._talk_dir_key = self._direction_to_npc(gmap, px, py)
                         return self._emit_key(state_machine, pygame.K_t)
@@ -2726,7 +2729,7 @@ class AutoPlayController:
             return self._emit_key(state_machine, pygame.K_n)
         if "(y or n)" in prompt or "take it" in prompt or "deal" in prompt:
             return self._emit_key(state_machine, pygame.K_y)
-        if "how many packs" in prompt:
+        if "how many rations" in prompt:
             self._queue_text(str(self._food_packs), enter=True)
             return self._emit_key(state_machine, self._key_queue.popleft())
         if "how many" in prompt:

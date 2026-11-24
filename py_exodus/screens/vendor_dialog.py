@@ -224,6 +224,10 @@ class BaseVendorDialog:
             self.on_end()
 
 
+#: LairWare keeps food in two base-100 bytes (UltimaMisc.c:1668): 9999 at most.
+_FOOD_MAX = 9999
+
+
 class FoodVendorDialog(BaseVendorDialog):
     """Java ``vendor/FoodVendor.java``. The FOOD item is found by
     InventoryType, not by choice key (FoodVendor.java:13-17)."""
@@ -248,12 +252,10 @@ class FoodVendorDialog(BaseVendorDialog):
             self.display(f"{self.vendor.owner} says: Good day, and Welcome friend.")
             self.ask("May I interest you in some rations?")
         elif self.state == ConvState.WAIT_BUY_HOW_MANY:
-            food = self.food_item
-            self.display(
-                f"We have the best adventure rations, {food.quantity}"
-                f" for only {food.price}gp."
-            )
-            self.ask(f"How many packs of {food.quantity} would you like?")
+            # LairWare message 192: "RATIONS: 1 g.p. EACH, How many would
+            # you like?" (vendor.xml prices a ration at 1, quant 1).
+            self.display(f"We have the best adventure rations, {self.food_item.price}gp each.")
+            self.ask("How many rations would you like?")
         elif self.state == ConvState.BUY_FOOD:
             # Java FoodVendor.java:42-48
             self._player().food = self._player().food + (
@@ -286,11 +288,18 @@ class FoodVendorDialog(BaseVendorDialog):
                 self.state = ConvState.FAREWELL
         elif self.state == ConvState.WAIT_BUY_HOW_MANY:
             try:
-                count = int(inp)
+                count = abs(int(inp))  # LW UInputBigNum: Absolute(number)
             except ValueError:
                 count = 1
             self.current_count = count
-            if self.current_count == 0 or not self._check_can_pay_food():
+            room = _FOOD_MAX - self._player().food
+            if self.current_count == 0:
+                self.state = ConvState.FAREWELL
+            elif self.current_count * self.food_item.quantity > room:
+                # LairWare UltimaMisc.c:1668-1673: past 9999 food -> message
+                # 260 "Not enough room!" and the question again (goto shop1).
+                self.display("Not enough room!")
+            elif not self._check_can_pay_food():
                 self.state = ConvState.FAREWELL
             else:
                 self.state = ConvState.BUY_FOOD
@@ -300,14 +309,14 @@ class FoodVendorDialog(BaseVendorDialog):
         player = self._player()
         if self.food_item.price * self.current_count > player.gold:
             self.display(
-                f"You can only afford {player.gold // self.food_item.price} packs."
+                f"You can only afford {player.gold // self.food_item.price} rations."
             )
             return False
         return True
 
     def _prompt_for_state(self) -> tuple[str, str, bool]:
         if self.state == ConvState.WAIT_BUY_HOW_MANY:
-            return ("How many packs?", "", False)
+            return ("How many rations?", "", False)
         return ("Reply?", "(y or n)", True)
 
 

@@ -145,8 +145,9 @@ def test_food_item_purchasable_by_type_not_choice(asset_mgr):
     assert vendor is not None
     assert vendor.vendor_type == "FOOD"
     food_item = next(i for i in vendor.items if i.item_type.upper() == "FOOD")
-    assert food_item.price == 25
-    assert food_item.quantity == 25
+    # LairWare Shop case 1: a ration is 1 gold (was 25 for 25gp).
+    assert food_item.price == 1
+    assert food_item.quantity == 1
 
     party = make_party((100,))
     member = party.members[0]
@@ -159,12 +160,12 @@ def test_food_item_purchasable_by_type_not_choice(asset_mgr):
 
     town.text_log.submit_input("y")
     assert town.text_log.is_waiting_for_input
-    # "We have the best adventure rations, 25 for only 25gp."
+    # "We have the best adventure rations, 1gp each."
     assert "best adventure rations" in logtext(town)
-    assert "How many packs of 25 would you like?" in logtext(town)
+    assert "How many rations would you like?" in logtext(town)
 
-    town.text_log.submit_input("2")
-    assert member.food == food_before + 2 * 25
+    town.text_log.submit_input("50")
+    assert member.food == food_before + 50
     assert member.gold == 100 - 50
     assert "Thank you." in logtext(town)
     assert "Anything else?" in logtext(town)
@@ -199,7 +200,7 @@ def test_food_only_afford_n_packs():
     town.text_log.submit_input("3")
 
     # 50 // 20 == 2
-    assert any("You can only afford 2 packs." in m for m in town.text_log.history)
+    assert any("You can only afford 2 rations." in m for m in town.text_log.history)
     assert member.food == before
     assert member.gold == 50
     # then farewell
@@ -220,7 +221,7 @@ def test_food_loop_until_bye_then_decline():
     # "Anything else?" -> y loops back to the packs prompt
     town.text_log.submit_input("y")
     assert town.text_log.is_waiting_for_input
-    assert "How many packs" in logtext(town)
+    assert "How many rations" in logtext(town)
     # decline: 0 packs sends the player off (FoodVendor.java:89 FAREWELL)
     town.text_log.submit_input("0")
     assert not town.text_log.is_waiting_for_input
@@ -229,7 +230,7 @@ def test_food_loop_until_bye_then_decline():
 
 
 def test_food_unaffordable_single_pack_bids_farewell():
-    """gold < price at the packs prompt: 'You can only afford 0 packs.'"""
+    """gold < price at the count prompt: 'You can only afford 0 rations.'"""
     vendor = make_food_vendor(price=20, quant=25)
     party = make_party((10,))
     member = party.members[0]
@@ -237,7 +238,7 @@ def test_food_unaffordable_single_pack_bids_farewell():
     town._start_vendor_shopping(vendor, buyer=member)
     town.text_log.submit_input("y")
     town.text_log.submit_input("1")
-    assert "You can only afford 0 packs." in logtext(town)
+    assert "You can only afford 0 rations." in logtext(town)
     assert not town.text_log.is_waiting_for_input
 
 
