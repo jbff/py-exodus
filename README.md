@@ -78,6 +78,7 @@ Borrowed in concept from the LairWare port: **`TAB`** (or `F2`) during any battl
 - **The dead first**: with a member dead, food waits (until someone is down to 40) so the gold goes to the resurrection.
 - **Poison**: a Cleric or Druid who can reach ALCORT's 35 MP cures on the spot once the MP is back, as long as the poisoned can afford the wait; otherwise a healer (100 gold).
 - **Endgame**: only once every planned stat is bought, yells `EVOCARE` to pass the Great Earth Serpent, heals everyone to full HP and waits for every caster's MP to fill at the castle gate, fights through Castle Exodus and inserts the four Cards.
+- **After the win**: once Exodus has fallen (or the four Cards are in) autoplay has no goal left and switches itself off, so it never answers the player's own prompts.
 
 ### Status
 

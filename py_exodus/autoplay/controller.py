@@ -377,6 +377,15 @@ class AutoPlayController:
             return None
 
         screen_party = getattr(screen, "party", None)
+        # The game is won: no goal is left, so autoplay switches itself off
+        # (the way the toggle does) and never answers the player's prompts.
+        if screen_party is not None and (
+            getattr(screen_party, "exodus_defeated", 0) > 0 or getattr(screen_party, "exodus_cards_status", 0) == 0xF
+        ):
+            self._key_queue.clear()
+            self.enabled = False
+            state_machine.autoplay_enabled = False
+            return None
         if (
             screen_name not in ("StartScreen", "RosterScreen")
             and screen_party is not None

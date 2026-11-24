@@ -2175,3 +2175,30 @@ def test_planner_never_buys_gems():
     for m in p.members:
         m.gems, m.torches = 0, 4
     assert evaluate_goal(p, 0) == Goal.GET_REMAINING_MARKS
+
+
+def test_autoplay_switches_off_once_the_game_is_won():
+    """After the win autoplay has no goal: it turns itself off and leaves the
+    player's own prompts (Yell, ...) alone."""
+    import pygame
+    from py_exodus.autoplay import batch
+    from py_exodus.autoplay.controller import AutoPlayController
+    from py_exodus.screens.overworld import OverworldScreen
+    from py_exodus.state_machine import StateMachine
+
+    pygame.init()
+    party = batch.build_party()
+    party.exodus_defeated = 1
+    am = batch._assets()
+    sm = StateMachine(asset_mgr=am, audio=None)
+    sm.set_screen(OverworldScreen(party=party, asset_mgr=am))
+    log = sm.current_screen.text_log
+    log.prompt("Yell what?", lambda s: None)
+    ctrl = AutoPlayController(enabled=True)
+    for _ in range(5):
+        ctrl.update(1.0, sm)
+    assert ctrl.enabled is False
+    assert sm.autoplay_enabled is False
+    assert log.current_prompt == "Yell what?"
+    assert log.input_buffer == ""
+    assert ctrl._step(sm) is None
