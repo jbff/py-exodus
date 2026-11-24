@@ -208,3 +208,132 @@ def test_getchest_town_opener_must_be_alive(town):
     _key(scr, pygame.K_1, "1")
     assert ash.gold == gold
     assert "Incapacitated!" in scr.text_log.history[-1]
+
+
+# --- OtherCommand: Steal, Bribe, Dig, Pray, Search ----------------------------
+
+
+def _lcb(asset_mgr):
+    from py_exodus.world.loader import MapLoader
+
+    return MapLoader(asset_mgr).load_map(3)  # Lord British's town (LCB)
+
+
+def test_steal_success_needs_counter_then_chest_three_away(asset_mgr):
+    """UltimaMain.c:2271-2285: ``byte = GetXYVal(xs, ys); if (byte < 0x94 ||
+    byte > 0xE4) goto fail; xs = xs + dx + dx; ... if (byte != 0x24) goto fail;
+    PutXYVal(0x20, xs, ys); GetChest(2, chnum);`` -- a counter next to the
+    thief and a chest three tiles out, which becomes floor; the booty is
+    GetChestBooty's (gold 30-100)."""
+    from py_exodus import special_commands as sc
+    from py_exodus.constants import Direction
+
+    gm = _lcb(asset_mgr)
+    thief = _pm("Thief", Profession.THIEF, dexterity=25, gold=0)
+    # steal roll 0 (<= 153, success); booty gold 50, item gate shut
+    lines = sc.do_steal(_party(thief), thief, 54, 20, Direction.NORTH, gm,
+                        rng=Script([0]))
+    assert gm.get_tile(54, 17).name == "floor"
+    assert sc.STEAL_FAILED not in lines and sc.WATCH_OUT not in lines
+    assert 30 <= thief.gold <= 100
+
+
+def test_steal_roll_equal_to_factor_succeeds(asset_mgr, monkeypatch):
+    """UltimaMisc.c:526-527: ``if (RandNum(0, 255) > factor) result = TRUE``
+    (failed) -- a roll equal to the factor (dex 25 + Thief 128 = 153) steals."""
+    from py_exodus import special_commands as sc
+    from py_exodus.constants import Direction
+
+    monkeypatch.setattr(chests, "random", Script([50, 255]))
+    gm = _lcb(asset_mgr)
+    thief = _pm("Thief", Profession.THIEF, dexterity=25, gold=0)
+    sc.do_steal(_party(thief), thief, 54, 20, Direction.NORTH, gm, rng=Script([153]))
+    assert thief.gold == 50
+
+
+def test_steal_fail_one_in_four_turns_guards_hostile(asset_mgr):
+    """UltimaMain.c:2259-2269: on a failed roll ``if ((RandNum(0, 255) & 0x03)
+    != 0) { "Failed!"; return; }`` else every guard (0x48) gets ctrl 0xC0
+    (attack) and "Watch out!"."""
+    from py_exodus import special_commands as sc
+    from py_exodus.constants import Direction
+
+    gm = _lcb(asset_mgr)
+    guards = [n for n in gm.npcs if n.tile_name == "guard"]
+    assert guards
+    m = _pm(dexterity=10)
+    assert sc.do_steal(_party(m), m, 54, 20, Direction.NORTH, gm, rng=Script([255, 1])) == [sc.STEAL_FAILED]
+    assert all(g.movement != "ATTACK_AVATAR" for g in guards)
+    assert sc.do_steal(_party(m), m, 54, 20, Direction.NORTH, gm, rng=Script([255, 4])) == [sc.WATCH_OUT]
+    assert all(g.movement == "ATTACK_AVATAR" for g in guards)
+    assert gm.get_tile(54, 17).name == "chest"
+
+
+def test_steal_good_roll_wrong_place_still_fails(asset_mgr):
+    """UltimaMain.c:2273-2274, 2278-2279: a wrong tile ``goto fail`` -- the
+    same 1-in-4 alarm as a bad roll (the port answered "Nothing.")."""
+    from py_exodus import special_commands as sc
+    from py_exodus.constants import Direction
+
+    gm = _lcb(asset_mgr)
+    m = _pm(dexterity=10)
+    assert sc.do_steal(_party(m), m, 32, 32, Direction.NORTH, gm, rng=Script([0, 0])) == [sc.WATCH_OUT]
+
+
+def test_bribe_pays_100_even_for_no_effect(asset_mgr):
+    """UltimaMisc.c:2446-2464: no one there -> NotHere (free); under 100 gold
+    -> "Not enough gold!"; else ``gold -= 100`` and a non-guard answers
+    NoEffect (the port charged nothing for a non-guard)."""
+    from py_exodus import special_commands as sc
+    from py_exodus.constants import Direction
+    from py_exodus.world.map import MapNpc
+
+    gm = _lcb(asset_mgr)
+    gm.npcs = [MapNpc(20, "fighter", 10, 9, 10, 9), MapNpc(18, "guard", 10, 11, 10, 11)]
+    m = _pm(gold=250)
+    assert sc.do_bribe(m, 10, 10, Direction.EAST, gm) == sc.NOT_HERE
+    assert m.gold == 250
+    assert sc.do_bribe(m, 10, 10, Direction.NORTH, gm) == sc.NO_EFFECT
+    assert m.gold == 150 and len(gm.npcs) == 2
+    assert sc.do_bribe(m, 10, 10, Direction.SOUTH, gm) == ""
+    assert m.gold == 50 and [n.tile_name for n in gm.npcs] == ["fighter"]
+
+
+def test_dig_sets_one_exotic(asset_mgr):
+    """UltimaMisc.c:2421-2426: ``Player[rosNum][63] = 1`` / ``[47] = 1`` --
+    digging again does not add a second Exotic (the port stacked to 9)."""
+    from py_exodus import special_commands as sc
+    from py_exodus.world.loader import MapLoader
+
+    sos = MapLoader(asset_mgr).load_map(0)
+    m = _pm()
+    for _ in range(3):
+        assert sc.do_dig(_party(m), m, 33, 3, sos) == sc.EXOTICS
+        assert sc.do_dig(_party(m), m, 19, 44, sos) == sc.EXOTICS
+    assert m.weapons[WeaponType.EXOTIC] == 1
+    assert m.armors[ArmorType.EXOTIC] == 1
+    assert sc.do_dig(_party(m), m, 33, 4, sos) == sc.NOT_HERE
+
+
+def test_pray_only_in_yew_at_48_48():
+    """UltimaMisc.c:2466-2481: ``Party[3] != 2`` (a town), ``Party[4] !=
+    LocationX[4]`` (Yew, MISC 404: x 34) or not at (0x30, 0x30) -> NoEffect.
+    The port also answered on the Exodus map and in a box around (48,48)."""
+    from py_exodus import special_commands as sc
+
+    assert sc.do_pray(48, 48, 4) == sc.VISION
+    assert sc.do_pray(47, 48, 4) == sc.NO_EFFECT
+    assert sc.do_pray(48, 48, 2) == sc.NO_EFFECT
+    assert sc.do_pray(46, 46, 4) == sc.NO_EFFECT
+
+
+def test_other_needs_living_member(town):
+    """UltimaMisc.c:2276-2280: ``if (CheckAlive(chnum - 1) == FALSE) {
+    UPrintMessage(126); ...`` -- every Other word, Search included."""
+    ash = _pm("Ash")
+    ash.status = Status.ASHES
+    scr = town(party=_party(ash, _pm("Live")))
+    _key(scr, pygame.K_o, "o")
+    _type(scr, "SEARCH\n")
+    _key(scr, pygame.K_1, "1")
+    assert scr.text_log.history[-1] == "Incapacitated!"
