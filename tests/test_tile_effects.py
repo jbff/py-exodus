@@ -171,11 +171,10 @@ def test_exploration_movement_is_never_slowed():
 # --- Standing tile effect + pass turn (GameScreen.java:706-754, 624-628) ---
 
 
-def test_standing_tile_effect_applies_each_turn_on_the_2d_maps(
-    pygame_setup, asset_mgr
-):
-    """Java GameScreen.finishTurn applies the rule effect of the tile the
-    party occupies at the start of the turn — not the destination."""
+def test_lava_burns_on_the_step_onto_it_not_off_it(pygame_setup, asset_mgr):
+    """LairWare ValidDir (UltimaMain.c:3194-3207) burns the party as it steps
+    ONTO lava; stepping off it (Java's effect of the tile being left) does
+    nothing. Flat 50 per member (GBC funcs5.c:1287-1310, LW the same)."""
     grass = asset_mgr.get_tile_by_name("grass")
     lava = asset_mgr.get_tile_by_name("lava")
     gmap = GameMap(
@@ -195,25 +194,21 @@ def test_standing_tile_effect_applies_each_turn_on_the_2d_maps(
     ow.game_map = gmap
     party.x, party.y = 44, 20
 
-    saved_rng = tile_effects._rng
-    tile_effects._rng = RemainderRng(0)
-    try:
-        ow._move_avatar(Direction.NORTH)
-    finally:
-        tile_effects._rng = saved_rng
-
-    # Moved off the lava onto grass; the turn spent on the lava tile applied
-    # the LAVA effect unconditionally: flat 50 damage each (GBC funcs5.c:
-    # 1287-1310; the roll is gone).
+    ow._move_avatar(Direction.NORTH)  # off the lava onto grass
     assert (party.x, party.y) == (44, 19)
+    assert all(m.hp == 100 for m in party.members)
+
+    ow._move_avatar(Direction.SOUTH)  # back onto the lava
+    assert (party.x, party.y) == (44, 20)
     assert all(m.hp == 100 - 50 for m in party.members)
 
 
-def test_overworld_pass_turn_applies_standing_effect_and_consumes_turn(
+def test_overworld_pass_turn_consumes_turn_without_standing_effect(
     pygame_setup, asset_mgr
 ):
     """Java GameScreen.java:624-628: the pass key finishes the turn at the
-    party's tile — endTurn tick plus the standing tile effect, no movement."""
+    party's tile. LairWare applies terrain only on the step onto it
+    (ValidDir, UltimaMain.c:3169-3220), so passing on a field does nothing."""
     grass = asset_mgr.get_tile_by_name("grass")
     poison_field = grass.__class__(  # a walkable, rule-"poison" field tile
         index=200, name="poison_field", rule="poison"
@@ -228,10 +223,6 @@ def test_overworld_pass_turn_applies_standing_effect_and_consumes_turn(
     )
 
     party = make_party()
-    # Feed both members: Character defaults food to 0 and Party(food=400)
-    # seeds only one member. With food > 0 the original-rules regen tick
-    # (user-directed deviation 2026-11-10) never starves across the two
-    # passes, and the poison tick below is the only HP loss.
     for m in party.members:
         m.food = 400
     ow = OverworldScreen(
@@ -244,18 +235,10 @@ def test_overworld_pass_turn_applies_standing_effect_and_consumes_turn(
     ow._pass_turn()
     ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_SPACE))
 
-    # Both passes consumed a turn without moving, and the unconditional
-    # POISONFIELD fan-out (Party.java:279-283 — no 1-in-5 roll) poisoned
-    # every non-DEAD member.
     assert (party.x, party.y) == (0, 0)
     assert party.moves == moves_before + 2
-    assert all(m.status == Status.POISONED for m in party.members)
-    # Original-rules poison tick (deviation 2026-11-10): the FIRST pass ran
-    # its regen tick BEFORE the tile effect poisoned the party (no damage
-    # that turn); the SECOND pass is a poisoned turn — "Every step the
-    # character takes, lowers the character's hit level by one" — so each
-    # member is −1 HP.
-    assert all(m.hp == 99 for m in party.members)
+    assert all(m.status == Status.GOOD for m in party.members)
+    assert all(m.hp == 100 for m in party.members)
 
 
 def test_ambrosia_drains_at_the_10_interval(pygame_setup, asset_mgr):
@@ -294,10 +277,11 @@ def test_ambrosia_drains_at_the_10_interval(pygame_setup, asset_mgr):
     assert party0.food == food_before - len(party0.members)  # -1 food per member
 
 
-def test_town_pass_turn_applies_standing_effect_and_consumes_turn(
+def test_town_pass_turn_consumes_turn_without_standing_effect(
     pygame_setup, asset_mgr
 ):
-    """Town pass routes through the same _finish_turn flow."""
+    """Town pass routes through the same _finish_turn flow; standing on lava
+    does nothing (LairWare ValidDir burns on entry, UltimaMain.c:3194-3207)."""
     from py_exodus.screens.town import TownScreen
 
     grass = asset_mgr.get_tile_by_name("grass")
@@ -313,17 +297,11 @@ def test_town_pass_turn_applies_standing_effect_and_consumes_turn(
     tw.avatar_x, tw.avatar_y = 0, 0
 
     moves_before = party.moves
-    saved_rng = tile_effects._rng
-    tile_effects._rng = RemainderRng(0)
-    try:
-        tw.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_SPACE))
-    finally:
-        tile_effects._rng = saved_rng
+    tw.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_SPACE))
 
     assert (tw.avatar_x, tw.avatar_y) == (0, 0)
     assert party.moves == moves_before + 1
-    # Unconditional LAVA fan-out: flat 50 damage each (GBC funcs5.c:1287-1310).
-    assert all(m.hp == 100 - 50 for m in party.members)
+    assert all(m.hp == 100 for m in party.members)
 
 
 # --- applyEffect port (Party.java:279-283 + 342-368 unconditional;

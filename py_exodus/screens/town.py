@@ -238,7 +238,9 @@ class TownScreen(BaseScreen):
             # at the party's tile (ticks + standing effect). Towns drain the
             # submorsels pool at 10 per turn (non-surface map).
             self.text_log.add_message("Pass")  # Java GameScreen.java:626-627
-            self._finish_turn(self.game_map.get_tile(self.avatar_x, self.avatar_y) if self.game_map else None)
+            # No standing tile effect: LairWare burns only on the step onto
+            # lava (ValidDir, UltimaMain.c:3194-3207).
+            self._finish_turn(None)
         # Town commands:
         elif event.key == pygame.K_a:
             self.text_log.add_message("Attack: The guards eye thee suspiciously! Peace reigns here.")
@@ -313,8 +315,9 @@ class TownScreen(BaseScreen):
 
     def _consume_pass_turn(self) -> None:
         """Java GameScreen.keyUp tail (GameScreen.java:628): finishTurn on the
-        party's tile with no message (unhandled keys and fall-throughs)."""
-        self._finish_turn(self.game_map.get_tile(self.avatar_x, self.avatar_y) if self.game_map else None)
+        party's tile with no message (unhandled keys and fall-throughs).
+        No standing tile effect (LairWare ValidDir, UltimaMain.c:3194-3207)."""
+        self._finish_turn(None)
 
     def _toggle_zstats(self) -> None:
         """Cycle Ztats inspect mode through party members."""
@@ -353,12 +356,16 @@ class TownScreen(BaseScreen):
         nx = self.avatar_x + direction.dx
         ny = self.avatar_y + direction.dy
 
-        # Check exit border
+        # Check exit border. LairWare Routine6E35 (UltimaMisc.c:1365-1369)
+        # leaves a town once a step lands on column 0 or row 0; a step off
+        # the far edge wraps to 0 (MapConstrain) over the grass GetXYVal
+        # reads beyond a town map (UltimaMisc.c:982-992), so it leaves too.
+        # Either way the leaving step is a turn (Routine6E35 IncMoves).
         if not (0 <= nx < self.game_map.width and 0 <= ny < self.game_map.height):
-            self._exit_town()
+            self._finish_turn(None)
+            if not self.party.is_party_dead():
+                self._exit_town()
             return
-
-        start_tile = self.game_map.get_tile(self.avatar_x, self.avatar_y)
 
         if self.map_id == 2:
             hostile = next(
@@ -382,7 +389,11 @@ class TownScreen(BaseScreen):
             self.avatar_y = ny
             if self.audio is not None:
                 self.audio.play_sfx("walk_normal")
-            self._finish_turn(start_tile)
+            # LairWare ValidDir (UltimaMain.c:3194-3207) burns on the step
+            # ONTO lava, so the effect is the entered tile's, on a move only.
+            self._finish_turn(self.game_map.get_tile(nx, ny))
+            if (nx == 0 or ny == 0) and not self.party.is_party_dead():
+                self._exit_town()  # Routine6E35, UltimaMisc.c:1365-1369
         else:
             # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): force field 99
             # damage to members lacking the Mark of Force; passage only when
@@ -398,9 +409,13 @@ class TownScreen(BaseScreen):
                 )
             except PartyDeathException:
                 pass
-            self.check_party_death()
+            if self.check_party_death():
+                return
             if self.audio is not None:
                 self.audio.play_sfx("blocked")
+            # A refused step still takes the turn: LairWare's NoGo, then the
+            # main loop's Routine6E35 (UltimaMain.c:1057-1091, 1203-1215).
+            self._finish_turn(None)
 
     def _start_exodus_combat(self, npc: Any) -> None:
         """Battle a hostile ATTACK_AVATAR person (any town; LW AttackCode)."""
@@ -862,10 +877,7 @@ class TownScreen(BaseScreen):
             if member is None:
                 # Non-digits fall through silently (Java), but the keydown
                 # still consumes the turn at the party's tile (SIP:459).
-                self._finish_turn(
-                    self.game_map.get_tile(self.party.x, self.party.y)
-                    if self.game_map else None
-                )
+                self._finish_turn(None)  # no standing effect (LW ValidDir)
                 return
 
             px, py = self.avatar_x, self.avatar_y
@@ -877,9 +889,7 @@ class TownScreen(BaseScreen):
                 tile = self.game_map.get_tile(px, py) if self.game_map else None
                 if tile is None or getattr(tile, "rule", "") != "chest":
                     self.text_log.add_message("Not Here!")
-                    self._finish_turn(
-                        self.game_map.get_tile(px, py) if self.game_map else None
-                    )
+                    self._finish_turn(None)  # no standing effect (LW ValidDir)
                     return
                 self.game_map.set_tile(px, py, TileDef(index=3, name="floor"))
 
@@ -894,7 +904,7 @@ class TownScreen(BaseScreen):
             except PartyDeathException:
                 pass
             self.check_party_death()
-            self._finish_turn(self.game_map.get_tile(px, py) if self.game_map else None)
+            self._finish_turn(None)  # no standing effect (LW ValidDir)
 
         self.text_log.prompt("GET> Which party member? (1-4):", callback=_on_who, single_char=True)
 

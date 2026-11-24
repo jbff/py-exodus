@@ -719,7 +719,9 @@ class OverworldScreen(BaseScreen):
         """Java GameScreen.keyUp tail (GameScreen.java:628): finishTurn on the
         party's tile, with no message. Used by the unhandled-key fall-through
         and by handled keys that Java lets reach the tail (Q, Z, H, P, N, V)."""
-        self._finish_turn(self.game_map.get_tile(self.party.x, self.party.y) if self.game_map else None)
+        # No standing tile effect: LairWare hurts only on the step onto lava
+        # (ValidDir, UltimaMain.c:3194-3207).
+        self._finish_turn(None)
         self._update_creatures()
 
     def _pass_turn(self) -> None:
@@ -730,7 +732,9 @@ class OverworldScreen(BaseScreen):
         and applies the rule effect of the party's tile exactly like a move.
         """
         self.text_log.add_message("Pass")  # Java GameScreen.java:626-627
-        self._finish_turn(self.game_map.get_tile(self.party.x, self.party.y) if self.game_map else None)
+        # No standing tile effect (LairWare ValidDir burns only on entry,
+        # UltimaMain.c:3194-3207).
+        self._finish_turn(None)
         self._update_creatures()
 
     def _toggle_zstats(self) -> None:
@@ -808,10 +812,7 @@ class OverworldScreen(BaseScreen):
             if member is None:
                 # Non-digits fall through silently (Java), but the keydown
                 # still consumes the turn at the party's tile (SIP:459).
-                self._finish_turn(
-                    self.game_map.get_tile(self.party.x, self.party.y)
-                    if self.game_map else None
-                )
+                self._finish_turn(None)  # no standing effect (LW ValidDir)
                 return
 
             px, py = self.party.x, self.party.y
@@ -823,9 +824,7 @@ class OverworldScreen(BaseScreen):
                 tile = self.game_map.get_tile(px, py) if self.game_map else None
                 if tile is None or getattr(tile, "rule", "") != "chest":
                     self.text_log.add_message("Not Here!")
-                    self._finish_turn(
-                        self.game_map.get_tile(px, py) if self.game_map else None
-                    )
+                    self._finish_turn(None)  # no standing effect (LW ValidDir)
                     return
                 self.game_map.set_tile(px, py, TileDef(index=3, name="floor"))
 
@@ -843,7 +842,7 @@ class OverworldScreen(BaseScreen):
                 return
             if self.audio is not None:
                 self.audio.play_sfx("trigger")
-            self._finish_turn(self.game_map.get_tile(px, py) if self.game_map else None)
+            self._finish_turn(None)  # no standing effect (LW ValidDir)
 
         self.text_log.prompt("GET> Which party member? (1-4):", callback=_on_who, single_char=True)
 
@@ -1447,21 +1446,21 @@ class OverworldScreen(BaseScreen):
             # postexo1.c:1848-1852; menucmd3.c:1449-1467). LW is silent on
             # blocking and NES slows-but-moves, so GBC governs: a becalmed
             # ship cannot sail at all, and sailing into the wind's reverse is
-            # refused — both supersede the old slow-down behavior. The move
-            # is refused without consuming a turn, like any other blocked
-            # step.
+            # refused — both supersede the old slow-down behavior. Like any
+            # refused step the turn still passes (LairWare North() NoGo, then
+            # the main loop's Routine6E35, UltimaMain.c:1057-1091, 1203-1207).
             wind = self.party.wind_direction
             if wind is None:
                 self.text_log.add_message("The ship is becalmed!")
+                self._refused_step_turn()
                 return
             if direction == wind.reverse():
                 self.text_log.add_message("Headwinds block thy ship!")
+                self._refused_step_turn()
                 return
 
         nx = (self.party.x + direction.dx) % self.game_map.width
         ny = (self.party.y + direction.dy) % self.game_map.height
-
-        start_tile = self.game_map.get_tile(self.party.x, self.party.y)
 
         # Java preMove intercepts the step onto Ambrosia's WHIRLPOOL portal
         # before tile walkability / valid-moves mask checks and ferries the
@@ -1478,7 +1477,10 @@ class OverworldScreen(BaseScreen):
             if self.audio is not None:
                 self.audio.play_sfx("walk_normal")
 
-            self._finish_turn(start_tile)
+            # LairWare ValidDir (UltimaMain.c:3194-3207) burns the party as it
+            # steps ONTO lava; standing or passing there does nothing. So the
+            # tile effect is the entered tile's, on a move only.
+            self._finish_turn(self.game_map.get_tile(nx, ny))
 
             # Check moongate teleports
             self._check_moongates()
@@ -1496,6 +1498,18 @@ class OverworldScreen(BaseScreen):
             self._apply_force_field_block(nx, ny)
             if self.audio is not None:
                 self.audio.play_sfx("blocked")
+            if not self.party.is_party_dead():
+                self._refused_step_turn()
+
+    def _refused_step_turn(self) -> None:
+        """A refused step still takes the turn: LairWare's North()..West()
+        print INVALID MOVE! (NoGo) and the main loop then runs Routine6E35
+        (IncMoves, AgeChars, FinishAll) for every arrow key
+        (UltimaMain.c:1057-1091, 1203-1215, 3278-3282). No tile effect: the
+        party has not entered anything."""
+        self._finish_turn(None)
+        if self.random_encounters_enabled and not self.party.is_party_dead():
+            self._check_random_encounter()
 
     def _apply_force_field_block(self, nx: int, ny: int) -> None:
         """Apply the GBC force-field strike to a refused energy-field entry.
@@ -1539,10 +1553,10 @@ class OverworldScreen(BaseScreen):
 
         Java truth: ``exodus/GameScreen.java:706-754`` ``finishTurn`` —
         ``checkHullIntegrity`` runs first, then turn end runs ``endTurn``,
-        ``aura.passTurn`` and applies the tile-rule effect of the tile the
-        party occupies at the start of the turn (``getCurrentMapCoords`` is
-        captured pre-move, so the effect lands on the tile being left, not
-        the one entered); moves and the pass key route through it. The
+        ``aura.passTurn`` and applies ``effect_tile``'s rule effect. Java
+        used the tile being left; LairWare ValidDir (UltimaMain.c:3194-3207)
+        burns on the step ONTO lava, so callers pass the entered tile on a
+        move and None on a pass or refused step. The
         whirlpool engulf sits inside ``moveObjects``
         (``BaseMap.java:540-553`` at ``movementDistance`` ≤ 1 — same tile or
         an orthogonal neighbor, no diagonals); ``_check_whirlpool_engulf``
