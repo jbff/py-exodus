@@ -44,7 +44,7 @@ def asset_mgr():
 def _won_fight(asset_mgr, context_map_id):
     party = Party(transport=Transport.FOOT)
     party.x, party.y = 56, 31  # Sosaria, Death Gulch's gate
-    party.add_member(Character("Hero", "M", Race.HUMAN, Profession.FIGHTER, dexterity=50, strength=50))
+    party.add_member(Character("Hero", "M", Race.HUMAN, Profession.FIGHTER, dexterity=99, strength=50))
     cmap = MapLoader(asset_mgr).load_conflict_map("cnflct_c.json")
     arena = CombatArena(party, cmap, creature_tile="orc", asset_mgr=asset_mgr, monster_count=1,
                         context_map_id=context_map_id)

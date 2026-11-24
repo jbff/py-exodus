@@ -39,7 +39,7 @@ def _open_arena(
     monster_count: int = 1,
 ) -> CombatArena:
     party = Party()
-    hero = Character("Hero", "M", Race.HUMAN, Profession.FIGHTER, strength=50, dexterity=50)
+    hero = Character("Hero", "M", Race.HUMAN, Profession.FIGHTER, strength=50, dexterity=99)
     hero.weapon = weapon
     hero.hp = hp
     hero.max_hp = max_hp
@@ -169,7 +169,7 @@ def test_last_one_standing_fights_instead_of_retreating(asset_mgr):
 
 def test_combat_screen_toggle_tab_f2_and_escape(asset_mgr, conflict_map):
     party = Party()
-    hero = Character("Hero", "M", Race.HUMAN, Profession.FIGHTER, strength=50, dexterity=50)
+    hero = Character("Hero", "M", Race.HUMAN, Profession.FIGHTER, strength=50, dexterity=99)
     party.add_member(hero)
 
     combat = CombatScreen(

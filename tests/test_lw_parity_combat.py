@@ -137,3 +137,79 @@ def test_old_save_experience_above_9899_loads_unchanged():
     assert loaded.exp == 9950
     loaded.award_xp(1)
     assert loaded.exp == 9899
+
+
+# --- B-04 / B-05: the party's to-hit roll and weapon damage -----------------
+
+def _scripted(monkeypatch, values):
+    """Feed resolver.random.randint the given values in order."""
+    import py_exodus.combat.resolver as resolver
+
+    seq = iter(values)
+    monkeypatch.setattr(resolver.random, "randint", lambda a, b: next(seq))
+
+
+def _orc(hp=255):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(name="Orc", tile="orc", basehp=48, exp=3, x=0, y=0, hp=hp)
+
+
+def test_combatattack_dex_check_misses(monkeypatch):
+    """UltimaSpellCombat.c:1336-1341 (CombatAttack):
+
+        if (RandNum(0, 255) < 128) {
+            if (Player[rosNum][19] < RandNum(0, 99)) {
+                Missed();
+
+    Half the swings face a dexterity check: DEX below a 0-99 roll misses.
+    """
+    from py_exodus.combat.resolver import resolve_player_attack
+
+    hero = Character("Hero0", "M", hp=100, max_hp=100, dexterity=50)
+    _scripted(monkeypatch, [127, 51])  # checked, 50 < 51: a miss
+    assert not resolve_player_attack(hero, None, _orc()).hit
+
+
+def test_combatattack_dex_check_bounds(monkeypatch):
+    """UltimaSpellCombat.c:1336-1341: RandNum is inclusive at both ends. A
+    first roll of 128..255 skips the check (a hit); DEX equal to the second
+    roll is not below it (a hit)."""
+    from py_exodus.combat.resolver import resolve_player_attack
+
+    hero = Character("Hero0", "M", hp=100, max_hp=100, dexterity=50)
+    _scripted(monkeypatch, [128, 0, 0])  # no check; then damage rolls
+    assert resolve_player_attack(hero, None, _orc()).hit
+    _scripted(monkeypatch, [0, 50, 0])  # checked, 50 < 50 is false
+    assert resolve_player_attack(hero, None, _orc()).hit
+    weak = Character("Weak", "M", hp=100, max_hp=100, dexterity=0)
+    _scripted(monkeypatch, [0, 1])  # DEX 0 misses any roll above 0
+    assert not resolve_player_attack(weak, None, _orc()).hit
+
+
+def test_combatattack_damage_formula(monkeypatch):
+    """UltimaSpellCombat.c:1349-1352 (CombatAttack):
+
+        damage = RandNum(0, (Player[rosNum][18] | 1));
+        damage += Player[rosNum][18] / 2;
+        damage += Player[rosNum][48] * 3;
+        damage += 4;
+
+    STR 20 with a Sword (weapon 6): 0..21 + 10 + 18 + 4 = 32..53.
+    """
+    from py_exodus.combat.resolver import calculate_player_damage
+    from py_exodus.entities.defs import WeaponDef
+
+    hero = Character("Hero0", "M", hp=100, max_hp=100, strength=20)
+    sword = WeaponDef(type="SWORD", name="Sword", dmin=4, dmax=22)
+    seen = []
+    import py_exodus.combat.resolver as resolver
+
+    monkeypatch.setattr(resolver.random, "randint", lambda a, b: seen.append((a, b)) or b)
+    assert calculate_player_damage(hero, sword) == 53
+    assert seen == [(0, 21)]
+    monkeypatch.setattr(resolver.random, "randint", lambda a, b: a)
+    assert calculate_player_damage(hero, sword) == 32
+    # Hands (weapon 0), STR 15: 0..15 + 7 + 0 + 4.
+    hero.str = 15
+    assert calculate_player_damage(hero, None) == 11

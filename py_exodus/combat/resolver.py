@@ -51,39 +51,57 @@ class AttackResolution:
     message: str = ""
 
 
-def roll_hit(attacker_attack_bonus: int, defender_defense: int) -> bool:
-    """Evaluate hit roll matching classic Ultima III mechanics.
+def roll_hit(attacker_dex: int, defender_defense: int = 0) -> bool:
+    """The party's to-hit roll, LairWare CombatAttack
+    (UltimaSpellCombat.c:1336-1341)::
 
-    Java ``Utils.attackHit`` (Utils.java:592-602): Attack Value =
-    rand.nextInt(256) + attacker_bonus — i.e. rand(0..255) + bonus; the hit
-    lands when Attack Value > defender_defense.
+        if (RandNum(0, 255) < 128) {
+            if (Player[rosNum][19] < RandNum(0, 99)) {
+                Missed();
+
+    Half the swings face a dexterity check, missing when DEX is below a 0-99
+    roll; the other half always land. The monster plays no part
+    (``defender_defense`` is ignored). Replaces Java ``Utils.attackHit``.
     """
-    attack_value = random.randint(0, 255) + attacker_attack_bonus
-    return attack_value > defender_defense
+    if random.randint(0, 255) < 128:
+        if attacker_dex < random.randint(0, 99):
+            return False
+    return True
+
+
+def lw_weapon_index(weapon: Any) -> int:
+    """LairWare Player[48]: 0 hands .. 15 exotic (the WeaponType order)."""
+    from py_exodus.constants import WeaponType
+
+    value = getattr(weapon, "type", weapon)
+    value = getattr(value, "value", value)
+    try:
+        return list(WeaponType).index(WeaponType(str(value).upper()))
+    except (ValueError, TypeError):
+        return 0
 
 
 def calculate_player_damage(
     character: Character, weapon_def: WeaponDef | None = None
 ) -> int:
-    """Calculate damage dealt by a player character.
+    """Damage of a party member's landed blow, LairWare CombatAttack
+    (UltimaSpellCombat.c:1349-1352)::
 
-    Java truth: ``Party.PartyMember.getDamage`` (Party.java:333-340) —
-    maxDamage = dmax + str * 1.5 (Int math, capped at 255), then
-    ``Utils.getRandomBetween(dmin, maxDamage)`` → ``rand.nextInt(high - low)
-    + low`` (Utils.java:50-52): the HIGH bound is EXCLUSIVE.
+        damage = RandNum(0, (Player[rosNum][18] | 1));
+        damage += Player[rosNum][18] / 2;
+        damage += Player[rosNum][48] * 3;
+        damage += 4;
+
+    STR is byte 18 and the readied weapon's number byte 48 (hands 0 ..
+    exotic 15). Replaces Java ``PartyMember.getDamage``.
     """
-    if weapon_def is None:
-        dmin, dmax = 4, 4
-    else:
-        dmin, dmax = weapon_def.dmin, weapon_def.dmax
-
-    max_damage = min(255, int(dmax + character.str * 1.5))
-    if max_damage < dmin:
-        max_damage = dmin
-    if max_damage > dmin:
-        # nextInt(high - low) + low — high exclusive.
-        return random.randrange(max_damage - dmin) + dmin
-    return dmin
+    strength = int(getattr(character, "str", 0) or 0)
+    return (
+        random.randint(0, strength | 1)
+        + strength // 2
+        + lw_weapon_index(weapon_def) * 3
+        + 4
+    )
 
 
 def calculate_monster_damage(basehp: int) -> int:
@@ -496,11 +514,8 @@ def resolve_player_attack(
             message="",
         )
 
-    # Attack bonus: if DEX >= 40, auto-hit cap (255)
-    attack_bonus = 255 if character.dex >= 40 else character.dex
-    defense = getattr(target_monster, "get_defense", lambda: 128)()
-
-    is_hit = roll_hit(attack_bonus, defense)
+    # LairWare CombatAttack dexterity check (UltimaSpellCombat.c:1336-1341).
+    is_hit = roll_hit(character.dex)
     if not is_hit:
         # Java's miss line (Utils.java:853): just `"Missed!"` — the GBC miss
         # message is the same terse form (battle.c missmsg, battle.c:96-99;

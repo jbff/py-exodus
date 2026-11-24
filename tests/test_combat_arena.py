@@ -215,7 +215,7 @@ def test_turn_sequencing_skips_disabled_members(asset_mgr, conflict_map):
 def test_player_melee_attack_and_exp_award(asset_mgr, conflict_map):
     party = Party()
     # High dexterity ensures hit
-    hero = Character("Hero", "M", Race.HUMAN, Profession.FIGHTER, dexterity=50, strength=50)
+    hero = Character("Hero", "M", Race.HUMAN, Profession.FIGHTER, dexterity=99, strength=50)
     party.add_member(hero)
 
     arena = CombatArena(party, conflict_map, creature_tile="orc", asset_mgr=asset_mgr, monster_count=1)
@@ -243,7 +243,7 @@ def test_player_melee_attack_and_exp_award(asset_mgr, conflict_map):
 def test_ranged_projectile_tracing_and_attack(asset_mgr, conflict_map):
     party = Party()
     # Hero equipped with Bow (ranged)
-    hero = Character("Archer", "M", Race.ELF, Profession.RANGER, dexterity=50, strength=30, weapon=WeaponType.BOW)
+    hero = Character("Archer", "M", Race.ELF, Profession.RANGER, dexterity=99, strength=30, weapon=WeaponType.BOW)
     party.add_member(hero)
 
     arena = CombatArena(party, conflict_map, creature_tile="orc", asset_mgr=asset_mgr, monster_count=1)
@@ -313,7 +313,7 @@ def test_monster_ai_advancement_and_melee_attack(asset_mgr, conflict_map):
 def test_chest_spawning_rules(asset_mgr, conflict_map):
     # 1. Normal land victory -> Spawns chest
     party1 = Party(transport=Transport.FOOT)
-    party1.add_member(Character("Hero", "M", Race.HUMAN, Profession.FIGHTER, dexterity=50, strength=50))
+    party1.add_member(Character("Hero", "M", Race.HUMAN, Profession.FIGHTER, dexterity=99, strength=50))
     arena1 = CombatArena(party1, conflict_map, creature_tile="orc", asset_mgr=asset_mgr, monster_count=1)
     arena1.monsters[0].hp = 1
     arena1.monsters[0].x = 5
@@ -326,7 +326,7 @@ def test_chest_spawning_rules(asset_mgr, conflict_map):
     # 2. Pirate defeated on unwalkable water -> No chest, boardable frigate
     #    at the creature's tile (Java GameScreen.java:425-431)
     party2 = Party(transport=Transport.FOOT)  # LW: only a pirate fought from land leaves a frigate
-    party2.add_member(Character("Hero", "M", Race.HUMAN, Profession.FIGHTER, dexterity=50, strength=50))
+    party2.add_member(Character("Hero", "M", Race.HUMAN, Profession.FIGHTER, dexterity=99, strength=50))
     arena2 = CombatArena(party2, conflict_map, creature_tile="pirate", asset_mgr=asset_mgr, monster_count=1,
                          encounter_x=21, encounter_y=7, encounter_tile_walkable=False)
     arena2.monsters[0].hp = 1
@@ -341,7 +341,7 @@ def test_chest_spawning_rules(asset_mgr, conflict_map):
 
     # 3. Creature with nochest -> No chest spawned
     party3 = Party(transport=Transport.FOOT)
-    party3.add_member(Character("Hero", "M", Race.HUMAN, Profession.FIGHTER, dexterity=50, strength=50))
+    party3.add_member(Character("Hero", "M", Race.HUMAN, Profession.FIGHTER, dexterity=99, strength=50))
     arena3 = CombatArena(party3, conflict_map, creature_tile="orc", asset_mgr=asset_mgr, monster_count=1)
     arena3.monsters[0].no_chest = True
     arena3.creature_def.no_chest = True
@@ -425,7 +425,7 @@ def test_poisonous_monster_fatal_blow_preserves_dead_status(asset_mgr, monkeypat
 
 def test_victory_spawns_chest_for_overworld_only_not_on_combat_map(asset_mgr, conflict_map):
     party = Party()
-    hero = Character("Hero", "M", Race.HUMAN, Profession.FIGHTER, dexterity=50, strength=50)
+    hero = Character("Hero", "M", Race.HUMAN, Profession.FIGHTER, dexterity=99, strength=50)
     party.add_member(hero)
     party.x = 20
     party.y = 20
@@ -505,7 +505,7 @@ def test_dying_monster_visible_during_attack_burst(asset_mgr, conflict_map):
     """Verify dead monster remains in dying_monsters during hit animation and then disappears."""
     import pygame
     party = Party()
-    hero = Character("Hero", "M", Race.HUMAN, Profession.FIGHTER, strength=50, dexterity=50)
+    hero = Character("Hero", "M", Race.HUMAN, Profession.FIGHTER, strength=50, dexterity=99)
     party.add_member(hero)
 
     from py_exodus.screens.combat_screen import CombatScreen

@@ -238,14 +238,15 @@ def test_get_combat_map_tile_rule_maps():
 # --- (c) exclusive-high dice -------------------------------------------------
 
 
-def test_player_damage_high_is_exclusive():
-    """Java Utils.getRandomBetween — nextInt(high - low) + low: high excluded."""
+def test_player_damage_spans_lairware_range():
+    """LairWare CombatAttack (UltimaSpellCombat.c:1349-1352): RandNum(0,
+    STR|1) + STR/2 + weapon*3 + 4, both RandNum ends reachable. STR 0 with a
+    Dagger (weapon 1): 0..1 + 0 + 3 + 4 = 7..8 (replaces Java's exclusive-high
+    getRandomBetween)."""
     char = Character("Hero", "M", strength=0)
-    weapon = type("W", (), {"dmin": 4, "dmax": 7})()
+    weapon = type("W", (), {"type": "DAGGER", "dmin": 4, "dmax": 7})()
     rolls = {calculate_player_damage(char, weapon) for _ in range(300)}
-    assert min(rolls) >= 4
-    assert max(rolls) == 6  # 7 (the Java `high`) must never come up
-    assert rolls == {4, 5, 6}
+    assert rolls == {7, 8}
 
 
 def test_monster_damage_may_be_zero():
