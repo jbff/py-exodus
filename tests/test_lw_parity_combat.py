@@ -158,7 +158,7 @@ def _orc(hp=255):
 
 
 def test_combatattack_dex_check_misses(monkeypatch):
-    """UltimaSpellCombat.c:1336-1341 (CombatAttack):
+    """UltimaSpellCombat.c:1332-1337 (CombatAttack):
 
         if (RandNum(0, 255) < 128) {
             if (Player[rosNum][19] < RandNum(0, 99)) {
@@ -174,7 +174,7 @@ def test_combatattack_dex_check_misses(monkeypatch):
 
 
 def test_combatattack_dex_check_bounds(monkeypatch):
-    """UltimaSpellCombat.c:1336-1341: RandNum is inclusive at both ends. A
+    """UltimaSpellCombat.c:1332-1337: RandNum is inclusive at both ends. A
     first roll of 128..255 skips the check (a hit); DEX equal to the second
     roll is not below it (a hit)."""
     from py_exodus.combat.resolver import resolve_player_attack
@@ -190,7 +190,7 @@ def test_combatattack_dex_check_bounds(monkeypatch):
 
 
 def test_combatattack_damage_formula(monkeypatch):
-    """UltimaSpellCombat.c:1349-1352 (CombatAttack):
+    """UltimaSpellCombat.c:1347-1350 (CombatAttack):
 
         damage = RandNum(0, (Player[rosNum][18] | 1));
         damage += Player[rosNum][18] / 2;
@@ -228,7 +228,7 @@ def test_shoot_flies_over_walls(asset_mgr):
         if (orgval > 127) goto shoot0;
 
     with no terrain test, so a wall does not stop an arrow (CombatAttack
-    shoots for weapons 3, 5, 9 and 13, UltimaSpellCombat.c:1305-1311)."""
+    shoots for weapons 3, 5, 9 and 13, UltimaSpellCombat.c:1302-1327)."""
     from py_exodus.combat.arena import Action
     from py_exodus.constants import Direction, WeaponType
 
@@ -360,7 +360,7 @@ def _rolls(monkeypatch, values):
 
 
 def test_figurenewmonposition_attacks_a_diagonal_neighbour(asset_mgr, monkeypatch):
-    """UltimaSpellCombat.c:1381-1382, 1407-1411 and 1091-1092: a member within
+    """UltimaSpellCombat.c:1381-1382, 1407-1411 and 1117-1118: a member within
     one step on BOTH axes is close (`zp[0xD2] < 2 && zp[0xD1] < 2`), so
     zp[0xD0] = 0 and the monster attacks it (`goto afternext`), diagonals
     included."""
@@ -448,7 +448,7 @@ def test_combatvalidmove_land_and_sea(asset_mgr, monkeypatch):
 
 
 def test_combat_only_dragons_shoot(asset_mgr, monkeypatch):
-    """UltimaSpellCombat.c:1086-1091: only the dragon (0x3A) shoots
+    """UltimaSpellCombat.c:1119-1140: only the dragon (0x3A) shoots
     (`monshoot`); a wizard out of reach either casts (monmagic, a RandNum(0,
     0xC0) > 127 roll) or steps closer. Java's 34% bolt for every ranged
     creature is gone."""
@@ -464,7 +464,7 @@ def test_combat_only_dragons_shoot(asset_mgr, monkeypatch):
 
 
 def test_monshoot_dragon_fire_hits_the_first_member_in_line(asset_mgr, monkeypatch):
-    """UltimaSpellCombat.c:1086-1091 and 1160-1185 (monshoot): on RandNum(0,
+    """UltimaSpellCombat.c:1119-1124 and 1165-1194 (monshoot): on RandNum(0,
     255) < 128 a dragon fires along its heading (zp[0xF5], zp[0xF6]) to the
     board edge; the first member on that line takes the damage roll with no
     armour check (`goto c8777`)."""
@@ -485,7 +485,7 @@ def test_monshoot_dragon_fire_hits_the_first_member_in_line(asset_mgr, monkeypat
 
 
 def test_monshoot_dragon_holds_fire_on_128(asset_mgr, monkeypatch):
-    """UltimaSpellCombat.c:1086-1091: `RandNum(0, 255) < 128` - a roll of
+    """UltimaSpellCombat.c:1119-1140: `RandNum(0, 255) < 128` - a roll of
     128 does not fire; the dragon goes on to the magic roll and the move."""
     arena = _board(asset_mgr, creature="dragon")
     _place(arena, 0, (5, 9))

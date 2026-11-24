@@ -71,7 +71,7 @@ def conflict_map(asset_mgr):
 
 
 def test_monster_ranged_adjacent_attacks_in_melee(asset_mgr, conflict_map, monkeypatch):
-    """LairWare Combat (UltimaSpellCombat.c:1083-1084): a close member is
+    """LairWare Combat (UltimaSpellCombat.c:1117-1118): a close member is
     attacked (`goto afternext`) whatever the creature; Java's 34% bolt at
     any distance is gone."""
     monkeypatch.setattr(arena_mod.random, "randrange", lambda n: 0)
@@ -163,7 +163,7 @@ def test_get_combat_map_tile_rule_maps():
 
 
 def test_player_damage_spans_lairware_range():
-    """LairWare CombatAttack (UltimaSpellCombat.c:1349-1352): RandNum(0,
+    """LairWare CombatAttack (UltimaSpellCombat.c:1347-1350): RandNum(0,
     STR|1) + STR/2 + weapon*3 + 4, both RandNum ends reachable. STR 0 with a
     Dagger (weapon 1): 0..1 + 0 + 3 + 4 = 7..8 (replaces Java's exclusive-high
     getRandomBetween)."""

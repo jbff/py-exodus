@@ -645,7 +645,7 @@ def test_wizard_with_distant_party_magic_blasts(asset_mgr, conflict_map, monkeyp
 
 def test_adjacent_wizard_attacks_without_the_poke(asset_mgr, conflict_map, monkeypatch):
     """Adjacency blocks the poke: a close member is attacked (LairWare
-    `if (zp[0xD0] == 0) goto afternext`, UltimaSpellCombat.c:1083-1084)
+    `if (zp[0xD0] == 0) goto afternext`, UltimaSpellCombat.c:1117-1118)
     before any magic roll."""
     real_randrange = random.randrange
     poke_rolls: list[int] = []

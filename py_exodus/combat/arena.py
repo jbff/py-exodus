@@ -937,7 +937,7 @@ class CombatArena:
 
     def _execute_single_monster_ai(self, monster: CombatMonster) -> MonsterTurnResult | None:
         """One monster's turn, LairWare ``Combat`` monster loop
-        (UltimaSpellCombat.c:1105-1247) with ``FigureNewMonPosition``
+        (UltimaSpellCombat.c:1105-1250) with ``FigureNewMonPosition``
         (1359-1416).
 
         - A member within one step on both axes (diagonals too) is attacked
@@ -966,18 +966,18 @@ class CombatArena:
         from_pos = (monster.x, monster.y)
         target_idx, close, step, heading = self._figure_new_mon_position(monster)
 
-        # UltimaSpellCombat.c:1083-1084: `if (zp[0xD0] == 0) goto afternext`.
+        # UltimaSpellCombat.c:1117-1118: `if (zp[0xD0] == 0) goto afternext`.
         if close and target_idx is not None:
             return self._monster_melee(monster, target_idx, from_pos)
 
-        # UltimaSpellCombat.c:1085-1090: a dragon fires half the time. With no
+        # UltimaSpellCombat.c:1119-1124: a dragon fires half the time. With no
         # target of its own it has no heading and holds its fire (LW would
         # reuse a stale zp[0xF5]/zp[0xF6]).
         if str(monster.tile).lower() == "dragon" and target_idx is not None:
             if random.randint(0, 255) < 128:
                 return self._monster_shoot(monster, heading, from_pos)
 
-        # UltimaSpellCombat.c:1091-1105, 1124-1132 (monmagic): RandNum(0,
+        # UltimaSpellCombat.c:1125-1140, 1145-1153 (monmagic): RandNum(0,
         # 0xC0) > 127 for a caster attacks a member anywhere. USER-DIRECTED
         # GBC-RULES DEVIATION (2026-11-14): the GBC magic poke picks a random
         # living member (LW: a random slot, only a Good member; ledger ask).
@@ -1002,7 +1002,7 @@ class CombatArena:
                 ),
             )
 
-        # UltimaSpellCombat.c:1106-1108, 1133-1144 (nextplr/monlb): step to
+        # UltimaSpellCombat.c:1141-1144, 1154-1164 (nextplr/monlb): step to
         # zp[0xF7], zp[0xF8] when a member was found; otherwise stay.
         if target_idx is None or step is None:
             return None
@@ -1080,7 +1080,7 @@ class CombatArena:
     def _monster_melee(
         self, monster: CombatMonster, target_idx: int, from_pos: tuple[int, int]
     ) -> MonsterTurnResult:
-        """LairWare ``afternext`` (UltimaSpellCombat.c:1196-1247): the armour
+        """LairWare ``afternext`` (UltimaSpellCombat.c:1196-1250): the armour
         roll and damage against the close member."""
         target_member = self.party.members[target_idx]
         target_pos = self.player_positions[target_idx]
@@ -1106,7 +1106,7 @@ class CombatArena:
     def _monster_shoot(
         self, monster: CombatMonster, heading: tuple[int, int], from_pos: tuple[int, int]
     ) -> MonsterTurnResult:
-        """LairWare ``monshoot`` (UltimaSpellCombat.c:1160-1185): the fire
+        """LairWare ``monshoot`` (UltimaSpellCombat.c:1165-1194): the fire
         steps along the heading to the board edge, over everything; the
         first member on its line takes the damage roll with no armour check
         (``goto c8777``, 1218-1226)."""

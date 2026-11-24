@@ -53,7 +53,7 @@ class AttackResolution:
 
 def roll_hit(attacker_dex: int, defender_defense: int = 0) -> bool:
     """The party's to-hit roll, LairWare CombatAttack
-    (UltimaSpellCombat.c:1336-1341)::
+    (UltimaSpellCombat.c:1332-1337)::
 
         if (RandNum(0, 255) < 128) {
             if (Player[rosNum][19] < RandNum(0, 99)) {
@@ -85,7 +85,7 @@ def calculate_player_damage(
     character: Character, weapon_def: WeaponDef | None = None
 ) -> int:
     """Damage of a party member's landed blow, LairWare CombatAttack
-    (UltimaSpellCombat.c:1349-1352)::
+    (UltimaSpellCombat.c:1347-1350)::
 
         damage = RandNum(0, (Player[rosNum][18] | 1));
         damage += Player[rosNum][18] / 2;
@@ -514,7 +514,7 @@ def resolve_player_attack(
             message="",
         )
 
-    # LairWare CombatAttack dexterity check (UltimaSpellCombat.c:1336-1341).
+    # LairWare CombatAttack dexterity check (UltimaSpellCombat.c:1332-1337).
     is_hit = roll_hit(character.dex)
     if not is_hit:
         # Java's miss line (Utils.java:853): just `"Missed!"` — the GBC miss
