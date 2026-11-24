@@ -194,6 +194,8 @@ class PartyMember:
 class Party:
     """Active player party (1-4 members) with coordinates, transport, and pooled resources."""
 
+    # NOT APPLIED since batch W: LairWare PutSosaria saves the whole map, so
+    # every object is saved (UltimaMisc.c:838-843). Kept for reference.
     # Cap on the dynamic-objects list WRITTEN INTO SAVES (Java parity, item 9):
     # SaveGame.java:38-40 holds three byte[24] blocks (tileids/x/y), so the
     # saved block holds at most 24 objects.
@@ -913,13 +915,9 @@ class Party:
             "exodus_cards_status": self.exodus_cards_status,
             "exodus_defeated": self.exodus_defeated,
             "members": [m.to_dict() for m in self.members],
-            # Java dynamic-object cap (see DYNAMIC_OBJECTS_SAVE_CAP): the
-            # saved block keeps the OLDEST 24 (Context.java:158-166 fills in
-            # insert order); write-time only — a loaded over-cap list is
-            # never truncated in memory or on legacy re-load.
-            "dynamic_objects": list(
-                self.dynamic_objects[: Party.DYNAMIC_OBJECTS_SAVE_CAP]
-            ),
+            # LairWare PutSosaria (UltimaMisc.c:838-843) writes the whole map
+            # grid, so every parked ship, horse and chest is saved: no cap.
+            "dynamic_objects": list(self.dynamic_objects),
             # Java dynamic-monster cap (Context.java:176-185): keep the OLDEST
             # 8 entries at save time without mutating in-memory state.
             "dynamic_monsters": list(
@@ -927,9 +925,7 @@ class Party:
             ),
             "objects_map_id": self.objects_map_id,
             "whirlpool_return": list(self.whirlpool_return) if self.whirlpool_return else None,
-            "sosaria_objects": list(
-                self.sosaria_objects[: Party.DYNAMIC_OBJECTS_SAVE_CAP]
-            ),
+            "sosaria_objects": list(self.sosaria_objects),
         }
 
     @classmethod

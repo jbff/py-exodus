@@ -266,3 +266,24 @@ def test_insert_card_stays_with_member():
 # --- Saves ------------------------------------------------------------------------
 
 
+
+
+# --- Saves ------------------------------------------------------------------------
+
+
+def test_putsosaria_keeps_every_parked_object(tmp_path):
+    """UltimaMisc.c:838-843: PutSosaria writes the whole map grid, so every
+    parked ship, horse and dropped chest (each a map value) is saved. The
+    port (Java Context.saveGame) kept the oldest 24."""
+    from py_exodus.save_system import SaveSystem
+
+    p = _party()
+    objs = [{"tile": "chest", "x": 10 + i, "y": 40} for i in range(30)]
+    p.dynamic_objects.extend(objs)
+    p.sosaria_objects.extend(objs[:26])
+    d = p.to_dict()
+    assert d["dynamic_objects"] == objs
+    assert d["sosaria_objects"] == objs[:26]
+    path = tmp_path / "party.json"
+    SaveSystem.save_game(p, path)
+    assert SaveSystem.load_game(path).dynamic_objects == objs
