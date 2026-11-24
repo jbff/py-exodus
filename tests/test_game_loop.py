@@ -1071,8 +1071,11 @@ def test_overworld_commands_cast_ztats_get_chest_pass(pygame_setup, asset_mgr, s
     evt_g = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_g, unicode="g")
     overworld.handle_event(evt_g)
     assert overworld.text_log.is_waiting_for_input
-    overworld.text_log.handle_char("1")
-    overworld.text_log.handle_enter()
+    # No trap: a sprung Bomb Trap pays no booty (LW), and this test's RNG is
+    # unseeded, so the trap roll is pinned to keep the gold check meaningful.
+    with patch("py_exodus.world.chests._chest_trap", return_value=([], False)):
+        overworld.text_log.handle_char("1")
+        overworld.text_log.handle_enter()
     assert len(sample_party.dynamic_objects) == 0
     opening_gold_delta = opening_member.gold - member_gold_before
     assert sample_party.gold == 100 + opening_gold_delta
@@ -1191,7 +1194,7 @@ def test_original_spawn_cap_is_32_slots(pygame_setup, asset_mgr):
             ow._spawn_wandering_creature()
     wanderers = [c for c in ow.creatures if c.get("tile_name") != "whirlpool"]
     assert len(wanderers) == 32
-    assert sum(1 for c in ow.creatures if c.get("tile_name") == "whirlpool") == 2
+    assert sum(1 for c in ow.creatures if c.get("tile_name") == "whirlpool") == 1
 
 
 def test_original_spawn_seeds_population_on_map_prepare(pygame_setup, asset_mgr):

@@ -293,3 +293,139 @@ def test_finishall_stopped_time_freezes_town_people(pygame_setup, asset_mgr):
     tw.party.aura.set(AuraType.NONE, 0)
     tw._finish_turn(None)
     assert (follower.x, follower.y) == (x + 2, y)
+
+
+# --- M-13: one whirlpool, LairWare's drift --------------------------------------
+
+
+def test_whirlpool_single_lairware_start(overworld):
+    """UltimaMisc.c:913-917 (LoadUltimaMap) with the Sosaria map resource
+    MAPS 420, whose four bytes after the 64x64 grid are 47, 17, 1, 1:
+
+        WhirlX = *(*gCurrentMap + mapLength + 1);
+        WhirlY = *(*gCurrentMap + mapLength + 2);
+        WhirlDX = *(*gCurrentMap + mapLength + 3);
+        WhirlDY = *(*gCurrentMap + mapLength + 4);
+
+    Sosaria has one whirlpool, starting at (47, 17) heading (+1, +1); the
+    port (Java) had two, at (50, 13) and (17, 48).
+    """
+    ow = overworld(20, 20, clear=False)
+    wps = _whirlpools(ow)
+    assert [(c["x"], c["y"]) for c in wps] == [(47, 17)]
+    assert tuple(wps[0]["dir"]) == (1, 1)
+
+
+def test_whirlpool_drifts_on_its_heading(overworld, monkeypatch):
+    """UltimaMain.c:65-66, 2973-3013 (WhirlPool):
+
+        const char WhirlXtable[8] = {0,1,1,1,0,-1,-1,-1};
+        const char WhirlYtable[8] = {1,1,0,-1,-1,-1,0,1};
+        byte = RandNum(0, 7);
+        if (byte == 0)
+            goto Whirl1;
+        newx = MapConstrain(WhirlX + WhirlDX);
+        newy = MapConstrain(WhirlY + WhirlDY);
+        byte = GetXYVal(newx, newy);
+        if (byte == 0)
+            goto Whirl2;
+        if (byte != 0x2C)
+            goto Whirl1;
+        PutXYVal(0x30, newx, newy);   (a parked ship sinks: message 110)
+        ...
+    Whirl1:
+        byte = RandNum(0, 7);
+        WhirlDX = WhirlXtable[byte];
+        WhirlDY = WhirlYtable[byte];
+
+    Seven times in eight the whirlpool moves one tile on its heading (any of
+    eight directions) onto open water; one time in eight, or when the tile
+    ahead is not open water, it stays and takes a new heading. It runs over
+    a parked ship, which is destroyed.
+    """
+    ow = overworld(20, 20)
+    wp = _monster("whirlpool", 47, 17, dir=[1, 1], wontattack=True)
+    ow.creatures = [wp]
+    # Moves on its heading.
+    monkeypatch.setattr(random, "randint", _Rolls({(0, 7): [3]}))
+    ow._move_whirlpool()
+    assert (wp["x"], wp["y"]) == (48, 18)
+    # One in eight: new heading from the table, no move.
+    monkeypatch.setattr(random, "randint", _Rolls({(0, 7): [0, 5]}))
+    ow._move_whirlpool()
+    assert (wp["x"], wp["y"]) == (48, 18)
+    assert tuple(wp["dir"]) == (-1, -1)
+    # Land ahead: stays, new heading.
+    wp["x"], wp["y"], wp["dir"] = 49, 19, [1, 1]  # (50, 20) is grass
+    monkeypatch.setattr(random, "randint", _Rolls({(0, 7): [3, 2]}))
+    ow._move_whirlpool()
+    assert (wp["x"], wp["y"]) == (49, 19)
+    assert tuple(wp["dir"]) == (1, 0)
+    # A monster ahead also turns it.
+    wp["x"], wp["y"], wp["dir"] = 47, 17, [1, 1]
+    ow.creatures.append(_monster("serpent", 48, 18))
+    monkeypatch.setattr(random, "randint", _Rolls({(0, 7): [3, 4]}))
+    ow._move_whirlpool()
+    assert (wp["x"], wp["y"]) == (47, 17)
+    assert tuple(wp["dir"]) == (0, -1)
+    ow.creatures.pop()
+    # A parked ship ahead sinks.
+    wp["dir"] = [1, 1]
+    ow.party.dynamic_objects = [{"tile": "frigate", "x": 48, "y": 18}]
+    monkeypatch.setattr(random, "randint", _Rolls({(0, 7): [3]}))
+    ow._move_whirlpool()
+    assert (wp["x"], wp["y"]) == (48, 18)
+    assert ow.party.dynamic_objects == []
+    assert any("ship was destroyed" in str(m) for m in ow.text_log.lines)
+
+
+# --- M-14: the whirlpool is not part of FinishAll ---------------------------------
+
+
+def test_whirlpool_moves_every_turn_aboard_ship_and_in_stopped_time(overworld, monkeypatch):
+    """UltimaMain.c:1042-1043 (main loop) and 2959-3013 (WhirlPool):
+
+        while (count > 0) {
+            WhirlPool();
+
+    WhirlPool runs from the key-wait loop, not from FinishAll
+    (UltimaMisc.c:1112-1126), so neither the mounted every-other-turn flip
+    nor stopped time holds it, and its engulf check (Whirl3) runs whenever it
+    moves. The port moves it once per turn.
+    """
+    party = _party()
+    party.transport = Transport.SHIP
+    ow = overworld(20, 1, party=party)
+    moves: list[int] = []
+    monkeypatch.setattr(ow, "_move_whirlpool", lambda: moves.append(1))
+    for _ in range(10):
+        _key(ow, pygame.K_SPACE)
+    assert len(moves) == 10
+    ow.party.aura.set(AuraType.QUICKNESS, 10)
+    for _ in range(3):
+        _key(ow, pygame.K_SPACE)
+    assert len(moves) == 13
+
+
+def test_whirlpool_engulfs_ship_in_stopped_time_and_on_its_own_move(overworld, monkeypatch):
+    """UltimaMain.c:3010-3012 (WhirlPool, Whirl3) and UltimaMisc.c:1373-1376
+    (Routine6E35):
+
+        if ((WhirlX == xpos) && (WhirlY == ypos)) { /* Whirlpool hit party */
+            GoWhirlPool();
+        ...
+        if (temp == 48)
+            GoWhirlPool();
+
+    The whirlpool takes the ship when it drifts onto it, and stopped time
+    does not stop it.
+    """
+    party = _party()
+    party.transport = Transport.SHIP
+    ow = overworld(48, 18, party=party)
+    ow.creatures = [_monster("whirlpool", 47, 17, dir=[1, 1], wontattack=True)]
+    ow.party.aura.set(AuraType.QUICKNESS, 10)
+    monkeypatch.setattr(random, "randint", _Rolls({(0, 7): [3]}))
+    ow._update_creatures()
+    assert ow.map_id == 13
+    assert party.whirlpool_return == (48, 18)

@@ -510,22 +510,26 @@ class OverworldScreen(BaseScreen):
         if surface_id == 13:
             self._load_ambrosia_monsters()
 
-        # Java GameScreen.java:111-121 — the two Sosaria whirlpools are added
-        # manually on the SOSARIA map each time it is prepared (they never
-        # spawn automatically and never wander); re-seeding HERE (not in
-        # __init__) keeps the engulf route alive after Ambrosia round trips,
-        # which reload this screen in place with map_id 0.
+        # LairWare's Sosaria has ONE whirlpool: LoadUltimaMap reads WhirlX,
+        # WhirlY, WhirlDX, WhirlDY from the four bytes after the map grid
+        # (UltimaMisc.c:913-917); the Sosaria resource (MAPS 420) holds
+        # 47, 17, 1, 1. (Java added two, at (50, 13) and (17, 48).)
         if str(self.map_id) == "0":
-            for wx, wy in ((50, 13), (17, 48)):
-                self.creatures.append({
-                    "name": "Whirlpool",
-                    "tile_name": "whirlpool",
-                    "tile": "whirlpool",
-                    "x": wx,
-                    "y": wy,
-                    "wontattack": True,
-                })
+            self.creatures.append(self._lw_start_whirlpool())
         self._seed_wanderers()
+
+    @staticmethod
+    def _lw_start_whirlpool() -> dict[str, Any]:
+        """The Sosaria whirlpool as the LairWare map resource starts it."""
+        return {
+            "name": "Whirlpool",
+            "tile_name": "whirlpool",
+            "tile": "whirlpool",
+            "x": 47,
+            "y": 17,
+            "dir": [1, 1],
+            "wontattack": True,
+        }
 
     # LairWare monster tile index (Tiles.plist) -> creatures.xml tile key, for
     # the monster table Ambrosia loads with its map.
@@ -1621,14 +1625,14 @@ class OverworldScreen(BaseScreen):
         (``objects/BaseMap.java:540-553``): four log lines, transport set to
         FOOT (ship and crew lost), and the party ferried to Ambrosia (32, 54).
         The two Sosaria whirlpools live at (50, 13) and (17, 48)
-        (``GameScreen.java:111-121``). Under a QUICKNESS aura
-        ``moveObjects`` is skipped entirely (``GameScreen.java:728-731``), so
-        no engulf happens while time is quick.
+        (``GameScreen.java:111-121``); LairWare has one, see
+        ``_lw_start_whirlpool``. Stopped time does not hold it off.
         """
         if self.game_map is None:
             return
-        if self.party.aura.get_type() == AuraType.QUICKNESS:
-            return
+        # No stopped-time gate: LairWare's WhirlPool and Routine6E35 engulf
+        # checks (UltimaMain.c:3010-3012; UltimaMisc.c:1375-1376) do not look
+        # at gTimeNegate.
         # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): whirlpool engulfs ships only on same-tile contact (GBC ult3.c:2418; LW UltimaMain.c:2959-3003 engulf on tile equality — ships-only per GBC ruling; supersedes Java distance<=1 fan-out)
         for c in self.creatures:
             if c.get("tile_name") != "whirlpool":
@@ -1996,6 +2000,17 @@ class OverworldScreen(BaseScreen):
            when the intended dir equals ``sail_dir``, else the turn consumes
            the tick.
         """
+        # LairWare WhirlPool (UltimaMain.c:1042-1043, 2959-3013) runs from the
+        # key-wait loop, not from FinishAll: neither the mounted flip nor
+        # stopped time holds it. The port moves it once per turn (LairWare:
+        # every 4th poll of the wait, in real time; ledger M-01). When it
+        # drifts onto the ship, GoWhirlPool takes the party (Whirl3).
+        if str(self.map_id) == "0":
+            self._move_whirlpool()
+            self._check_whirlpool_engulf()
+            if str(self.map_id) != "0":
+                return
+
         # LairWare FinishAll (UltimaMisc.c:1112-1126): on horseback or aboard
         # ship the monsters act only every other turn (zp[0xCD] flips
         # 255/0 each mounted turn and runs on 255); on foot, every turn.
@@ -2027,6 +2042,10 @@ class OverworldScreen(BaseScreen):
         for i, c in enumerate(snapshot):
             tile_name = str(c.get("tile_name", ""))
             cx, cy = c["x"], c["y"]
+            if tile_name == "whirlpool":
+                # Moved by _move_whirlpool above, not by MoveMonsters.
+                survivors.append(c)
+                continue
 
             cr_def = (
                 self.asset_mgr.get_creature(tile_name)
@@ -2187,6 +2206,56 @@ class OverworldScreen(BaseScreen):
             o.get("x") == tx and o.get("y") == ty
             for o in objects_on(self.party, self.game_map)
         )
+
+    # LairWare WhirlXtable / WhirlYtable (UltimaMain.c:65-66).
+    WHIRL_HEADINGS: tuple[tuple[int, int], ...] = (
+        (0, 1), (1, 1), (1, 0), (1, -1), (0, -1), (-1, -1), (-1, 0), (-1, 1),
+    )
+
+    def _move_whirlpool(self) -> None:
+        """LairWare WhirlPool (UltimaMain.c:2959-3013), one step.
+
+        Seven times in eight (``RandNum(0, 7) != 0``) the whirlpool moves one
+        tile along its heading (WhirlDX, WhirlDY: any of eight directions)
+        when that tile is open water (map value 0). A parked ship there
+        (0x2C) is destroyed and the whirlpool takes its place ("A ship was
+        destroyed!", message 110). Otherwise (the 1-in-8 roll, land, a
+        monster, a chest) it stays and takes a new heading from the table.
+        Sosaria only (``Party[3] != 0`` returns at once). The party's own
+        ship is no map value, so the whirlpool moves onto it (and engulfs)."""
+        if self.game_map is None or str(self.map_id) != "0":
+            return
+        w, h = self.game_map.width, self.game_map.height
+        for c in self.creatures:
+            if c.get("tile_name") != "whirlpool":
+                continue
+            dx, dy = c.get("dir") or (1, 1)
+            if random.randint(0, 7) != 0:
+                nx, ny = (c["x"] + dx) % w, (c["y"] + dy) % h
+                tile = self.game_map.get_tile(nx, ny)
+                water = str(getattr(tile, "name", "")).lower() == "water"
+                monster = any(
+                    o is not c and o.get("x") == nx and o.get("y") == ny
+                    for o in self.creatures
+                )
+                objs = [
+                    o for o in objects_on(self.party, self.game_map)
+                    if (o.get("x"), o.get("y")) == (nx, ny)
+                ]
+                if water and not monster and not objs:
+                    c["x"], c["y"] = nx, ny
+                    continue
+                if water and not monster and all(
+                    str(o.get("tile", "")).lower() == "frigate" for o in objs
+                ):
+                    for o in objs:
+                        self.party.dynamic_objects.remove(o)
+                    c["x"], c["y"] = nx, ny
+                    if self.audio is not None:
+                        self.audio.play_sfx("wave")
+                    self.text_log.add_message("A ship was destroyed!")
+                    continue
+            c["dir"] = list(self.WHIRL_HEADINGS[random.randint(0, 7)])
 
     def _lw_wander_step(self, c: dict[str, Any], width: int, height: int):
         """LairWare MoveMonsters 0x40 step (UltimaMisc.c:1283-1289, then
@@ -2473,6 +2542,11 @@ class OverworldScreen(BaseScreen):
                 creature["hp"] = int(m["hp"])
             if m.get("variant"):
                 creature["variant"] = int(m["variant"])
+            if tile_name == "whirlpool":
+                # WhirlDX/WhirlDY; saves before batch M carry none, so the
+                # map resource's (+1, +1).
+                d = m.get("dir")
+                creature["dir"] = [int(d[0]), int(d[1])] if d else [1, 1]
             if m.get("wander"):
                 # LairWare HPMON 0x40 (spawned after Exodus fell). Saves
                 # without the flag hunt, as LairWare's monsters out before.
@@ -2525,6 +2599,8 @@ class OverworldScreen(BaseScreen):
                         entry["variant"] = int(c["variant"])
                     if c.get("wander"):
                         entry["wander"] = True
+                    if c.get("dir"):
+                        entry["dir"] = [int(v) for v in c["dir"]]  # WhirlDX/DY
                     saved_monsters.append(entry)
 
                 SaveSystem.save_game(

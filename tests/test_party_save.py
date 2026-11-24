@@ -1152,9 +1152,9 @@ def test_journey_onward_empty_saved_monsters_still_spawns_wanderers(
     finally:
         random.setstate(state)
 
-    # 2 whirlpool fixtures + spawned wanderers
+    # LairWare's one whirlpool (UltimaMisc.c:913-917) + spawned wanderers
     whirls = [c for c in ow.creatures if c.get("tile_name") == "whirlpool"]
-    assert sorted((c["x"], c["y"]) for c in whirls) == [(17, 48), (50, 13)]
+    assert sorted((c["x"], c["y"]) for c in whirls) == [(47, 17)]
     assert len(ow.creatures) > 2
 
 
@@ -1177,7 +1177,7 @@ def test_journey_onward_legacy_save_still_reseeds_whirlpools(pygame_setup, asset
     assert isinstance(resumed, OverworldScreen)
 
     whirls = [c for c in resumed.creatures if c.get("tile_name") == "whirlpool"]
-    assert sorted((c["x"], c["y"]) for c in whirls) == [(17, 48), (50, 13)]
+    assert sorted((c["x"], c["y"]) for c in whirls) == [(47, 17)]  # LairWare's one
     assert all(c.get("wontattack") for c in whirls)
 
 
@@ -1213,7 +1213,7 @@ def test_journey_onward_malformed_overworld_block_loads(pygame_setup, asset_mgr,
     assert isinstance(resumed, OverworldScreen)
 
     whirls = [c for c in resumed.creatures if c.get("tile_name") == "whirlpool"]
-    assert sorted((c["x"], c["y"]) for c in whirls) == [(17, 48), (50, 13)]
+    assert sorted((c["x"], c["y"]) for c in whirls) == [(47, 17)]
 
 
 # --------------------------------------------------------------------------- #

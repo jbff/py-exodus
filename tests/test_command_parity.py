@@ -158,12 +158,13 @@ class TestEnterAndWhirlpool:
         assert (sample_party.x, sample_party.y) == (11, 10)
         assert not any("Whirlpool" in m for m in ow.text_log.history)
 
-    def test_sosaria_spawns_two_whirlpools(self, ow_factory):
-        """Java GameScreen.java:111-121 — (50,13) and (17,48) exist from the start."""
+    def test_sosaria_spawns_one_lairware_whirlpool(self, ow_factory):
+        """LairWare LoadUltimaMap (UltimaMisc.c:913-917): one whirlpool, at
+        (47, 17) heading (+1, +1), from the Sosaria map resource (Java added
+        two, at (50, 13) and (17, 48))."""
         o = ow_factory(0)
-        spots = {(c["x"], c["y"]) for c in o.creatures if c.get("tile_name") == "whirlpool"}
-        assert (50, 13) in spots
-        assert (17, 48) in spots
+        spots = [(c["x"], c["y"]) for c in o.creatures if c.get("tile_name") == "whirlpool"]
+        assert spots == [(47, 17)]
 
     def test_ambrosia_whirlpool_portal_e_fixed_start(self, ow_factory, sample_party):
         """Java GameScreen.java:538-556 — E at Ambrosia's WHIRLPOOL portal
@@ -194,11 +195,11 @@ class TestEnterAndWhirlpool:
         assert (6, 6) in [(c["x"], c["y"]) for c in ow.creatures]
 
     def test_whirlpool_fixtures_reseeded_after_ambrosia_round_trip(self, ow, sample_party):
-        """Fix round 3: the two Sosaria whirlpools are re-seeded on every map
+        """Fix round 3: the Sosaria whirlpool is re-seeded on every map
         load — otherwise Ambrosia's only sea route dies after one return."""
-        # Round 1: the (50, 13) fixture engulfs the ship that sails onto it
+        # Round 1: the (47, 17) whirlpool engulfs the ship that sails onto it
         sample_party.transport = Transport.SHIP
-        sample_party.x, sample_party.y = 49, 13
+        sample_party.x, sample_party.y = 46, 17
         ow.heading = Direction.EAST  # already facing: the press sails
         move(ow, Direction.EAST)
         assert sample_party.transport == Transport.FOOT
@@ -211,11 +212,11 @@ class TestEnterAndWhirlpool:
         key(ow, pygame.K_e)
         assert (sample_party.x, sample_party.y) == (1, 1)
         spots = {(c["x"], c["y"]) for c in ow.creatures if c.get("tile_name") == "whirlpool"}
-        assert spots == {(50, 13), (17, 48)}
+        assert spots == {(47, 17)}
 
-        # Round 2: the re-seeded fixture engulfs again
+        # Round 2: the re-seeded whirlpool engulfs again
         sample_party.transport = Transport.SHIP
-        sample_party.x, sample_party.y = 49, 13
+        sample_party.x, sample_party.y = 46, 17
         ow.heading = Direction.EAST  # already facing: the press sails
         move(ow, Direction.EAST)
         assert (sample_party.x, sample_party.y) == (32, 54)

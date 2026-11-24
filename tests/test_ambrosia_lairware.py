@@ -33,7 +33,7 @@ def world():
 
 
 def _engulf(scr, party):
-    party.x, party.y = 50, 13  # Sosaria whirlpool fixture
+    party.x, party.y = 47, 17  # LairWare's Sosaria whirlpool
     party.transport = Transport.SHIP
     scr._check_whirlpool_engulf()
     assert scr.map_id == 13
@@ -98,9 +98,9 @@ def test_whirlpool_returns_party_to_engulf_spot(world):
     _engulf(scr, party)
     party.transport = Transport.SHIP
     assert portal_entry.step_in_whirlpool_portal(scr, 32, 58)
-    assert (party.x, party.y) == (50, 13)
+    assert (party.x, party.y) == (47, 17)
     assert party.transport == Transport.SHIP
     wp = sorted((c["x"], c["y"]) for c in scr.creatures if c["tile_name"] == "whirlpool")
-    assert wp == [(2, 62), (17, 48)]
+    assert wp == [(2, 62)]
     scr._check_whirlpool_engulf()
     assert scr.map_id == 0
