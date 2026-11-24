@@ -285,8 +285,12 @@ class Spell(Enum):
     FULGAR = ("F", 25, "Fireball", "wizard", 0x0AE, 0x02)
     DAG_ACRON = ("G", 30, "Random teleport on surface", "wizard", 0x0AE, 0x01)
     MENTAR = ("H", 35, "Magic missile", "wizard", 0x0AE, 0x02)
-    PABULUM = ("I", 40, "Feeds the many", "wizard", 0x0A6, 0xFF)
-    FAL_DIVI = ("J", 45, "Cast a cleric spell", "wizard", 0x0A6, 0xFF)
+    # LairWare Cast/ProcessMagic (UltimaSpellCombat.c:62-100): no per-class
+    # list, only MP; a Ranger (MP up to 49) reaches I and J too, so the Java
+    # 0x0A6 mask (no Ranger) is widened to every wizard-book class. K-P stay
+    # Wizard-only: no other class's MP reaches 50.
+    PABULUM = ("I", 40, "Feeds the many", "wizard", 0x0AE, 0xFF)
+    FAL_DIVI = ("J", 45, "Cast a cleric spell", "wizard", 0x0AE, 0xFF)
     NOXUM = ("K", 50, "Multi-fireball", "wizard", 0x020, 0x02)
     DECORP = ("L", 55, "Death bolt", "wizard", 0x020, 0x02)
     ALTAIR = ("M", 60, "Stop time", "wizard", 0x020, 0xFF)
@@ -304,13 +308,17 @@ class Spell(Enum):
     LIB_REC = ("G", 30, "Random teleport in dungeon", "cleric", 0x70A, 0x08)
     ALCORT = ("H", 35, "Cure poison", "cleric", 0x70A, 0xFF)
     SEQUITU = ("I", 40, "Exit from dungeon", "cleric", 0x70A, 0x08)
-    SOMINAE = ("J", 45, "Major light spell", "cleric", 0x702, 0x08)
+    # Ranger added (LW: MP only, as above); K-P stay as they are, out of
+    # reach of a Paladin's, Illusionist's or Ranger's 49 MP.
+    SOMINAE = ("J", 45, "Major light spell", "cleric", 0x70A, 0x08)
     SANCTU_MANI = ("K", 50, "Major healing", "cleric", 0x702, 0xFF)
     VIEDA = ("L", 55, "Overhead view of surroundings", "cleric", 0x200, 0x05)
     EXCUUN = ("M", 60, "Death bolt", "cleric", 0x200, 0x02)
-    SURMANDUM = ("N", 65, "Resurrection", "cleric", 0x200, 0xFF)
+    # LairWare UltimaSpellCombat.c:349-353, 378-382: Surmandum and Anju
+    # Sermani fail in combat (`Party[3] == 0x80`), so the combat bit is off.
+    SURMANDUM = ("N", 65, "Resurrection", "cleric", 0x200, 0xFD)
     ZXKUQYB = ("O", 70, "Multi-death bolt", "cleric", 0x200, 0x02)
-    ANJU_SERMANI = ("P", 75, "Recall from ashes", "cleric", 0x200, 0xFF)
+    ANJU_SERMANI = ("P", 75, "Recall from ashes", "cleric", 0x200, 0xFD)
 
     def __init__(
         self,

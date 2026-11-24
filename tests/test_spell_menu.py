@@ -570,8 +570,17 @@ def test_spell_enum_masks_match_java_every_row():
     """Every Spell row's cost/castable_mask/location_mask equals Java's
     Constants.java:693-724 — name AND declaration order included (the
     declaration order fixes each discipline's alphabetical A-P codes)."""
+    # LairWare batch P (ledger P-12, P-13): a Ranger may cast wizard I/J and
+    # cleric J (UltimaSpellCombat.c:62-100, MP only), and Surmandum and Anju
+    # Sermani fail in combat (349-353, 378-382).
+    lw = {"PABULUM": (0x0AE, None), "FAL_DIVI": (0x0AE, None), "SOMINAE": (0x70A, None),
+          "SURMANDUM": (None, 0xFD), "ANJU_SERMANI": (None, 0xFD)}
+    want = [
+        (n, c, lw.get(n, (None, None))[0] or cm, lw.get(n, (None, None))[1] or lm)
+        for n, c, cm, lm in _JAVA_SPELLS
+    ]
     got = [(s.name, s.cost, s.castable_mask, s.location_mask) for s in Spell]
-    assert got == _JAVA_SPELLS
+    assert got == want
 
 
 @pytest.mark.parametrize("context", ["combat", "world", "city", "dungeon"])
@@ -607,17 +616,15 @@ def test_context_matrix_attempt_classification(context, discipline):
 # a rules change. Under the FIXED-LETTER ruling the py menu offers the full
 # 16 everywhere — the GBC deltas below are recorded, not reproduced.
 
-def test_gbc_cleric_battle_delta_surmandum_anju_governed_by_java():
-    """Cleric combat: the FIXED menu lists all 16 at their permanent codes —
-    including SURMANDUM (N) and ANJU_SERMANI (P), both 0xFF-location
-    (Constants.java:722,724) so they CAST in combat when pressed. The GBC
-    battle menu (clericspellsdat, battle.c:127) offered only 6 with these
-    rows commented out (getmenuselection(6, clericspellsdat, ...),
-    battle.c:1042): its omission is menu curation, superseded here."""
+def test_gbc_cleric_battle_delta_surmandum_anju_refused_in_combat():
+    """Cleric combat: the FIXED menu lists all 16 at their permanent codes;
+    SURMANDUM (N) and ANJU_SERMANI (P) are refused there at the attempt, as
+    LairWare fails them in combat (UltimaSpellCombat.c:349-353, 378-382;
+    the GBC battle menu, battle.c:127, leaves them out too)."""
     out, refusal = letter_resolution(spell_menu_entries("cleric"), "N", "combat")
-    assert out is Spell.SURMANDUM and refusal is None
+    assert out is None and refusal == "Not Here!"
     out, refusal = letter_resolution(spell_menu_entries("cleric"), "P", "combat")
-    assert out is Spell.ANJU_SERMANI and refusal is None
+    assert out is None and refusal == "Not Here!"
 
 
 def test_gbc_wizard_battle_delta_pabulum_governed_by_java():

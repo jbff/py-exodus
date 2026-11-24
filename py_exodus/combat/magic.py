@@ -418,6 +418,14 @@ def cast_spell(
     ):
         return SpellResult(success=False, message="Not Here!", spell=resolved_spell, executed=False)
 
+    # LairWare DownLevel (UltimaSpellCombat.c:594-597): `if (dungeonLevel >
+    # 6) { Failed(); return; }` - no going below the eighth level; refused at
+    # the attempt (user ruling 3), no MP spent.
+    if resolved_spell in (Spell.DOR_ACRON, Spell.REC_DU) and world_map is not None:
+        dmap = getattr(world_map, "dmap", None)
+        if dmap is not None and getattr(world_map, "z", 0) >= getattr(dmap, "levels", 8) - 1:
+            return SpellResult(success=False, message="Not Here!", spell=resolved_spell, executed=False)
+
     # 9. Pre-validate targeted restorative spells before consuming MP
     # REFUSED (Task 4) on each branch: the gate fires BEFORE the effect and
     # the MP deduct.

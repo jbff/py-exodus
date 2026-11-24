@@ -245,8 +245,13 @@ def test_appar_unem_dungeon_opens_nothing_at_a_neighbouring_chest(cleric_party):
 
 # --- Free combat spell limits (unchanged rule, re-verified) ---
 
-def test_free_combat_spell_limits(asset_mgr, cleric_party):
+def test_free_combat_spell_limits(asset_mgr, cleric_party, monkeypatch):
     """PONTORI and REPOND are limited to 1 free cast per caster per combat engagement."""
+    import random as _random
+
+    # Every BigDeath roll misses (0 & 3 == 0): the skeletons live on, so each
+    # later cast still meets its own type (LW tests the type first, 252-253).
+    monkeypatch.setattr(_random, "randrange", lambda *a, **k: 0)
     loader = MapLoader(asset_mgr)
     cmap = loader.load_conflict_map(41)
 
@@ -358,9 +363,9 @@ def test_dor_acron_descends(cleric_party):
     assert cleric_party.dungeon_level == 2
 
 
-def test_dor_acron_clamps_at_bottom_level(cleric_party):
-    """spellZdown clamps at DUNGEON_LVLS and skips relocation there
-    (SpellUtil.java:550-556)."""
+def test_dor_acron_refused_on_bottom_level(cleric_party):
+    """LW DownLevel (UltimaSpellCombat.c:594-597) fails on the eighth level;
+    refused at the attempt (ruling 3): the party stays put on z=7."""
     state = _dungeon(cleric_party, z=7)
     res = cast_spell(
         spell=Spell.REC_DU,
@@ -368,10 +373,9 @@ def test_dor_acron_clamps_at_bottom_level(cleric_party):
         party=cleric_party,
         world_map=state,
     )
-    assert res.success
-    assert state.z == 8
-    assert cleric_party.dungeon_level == 8
-    assert (state.x, state.y) == (8, 8)  # no relocation off the deep end
+    assert not res.success and res.message == "Not Here!"
+    assert state.z == 7
+    assert (state.x, state.y) == (8, 8)
 
 
 def test_lib_rec_teleports_within_level(cleric_party):

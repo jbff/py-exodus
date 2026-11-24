@@ -335,3 +335,65 @@ def test_spell_dag_acron_overworld_marks_monsters_and_objects(asset_mgr):
     party.dynamic_objects = [{"tile": "horse", "x": 30, "y": 31}]
     assert ow._dag_acron_taken(20, 21) and ow._dag_acron_taken(30, 31)
     assert not ow._dag_acron_taken(20, 22)
+
+
+# --- P-12: who may cast what --------------------------------------------------
+
+
+@pytest.mark.parametrize("spell", [Spell.PABULUM, Spell.FAL_DIVI, Spell.SOMINAE])
+def test_cast_ranger_may_cast_up_to_its_mp(spell):
+    """UltimaSpellCombat.c:62-78 and 87-100 (Cast, ProcessMagic): a Ranger
+    (careerTable[10]) chooses from either book (EitherChoose) and the only
+    test is `magicreq > Player[rosNum][25]`; there is no per-class spell
+    list. A Ranger's MP (the lesser of INT/2 and WIS/2, MaxMana) reaches 49,
+    so wizard I/J (40, 45) and cleric J (45) are open to it."""
+    assert spell.can_cast(Profession.RANGER)
+    ranger = _caster(Profession.RANGER, intelligence=99, wisdom=99, mp=49)
+    res = cast_spell(spell, ranger)
+    assert "cannot cast" not in res.message
+    assert ranger.mp == 49 - spell.cost
+
+
+# --- P-13: Surmandum and Anju Sermani outside combat only ---------------------
+
+
+@pytest.mark.parametrize("letter", ["N", "P"])
+def test_spell_surmandum_anju_refused_in_combat(letter):
+    """UltimaSpellCombat.c:349-353 and 378-382:
+
+        case 29: /* Surmandum */
+            if (Party[3] == 0x80) { Failed(); return; }
+        case 31: /* Anju Sermani */
+            if (Party[3] == 0x80) { Failed(); return; }
+
+    Neither works in combat; refused at the attempt (user ruling 3)."""
+    from py_exodus.spell_menu import letter_resolution, spell_menu_entries
+
+    found, refusal = letter_resolution(spell_menu_entries("cleric"), letter, "combat")
+    assert found is None and refusal == "Not Here!"
+    found, refusal = letter_resolution(spell_menu_entries("cleric"), letter, "world")
+    assert refusal is None
+
+
+# --- P-14: Dor Acron / Rec Du at the bottom -----------------------------------
+
+
+@pytest.mark.parametrize("spell", [Spell.DOR_ACRON, Spell.REC_DU])
+def test_downlevel_refused_on_the_deepest_level(spell):
+    """UltimaSpellCombat.c:588-599 (DownLevel):
+
+        if (dungeonLevel > 6) { Failed(); return; }
+        dungeonLevel++;
+
+    On the eighth level (index 7) the spell fails and the party stays; here
+    refused at the attempt (user ruling 3), no MP spent. The port used to
+    step to a ninth level that does not exist."""
+    from py_exodus.world.dungeon import DungeonState
+    from py_exodus.world.map import DungeonMap
+
+    dmap = DungeonMap(id=1, name="D", width=16, height=16, levels=8)
+    state = DungeonState(dmap, start_x=1, start_y=1, start_z=7)
+    caster = _caster(Profession.DRUID)
+    res = cast_spell(spell, caster, world_map=state)
+    assert not res.executed and res.message == "Not Here!"
+    assert state.z == 7 and caster.mp == 99

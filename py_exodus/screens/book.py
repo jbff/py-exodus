@@ -83,6 +83,8 @@ def _location_phrase(spell: Spell) -> str:
     """Where a spell may be cast, from its location mask (Constants.java)."""
     if spell.location_mask == 0xFF:
         return _LOCATION_ANYWHERE
+    if spell.location_mask == 0xFF & ~0x02:
+        return "not in combat"
     places = [label for bit, label in _LOCATION_LABELS if spell.location_mask & bit]
     return "/".join(places)
 
