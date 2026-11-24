@@ -764,3 +764,51 @@ def test_lord_british_refusal_messages(town, level, exp, kings, exodus, reason, 
     assert text.lower() in scr.text_log.history[-1].lower()
     assert c.level == level
 
+
+def _stack_combats(sm) -> int:
+    return sum(type(s).__name__ == "CombatScreen" for s in sm.screen_stack)
+
+
+def test_attack_with_two_adjacent_attackers_starts_one_fight(pygame_setup, asset_mgr):
+    """UltimaMain.c:1057-1059: Routine6E35 runs after LetterCommand returns,
+    i.e. after the fight; the letter's turn must not run while the combat
+    screen is up (it moved the other orc in, which pushed a second fight)."""
+    from py_exodus.screens.overworld import OverworldScreen
+    from py_exodus.state_machine import StateMachine
+
+    party = _party(_pm("A"), _pm("B"))
+    ow = OverworldScreen(party=party, map_id=0, asset_mgr=asset_mgr,
+                         start_x=40, start_y=40, random_encounters=False)
+    party.x, party.y = 40, 40
+    sm = StateMachine(asset_mgr=asset_mgr, audio=None)
+    sm.set_screen(ow)
+    ow._check_moongates = lambda: None  # type: ignore[method-assign]
+    ow.creatures = [
+        {"tile_name": "orc", "x": 41, "y": 40, "movement": "ATTACK_AVATAR"},
+        {"tile_name": "orc", "x": 39, "y": 40, "movement": "ATTACK_AVATAR"},
+    ]
+    sm.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_a, unicode="a"))
+    sm.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_e, unicode="e"))
+    assert _stack_combats(sm) == 1
+
+
+def test_town_attack_takes_no_turn_under_the_fight(pygame_setup, asset_mgr):
+    """Same order in towns: no turn while the combat screen is pushed."""
+    from py_exodus.screens.town import TownScreen
+    from py_exodus.state_machine import StateMachine
+    from py_exodus.world.map import MapNpc
+
+    party = _party(_pm("A"), _pm("B"))
+    ts = TownScreen(party=party, map_id=3, asset_mgr=asset_mgr, start_x=32, start_y=32)
+    ts.avatar_x, ts.avatar_y = 32, 32
+    sm = StateMachine(asset_mgr=asset_mgr, audio=None)
+    sm.set_screen(ts)
+    ts.game_map.npcs = [
+        MapNpc(18, "guard", 33, 32, 33, 32),
+        MapNpc(18, "guard", 31, 32, 31, 32, movement="ATTACK_AVATAR"),
+    ]
+    before = party.moves
+    sm.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_a, unicode="a"))
+    sm.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RIGHT))
+    assert _stack_combats(sm) == 1
+    assert party.moves == before

@@ -341,8 +341,12 @@ class TownScreen(BaseScreen):
         self._letter_turn = None
         moves, map_id = mark
         # A command that left the map (Enter, a whirlpool) already set the
-        # new one up; its turn is not replayed there.
-        if self.is_finished or self.party.moves != moves or self.map_id != map_id:
+        # new one up; its turn is not replayed there. A command that pushed
+        # a screen (a fight, a town, the Final screen) is not given a turn
+        # underneath it: LW runs Routine6E35 only once the fight is over,
+        # and a turn here would move the next attacker into a second fight.
+        pushed = self.manager is not None and self.manager.current_screen is not self
+        if self.is_finished or pushed or self.party.moves != moves or self.map_id != map_id:
             return
         self._consume_pass_turn()
 
