@@ -424,7 +424,7 @@ def test_player_off_edge_move_is_blocked_not_flee(asset_mgr, conflict_map):
 # --- (g) XP for every player-caused death, capped 9999 -----------------------
 
 
-def test_player_kill_xp_capped_at_9999(asset_mgr, conflict_map, monkeypatch):
+def test_player_kill_xp_capped_at_9899(asset_mgr, conflict_map, monkeypatch):
     monkeypatch.setattr(resolver_mod, "roll_hit", lambda *a, **k: True)
     monkeypatch.setattr(resolver_mod, "calculate_player_damage", lambda *a, **k: 5)
     party = Party()
@@ -439,7 +439,7 @@ def test_player_kill_xp_capped_at_9999(asset_mgr, conflict_map, monkeypatch):
     monster.exp = 20
 
     arena.execute_player_action(0, Action.attack(Direction.NORTH))
-    assert hero.exp == 9999  # capped, not 10010
+    assert hero.exp == 9899  # LairWare AddExp cap (UltimaMisc.c:476-477), not 10010
 
 
 def test_projectile_spell_kill_awards_xp(asset_mgr, conflict_map):

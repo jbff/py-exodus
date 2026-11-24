@@ -7,6 +7,7 @@ import random
 from typing import TYPE_CHECKING, Any
 
 from py_exodus.constants import Direction, Status, TileAttrib
+from py_exodus.entities.character import EXP_CAP
 
 if TYPE_CHECKING:
     from py_exodus.entities.character import Character
@@ -543,12 +544,13 @@ def resolve_player_attack(
         exp_award = getattr(target_monster, "exp", 0)
         # Java Utils.dealDamage(PartyMember, Creature, damage) → awardXP
         # (Party.java:372-375, Utils.java:604-611): every player-caused death
-        # pays the creature's EXP, capped at 9999.
+        # pays the creature's EXP, capped at 9899 (LairWare AddExp,
+        # UltimaMisc.c:475-477).
         award = getattr(character, "award_xp", None)
         if callable(award):
             award(exp_award)
         else:
-            character.exp = min(9999, character.exp + exp_award)
+            character.exp = min(EXP_CAP, character.exp + exp_award)
 
     # Message parity (item 3): whatever the outcome, Java's
     # ``Utils.damageCreature`` (Utils.java:617-653) is the only player

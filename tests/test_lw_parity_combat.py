@@ -90,3 +90,50 @@ def test_ship_sails_onto_beaten_pirates_water_tile(asset_mgr):
     arena.monsters[0].hp = 0
     arena._handle_victory()
     assert can_move_to(ow.game_map, water[0], water[1], transport=Transport.SHIP, party=party)
+
+
+# --- R-19: experience cap ---------------------------------------------------
+
+def test_addexp_caps_experience_at_9899():
+    """UltimaMisc.c:475-477 (AddExp):
+
+        experience += amount;
+        if (experience > 9899)
+            experience = 9899;
+
+    The record holds hundreds and units (Player[30] * 100 + Player[31]), and
+    LairWare stops at 9899, not 9999.
+    """
+    hero = Character("Hero0", "M", hp=100, max_hp=100)
+    hero.exp = 9898
+    hero.award_xp(5)
+    assert hero.exp == 9899
+    hero.award_xp(1)
+    assert hero.exp == 9899
+
+
+def test_addexp_cap_on_a_combat_kill():
+    """UltimaSpellCombat.c:734-752 (DamageMonster) pays Experience[] through
+    AddExp, so a kill at 9898 experience stops at 9899 (UltimaMisc.c:476-477).
+    The fallback for a record without award_xp caps the same way."""
+    from types import SimpleNamespace
+
+    from py_exodus.combat.resolver import resolve_player_attack
+
+    bare = SimpleNamespace(str=99, dex=99, exp=9898)  # no award_xp
+    orc = SimpleNamespace(name="Orc", tile="orc", basehp=48, exp=30, x=0, y=0, hp=1)
+    res = resolve_player_attack(bare, None, orc)
+    assert res.killed
+    assert bare.exp == 9899
+
+
+def test_old_save_experience_above_9899_loads_unchanged():
+    """A record saved before the 9899 cap keeps its experience on load (the
+    cap applies only when experience is added, UltimaMisc.c:475-477)."""
+    hero = Character("Hero0", "M", hp=100, max_hp=100)
+    data = hero.to_dict()
+    data["exp"] = 9950
+    loaded = Character.from_dict(data)
+    assert loaded.exp == 9950
+    loaded.award_xp(1)
+    assert loaded.exp == 9899

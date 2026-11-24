@@ -10,6 +10,10 @@ _builtin_str = builtins.str
 _builtin_int = builtins.int
 
 
+
+#: LairWare AddExp (UltimaMisc.c:475-477): experience stops at 9899.
+EXP_CAP = 9899
+
 class CharacterMeta(type):
     """Metaclass allowing PartyMember wrappers to pass isinstance(obj, Character)."""
 
@@ -366,8 +370,9 @@ class Character(metaclass=CharacterMeta):
         return True
 
     def award_xp(self, amount: int) -> None:
-        """Award experience points up to the 9999 cap."""
-        self.exp = min(9999, self.exp + amount)
+        """Award experience points up to LairWare's 9899 cap (AddExp,
+        UltimaMisc.c:475-477: ``if (experience > 9899) experience = 9899``)."""
+        self.exp = min(EXP_CAP, self.exp + amount)
 
     # --- Character Creation Validation ---
     @classmethod

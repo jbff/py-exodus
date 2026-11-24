@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 from py_exodus import debug
 from py_exodus.aura import AuraType
 from py_exodus.combat.resolver import creature_wound_message, trace_projectile_path
+from py_exodus.entities.character import EXP_CAP
 from py_exodus.spell_menu import letter_resolution, spell_menu_entries, spell_menu_prompt_lines
 from py_exodus.constants import (
     Direction,
@@ -598,7 +599,7 @@ def _apply_spell_effect(
                         arena.last_monster_death_pos = (m.x, m.y)
                         # XP flows with the kill path (killbaddie)
                         caster_char.exp = min(
-                            9999, caster_char.exp + getattr(m, "exp", 0)
+                            EXP_CAP, caster_char.exp + getattr(m, "exp", 0)
                         )
                         killed_count += 1
                         kill_lines.append(_kill_line(m))
@@ -637,7 +638,7 @@ def _apply_spell_effect(
                     if m.is_dead:
                         arena.last_monster_death_pos = (m.x, m.y)
                         caster_char.exp = min(
-                            9999, caster_char.exp + getattr(m, "exp", 0)
+                            EXP_CAP, caster_char.exp + getattr(m, "exp", 0)
                         )
                         killed_count += 1
                         kill_lines.append(_kill_line(m))
@@ -988,13 +989,13 @@ def _apply_projectile_attack(
                 arena.last_monster_death_pos = (target_m.x, target_m.y)
                 # Task 12 row (g): Java castAt → dealDamage(caster, creature,
                 # damage) (Utils.java:604-611) pays the creature's EXP to the
-                # caster on every kill, capped at 9999 (Party.java:372-375).
+                # caster on every kill, capped at 9899 (LairWare AddExp, UltimaMisc.c:475-477).
                 award = getattr(caster_char, "award_xp", None)
                 if callable(award):
                     award(getattr(target_m, "exp", 0))
                 else:
                     caster_char.exp = min(
-                        9999, caster_char.exp + getattr(target_m, "exp", 0)
+                        EXP_CAP, caster_char.exp + getattr(target_m, "exp", 0)
                     )
             # Message parity (item 3): Java's ``castAt`` logs nothing about
             # the spell or the raw damage — the only player-visible line is
@@ -1106,13 +1107,13 @@ def _apply_group_damage(
                     arena.last_monster_death_pos = (m.x, m.y)
                     # Task 12 row (g): Java spellGroupDamage → dealDamage
                     # (SpellUtil.java:360) pays the creature's EXP on kill,
-                    # capped at 9999 (Party.java:372-375).
+                    # capped at 9899 (LairWare AddExp, UltimaMisc.c:475-477).
                     award = getattr(caster_char, "award_xp", None)
                     if callable(award):
                         award(getattr(m, "exp", 0))
                     else:
                         caster_char.exp = min(
-                            9999, caster_char.exp + getattr(m, "exp", 0)
+                            EXP_CAP, caster_char.exp + getattr(m, "exp", 0)
                         )
                     kill_lines.append(_kill_line(m))
                 total_dmg += dmg
