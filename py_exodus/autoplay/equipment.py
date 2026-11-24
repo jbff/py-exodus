@@ -249,6 +249,19 @@ def best_hand_transfer(party: Party, prefer_ranged: bool = True) -> tuple[int, i
     return None
 
 
+def hand_item(member) -> tuple[str, str] | None:
+    """The ``H`` answers for what ``best_hand_transfer`` hands from
+    ``member``: ``("w", letter)`` or ``("a", letter)`` (LairWare HandEquip
+    letters, B-P / B-H, UltimaMain.c:1886-1939), in its selection order."""
+    for w, cnt in member.weapons.items():
+        if cnt > 0 and w != member.weapon:
+            return "w", chr(ord("a") + list(WeaponType).index(w))
+    for a, cnt in member.armors.items():
+        if cnt > 0 and a != member.armor:
+            return "a", chr(ord("a") + list(ArmorType).index(a))
+    return None
+
+
 def best_shop_upgrade(
     party: Party, *, include_wizard_dagger: bool = False, include_dawn: bool = False
 ) -> ShopUpgrade | None:

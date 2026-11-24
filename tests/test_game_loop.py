@@ -1560,16 +1560,13 @@ def test_all_overland_commands_a_to_z(pygame_setup, asset_mgr, sample_party):
     assert sample_party.members[0].name == m1_name
     assert sample_party.members[1].name == m0_name
 
-    # H - Hand equipment — Task 9 parity: any unequipped weapon OR armor
-    # transfers; there is no gold handoff (HandDialog.java:114-146).
-    sample_party.members[0].gold = 50
-    sample_party.members[1].gold = 10
+    # H - Hand equipment: LW HandEquip (UltimaMain.c:1744-1944), W + letter
     sample_party.members[0].weapons[WeaponType.AXE] = 1
     ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_h))
     assert ow.text_log.is_waiting_for_input
-    ow.text_log.submit_input("1")
-    ow.text_log.submit_input("2")
-    assert any("handed" in msg for msg in ow.text_log.history)
+    for a in ("1", "2", "W", "E"):
+        ow.text_log.submit_input(a)
+    assert ow.text_log.history[-1] == "Done!"
     assert sample_party.members[1].weapons[WeaponType.AXE] == 1
 
     # L - OPEN with a direction (Java SIP:212-219; there is no Look command)

@@ -13,6 +13,7 @@ import pygame
 from py_exodus.autoplay.equipment import (
     excess_gear,
     best_hand_transfer,
+    hand_item,
     best_owned_armor,
     best_owned_weapon,
     best_shop_upgrade,
@@ -255,6 +256,7 @@ class AutoPlayController:
         self._join_gold_member_idx: int = 1
         self._hand_from_idx: int = 1
         self._hand_to_idx: int = 2
+        self._hand_item: tuple[str, str] = ("w", "b")
         self._food_packs: int = 1
         self._heal_patient_idx: int = 1
         self._talk_dir_key: int = pygame.K_UP
@@ -2663,6 +2665,7 @@ class AutoPlayController:
         transfer = best_hand_transfer(party, prefer_ranged)
         if transfer is not None:
             self._hand_from_idx, self._hand_to_idx = transfer
+            self._hand_item = hand_item(party.members[transfer[0] - 1]) or ("w", "b")
             return self._emit_key(state_machine, pygame.K_h)
 
         return None
@@ -2671,10 +2674,14 @@ class AutoPlayController:
         prompt = (getattr(screen.text_log, "current_prompt", "") or "").lower()
         if "join gold" in prompt:
             return self._emit_key(state_machine, pygame.K_0 + self._join_gold_member_idx)
-        if "from member" in prompt:
+        if "from plr" in prompt:
             return self._emit_key(state_machine, pygame.K_0 + self._hand_from_idx)
-        if "to member" in prompt:
+        if "to plr" in prompt:
             return self._emit_key(state_machine, pygame.K_0 + self._hand_to_idx)
+        if "f,g,e,w,a" in prompt:
+            return self._emit_key(state_machine, _char_to_key(self._hand_item[0]))
+        if "which weapon:" in prompt or "which armour:" in prompt:
+            return self._emit_key(state_machine, _char_to_key(self._hand_item[1]))
         if "ready" in prompt and "member" in prompt:
             return self._emit_key(state_machine, pygame.K_0 + self._ready_member_idx)
         if "ready" in prompt or "weapon?" in prompt:

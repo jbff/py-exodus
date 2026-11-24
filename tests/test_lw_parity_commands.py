@@ -635,3 +635,71 @@ def test_insert_same_card_twice_kills():
     assert scr.insert_card("love", member_idx=0, pos=(30, 12)) is True
     assert scr.insert_card("love", member_idx=0, pos=(30, 12)) is False
     assert c.status == Status.DEAD
+
+
+# --- Hand -----------------------------------------------------------------------
+
+
+def _hand(scr, keys: str) -> None:
+    _key(scr, pygame.K_h, "h")
+    _type(scr, keys)
+
+
+def test_hand_food_and_gold(overworld):
+    """UltimaMain.c:1790-1846: F/G ask an amount; more than the giver has is
+    "Not enough!", taking the taker past 9999 is "Too much!" (the port
+    handed only weapons and armour)."""
+    a, b = _pm("A", food=500, gold=300), _pm("B", food=9900, gold=9990)
+    scr = overworld(party=_party(a, b))
+    _hand(scr, "12F50\n")
+    assert (a.food, b.food) == (450, 9950)
+    _hand(scr, "12F50\n")
+    assert scr.text_log.history[-1] == "Too much!"
+    assert (a.food, b.food) == (450, 9950)
+    _hand(scr, "21G9\n")
+    assert (a.gold, b.gold) == (309, 9981)
+    _hand(scr, "12G400\n")
+    assert scr.text_log.history[-1] == "Not enough!"
+
+
+def test_hand_gems_keys_powder_torches(overworld):
+    """UltimaMain.c:1847-1885: E, then G/K/P/T and a count; the taker may
+    not pass 99."""
+    a, b = _pm("A", keys=3, torches=5), _pm("B", torches=98)
+    scr = overworld(party=_party(a, b))
+    _hand(scr, "12EK2\n")
+    assert (a.keys, b.keys) == (1, 2)
+    _hand(scr, "12ET2\n")
+    assert scr.text_log.history[-1] == "Too much!"
+    assert (a.torches, b.torches) == (5, 98)
+
+
+def test_hand_weapon_and_armour(town):
+    """UltimaMain.c:1886-1939: W/A and the item letter; one of each goes
+    over; the readied weapon or worn armour stays ("In use!") unless the
+    giver has another."""
+    a, b = _pm("A"), _pm("B")
+    a.weapon = WeaponType.SWORD
+    a.weapons[WeaponType.SWORD] = 0
+    a.armors[ArmorType.CHAIN] = 1
+    scr = town(party=_party(a, b))
+    _hand(scr, "12WG")
+    assert scr.text_log.history[-1] == "In use!"
+    assert a.weapon == WeaponType.SWORD and b.weapons.get(WeaponType.SWORD, 0) == 0
+    _hand(scr, "12AD")
+    assert (a.armors[ArmorType.CHAIN], b.armors[ArmorType.CHAIN]) == (0, 1)
+    _hand(scr, "12AD")
+    assert scr.text_log.history[-1] == "None!"
+    a.weapons[WeaponType.SWORD] = 1
+    _hand(scr, "12WG")
+    assert (a.weapons[WeaponType.SWORD], b.weapons[WeaponType.SWORD]) == (0, 1)
+    assert a.weapon == WeaponType.SWORD
+
+
+def test_hand_same_member_refused(overworld):
+    """UltimaMain.c:1775-1778: ``if (chnum1 == chnum2) { ErrorTone(); return; }``"""
+    a, b = _pm("A", food=500), _pm("B")
+    scr = overworld(party=_party(a, b))
+    _hand(scr, "11")
+    assert not scr.text_log.is_waiting_for_input
+    assert a.food == 500

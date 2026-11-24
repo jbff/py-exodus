@@ -706,34 +706,34 @@ class TestYell:
 
 
 class TestHandDialog:
-    """(j) H transfers any unequipped weapon OR armor; there is no gold
-    fallback (HandDialog.java:114-146)."""
+    """(j) H follows LairWare HandEquip (UltimaMain.c:1744-1944): from, to,
+    then F/G/E/W/A and the item or amount."""
 
     def test_hand_transfers_armor(self, town, sample_party):
         sample_party.members[0].armors[ArmorType.LEATHER] = 1
         sample_party.members[0].weapon = WeaponType.NONE
         sample_party.members[0].armor = ArmorType.NONE
         key(town, pygame.K_h)
-        answer(town, "1")
-        answer(town, "2")
+        for a in ("1", "2", "A", "C"):
+            answer(town, a)
         assert sample_party.members[0].armors[ArmorType.LEATHER] == 0
         assert sample_party.members[1].armors[ArmorType.LEATHER] == 1
 
     def test_hand_transfers_unequipped_weapon(self, ow, sample_party):
         sample_party.members[0].weapons[WeaponType.AXE] = 1
         key(ow, pygame.K_h)
-        answer(ow, "1")
-        answer(ow, "2")
+        for a in ("1", "2", "W", "E"):
+            answer(ow, a)
         assert sample_party.members[1].weapons[WeaponType.AXE] == 1
 
-    def test_hand_no_gold_fallback(self, ow, sample_party):
+    def test_hand_gold_needs_g(self, ow, sample_party):
         sample_party.members[0].gold = 50
         sample_party.members[1].gold = 0
         key(ow, pygame.K_h)
         answer(ow, "1")
         answer(ow, "2")
         assert sample_party.members[0].gold == 50
-        assert sample_party.members[1].gold == 0
-        assert not any("handed" in m for m in ow.text_log.history)
-
-
+        assert "F,G,E,W,A" in ow.text_log.current_prompt
+        answer(ow, "G")
+        answer(ow, "20")
+        assert (sample_party.members[0].gold, sample_party.members[1].gold) == (30, 20)

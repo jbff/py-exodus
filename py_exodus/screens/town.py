@@ -19,6 +19,7 @@ from py_exodus.constants import (
 from py_exodus.entities.party import PartyDeathException
 from py_exodus.screens.base import BaseScreen
 from py_exodus.screens.member_prompts import (
+    prompt_hand,
     prompt_modify_order,
     prompt_ready_weapon,
     prompt_wear_armor,
@@ -1012,62 +1013,11 @@ class TownScreen(BaseScreen):
         self.gem_view_active = True
 
     def _prompt_hand_equipment(self) -> None:
-        """Hand an unequipped weapon or armor item between party members."""
-        self._consume_pass_turn()  # Java GameScreen.java:574-576: H falls through
-        if len(self.party.members) < 2:
-            self.text_log.add_message("Hand Equipment: Need at least 2 members!")
-            return
-
-        def _on_from(from_str: str) -> None:
-            try:
-                p1 = int(from_str.strip()) - 1
-            except ValueError:
-                self.text_log.add_message("Invalid member #!")
-                return
-            if not (0 <= p1 < len(self.party.members)):
-                self.text_log.add_message("Invalid member #!")
-                return
-
-            def _on_to(to_str: str) -> None:
-                try:
-                    p2 = int(to_str.strip()) - 1
-                except ValueError:
-                    self.text_log.add_message("Invalid member #!")
-                    return
-                if not (0 <= p2 < len(self.party.members)) or p1 == p2:
-                    self.text_log.add_message("Invalid recipient!")
-                    return
-
-                m1 = self.party.members[p1]
-                m2 = self.party.members[p2]
-
-                # Java HandDialog.java:114-146 — the ">" button transfers the
-                # selected unequipped weapon or armor (count decrement /
-                # increment); there is no gold transfer and an empty selection
-                # only plays the BLOCKED sound.
-                transferred = False
-                for w, cnt in list(m1.weapons.items()):
-                    if cnt > 0 and w != m1.weapon:
-                        m1.weapons[w] -= 1
-                        m2.weapons[w] = m2.weapons.get(w, 0) + 1
-                        self.text_log.add_message(f"{m1.name} handed {w.name} to {m2.name}.")
-                        transferred = True
-                        break
-
-                if not transferred:
-                    for a, cnt in list(m1.armors.items()):
-                        if cnt > 0 and a != m1.armor:
-                            m1.armors[a] -= 1
-                            m2.armors[a] = m2.armors.get(a, 0) + 1
-                            self.text_log.add_message(f"{m1.name} handed {a.name} to {m2.name}.")
-                            transferred = True
-                            break
-                    # No gold fallback: Java HandDialog transfers equipment
-                    # only (HandDialog.java:114-146).
-
-            self.text_log.prompt("To member #? (1-4): ", callback=_on_to, single_char=True)
-
-        self.text_log.prompt("Hand Equipment: From member #? (1-4): ", callback=_on_from, single_char=True)
+        """LairWare HandEquip (UltimaMain.c:1744-1944): food, gold,
+        supplies, a weapon or an armour (member_prompts.prompt_hand). The
+        turn passes at the press (Java GameScreen.java:574-576)."""
+        self._consume_pass_turn()
+        prompt_hand(self.text_log, self.party)
 
     def _join_gold(self) -> None:
         """JOIN GOLD: prompt a member 1-4 and pool every purse into theirs.

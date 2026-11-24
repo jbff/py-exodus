@@ -216,3 +216,96 @@ def prompt_whose_item(
         turn_callback()
 
     text_log.prompt(query, callback=_on_member, single_char=True, on_cancel=turn_callback)
+
+
+_HAND_SUPPLIES = {"G": "gems", "K": "keys", "P": "powder", "T": "torches"}
+
+
+def prompt_hand(text_log: TextLog, party: Party) -> None:
+    """LairWare HandEquip (UltimaMain.c:1744-1944): from, to, then
+    F(ood)/G(old) with an amount (the taker capped at 9999), E(quipment)
+    G/K/P/T with a count (capped at 99), or one W(eapon) B-P / A(rmour) B-H.
+    No CheckAlive. More than the giver has is "Not enough!", past the cap
+    "Too much!"; the readied weapon or worn armour stays ("In use!") unless
+    the giver holds another. The turn is taken at the H press."""
+    from py_exodus.special_commands import add_item
+
+    def _members(p1: int, p2: int) -> None:
+        if p1 == p2:
+            return  # ErrorTone only (UltimaMain.c:1775-1778)
+        giver, taker = party.members[p1], party.members[p2]
+
+        def _move(attr: str, cap: int, raw: str) -> None:
+            try:
+                value = int(raw.strip() or "0")
+            except ValueError:
+                value = 0
+            if value > getattr(giver, attr):
+                text_log.add_message("Not enough!")
+                return
+            if getattr(taker, attr) + value > cap:
+                text_log.add_message("Too much!")
+                return
+            setattr(giver, attr, getattr(giver, attr) - value)
+            setattr(taker, attr, getattr(taker, attr) + value)
+            text_log.add_message("Done!")
+
+        def _gear(letter: str, order: list, stacks_attr: str, readied_attr: str, top: str) -> None:
+            c = letter.strip().upper()
+            if not c or not ("B" <= c <= top):
+                text_log.add_message("None!")
+                return
+            kind = order[ord(c) - ord("A")]
+            stacks = getattr(giver, stacks_attr)
+            if int(stacks.get(kind, 0)) < 1:
+                text_log.add_message("In use!" if getattr(giver, readied_attr) == kind else "None!")
+                return
+            stacks[kind] -= 1
+            add_item(getattr(taker, stacks_attr), kind, getattr(taker, readied_attr))
+            text_log.add_message("Done!")
+
+        def _on_what(what: str) -> None:
+            c = what.strip().upper()
+            if c in ("F", "G"):
+                attr = "food" if c == "F" else "gold"
+                text_log.prompt("Amount-", callback=lambda r: _move(attr, 9999, r))
+            elif c == "E":
+                def _on_supply(s: str) -> None:
+                    attr = _HAND_SUPPLIES.get(s.strip().upper())
+                    if attr is None:
+                        text_log.add_message("None!")
+                        return
+                    text_log.prompt("How many-", callback=lambda r: _move(attr, 99, r))
+
+                text_log.prompt("G,K,P,T:", callback=_on_supply, single_char=True)
+            elif c == "W":
+                text_log.prompt(
+                    "Which weapon:", single_char=True,
+                    callback=lambda r: _gear(r, list(WeaponType), "weapons", "weapon", "P"),
+                )
+            elif c == "A":
+                text_log.prompt(
+                    "Which armour:", single_char=True,
+                    callback=lambda r: _gear(r, list(ArmorType), "armors", "armor", "H"),
+                )
+            else:
+                text_log.add_message("None!")
+
+        text_log.prompt("F,G,E,W,A:", callback=_on_what, single_char=True)
+
+    def _on_from(f_str: str) -> None:
+        p1 = _parse_index(f_str)
+        if not (0 <= p1 < len(party.members)):
+            text_log.add_message("No such player!")
+            return
+
+        def _on_to(t_str: str) -> None:
+            p2 = _parse_index(t_str)
+            if not (0 <= p2 < len(party.members)):
+                text_log.add_message("No such player!")
+                return
+            _members(p1, p2)
+
+        text_log.prompt("HAND> To plr- (1-4):", callback=_on_to, single_char=True)
+
+    text_log.prompt("HAND> From plr- (1-4):", callback=_on_from, single_char=True)

@@ -2014,3 +2014,29 @@ def test_exodus_gate_waits_for_full_hp_and_mp(pygame_setup, asset_mgr):
         m.mp = 0 if m.max_mp else m.mp
     party.members[1].hp = 1400
     assert enter() == pygame.K_SPACE
+
+
+def test_autoplay_answers_the_lairware_hand_prompts(pygame_setup, asset_mgr):
+    """LW HandEquip (UltimaMain.c:1744-1944) asks F,G,E,W,A and the item
+    letter after the two members; autoplay answers them for its transfer."""
+    from py_exodus.autoplay.equipment import best_hand_transfer, hand_item
+
+    p = _make_party(level=8)
+    giver = p.members[0]
+    giver.weapons.clear()
+    giver.armors.clear()
+    giver.armors[ArmorType.PLATE] = 1
+    for m in p.members[1:]:
+        m.armors.clear()
+        m.armor = ArmorType.CLOTH
+    t = best_hand_transfer(p)
+    assert t is not None
+    assert hand_item(p.members[t[0] - 1]) == ("a", "e")
+    sm, ow = _overworld(asset_mgr, p)
+    ctrl = AutoPlayController(enabled=True)
+    for _ in range(6):
+        ctrl.step(sm)
+        if p.members[t[1] - 1].armors.get(ArmorType.PLATE, 0) or p.members[t[1] - 1].armor == ArmorType.PLATE:
+            break
+    taker = p.members[t[1] - 1]
+    assert taker.armors.get(ArmorType.PLATE, 0) == 1 or taker.armor == ArmorType.PLATE
