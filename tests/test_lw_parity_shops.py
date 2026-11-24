@@ -373,3 +373,32 @@ def test_guild_not_enough_room_past_99(assets):
     town.text_log.submit_input("a")
     town.text_log.submit_input("y")
     assert m.torches == 99 and m.gold == 970
+
+
+# --- Horse -------------------------------------------------------------------------
+
+
+def test_horses_cost_200_per_member(assets):
+    """UltimaMisc.c:2112: ``opnum = Party[2] * 200;`` -- a horse for each
+    member, 200 gold apiece (four members: 800)."""
+    party = _party(1000, 0, 0, 0)
+    m = party.members[0]
+    vendor = assets.get_vendor("DEVIL", 11, 13)
+    town = _shop(vendor, party)
+    town.add_creature = lambda *a, **k: None
+    town.board = lambda *a, **k: None
+    town.text_log.submit_input("y")
+    assert "800" in _log(town)
+    town.text_log.submit_input("y")
+    assert m.gold == 200
+
+
+def test_horses_refused_short_of_party_price(assets):
+    """UltimaMisc.c:2128-2135: ``if (gold < opnum)`` -> "I'm sorry but you
+    haven't the gold!" -- 799 gold can't buy four horses."""
+    party = _party(799, 0, 0, 0)
+    m = party.members[0]
+    town = _shop(assets.get_vendor("DEVIL", 11, 13), party)
+    town.text_log.submit_input("y")
+    town.text_log.submit_input("y")
+    assert m.gold == 799
