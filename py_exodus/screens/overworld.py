@@ -366,7 +366,6 @@ class OverworldScreen(BaseScreen):
         # LairWare shrine (world.shrine): the member at the shrine while its
         # picture is up, and the picture itself (loaded on first use).
         self.shrine_member: int | None = None
-        self._shrine_image: pygame.Surface | None = None
 
 
         raw_id = getattr(self.game_map, "id", None)
@@ -1737,28 +1736,14 @@ class OverworldScreen(BaseScreen):
         member = self.party.get_member(self.shrine_member or 0)
         msg = shrine.offer(self.party, member, shrine.shrine_stat(self.party.x), int(ch))
         self.text_log.add_message(msg)
-        if self.audio is not None:
-            self.audio.play_sfx("Shrine.wav" if msg == shrine.MSG_SHAZAM else "blocked")
+        # No chant on a blessing (LairWare's Shrine sound; de-LairWared,
+        # user 2026-11-23); a refusal still bumps.
+        if self.audio is not None and msg != shrine.MSG_SHAZAM:
+            self.audio.play_sfx("blocked")
         self._shrine_close()
 
     def _shrine_close(self) -> None:
         self.shrine_member = None
-
-    def _render_shrine_image(self, surface: pygame.Surface, size: int) -> None:
-        """LairWare ImageDisplay(7): Shrine.jpg over the map while a member
-        is at the shrine."""
-        if self.shrine_member is None or self.asset_mgr is None:
-            return
-        if self._shrine_image is None:
-            from py_exodus.assets import load_image_surface
-
-            try:
-                self._shrine_image = load_image_surface(
-                    self.asset_mgr.resolve_path("graphics", "lairware", "shrine.jpg")
-                )
-            except (FileNotFoundError, pygame.error):
-                return
-        surface.blit(pygame.transform.smoothscale(self._shrine_image, (size, size)), (0, 0))
 
     def _enter_portal(self) -> None:
         """Enter the portal at the party's tile (Java GameScreen.java:538-556).
@@ -2545,7 +2530,6 @@ class OverworldScreen(BaseScreen):
             scaled_v = pygame.transform.scale(temp_v, (v_size, v_size))
             surface.blit(scaled_v, (0, 0))
             self._render_sky_strip(surface, pane_right=v_size, pane_top=0)
-            self._render_shrine_image(surface, v_size)
 
             # Right Sidebar (Party Stats) at native high resolution
             self._render_stats_panel(

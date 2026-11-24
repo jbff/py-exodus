@@ -1,6 +1,7 @@
 """Ambrosia's shrines, the LairWare way (user 2026-11-22: "no shrine screen,
 follow LairWare"): Enter on the shrine, "Who enters?-", "Offering*100-", all in
-the message log with LairWare's Shrine.jpg over the map. UltimaMain.c:1461-1484,
+the message log, the map still in view and no chant (de-LairWared 2026-11-23).
+UltimaMain.c:1461-1484,
 UltimaMisc.c:1000-1097."""
 from __future__ import annotations
 
@@ -107,16 +108,43 @@ def test_after_exodus_the_race_cap_lifts_but_99_holds(amb):
     assert hero.strength == 99
 
 
-def test_the_shrine_picture_covers_the_map_while_offering(amb):
+def test_the_map_stays_in_view_while_offering(amb):
+    """No shrine picture (user 2026-11-23: de-LairWare the shrines; LW's
+    ImageDisplay(7) put Shrine.jpg over the map)."""
     surf = pygame.Surface((960, 600))
     amb.party.x, amb.party.y = SITES["wisdom"]
     amb.render(surf)
-    before = surf.get_at((264, 264))
+    before = surf.copy()
     _key(amb, "e")
     _key(amb, "1")
     assert amb.shrine_member == 0
     amb.render(surf)
-    assert surf.get_at((264, 264)) != before
+    viewport = pygame.Rect(0, 0, 528, 528)
+    for x in range(viewport.left, viewport.right, 8):
+        for y in range(viewport.top, viewport.bottom, 8):
+            assert surf.get_at((x, y)) == before.get_at((x, y))
+
+
+class _Sfx:
+    enabled = True
+
+    def __init__(self):
+        self.played: list[str] = []
+
+    def play_sfx(self, name, volume=None):
+        self.played.append(name)
+        return True
+
+    def __getattr__(self, name):  # the rest of AudioManager: no-ops
+        return lambda *a, **k: None
+
+
+def test_a_blessing_plays_no_chant(amb):
+    """No shrine chant (LW's Shrine sound) when the stat goes up."""
+    amb.audio = _Sfx()
+    _visit(amb, "strength")
+    assert shrine.MSG_SHAZAM in amb.text_log.history
+    assert "Shrine.wav" not in amb.audio.played and "Shrine" not in amb.audio.played
 
 
 def test_autoplay_offers_up_to_the_plan_target(amb):
