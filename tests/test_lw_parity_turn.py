@@ -191,3 +191,59 @@ def test_routine6e35_town_exit_on_row_or_column_zero(town):
         _key(tw, k)
         assert left == [True], start
         assert tw.party.moves == 1  # the exit step is a turn (Routine6E35)
+
+
+# --- T-11: monsters move every other turn on horse and ship ------------------
+
+
+def test_finishall_runs_every_other_turn_on_horse_or_ship(overworld):
+    """UltimaMisc.c:1112-1126 (FinishAll):
+
+        if (Party[1] == 0x14 || Party[1] == 0x16) {
+            zp[0xCD] = 255 - zp[0xCD];
+            if (zp[0xCD] < 128)
+                return;
+        }
+        ...
+        SpawnMonster();
+        MoveMonsters();
+
+    On horseback (0x14) or aboard ship (0x16), spawning and monster moves run
+    on every other turn; on foot, every turn.
+    """
+    for transport, expected in (
+        (Transport.FOOT, 10),
+        (Transport.HORSE, 5),
+        (Transport.SHIP, 5),
+    ):
+        ow = overworld(10, 10, encounters=True)
+        ow.party.transport = transport
+        calls: list[int] = []
+        ow._spawn_wandering_creature = lambda: calls.append(1)  # type: ignore[method-assign]
+        for _ in range(10):
+            _key(ow, pygame.K_SPACE)
+        assert len(calls) == expected, transport
+
+
+# --- T-12: stopped time stops spawning too -----------------------------------
+
+
+def test_finishall_negated_time_skips_spawn(overworld):
+    """UltimaMisc.c:1120-1125 (FinishAll):
+
+        if (gTimeNegate != 0) {
+            gTimeNegate--;
+            return;
+        }
+        SpawnMonster();
+        MoveMonsters();
+
+    While time is stopped neither the spawn nor the monster moves run.
+    """
+    ow = overworld(10, 10, encounters=True)
+    calls: list[int] = []
+    ow._spawn_wandering_creature = lambda: calls.append(1)  # type: ignore[method-assign]
+    ow.party.aura.set(AuraType.QUICKNESS, 10)
+    for _ in range(3):
+        _key(ow, pygame.K_SPACE)
+    assert calls == []

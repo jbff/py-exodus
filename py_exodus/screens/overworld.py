@@ -340,6 +340,9 @@ class OverworldScreen(BaseScreen):
         # Wandering overland creatures visible on Sosaria (declared before the
         # first map load so _load_world_map can purge stale fixtures)
         self.creatures: list[dict[str, Any]] = []
+        # LairWare zp[0xCD] (FinishAll, UltimaMisc.c:1115-1118): flips each
+        # mounted turn; monsters act on the turns it reads 255.
+        self._finish_all_flip = 0
         self._load_world_map()
         # Java GameScreen.java:280-330 restore-on-load: the Journey Onward
         # starter rebuilds the saved SOSARIA monsters onto the map before any
@@ -1981,15 +1984,23 @@ class OverworldScreen(BaseScreen):
            when the intended dir equals ``sail_dir``, else the turn consumes
            the tick.
         """
-        # Original FinishAll (UltimaMisc.c:1111-1126): SpawnMonster then
-        # MoveMonsters every turn; the 7/135 gate lives in the spawn call.
-        if self.random_encounters_enabled:
-            self._spawn_wandering_creature()
+        # LairWare FinishAll (UltimaMisc.c:1112-1126): on horseback or aboard
+        # ship the monsters act only every other turn (zp[0xCD] flips
+        # 255/0 each mounted turn and runs on 255); on foot, every turn.
+        if self.party.transport in (Transport.HORSE, Transport.SHIP):
+            self._finish_all_flip = 255 - self._finish_all_flip
+            if self._finish_all_flip < 128:
+                return
 
-        # Java GameScreen.java:728-731 — moveObjects is skipped entirely
-        # while a QUICKNESS aura is active.
+        # FinishAll: while time is stopped (gTimeNegate) neither SpawnMonster
+        # nor MoveMonsters runs (UltimaMisc.c:1120-1125).
         if self.party.aura.get_type() == AuraType.QUICKNESS:
             return
+
+        # SpawnMonster then MoveMonsters; the 7/135 gate lives in the spawn
+        # call.
+        if self.random_encounters_enabled:
+            self._spawn_wandering_creature()
 
         if self.game_map is None:
             return
