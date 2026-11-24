@@ -321,3 +321,67 @@ def test_validdir_ship_sails_only_open_water(asset_mgr, pygame_setup):
     assert not can_move_to(ow.game_map, 4, 1, transport=Transport.SHIP, party=party)
     # On foot the parked frigate is still boardable (walkable on foot).
     assert can_move_to(ow.game_map, 4, 1, transport=Transport.FOOT, party=party)
+
+
+# --- T-27: Castle Exodus throws fireballs ------------------------------------
+
+
+class _Rolls:
+    """random.randint stand-in: every roll lands on ``value``; records bounds."""
+
+    def __init__(self, value: int) -> None:
+        self.value = value
+        self.bounds: list[tuple[int, int]] = []
+
+    def __call__(self, a: int, b: int) -> int:
+        self.bounds.append((a, b))
+        return max(a, min(b, self.value))
+
+
+def test_routine6e35_castle_exodus_bomb(town, monkeypatch):
+    """UltimaMisc.c:1379-1388 (Routine6E35) and UltimaMain.c:1728-1740 (BombTrap):
+
+        if (ExodusCastle() == 0) {
+            gTimeNegate = 0;
+            xs = RandNum(0, 11);
+            ys = RandNum(0, 11);
+            ...
+            if (xs == 5 && ys == 5) {
+                ...
+                BombTrap();
+
+        HPSubtract(Party[7 + chnum], RandNum(0, 255) & 0x77);
+        HPSubtract(Party[7 + chnum], (zp[0x13] + 1) * 8);
+
+    Each turn in Castle Exodus (until Exodus falls) a ball lands on one of
+    the 12x12 view tiles; on the party's (5,5) every living member loses
+    (RandNum(0,255) & 0x77) + 8. Time stop is cancelled there each turn.
+    """
+    from py_exodus.screens import town as town_module
+
+    rolls = _Rolls(5)
+    monkeypatch.setattr(town_module.random, "randint", rolls)
+    tw = town(2, 32, 60)
+    tw.party.aura.set(AuraType.QUICKNESS, 10)
+    hp = [m.hp for m in tw.party.members]
+    _key(tw, pygame.K_SPACE)
+    assert (0, 11) in rolls.bounds
+    assert (0, 255) in rolls.bounds
+    assert [m.hp for m in tw.party.members] == [h - ((5 & 0x77) + 8) for h in hp]
+    assert tw.party.aura.get_type() != AuraType.QUICKNESS
+
+    # A miss (any tile but the party's) does nothing.
+    rolls.value = 4
+    hp = [m.hp for m in tw.party.members]
+    _key(tw, pygame.K_SPACE)
+    assert [m.hp for m in tw.party.members] == hp
+
+    # No balls once Exodus is beaten, nor in another castle.
+    rolls.value = 5
+    tw.party.exodus_defeated = 1
+    _key(tw, pygame.K_SPACE)
+    assert [m.hp for m in tw.party.members] == hp
+    lb = town(1, 32, 60, party=tw.party)
+    tw.party.exodus_defeated = 0
+    _key(lb, pygame.K_SPACE)
+    assert [m.hp for m in tw.party.members] == hp

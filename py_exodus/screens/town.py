@@ -477,11 +477,35 @@ class TownScreen(BaseScreen):
             self.party.advance_moons(surface=False)
             self.party.aura.pass_turn()
             tile_effects.apply_rule_effect(self.party, effect_tile)
+            self._exodus_castle_ball()
         except PartyDeathException:
             pass
         self.check_party_death()
         if not self.party.is_party_dead():
             self._move_people()
+
+    def _exodus_castle_ball(self) -> None:
+        """LairWare Routine6E35 (UltimaMisc.c:1379-1398) with ExodusCastle
+        (UltimaSpellCombat.c:672-684): every turn in Castle Exodus, until
+        Exodus falls, time stop is cancelled and a ball lands on a random tile
+        of the 12x12 view (RandNum(0, 11) twice); on the party's own (5,5) it
+        is BombTrap (UltimaMain.c:1728-1740): each living member loses
+        (RandNum(0, 255) & 0x77) + 8 (zp[0x13] is never set, so +8)."""
+        if self.map_id != 2 or self.party.exodus_defeated:
+            return
+        if self.party.aura.get_type() == AuraType.QUICKNESS:
+            self.party.aura.set(AuraType.NONE, 0)  # gTimeNegate = 0
+        xs = random.randint(0, 11)
+        ys = random.randint(0, 11)
+        if (xs, ys) != (5, 5):
+            return
+        self.text_log.add_message("A fireball strikes the party!")
+        for m in list(self.party.members):
+            if m.is_disabled():  # BombTrap: CheckAlive members only
+                continue
+            if self.audio is not None:
+                self.audio.play_sfx("Hit.wav")
+            m.apply_damage((random.randint(0, 255) & 0x77) + 8)
 
     # LW ValidMonsterDir (UltimaMisc.c:263-272): land people walk only on
     # grass/brush/forest/floor (tile values 4/8/12/32); sea people (pirate,
