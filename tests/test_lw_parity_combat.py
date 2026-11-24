@@ -243,3 +243,54 @@ def test_shoot_flies_over_walls(asset_mgr):
     res = arena.execute_player_action(0, Action.attack(Direction.NORTH))
     assert (3, 2) in res.attack_res.projectile_path
     assert res.attack_res.hit
+
+
+# --- B-07: the arena is picked by the party's own tile ----------------------
+
+class _TileMap:
+    def __init__(self, tiles):
+        self._tiles = tiles
+
+    def get_tile(self, x, y):
+        from py_exodus.assets import TileDef
+
+        name = self._tiles.get((x, y), "grass")
+        return TileDef(index=0, name=name, rule=name)
+
+
+def test_background_uses_the_partys_tile():
+    """UltimaSpellCombat.c:797-810 (BackGround): a land fight's arena comes
+    from the party's own tile, not the monster's,
+
+        tile = GetXYVal(xpos, ypos) / 2;
+        if (tile == 0x02) return BASERES + 4;   // grass -> G
+        if (tile == 0x04) return BASERES + 1;   // brush -> B
+        if (tile == 0x06) return BASERES + 3;   // forest -> F
+        if (tile == 0x10) return BASERES + 2;   // floor -> C
+        if (tile == 0x40) return BASERES + 2;   // energy field -> C
+        if (tile == 0x42) return BASERES + 2;   // lava -> C
+        return BASERES + 4;                     // anything else -> G
+    """
+    from py_exodus.entities.defs import CreatureDef
+    from py_exodus.screens.overworld import get_combat_map_id
+
+    orc = CreatureDef(id=10, name="Orc", tile="orc")
+    for party_tile, arena in (("grass", 37), ("brush", 34), ("forest", 36), ("floor", 35),
+                              ("energy_field", 35), ("lava", 35), ("towne", 37), ("castle", 37),
+                              ("dungeon", 37), ("chest", 37), ("shrine", 37)):
+        gm = _TileMap({(10, 10): party_tile, (11, 10): "forest"})
+        assert get_combat_map_id(orc, 11, 10, 10, 10, Transport.FOOT, gm) == arena, party_tile
+    gm = _TileMap({(10, 10): "grass", (11, 10): "brush"})
+    assert get_combat_map_id(orc, 11, 10, 10, 10, Transport.HORSE, gm) == 37
+
+
+def test_background_town_fight_uses_the_partys_tile(asset_mgr):
+    """UltimaSpellCombat.c:797-810 (BackGround) runs for town fights too
+    (Party[3] 2 or 3): a fight started from town grass is on the grass
+    arena, from the floor on the brick floor."""
+    from py_exodus.entities.defs import CreatureDef
+    from py_exodus.screens.town import town_combat_map_id
+
+    guard = CreatureDef(id=6, name="Guard", tile="guard")
+    assert town_combat_map_id(guard, (5, 5), _TileMap({(5, 5): "grass"})) == 37
+    assert town_combat_map_id(guard, (5, 5), _TileMap({(5, 5): "floor"})) == 35

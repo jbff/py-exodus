@@ -227,12 +227,16 @@ def test_get_combat_map_transport_ship_variants():
 
 
 def test_get_combat_map_tile_rule_maps():
+    """LairWare BackGround (UltimaSpellCombat.c:797-810): the PARTY's tile
+    picks the arena (Java used the creature's): party on grass -> G even
+    when the thief stands in brush; party in brush -> B."""
     orc = CreatureDef(id=1, name="Orc", tile="orc")
     thief = CreatureDef(id=12, name="Thief", tile="thief")
     tiles = {(10, 10): grass_tile(), (4, 4): brush_tile()}
     game_map = _StubMap(tiles)
     assert get_combat_map_id(orc, 10, 10, 10, 10, Transport.FOOT, game_map) == 37
-    assert get_combat_map_id(thief, 4, 4, 10, 10, Transport.FOOT, game_map) == 34
+    assert get_combat_map_id(thief, 4, 4, 10, 10, Transport.FOOT, game_map) == 37
+    assert get_combat_map_id(thief, 10, 10, 4, 4, Transport.FOOT, game_map) == 34
 
 
 # --- (c) exclusive-high dice -------------------------------------------------

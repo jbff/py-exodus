@@ -60,6 +60,15 @@ _LB_REFUSALS = {
 }
 
 
+
+def town_combat_map_id(creature: Any, party_pos: tuple[int, int], game_map: Any) -> int:
+    """LairWare BackGround (UltimaSpellCombat.c:774-810) for a town or castle
+    fight: the party's tile picks the arena (floor C, grass G, ...)."""
+    from py_exodus.screens.overworld import get_combat_map_id
+
+    px, py = party_pos
+    return get_combat_map_id(creature, px, py, px, py, Transport.FOOT, game_map)
+
 class TownScreen(BaseScreen):
     """Town and castle navigation screen supporting NPC dialogues and vendor shopping."""
 
@@ -486,7 +495,10 @@ class TownScreen(BaseScreen):
 
         self._combat_npc = npc
         cname = str(getattr(npc, "tile_name", getattr(npc, "tile", "orc")) or "orc").lower()
-        c_map = MapLoader(self.asset_mgr).load_conflict_map("cnflct_c.json")
+        c_def = self.asset_mgr.get_creature(cname)
+        c_map = MapLoader(self.asset_mgr).load_conflict_map(
+            town_combat_map_id(c_def or cname, (self.avatar_x, self.avatar_y), self.game_map)
+        )
         combat_scr = CombatScreen(
             party=self.party,
             combat_map=c_map,

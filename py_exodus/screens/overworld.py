@@ -62,6 +62,18 @@ if TYPE_CHECKING:
     from py_exodus.world.map import GameMap
 
 
+#: LairWare BackGround (UltimaSpellCombat.c:797-810): the party's tile picks
+#: a land fight's arena; any other tile is the grass arena.
+LW_BACKGROUND_BY_PARTY_TILE: dict[str, int] = {
+    "grass": 37,         # BASERES + 4, CONFLICT_GRASS (G)
+    "brush": 34,         # BASERES + 1, CONFLICT_GRASS_BRUSH (B)
+    "forest": 36,        # BASERES + 3, CONFLICT_GRASS_FOREST (F)
+    "floor": 35,         # BASERES + 2, CONFLICT_BRICK_FLOOR (C)
+    "energy_field": 35,  # tile 0x40
+    "lava": 35,          # tile 0x42
+}
+
+
 def get_combat_map_id(
     creature: CreatureDef | str,
     creature_x: int,
@@ -71,49 +83,37 @@ def get_combat_map_id(
     transport: Transport,
     game_map: GameMap | None,
 ) -> int:
-    """Java ``Context.getCombatMap`` (Context.java:303-326) port.
+    """LairWare ``BackGround`` (UltimaSpellCombat.c:774-810).
 
-    The base arena is the COMBAT-MAP RULE of the tile the creature stands on
-    (``bm.getTile(creatureX, creatureY).getCombatMap()``). A swimming creature
-    lands on CONFLICT_SHORE and a sailing one on CONFLICT_SHIP_TOP when the
-    party's tile is walkable — so a sea creature met on land never forces
-    BOTH_SHIPS. Sailing overrides everything for the whole encounter."""
-
-    def _tile(x: int, y: int) -> Any:
-        return game_map.get_tile(x, y) if game_map is not None else None
-
-    c_tile = _tile(creature_x, creature_y)
-    combat_map_id = getattr(c_tile, "combat_map_id", None)
-    if combat_map_id is None:
-        combat_map_id = getattr(c_tile, "combat_map", 37)
-    party_tile = _tile(party_x, party_y)
-    party_unwalkable = bool(
-        getattr(party_tile, "attribs", 0) & TileAttrib.UNWALKABLE
-    ) if party_tile is not None else False
+    A pirate is fought ship to ship from the party's ship (S), else on the
+    pirate arena (A). From the party's ship a sea monster is fought on Q and
+    a land monster on R; a sea monster met from land on the shore (M).
+    Every other fight takes its arena from the PARTY's own tile (grass G,
+    brush B, forest F, floor/energy field/lava C, anything else G); Java's
+    ``Context.getCombatMap`` used the creature's tile.
+    """
 
     swims = getattr(creature, "swims", False) if not isinstance(creature, str) else False
     sails = getattr(creature, "sails", False) if not isinstance(creature, str) else False
     tile_name = getattr(
         creature, "tile", creature if isinstance(creature, str) else ""
     ).lower()
-
-    if swims and not party_unwalkable:
-        combat_map_id = 38  # CONFLICT_SHORE
-    elif sails and not party_unwalkable:
-        combat_map_id = 33  # CONFLICT_SHIP_TOP (CONFLICT_SHORE's sail variant)
+    pirate = sails or tile_name == "pirate"
 
     if transport == Transport.SHIP:
-        if sails or tile_name == "pirate":
-            combat_map_id = 41  # CONFLICT_BOTH_SHIPS
-        elif swims:
-            combat_map_id = 39  # CONFLICT_SHIP
-        else:
-            combat_map_id = 40  # CONFLICT_SHIP_BOTTOM
-    elif swims and combat_map_id == 41:
-        # Sea swimmers (serpent/squid) never fight ship-to-ship.
-        combat_map_id = 38  # CONFLICT_SHORE
+        if pirate:
+            return 41  # BASERES + 8, CONFLICT_BOTH_SHIPS (S)
+        if swims:
+            return 39  # BASERES + 6, CONFLICT_SHIP (Q)
+        return 40      # BASERES + 7, CONFLICT_SHIP_BOTTOM (R)
+    if pirate:
+        return 33      # BASERES, CONFLICT_SHIP_TOP (A)
+    if swims:
+        return 38      # BASERES + 5, CONFLICT_SHORE (M)
 
-    return combat_map_id
+    party_tile = game_map.get_tile(party_x, party_y) if game_map is not None else None
+    name = str(getattr(party_tile, "name", "") or "").lower()
+    return LW_BACKGROUND_BY_PARTY_TILE.get(name, 37)
 
 
 # --- moveObjects creature-half helpers (Java objects/BaseMap.java:421-610) --- #
