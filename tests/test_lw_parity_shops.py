@@ -305,3 +305,41 @@ def test_oracle_offering_is_one_digit(assets):
     town.text_log.submit_input("15")
     assert m.gold == 4900
     assert "marks and playing cards" in _log(town)
+
+
+# --- Healer ------------------------------------------------------------------------
+
+
+def test_clerical_prices(assets):
+    """UltimaMisc.c:1726, 1743, 1760, 1777: Clerical(rosNum, 100 / 200 / 500
+    / 900) for curing, healing, resurrection and recalling."""
+    for v in assets.vendor_classes["HEALER"].vendors:
+        assert [(i.heal_type, i.price) for i in v.items] == [
+            ("CURE", 100), ("FULLHEAL", 200), ("RESURRECT", 500), ("RECALL", 900)
+        ], v.owner
+
+
+def test_clerical_heal_any_member_even_dead():
+    """UltimaMisc.c:1747-1750: healing sets HP to max HP with no status test
+    (``Player[..][26] = Player[..][28]``): a dead member is healed too (and
+    stays dead)."""
+    m = PartyMember(Character("Hero", "M", Race.HUMAN, Profession.FIGHTER, hp=300))
+    m.status = Status.DEAD
+    m.hp = 0
+    assert m.heal("FULLHEAL") is True
+    assert m.hp == m.max_hp and m.status == Status.DEAD
+
+
+def test_clerical_resurrect_and_recall_keep_hp():
+    """UltimaMisc.c:1766-1767, 1783-1784: ``if (..[17] == 'D') ..[17] =
+    'G';`` (and 'A' -> 'G'): only the status changes; HP is left as it is
+    (0 for the dead, or the max a Healing gave first)."""
+    m = PartyMember(Character("Hero", "M", Race.HUMAN, Profession.FIGHTER, hp=300))
+    m.status = Status.DEAD
+    m.hp = 0
+    assert m.heal("RESURRECT") is True
+    assert m.status == Status.GOOD and m.hp == 0
+    m.status = Status.ASH
+    m.hp = m.max_hp
+    assert m.heal("RECALL") is True
+    assert m.status == Status.GOOD and m.hp == m.max_hp

@@ -1088,7 +1088,7 @@ def test_resurrect_dead_member_at_healer(pygame_setup):
             break
 
     assert party.members[1].status == Status.GOOD
-    assert party.members[1].hp > 0
+    assert party.members[1].hp == 0  # LairWare: resurrection leaves HP as it was
     assert ts.text_log.is_waiting_for_input is False
     assert evaluate_goal(party) != Goal.RESURRECT_DEAD
 

@@ -1083,9 +1083,10 @@ def test_guild_unknown_item_farewell():
 
 
 def test_pm_heal_unit_semantics():
-    """Direct port of Party.java:381-433 pm.heal: need-checks return False;
-    RESURRECT (like RECALL) sets hp to 1 — not full; no wisdom adjustment
-    exists in Party.java:416-422 RECALL (nothing to port)."""
+    """Party.java:381-433 pm.heal with LairWare's Clerical effects
+    (UltimaMisc.c:1747-1784): need-checks return False; FULLHEAL heals the
+    dead too; RESURRECT and RECALL change only the status; no wisdom
+    adjustment."""
     m = PartyMember(Character("Hero", "M", Race.HUMAN, Profession.FIGHTER, hp=100))
     max_hp = m.max_hp
 
@@ -1100,14 +1101,15 @@ def test_pm_heal_unit_semantics():
     assert m.heal("FULLHEAL") is True and m.hp == max_hp
     m.status = Status.DEAD
     m.hp = 0
-    assert m.heal("FULLHEAL") is False
-    # RESURRECT only when DEAD; hp 1 (not full), GOOD
-    assert m.heal("RESURRECT") is True and m.hp == 1 and m.status == Status.GOOD
+    assert m.heal("FULLHEAL") is True and m.hp == max_hp and m.status == Status.DEAD
+    m.hp = 0
+    # RESURRECT only when DEAD; HP left as it is, GOOD
+    assert m.heal("RESURRECT") is True and m.hp == 0 and m.status == Status.GOOD
     assert m.heal("RESURRECT") is False  # no longer DEAD
-    # RECALL only when ASH; hp 1, GOOD
+    # RECALL only when ASH; HP left as it is, GOOD
     m.status = Status.ASH
     m.hp = 0
-    assert m.heal("RECALL") is True and m.hp == 1 and m.status == Status.GOOD
+    assert m.heal("RECALL") is True and m.hp == 0 and m.status == Status.GOOD
     m.status = Status.GOOD
     assert m.heal("RECALL") is False
     # HEAL rejected when DEAD/full; mangles with 75 + rand%25
@@ -1177,8 +1179,9 @@ def test_healer_service_on_second_member():
     assert party.members[1].gold == 500
 
 
-def test_healer_resurrect_sets_hp_one_not_full():
-    """Party.java RESURRECT: hp = 1 (NOT max) and GOOD; charged 500."""
+def test_healer_resurrect_leaves_hp():
+    """LairWare UltimaMisc.c:1766-1767 RESURRECT: DEAD -> GOOD, HP left as
+    it is (0 here; Java set 1); charged 500."""
     vendor = make_healer_vendor()
     party = make_party((1000,))
     member = party.members[0]
@@ -1193,8 +1196,7 @@ def test_healer_resurrect_sets_hp_one_not_full():
     town.text_log.submit_input("y")
 
     assert member.status == Status.GOOD
-    assert member.hp == 1
-    assert member.hp != member.max_hp
+    assert member.hp == 0
     assert member.gold == 500
 
 
@@ -1212,7 +1214,7 @@ def test_healer_recall_only_when_ash():
     town.text_log.submit_input("1")
     town.text_log.submit_input("y")
     assert member.status == Status.GOOD
-    assert member.hp == 1
+    assert member.hp == 0  # LairWare UltimaMisc.c:1783-1784: HP untouched
     assert member.gold == 100
     # no wisdom loss — Java RECALL (Party.java:416-422) has no wis adjustment
     assert member.wisdom == 10

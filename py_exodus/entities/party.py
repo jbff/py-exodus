@@ -126,10 +126,11 @@ class PartyMember:
 
         Need-checks return False and leave the member untouched — the caller
         (Java ``HealerService.java:58-64``) charges NOTHING when heal returns
-        False.  CURE only when POISONED (status -> GOOD); FULLHEAL rejected
-        when DEAD or already at full HP; RESURRECT only when DEAD and sets
-        hp to 1 — NOT full — plus GOOD; HEAL rejected when DEAD or full and
-        adds 75 + (rand % 25); RECALL only when ASH and sets hp to 1, GOOD.
+        False.  CURE only when POISONED (status -> GOOD); FULLHEAL sets max
+        HP for anyone, the dead and the ashes too, rejected only at full HP
+        (LairWare); RESURRECT only when DEAD, RECALL only when ASH, each
+        just -> GOOD with HP left as it is (LairWare; Java set 1); HEAL
+        rejected when DEAD or full and adds 75 + (rand % 25).
         NOTE ``Party.java:416-422`` RECALL performs NO wisdom adjustment in
         this codebase (the ``wis -= 5`` variant is not present), so none is
         ported here.
@@ -145,14 +146,17 @@ class PartyMember:
             self.status = Status.GOOD
 
         elif kind == "FULLHEAL":
-            if self.status == Status.DEAD or self.hp == self.max_hp:
+            # LairWare UltimaMisc.c:1747-1750: HP = max HP with no status
+            # test, so the dead and the ashes are healed too (and stay so).
+            if self.hp == self.max_hp:
                 return False
             self.hp = self.max_hp
 
         elif kind == "RESURRECT":
+            # LairWare UltimaMisc.c:1766-1767: 'D' -> 'G' and nothing else;
+            # HP stays (0, or the max a Healing gave first). Java set 1.
             if self.status != Status.DEAD:
                 return False
-            self.hp = 1
             self.status = Status.GOOD
 
         elif kind == "HEAL":
@@ -162,9 +166,9 @@ class PartyMember:
             self.hp += 75 + (random.randint(0, 255) % 25)
 
         elif kind == "RECALL":
+            # LairWare UltimaMisc.c:1783-1784: 'A' -> 'G', HP untouched.
             if self.status != Status.ASH:
                 return False
-            self.hp = 1
             self.status = Status.GOOD
 
         else:
