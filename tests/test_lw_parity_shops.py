@@ -112,6 +112,95 @@ def test_transact_lairware_shop_list(assets):
     assert at("BRITISH", 16, 21) is None
 
 
+# --- Weapons and armour: prices, Dawn's stock, the 99 cap --------------------
+
+
+def test_weaponlist_prices_and_dawn_stock(assets):
+    """UltimaMisc.c:1794-1796, 1897-1899: ``opnum = 'I'; if (Party[4] == 37)
+    opnum = 'P';`` (armour 'F' / 'H'): Dawn (Sosaria x 37) sells weapons
+    B..O and armour B..G, every other shop B..H and B..E, at WeaponsArmour
+    prices (index input + 25 / input + 41)."""
+    weapons = [5, 30, 60, 125, 350, 200, 250, 400, 1050, 800, 1200, 2700, 6550, 4550]
+    armour = [75, 195, 575, 2500, 6130, 8250]
+    for v in assets.vendor_classes["WEAPON"].vendors:
+        n = 14 if v.id.upper() == "DAWN" else 7
+        assert [i.price for i in v.items] == weapons[:n], v.owner
+        assert [i.choice for i in v.items] == [chr(ord("b") + k) for k in range(n)]
+    for v in assets.vendor_classes["ARMOR"].vendors:
+        n = 6 if v.id.upper() == "DAWN" else 4
+        assert [i.price for i in v.items] == armour[:n], v.owner
+
+
+def test_shop_weapon_buy_refused_at_99(assets):
+    """UltimaMisc.c:1835-1840: ``if (Player[rosNum][49 + input] > 98) {
+    UPrintMessageRewrapped(260); ... goto shop3; }`` -- the count includes
+    the readied weapon; at 99 the shop says "Not enough room!" and asks
+    again, charging nothing."""
+    party = _party(5000)
+    m = party.members[0]
+    m.weapon = WeaponType.DAGGER
+    m.weapons[WeaponType.DAGGER] = 98  # 99 with the readied one
+    town = _shop(_vendor(assets, "LCB", "WEAPON"), party)
+    town.text_log.submit_input("b")
+    town.text_log.submit_input("b")
+    assert "Not enough room!" in _log(town)
+    assert m.gold == 5000 and m.weapons[WeaponType.DAGGER] == 98
+    assert "Your Interest?" in town.text_log.current_prompt
+
+
+def test_shop_weapon_buy_up_to_99(assets):
+    """UltimaMisc.c:1835-1848: one more fits at 98 (98 -> 99); a count that
+    would pass 99 is refused with message 260 and nothing is charged."""
+    party = _party(5000)
+    m = party.members[0]
+    m.weapons[WeaponType.DAGGER] = 97
+    town = _shop(_vendor(assets, "LCB", "WEAPON"), party)
+    town.text_log.submit_input("b")
+    town.text_log.submit_input("b")
+    town.text_log.submit_input("3")
+    assert "Not enough room!" in _log(town)
+    assert m.gold == 5000 and m.weapons[WeaponType.DAGGER] == 97
+    town.text_log.submit_input("b")
+    town.text_log.submit_input("2")
+    assert m.weapons[WeaponType.DAGGER] == 99 and m.gold == 4990
+
+
+def test_shop_armour_buy_refused_at_99(assets):
+    """UltimaMisc.c:1938-1943: ``if (Player[rosNum][41 + input] > 98)`` ->
+    message 260, nothing charged (worn armour counts)."""
+    party = _party(5000)
+    m = party.members[0]
+    m.armor = ArmorType.CLOTH
+    m.armors[ArmorType.CLOTH] = 98
+    town = _shop(_vendor(assets, "LCB", "ARMOR"), party)
+    town.text_log.submit_input("b")
+    town.text_log.submit_input("b")
+    assert "Not enough room!" in _log(town)
+    assert m.gold == 5000 and m.armors[ArmorType.CLOTH] == 98
+
+
+def test_autoplay_walks_away_from_a_full_stack(assets):
+    """Autoplay answers the item question again after message 260 "Not
+    enough room!" (UltimaMisc.c:1835-1840 re-asks) with ESC, not the same
+    letter forever."""
+    import pygame
+
+    from py_exodus.autoplay.controller import AutoPlayController
+    from py_exodus.state_machine import StateMachine
+
+    party = _party(5000)
+    m = party.members[0]
+    m.weapons[WeaponType.DAGGER] = 99
+    town = _shop(_vendor(assets, "LCB", "WEAPON"), party)
+    town.text_log.submit_input("b")
+    town.text_log.submit_input("b")
+    assert "Not enough room!" in _log(town)
+    ctrl = AutoPlayController(enabled=True)
+    ctrl._shop_item_letter = "b"
+    sm = StateMachine(asset_mgr=assets, audio=None)
+    assert ctrl._handle_town_prompt(sm, town) == pygame.K_ESCAPE
+
+
 # --- Grocer --------------------------------------------------------------------
 
 

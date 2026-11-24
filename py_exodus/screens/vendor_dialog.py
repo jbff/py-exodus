@@ -226,6 +226,9 @@ class BaseVendorDialog:
 
 #: LairWare keeps food in two base-100 bytes (UltimaMisc.c:1668): 9999 at most.
 _FOOD_MAX = 9999
+#: LairWare's stacks (weapons, armour, gems, keys, powders, torches) hold 99
+#: (UltimaMisc.c:1835, 1938, 2036; AddItem/GuildGive cap at 99).
+_ITEM_MAX = 99
 
 
 class FoodVendorDialog(BaseVendorDialog):
@@ -696,6 +699,13 @@ class BuySellVendorDialog(BaseVendorDialog):
         key = self._unit_key(item)
         return self._count_bucket().get(key, 0) + (1 if self._readied() == key else 0)
 
+    def _no_room(self) -> None:
+        """LairWare UltimaMisc.c:1835-1840 / 1938-1943: a stack (the readied
+        one counted) at 99 takes no more: message 260 "Not enough room!" and
+        the item question again, nothing charged."""
+        self.display("Not enough room!")
+        self.state = ConvState.WAIT_BUY_INPUT
+
     def _sell_catalog(self) -> list[VendorItemDef]:
         """LW: only what this shop stocks (letters below its ``opnum``)."""
         return list(self.vendor.items)
@@ -810,15 +820,20 @@ class BuySellVendorDialog(BaseVendorDialog):
             item = self.vendor.get_item(inp)
             if item is not None and self.check_can_pay(item):
                 self.current_selected_item = item
+                if self._owned(item) >= _ITEM_MAX:
+                    self._no_room()
         elif self.state == ConvState.WAIT_BUY_HOW_MANY:
             try:
                 count = int(inp)
             except ValueError:
                 count = 1
-            if self.check_can_pay_count(self.current_selected_item, count):
-                self.current_count = count
-            else:
+            if not self.check_can_pay_count(self.current_selected_item, count):
                 self.current_count = 0
+            elif self._owned(self.current_selected_item) + count > _ITEM_MAX:
+                self.current_count = 0
+                self._no_room()
+            else:
+                self.current_count = count
         elif self.state == ConvState.WAIT_BUY_ONE:
             if inp.startswith("y"):
                 self.current_count = 1

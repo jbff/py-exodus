@@ -2708,6 +2708,13 @@ class AutoPlayController:
             if "like to sell" in prompt:
                 self._queue_text(str(count), enter=True)
                 return self._emit_key(state_machine, self._key_queue.popleft())
+        # A stack at 99 (LairWare message 260) re-asks the item question:
+        # walk away rather than pick the same item forever.
+        recent = " ".join(str(x) for x in list(getattr(screen.text_log, "history", None) or ())[-25:]).lower()
+        if "not enough room" in recent and (
+            "your interest" in prompt or "wat'l it be" in prompt or "how many rations" in prompt
+        ):
+            return self._emit_key(state_machine, pygame.K_ESCAPE)
         if "your need" in prompt or "wat'l it be" in prompt:
             return self._emit_key(state_machine, _char_to_key(self._shop_item_letter) or pygame.K_c)
         if "talk" in prompt or "which" in prompt or "who" in prompt:
