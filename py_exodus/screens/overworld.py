@@ -20,7 +20,7 @@ from py_exodus.constants import (
     TileAttrib,
     Transport,
 )
-from py_exodus.entities.party import PartyDeathException
+from py_exodus.entities.party import PartyDeathException, objects_on
 from py_exodus import special_commands
 from py_exodus.screens.base import BaseScreen
 from py_exodus.screens.member_prompts import (
@@ -1859,6 +1859,12 @@ class OverworldScreen(BaseScreen):
         width, height = self.game_map.width, self.game_map.height
         portal_coords = {(p.x, p.y) for p in getattr(self.game_map, "portals", ())}
         occupied = {(c.get("x"), c.get("y")) for c in self.creatures}
+        # A parked ship, horse or dropped chest is a map value of its own in
+        # LairWare (0x2C, 0x28, 0x24), never a type's start terrain
+        # (UltimaMisc.c:1176-1180).
+        occupied |= {
+            (o.get("x"), o.get("y")) for o in objects_on(self.party, self.game_map)
+        }
         for _ in range(max(0, free_slots)):
             sx = random.randint(0, width - 1)
             if sx == self.party.x:
@@ -1949,7 +1955,8 @@ class OverworldScreen(BaseScreen):
             idx = random.randint(0, 12) & random.randint(0, 12)
         cid, needs_water = self._ORIGINAL_SPAWN_TABLE[idx]
         if needs_water:
-            if not tile.swimmable:
+            # MonBegin 0: plain water only, not the swimmable snake tiles.
+            if str(getattr(tile, "name", "")).lower() != "water":
                 return None
         elif tile.swimmable or str(getattr(tile, "name", "")).lower() != "grass":
             return None
@@ -2136,15 +2143,40 @@ class OverworldScreen(BaseScreen):
                 return (tx, ty)
         return None
 
+    # LairWare ValidMonsterDir (UltimaMisc.c:263-272): map values 0x29..0x3F
+    # (serpent 0x34, Man-O-War 0x38, pirate 0x3C) move only onto water (0);
+    # every other monster only onto grass, brush, forest or floor (4, 8, 12,
+    # 32). Lava, snakes, shrines and the like are closed to them.
+    LW_SEA_MONSTERS = frozenset({"serpent", "squid", "pirate"})
+    LW_LAND_TERRAIN = frozenset({"grass", "brush", "forest", "floor"})
+
+    def _lw_monster_terrain_ok(self, kind: str, tx: int, ty: int) -> bool:
+        """ValidMonsterDir on the port's map: the terrain test above, and no
+        parked ship, horse or dropped chest there (map values 0x2C, 0x28 and
+        0x24 of their own in LairWare's grid, so never 0 or 4/8/12/32)."""
+        tile = self.game_map.get_tile(tx, ty)
+        name = str(getattr(tile, "name", "")).lower()
+        # The whirlpool also moves only onto water (WhirlPool, UltimaMain.c:2973-2978).
+        if kind in self.LW_SEA_MONSTERS or kind == "whirlpool":
+            if name != "water":
+                return False
+        elif name not in self.LW_LAND_TERRAIN:
+            return False
+        return not any(
+            o.get("x") == tx and o.get("y") == ty
+            for o in objects_on(self.party, self.game_map)
+        )
+
     def _creature_can_enter(self, c: dict[str, Any], cr_def, tx: int, ty: int) -> bool:
-        """One tile of the valid-moves test: terrain, no portal, no other
-        creature, not the party's tile unless the creature may step on it."""
+        """One tile of the valid-moves test: terrain (LairWare
+        ValidMonsterDir), no portal, no other creature, not the party's tile
+        unless the creature may step on it."""
         if cr_def is None:
             return False
         if (tx, ty) in {(p.x, p.y) for p in getattr(self.game_map, "portals", ())}:
             return False
-        tile = self.game_map.get_tile(tx, ty)
-        if tile is None or not can_creature_move_on(tile, cr_def):
+        kind = str(c.get("tile_name", "")).lower()
+        if not self._lw_monster_terrain_ok(kind, tx, ty):
             return False
         if tx == self.party.x and ty == self.party.y and not cr_def.can_move_onto_avatar:
             return False
@@ -2183,7 +2215,10 @@ class OverworldScreen(BaseScreen):
             tile = self.game_map.get_tile(tx, ty)
             if tile is None:
                 continue
-            canmove = can_creature_move_on(tile, cr_def)
+            # LairWare ValidMonsterDir (UltimaMisc.c:263-272).
+            canmove = self._lw_monster_terrain_ok(
+                str(c.get("tile_name", "")).lower(), tx, ty
+            )
             if (
                 tx == self.party.x
                 and ty == self.party.y
