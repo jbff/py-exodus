@@ -295,3 +295,29 @@ def test_checkalive_ashes_are_not_alive():
     party.members[1].status = Status.POISONED
     party.members[1].hp = 5
     assert party.is_anyone_alive()
+
+
+# --- T-07: a ship cannot sail onto a parked frigate --------------------------
+
+
+def test_validdir_ship_sails_only_open_water(asset_mgr, pygame_setup):
+    """UltimaMain.c:3174-3176 (ValidDir):
+
+        if (Party[1] == 0x16) { /* Ship */
+            if ((value == 00) || (value == 48))
+                GoodPlace = TRUE; /* Water or whirlpool OK */
+
+    A ship enters only water (or the whirlpool); a parked frigate is a map
+    tile of its own (0x2C) in LairWare, so another ship cannot sail onto it.
+    """
+    from py_exodus.screens.overworld import OverworldScreen
+
+    party = _party()
+    ow = OverworldScreen(party=party, map_id=0, asset_mgr=asset_mgr, start_x=4, start_y=2,
+                         random_encounters=False)
+    party.objects_map_id = 0
+    party.dynamic_objects = [{"tile": "frigate", "x": 4, "y": 1}]
+    assert can_move_to(ow.game_map, 5, 1, transport=Transport.SHIP, party=party)
+    assert not can_move_to(ow.game_map, 4, 1, transport=Transport.SHIP, party=party)
+    # On foot the parked frigate is still boardable (walkable on foot).
+    assert can_move_to(ow.game_map, 4, 1, transport=Transport.FOOT, party=party)

@@ -73,6 +73,16 @@ def can_move_to(
     if transport == Transport.SHIP:
         if not tile.sailable or bool(tile.attribs & TileAttrib.SNAKE):
             return False
+        # LairWare ValidDir (UltimaMain.c:3174-3176): a ship enters only water
+        # or the whirlpool. A parked frigate is its own map tile there (0x2C),
+        # so another ship cannot sail onto it.
+        if any(
+            str(obj.get("tile", "")).lower() == "frigate"
+            and obj.get("x") == target_x
+            and obj.get("y") == target_y
+            for obj in objects_on(party, game_map)
+        ):
+            return False
     elif transport == Transport.HORSE:
         if not tile.walkable or bool(tile.attribs & TileAttrib.CREATUREUNWALKABLE):
             return False
