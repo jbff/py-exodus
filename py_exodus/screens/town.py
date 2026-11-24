@@ -50,6 +50,15 @@ if TYPE_CHECKING:
     from py_exodus.world.map import GameMap, MapNpc
 
 
+# Lord British's refusals (LairWare Messages 91, 263, 92, 93).
+_LB_REFUSALS = {
+    "experience": "Experience more!",
+    "thanks": "Sosaria thanks you!",
+    "no_more": "No more!",
+    "mark": "Seek ye, the mark of kings!",
+}
+
+
 class TownScreen(BaseScreen):
     """Town and castle navigation screen supporting NPC dialogues and vendor shopping."""
 
@@ -747,12 +756,16 @@ class TownScreen(BaseScreen):
             self.text_log.add_message("Lord British says:\n'Welcome my child..\nExperience more!'")
             return
 
-        if target.character.meet_lord_british(bool(getattr(self.party, "exodus_defeated", 0))):
+        exodus_defeated = bool(getattr(self.party, "exodus_defeated", 0))
+        reason = target.character.lord_british_refusal(exodus_defeated)
+        if reason is None and target.character.meet_lord_british(exodus_defeated):
             self.text_log.add_message("Lord British says:\n'Thou hast been advanced!'")
             if self.audio is not None:
                 self.audio.play_sfx("magic")
         else:
-            self.text_log.add_message("Lord British says:\n'Welcome my child..\nExperience more!'")
+            # LairWare Transact (UltimaMain.c:2357-2380): messages 91, 263, 92, 93.
+            text = _LB_REFUSALS.get(reason or "experience")
+            self.text_log.add_message(f"Lord British says:\n'Welcome my child..\n{text}'")
 
     def _start_vendor_shopping(self, vendor: VendorDef, buyer: PartyMember | None = None) -> None:
         """Interactive shopping dialog stream with vendor via TextLog."""

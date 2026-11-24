@@ -739,3 +739,28 @@ def test_every_letter_takes_one_turn_town(town, ch):
     before = scr.party.moves
     _press_letter_and_escape(scr, ch)
     assert scr.party.moves == before + 1, ch
+
+
+@pytest.mark.parametrize(
+    "level, exp, kings, exodus, reason, text",
+    [
+        (3, 299, True, False, "experience", "Experience more!"),
+        (3, 299, True, True, "thanks", "Sosaria thanks you!"),
+        (25, 9999, True, False, "no_more", "No more!"),
+        (5, 900, False, False, "mark", "Seek ye, the mark of kings!"),
+    ],
+)
+def test_lord_british_refusal_messages(town, level, exp, kings, exodus, reason, text):
+    """UltimaMain.c:2357-2380: each refusal has its own message -- 91
+    "Experience more!" (263 "Sosaria thanks you!" once Exodus has fallen),
+    92 "No more!" at 25 while Exodus stands, 93 "Seek ye, the mark of
+    kings!" past level 4 without the Mark."""
+    c = _lb_char(level, exp, kings)
+    assert c.lord_british_refusal(exodus) == reason
+    m = PartyMember(c)
+    scr = town(map_id=1, party=_party(m))
+    scr.party.exodus_defeated = 1 if exodus else 0
+    scr._interact_lord_british(m)
+    assert text.lower() in scr.text_log.history[-1].lower()
+    assert c.level == level
+
