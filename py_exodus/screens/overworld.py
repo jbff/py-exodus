@@ -826,7 +826,7 @@ class OverworldScreen(BaseScreen):
     def _dag_acron_taken(self, x: int, y: int) -> bool:
         """DAG ACRON never lands on a monster or a parked ship/horse/chest
         (LairWare keeps them in the map, so GetXYVal never matches there;
-        UltimaSpellCombat.c:216-218)."""
+        UltimaSpellCombat.c:217-222)."""
         if any(c.get("x") == x and c.get("y") == y for c in self.creatures):
             return True
         return any(o.get("x") == x and o.get("y") == y for o in self.party.objects_on(self.game_map))

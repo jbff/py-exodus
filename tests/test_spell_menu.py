@@ -571,7 +571,7 @@ def test_spell_enum_masks_match_java_every_row():
     Constants.java:693-724 — name AND declaration order included (the
     declaration order fixes each discipline's alphabetical A-P codes)."""
     # LairWare batch P (ledger P-12, P-13): a Ranger may cast wizard I/J and
-    # cleric J (UltimaSpellCombat.c:62-100, MP only), and Surmandum and Anju
+    # cleric J (UltimaSpellCombat.c:42-118, MP only), and Surmandum and Anju
     # Sermani fail in combat (349-353, 378-382).
     lw = {"PABULUM": (0x0AE, None), "FAL_DIVI": (0x0AE, None), "SOMINAE": (0x70A, None),
           "SURMANDUM": (None, 0xFD), "ANJU_SERMANI": (None, 0xFD)}
@@ -619,7 +619,7 @@ def test_context_matrix_attempt_classification(context, discipline):
 def test_gbc_cleric_battle_delta_surmandum_anju_refused_in_combat():
     """Cleric combat: the FIXED menu lists all 16 at their permanent codes;
     SURMANDUM (N) and ANJU_SERMANI (P) are refused there at the attempt, as
-    LairWare fails them in combat (UltimaSpellCombat.c:349-353, 378-382;
+    LairWare fails them in combat (UltimaSpellCombat.c:330-335, 356-361;
     the GBC battle menu, battle.c:127, leaves them out too)."""
     out, refusal = letter_resolution(spell_menu_entries("cleric"), "N", "combat")
     assert out is None and refusal == "Not Here!"

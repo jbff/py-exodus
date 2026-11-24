@@ -167,7 +167,7 @@ PROJECTILE_SPELLS = {Spell.MITTAR, Spell.FULGAR, Spell.MENTAR, Spell.DECORP, Spe
 # acts again — plus the effect-less REPLACE ME / default cases (SpellUtil.java
 # 87-237). Only PABULUM and FAL_DIVI are actually castable in combat; the
 # rest are dungeon/surface/dungeon-screen spells carried here for parity.
-# ALTAIR is not here: LairWare's Altair (UltimaSpellCombat.c:237) is an
+# ALTAIR is not here: LairWare's Altair (UltimaSpellCombat.c:238) is an
 # ordinary cast and the combat loop goes on to plrdone, spending the turn.
 NO_TURN_SPELLS = {
     Spell.LORUM,
@@ -352,7 +352,7 @@ def cast_spell(
     # 6. Free combat spell flag: Java sets usedFreeSpellInCombat BEFORE the
     #    NEGATE check, so a negated PONTORI/REPOND still burns the free spell
     #    (SpellUtil.java:62-76).
-    # LairWare (UltimaSpellCombat.c:191, 252-253) tests the monster type
+    # LairWare (UltimaSpellCombat.c:191, 253) tests the monster type
     # before the latch: a cast against the wrong type fails without spending
     # it, so it sets no flag here either.
     is_free_combat_spell = resolved_spell in (Spell.REPOND, Spell.PONTORI)
@@ -408,7 +408,7 @@ def cast_spell(
                 executed=False,
             )
 
-    # LairWare UltimaSpellCombat.c:210: `(Party[1] == 0x16 && Party[16] == 0)`
+    # LairWare UltimaSpellCombat.c:212: `(Party[1] == 0x16 && Party[16] == 0)`
     # fails Dag Acron aboard ship while Exodus stands; refused at the attempt
     # (user ruling 3), no MP spent.
     if (
@@ -613,7 +613,7 @@ def _apply_spell_effect(
         killed_count = 0
         kill_lines: list[str] = []
         if arena is not None:
-            # LairWare UltimaSpellCombat.c:252-256: `if (gMonType != 0x32)
+            # LairWare UltimaSpellCombat.c:253-256: `if (gMonType != 0x32)
             # { Failed(); return; }` before the g56E7 latch - the wrong type
             # fails (the turn is spent) and leaves the latch alone.
             if not _masskill_targets(spell, arena):
@@ -946,7 +946,7 @@ def _apply_spell_effect(
 
 
 def _lw_projectile_damage(spell: Spell, caster_char: Character) -> int:
-    """LairWare Spell (UltimaSpellCombat.c:203-344): the damage each bolt
+    """LairWare Spell (UltimaSpellCombat.c:202-329): the damage each bolt
     hands to Projectile.
 
         case 1: /* Mittar */ Projectile(chnum, RandNum(0, 40) | 0x10);
@@ -992,7 +992,7 @@ def _apply_projectile_attack(
 ) -> SpellResult:
     """Execute directional projectile attacks against monsters in combat.
 
-    LairWare Projectile (UltimaSpellCombat.c:440-456): Shoot steps from the
+    LairWare Projectile (UltimaSpellCombat.c:456-473): Shoot steps from the
     caster to the board edge over walls and members and hits the first
     monster; the damage comes from the spell (``_lw_projectile_damage``) and
     is applied by DamageMonster (``_lw_damage_monster``).
@@ -1020,7 +1020,7 @@ def _apply_projectile_attack(
                 break
 
         if target_m is not None:
-            # LairWare Spell (UltimaSpellCombat.c:203-344) + DamageMonster
+            # LairWare Spell (UltimaSpellCombat.c:202-329) + DamageMonster
             # (734-756): Mittar RandNum(0, 40) | 0x10, Fulgar 75 (no fire
             # resistance), Mentar the caster's INT, Decorp and Excuun 255.
             dmg = _lw_projectile_damage(spell, caster_char)
@@ -1080,7 +1080,7 @@ def _apply_group_damage(
     LairWare BigDeath (UltimaSpellCombat.c:475-495): each living monster is
     hit on `(RandNum(0, 255) & 0x03) != 0` (three in four) and takes the
     spell's damage through DamageMonster: Noxum 75, Dag Mentar twice the
-    caster's INT, ZXKUQYB and the nameless P 255 (233, 238, 247, 355). A
+    caster's INT, ZXKUQYB and the nameless P 255 (236, 239, 247, 355). A
     missed roll leaves the monster untouched. Necorp sets every living
     monster's HP to 5 (498-520).
     """
@@ -1103,7 +1103,7 @@ def _apply_group_damage(
                     m.weakened = True
                     affected_count += 1
                     continue
-                # LairWare BigDeath (UltimaSpellCombat.c:478-479): the 75%
+                # LairWare BigDeath (UltimaSpellCombat.c:482-483): the 75%
                 # roll per monster. ZXKUQYB and the nameless P are
                 # BigDeath(255) (user rulings 2026-11-15, 2026-11-22; Java's
                 # hp*(3/4) quirk and 1/2-kill roll are gone).
@@ -1153,7 +1153,7 @@ def _apply_spell_blink(
     party: Any,
     occupied: Callable[[int, int], bool] | None = None,
 ) -> SpellResult:
-    """DAG ACRON, LairWare Spell case 6 (UltimaSpellCombat.c:209-222):
+    """DAG ACRON, LairWare Spell case 6 (UltimaSpellCombat.c:210-225):
 
         int matchValue = (Party[1] == 0x16) ? 0 : 4;
         while (value != matchValue) {

@@ -144,7 +144,7 @@ def test_cleric_recall_ashes():
 
 
 def test_wizard_magic_missile_in_combat(asset_mgr, conflict_map):
-    """MITTAR deals RandNum(0, 40) | 0x10 (LW UltimaSpellCombat.c:203)."""
+    """MITTAR deals RandNum(0, 40) | 0x10 (LW UltimaSpellCombat.c:202)."""
     party = Party()
     wiz = Character("Wiz", "M", Race.FUZZY, Profession.WIZARD, intelligence=50, mp=50)
     party.add_member(wiz)
@@ -170,7 +170,7 @@ def test_wizard_magic_missile_in_combat(asset_mgr, conflict_map):
 
 
 def test_wizard_fireball_in_combat(asset_mgr, conflict_map):
-    """FULGAR deals a fixed 75 (LW UltimaSpellCombat.c:208)."""
+    """FULGAR deals a fixed 75 (LW UltimaSpellCombat.c:209)."""
     party = Party()
     wiz = Character("Wiz", "M", Race.FUZZY, Profession.WIZARD, intelligence=50, mp=50)
     party.add_member(wiz)
@@ -1057,7 +1057,7 @@ def test_mentar_max_damage_floor_gone(asset_mgr, conflict_map):
 
 
 def test_mentar_damage_is_intell(asset_mgr, conflict_map, monkeypatch):
-    """LW UltimaSpellCombat.c:224: Projectile(chnum, Player[rosNum][20])."""
+    """LW UltimaSpellCombat.c:226: Projectile(chnum, Player[rosNum][20])."""
     import py_exodus.combat.magic as magic
 
     party = Party()
@@ -1198,7 +1198,7 @@ def test_pabulum_food_deterministic(monkeypatch):
 
 
 def test_fulgar_ignores_fire_resists(asset_mgr, conflict_map):
-    """LW Projectile(chnum, 75) (UltimaSpellCombat.c:208) has no resistance:
+    """LW Projectile(chnum, 75) (UltimaSpellCombat.c:209) has no resistance:
     Java's castAt fire-resist (Utils.java:815-820) is gone."""
     from py_exodus.entities.defs import CreatureDef
 
@@ -1424,7 +1424,7 @@ def test_necorp_sets_every_living_monster_to_five_hp(asset_mgr, conflict_map):
 def test_decorp_lands_a_guaranteed_kill(asset_mgr, conflict_map):
     """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): on a hit DECORP kills
     the target regardless of hp (GBC battle.c:1285-1296 sets kill=1; LW
-    UltimaSpellCombat.c:237,456-472 ports it as damage=255) — not the old
+    UltimaSpellCombat.c:238,456-472 ports it as damage=255) — not the old
     128-255 damage roll. A miss still misses."""
     party = Party()
     wiz = Character("Wiz", "M", Race.FUZZY, Profession.WIZARD, intelligence=75, mp=999)

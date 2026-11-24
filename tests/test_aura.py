@@ -201,7 +201,7 @@ def test_no_turn_spell_set_covers_java_finish_player_turn_gate():
     finishPlayerTurn in Java; the FAL_DIVI/SOMINAE no-ops likewise. The
     combat-castable members are PABULUM and ALTAIR."""
     assert Spell.PABULUM in NO_TURN_SPELLS
-    # LW Altair (UltimaSpellCombat.c:237) spends the caster's turn.
+    # LW Altair (UltimaSpellCombat.c:238) spends the caster's turn.
     assert Spell.ALTAIR not in NO_TURN_SPELLS
     for s in (Spell.LORUM, Spell.DAG_ACRON, Spell.REC_SU, Spell.REC_DU,
               Spell.SUR_ACRON, Spell.DOR_ACRON, Spell.LIB_REC, Spell.SEQUITU,
@@ -224,7 +224,7 @@ def test_pabulum_does_not_consume_combat_turn(asset_mgr, conflict_map):
 
 
 def test_altair_consumes_combat_turn_and_sets_aura(asset_mgr, conflict_map):
-    """LW UltimaSpellCombat.c:237: Altair sets gTimeNegate = 20 and, like
+    """LW UltimaSpellCombat.c:238: Altair sets gTimeNegate = 20 and, like
     every cast, ends the caster's turn; the monster phase that follows is
     the first of the 20 stopped ones (1102-1105)."""
     party = Party()

@@ -780,7 +780,7 @@ def test_masskill_gate_failed_cast_consumes_the_turn(asset_mgr, conflict_map):
 
 
 def test_altair_executed_consumes_the_turn(asset_mgr, conflict_map):
-    """LW UltimaSpellCombat.c:237: Altair is an ordinary cast, so the turn
+    """LW UltimaSpellCombat.c:238: Altair is an ordinary cast, so the turn
     is spent (Java's spellAltair never called finishPlayerTurn)."""
     from py_exodus.constants import Spell
 

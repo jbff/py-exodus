@@ -285,7 +285,7 @@ class Spell(Enum):
     FULGAR = ("F", 25, "Fireball", "wizard", 0x0AE, 0x02)
     DAG_ACRON = ("G", 30, "Random teleport on surface", "wizard", 0x0AE, 0x01)
     MENTAR = ("H", 35, "Magic missile", "wizard", 0x0AE, 0x02)
-    # LairWare Cast/ProcessMagic (UltimaSpellCombat.c:62-100): no per-class
+    # LairWare Cast/ProcessMagic (UltimaSpellCombat.c:42-118): no per-class
     # list, only MP; a Ranger (MP up to 49) reaches I and J too, so the Java
     # 0x0A6 mask (no Ranger) is widened to every wizard-book class. K-P stay
     # Wizard-only: no other class's MP reaches 50.
@@ -314,7 +314,7 @@ class Spell(Enum):
     SANCTU_MANI = ("K", 50, "Major healing", "cleric", 0x702, 0xFF)
     VIEDA = ("L", 55, "Overhead view of surroundings", "cleric", 0x200, 0x05)
     EXCUUN = ("M", 60, "Death bolt", "cleric", 0x200, 0x02)
-    # LairWare UltimaSpellCombat.c:349-353, 378-382: Surmandum and Anju
+    # LairWare UltimaSpellCombat.c:330-335, 356-361: Surmandum and Anju
     # Sermani fail in combat (`Party[3] == 0x80`), so the combat bit is off.
     SURMANDUM = ("N", 65, "Resurrection", "cleric", 0x200, 0xFD)
     ZXKUQYB = ("O", 70, "Multi-death bolt", "cleric", 0x200, 0x02)

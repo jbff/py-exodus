@@ -65,7 +65,7 @@ def _randrange(monkeypatch, values):
 
 
 def test_spell_mittar_damage_is_randnum_0_40_or_0x10(asset_mgr, monkeypatch):
-    """UltimaSpellCombat.c:203:
+    """UltimaSpellCombat.c:202:
 
         case 1: /* Mittar */ Projectile(chnum, RandNum(0, 40) | 0x10); break;
 
@@ -81,7 +81,7 @@ def test_spell_mittar_damage_is_randnum_0_40_or_0x10(asset_mgr, monkeypatch):
 
 
 def test_spell_fulgar_damage_is_75(asset_mgr, monkeypatch):
-    """UltimaSpellCombat.c:208: `case 5: /* Fulgar */ Projectile(chnum, 75);`
+    """UltimaSpellCombat.c:209: `case 5: /* Fulgar */ Projectile(chnum, 75);`
     A fixed 75, no roll and no fire resistance."""
     arena = _board(asset_mgr)
     _randint(monkeypatch, 40)
@@ -91,7 +91,7 @@ def test_spell_fulgar_damage_is_75(asset_mgr, monkeypatch):
 
 
 def test_spell_mentar_damage_is_the_casters_int(asset_mgr, monkeypatch):
-    """UltimaSpellCombat.c:224:
+    """UltimaSpellCombat.c:226:
     `case 7: /* Mentar */ Projectile(chnum, Player[rosNum][20]); break;`
     Player[20] is INT: the damage is exactly the caster's INT."""
     arena = _board(asset_mgr, caster=_caster(intelligence=77))
@@ -103,7 +103,7 @@ def test_spell_mentar_damage_is_the_casters_int(asset_mgr, monkeypatch):
 
 @pytest.mark.parametrize("spell", [Spell.DECORP, Spell.EXCUUN])
 def test_spell_decorp_excuun_damage_255_kills(asset_mgr, monkeypatch, spell):
-    """UltimaSpellCombat.c:236 and 344:
+    """UltimaSpellCombat.c:237 and 329:
 
         case 11: /* Decorp */ Projectile(chnum, 255); break;
         case 28: /* Excuun */ Projectile(chnum, 255); break;
@@ -134,7 +134,7 @@ def test_damagemonster_spares_lord_british(asset_mgr, monkeypatch):
 
 
 def test_bigdeath_noxum_75_on_three_in_four(asset_mgr, monkeypatch):
-    """UltimaSpellCombat.c:233 and 475-495:
+    """UltimaSpellCombat.c:236 and 475-495:
 
         case 10: /* Noxum */ BigDeath(75, chnum); break;
         ...
@@ -151,7 +151,7 @@ def test_bigdeath_noxum_75_on_three_in_four(asset_mgr, monkeypatch):
 
 
 def test_bigdeath_dag_mentar_twice_int(asset_mgr, monkeypatch):
-    """UltimaSpellCombat.c:238:
+    """UltimaSpellCombat.c:239:
     `case 13: /* Dag Mentar */ BigDeath(Player[rosNum][20] * 2, chnum);`
     Twice the caster's INT to each monster the 75% roll picks."""
     arena = _board(asset_mgr, count=2, caster=_caster(intelligence=40))
@@ -164,7 +164,7 @@ def test_bigdeath_dag_mentar_twice_int(asset_mgr, monkeypatch):
 
 
 def test_spell_repond_wrong_type_keeps_the_latch(asset_mgr, monkeypatch):
-    """UltimaSpellCombat.c:191-196 and 252-264:
+    """UltimaSpellCombat.c:191-196 and 253-261:
 
         if ((Party[3] != 0x80) || (gMonType != 0x30) || (g5521 != 0)) {
             Failed(); return; }
@@ -193,7 +193,7 @@ def test_spell_repond_wrong_type_keeps_the_latch(asset_mgr, monkeypatch):
 
 
 def test_spell_altair_ends_the_casters_turn(asset_mgr):
-    """UltimaSpellCombat.c:237 (`case 12: /* Altair */ gTimeNegate = 20;`):
+    """UltimaSpellCombat.c:238 (`case 12: /* Altair */ gTimeNegate = 20;`):
     Altair is an ordinary cast; the combat loop goes on to plrdone (1079)
     like any other command, so the caster's turn is spent (Java let the
     caster act again)."""
@@ -203,7 +203,7 @@ def test_spell_altair_ends_the_casters_turn(asset_mgr):
 
 
 def test_spell_altair_stops_monsters_for_20_rounds(asset_mgr):
-    """UltimaSpellCombat.c:237 and 1102-1105:
+    """UltimaSpellCombat.c:238 and 1102-1105:
 
         case 12: /* Altair */ gTimeNegate = 20; break;
         ...
@@ -262,7 +262,7 @@ def _coords(monkeypatch, pairs):
 
 
 def test_spell_dag_acron_lands_on_random_grass(asset_mgr, monkeypatch):
-    """UltimaSpellCombat.c:209-222:
+    """UltimaSpellCombat.c:210-225:
 
         int matchValue = (Party[1] == 0x16) ? 0 : 4;
         value = -1;
@@ -287,7 +287,7 @@ def test_spell_dag_acron_lands_on_random_grass(asset_mgr, monkeypatch):
 
 
 def test_spell_dag_acron_skips_a_monsters_tile(asset_mgr, monkeypatch):
-    """UltimaSpellCombat.c:217: GetXYVal reads the map, where LW keeps its
+    """UltimaSpellCombat.c:221: GetXYVal reads the map, where LW keeps its
     monsters (a monster's grass is not value 4), so the party never lands on
     one; the port passes its own monsters in as ``occupied``."""
     gmap = _sosaria(asset_mgr)
@@ -300,7 +300,7 @@ def test_spell_dag_acron_skips_a_monsters_tile(asset_mgr, monkeypatch):
 
 
 def test_spell_dag_acron_aboard_ship_before_exodus_is_refused(asset_mgr):
-    """UltimaSpellCombat.c:210: `if ((Party[3] != 0) || (Party[1] == 0x16 &&
+    """UltimaSpellCombat.c:212: `if ((Party[3] != 0) || (Party[1] == 0x16 &&
     Party[16] == 0)) { Failed(); return; }` - no Dag Acron aboard ship while
     Exodus stands. Refused at the attempt (user ruling 3): no MP spent."""
     gmap = _sosaria(asset_mgr)
@@ -311,7 +311,7 @@ def test_spell_dag_acron_aboard_ship_before_exodus_is_refused(asset_mgr):
 
 
 def test_spell_dag_acron_aboard_ship_after_exodus_lands_on_water(asset_mgr, monkeypatch):
-    """UltimaSpellCombat.c:213: `matchValue = (Party[1] == 0x16) ? 0 : 4;` -
+    """UltimaSpellCombat.c:216: `matchValue = (Party[1] == 0x16) ? 0 : 4;` -
     once Exodus has fallen the ship jumps to random open water (value 0)."""
     gmap = _sosaria(asset_mgr)
     party = _surface_party(Transport.SHIP, exodus_defeated=1)
@@ -322,7 +322,7 @@ def test_spell_dag_acron_aboard_ship_after_exodus_lands_on_water(asset_mgr, monk
 
 
 def test_spell_dag_acron_overworld_marks_monsters_and_objects(asset_mgr):
-    """UltimaSpellCombat.c:216-218 (GetXYVal sees LW's map-held monsters and
+    """UltimaSpellCombat.c:217-222 (GetXYVal sees LW's map-held monsters and
     parked ships): the overworld hands DAG ACRON its creatures and parked
     objects as taken tiles."""
     from py_exodus.screens.overworld import OverworldScreen
@@ -342,7 +342,7 @@ def test_spell_dag_acron_overworld_marks_monsters_and_objects(asset_mgr):
 
 @pytest.mark.parametrize("spell", [Spell.PABULUM, Spell.FAL_DIVI, Spell.SOMINAE])
 def test_cast_ranger_may_cast_up_to_its_mp(spell):
-    """UltimaSpellCombat.c:62-78 and 87-100 (Cast, ProcessMagic): a Ranger
+    """UltimaSpellCombat.c:55-86 and 89-118 (Cast, ProcessMagic): a Ranger
     (careerTable[10]) chooses from either book (EitherChoose) and the only
     test is `magicreq > Player[rosNum][25]`; there is no per-class spell
     list. A Ranger's MP (the lesser of INT/2 and WIS/2, MaxMana) reaches 49,
@@ -359,7 +359,7 @@ def test_cast_ranger_may_cast_up_to_its_mp(spell):
 
 @pytest.mark.parametrize("letter", ["N", "P"])
 def test_spell_surmandum_anju_refused_in_combat(letter):
-    """UltimaSpellCombat.c:349-353 and 378-382:
+    """UltimaSpellCombat.c:330-335 and 356-361:
 
         case 29: /* Surmandum */
             if (Party[3] == 0x80) { Failed(); return; }
