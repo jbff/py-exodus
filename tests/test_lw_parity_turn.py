@@ -385,3 +385,27 @@ def test_routine6e35_castle_exodus_bomb(town, monkeypatch):
     tw.party.exodus_defeated = 0
     _key(lb, pygame.K_SPACE)
     assert [m.hp for m in tw.party.members] == hp
+
+
+# --- T-06 (fix round 1): lava spares ashes -----------------------------------
+
+
+def test_validdir_lava_spares_ashes(overworld):
+    """UltimaMain.c:3197-3199 (ValidDir lava):
+
+        if (!(Player[byte2][14] & 0x20)) {
+            if ((Player[byte2][17] == 'G') || (Player[byte2][17] == 'P')) {
+                HPSubtract(Party[byte + 7], 50);
+
+    Only Good or Poisoned members burn; ashes stay ashes at 0 HP (they are
+    not turned into the cheaper-to-raise dead).
+    """
+    ash = _member("Ash", status=Status.ASHES)
+    ash.hp = 0
+    party = _party(_member("Live"), ash)
+    ow = overworld(49, 35, party)  # lava at (50, 35)
+    _key(ow, pygame.K_RIGHT)
+    assert (ow.party.x, ow.party.y) == (50, 35)
+    assert party.members[0].hp == 150
+    assert ash.status == Status.ASHES
+    assert ash.hp == 0

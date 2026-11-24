@@ -155,9 +155,12 @@ def apply_effect_to_member(
 
     Damage/food deltas route through ``PartyMember.apply_damage`` so the
     Task 2 death-flow chokepoint raises ``PartyDeathException`` on a wipe.
-    A DEAD member is skipped, as in Java.
+    Only living members are touched: LairWare's ValidDir lava hurts only
+    'G' and 'P' members (UltimaMain.c:3197-3199), so dead members and ashes
+    are skipped (Java skipped only the dead, which let lava turn ashes into
+    the cheaper-to-raise dead).
     """
-    if member.is_dead():
+    if member.is_disabled():
         return
 
     if effect == TileEffect.GREMLINS:
