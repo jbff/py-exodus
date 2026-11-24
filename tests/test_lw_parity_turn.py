@@ -247,3 +247,51 @@ def test_finishall_negated_time_skips_spawn(overworld):
     for _ in range(3):
         _key(ow, pygame.K_SPACE)
     assert calls == []
+
+
+# --- T-19: ashes neither eat nor sicken --------------------------------------
+
+
+def test_agechars_skips_dead_and_ashes(monkeypatch):
+    """UltimaMisc.c:1449-1452 (AgeChars):
+
+        temp = Player[rosNum][17];
+        if ((temp == 'D') || (temp == 'A') || (temp == 0)) {
+        } else {
+            EatFood(x, 10);
+
+    Dead members and ashes eat nothing (and take no poison or regen).
+    """
+    ash = _member("Ash", hp=0, status=Status.ASHES)
+    party = _party(_member("Live"), ash)
+    for _ in range(11):  # one surface meal crossing (40 per turn)
+        party.end_turn(surface=True)
+    assert party.members[0].food == 149
+    assert ash.food == 150
+    assert ash.submorsels == 400
+
+
+# --- T-22: ashes are not alive -----------------------------------------------
+
+
+def test_checkalive_ashes_are_not_alive():
+    """UltimaMain.c:2895-2903 (CheckAlive) and 2786-2798 (CheckAllDead):
+
+        if (Player[rosNum][17] == 'G')
+            return TRUE;
+        if (Player[rosNum][17] == 'P')
+            return TRUE;
+        return FALSE;
+
+    Only Good or Poisoned members are alive; a party of the dead and ashes is
+    "ALL PLAYERS OUT!".
+    """
+    party = _party(
+        _member("Ash", hp=0, status=Status.ASHES),
+        _member("Dead", hp=0, status=Status.DEAD),
+    )
+    assert not party.is_anyone_alive()
+    assert party.is_party_dead()
+    party.members[1].status = Status.POISONED
+    party.members[1].hp = 5
+    assert party.is_anyone_alive()

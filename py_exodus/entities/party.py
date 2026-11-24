@@ -731,7 +731,9 @@ class Party:
         decr_interval = 40 if surface else 10
 
         for m in self.members:
-            if m.is_dead():
+            # LairWare AgeChars (UltimaMisc.c:1449-1452): the dead and ashes
+            # neither eat nor starve nor heal.
+            if m.is_disabled():
                 continue
 
             m.submorsels -= decr_interval
@@ -827,8 +829,13 @@ class Party:
 
     # --- Party Status Checks ---
     def is_anyone_alive(self) -> bool:
-        """Return True if at least one member is alive."""
-        return any(not m.is_dead() for m in self.members)
+        """Return True if at least one member is alive.
+
+        LairWare CheckAlive (UltimaMain.c:2895-2903): only Good or Poisoned
+        members are alive, so ashes count as dead for "ALL PLAYERS OUT!"
+        (CheckAllDead, UltimaMain.c:2786-2798).
+        """
+        return any(not m.is_disabled() for m in self.members)
 
     def is_party_dead(self) -> bool:
         """Return True if all party members are dead."""
