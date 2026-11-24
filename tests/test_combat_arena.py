@@ -488,7 +488,7 @@ def test_casting_with_zero_mp_for_zero_cost_spells(asset_mgr, conflict_map):
     wiz = Character("Mage", "M", Race.FUZZY, Profession.WIZARD, intelligence=50, mp=0)
     party.add_member(wiz)
 
-    arena = CombatArena(party, conflict_map, creature_tile="giant", asset_mgr=asset_mgr, monster_count=3)
+    arena = CombatArena(party, conflict_map, creature_tile="orc", asset_mgr=asset_mgr, monster_count=3)
     arena.masskill = True  # force the latch: this test pins MP gating only
     from py_exodus.constants import Spell
     # Wizard Spell A (REPOND) costs 0 MP and should succeed even with 0 MP
@@ -684,7 +684,9 @@ def _two_caster_arena(asset_mgr, conflict_map):
     party = Party()
     party.add_member(Character("Mage0", "M", Race.FUZZY, Profession.WIZARD, mp=50))
     party.add_member(Character("Cleric1", "F", Race.ELF, Profession.CLERIC, mp=50))
-    return CombatArena(party, conflict_map, creature_tile="orc",
+    # Skeletons: PONTORI's own type, so its gates (not LW's type test,
+    # UltimaSpellCombat.c:253) are what these tests reach.
+    return CombatArena(party, conflict_map, creature_tile="skeleton",
                        asset_mgr=asset_mgr, monster_count=1)
 
 
@@ -777,11 +779,9 @@ def test_masskill_gate_failed_cast_consumes_the_turn(asset_mgr, conflict_map):
     assert arena.active_party_member_idx == 0
 
 
-def test_altair_executed_yet_still_stays_no_turn(asset_mgr, conflict_map):
-    """Task 4 contract on a NO_TURN spell: the cast runs its effect branch
-    (executed=True) yet Java's effect never calls finishPlayerTurn
-    (SpellUtil.java:125-127) — the caster stays active. The executed flag
-    must not override the NO_TURN list."""
+def test_altair_executed_consumes_the_turn(asset_mgr, conflict_map):
+    """LW UltimaSpellCombat.c:237: Altair is an ordinary cast, so the turn
+    is spent (Java's spellAltair never called finishPlayerTurn)."""
     from py_exodus.constants import Spell
 
     random.seed(2026)
@@ -790,8 +790,8 @@ def test_altair_executed_yet_still_stays_no_turn(asset_mgr, conflict_map):
     res = arena.execute_turn(Action.cast(Spell.ALTAIR))
     assert res.success
     assert res.spell_res.executed is True
-    assert res.consume_turn is False
-    assert arena.active_party_member_idx == 0
+    assert res.consume_turn is True
+    assert arena.active_party_member_idx == 1
 
 
 def test_successful_bolt_still_consumes_the_turn(asset_mgr, conflict_map):

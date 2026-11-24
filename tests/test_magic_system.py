@@ -346,7 +346,7 @@ def test_spell_result_executed_classification(asset_mgr, conflict_map):
     party = Party()
     party.add_member(rich)
     arena2 = CombatArena(
-        party, conflict_map, creature_tile="orc", asset_mgr=asset_mgr, monster_count=1
+        party, conflict_map, creature_tile="skeleton", asset_mgr=asset_mgr, monster_count=1
     )
     arena2.masskill = True  # pin the latch: the effect branch runs
     res = cast_spell(Spell.PONTORI, caster=rich, arena=arena2, party=party)
@@ -446,10 +446,9 @@ def test_repond_against_orcs_free_spell(asset_mgr, conflict_map, monkeypatch):
     assert res.success
     assert all(m.is_dead for m in arena.monsters)
 
-    # Second attempt fails (free spell used once per combat)
+    # Second attempt fails (LW: the g5521 latch is spent; no orc is left)
     res2 = cast_spell(Spell.REPOND, caster=party.members[0], arena=arena)
     assert not res2.success
-    assert "can't" in res2.message.lower()
 
 
 def test_repond_spares_non_orc_goblinoids(asset_mgr, conflict_map, monkeypatch):
@@ -466,7 +465,10 @@ def test_repond_spares_non_orc_goblinoids(asset_mgr, conflict_map, monkeypatch):
         m.definition = CreatureDef(id=2, name="Troll", tile="troll", basehp=48, hp=48, exp=5, undead=False)
     monkeypatch.setattr(magic.random, "randrange", lambda n: 7)
     res = cast_spell(Spell.REPOND, caster=party.members[0], arena=arena)
-    assert res.success
+    # LW UltimaSpellCombat.c:191: no orc, the cast fails (turn spent) and
+    # the latch is kept.
+    assert not res.success and res.executed
+    assert arena.masskill is True
     assert all(not m.is_dead for m in arena.monsters)
 
 

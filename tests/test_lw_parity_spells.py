@@ -158,3 +158,75 @@ def test_bigdeath_dag_mentar_twice_int(asset_mgr, monkeypatch):
     _randrange(monkeypatch, [3, 0])
     _cast(arena, Spell.DAG_MENTAR)
     assert [m.hp for m in arena.monsters[:2]] == [120, 200]
+
+
+# --- P-08: Repond / Pontori latches -------------------------------------------
+
+
+def test_spell_repond_wrong_type_keeps_the_latch(asset_mgr, monkeypatch):
+    """UltimaSpellCombat.c:191-196 and 252-264:
+
+        if ((Party[3] != 0x80) || (gMonType != 0x30) || (g5521 != 0)) {
+            Failed(); return; }
+        g5521 = 0xFF;
+        ...
+        if (gMonType != 0x32) { Failed(); return; }
+        if (g56E7 != 0) { Failed(); return; }
+        g56E7 = 0xFF;
+
+    The type test comes before the latch: Repond against skeletons fails
+    without spending anything, so Pontori keeps its chance - even from the
+    same Druid (LW has no per-caster free-spell flag).
+    """
+    arena = _board(asset_mgr, creature="skeleton", count=2, caster=_caster(Profession.DRUID))
+    arena.masskill = True
+    res = _cast(arena, Spell.REPOND)
+    assert not res.success and res.executed
+    assert arena.masskill is True
+    _randrange(monkeypatch, [1, 1])
+    res = _cast(arena, Spell.PONTORI)
+    assert res.success
+    assert all(m.hp == 0 for m in arena.monsters[:2])
+
+
+# --- P-09, P-10: Altair -------------------------------------------------------
+
+
+def test_spell_altair_ends_the_casters_turn(asset_mgr):
+    """UltimaSpellCombat.c:237 (`case 12: /* Altair */ gTimeNegate = 20;`):
+    Altair is an ordinary cast; the combat loop goes on to plrdone (1079)
+    like any other command, so the caster's turn is spent (Java let the
+    caster act again)."""
+    arena = _board(asset_mgr)
+    result = arena._handle_player_cast(0, arena.party.members[0], Action.cast(Spell.ALTAIR))
+    assert result.consume_turn is True
+
+
+def test_spell_altair_stops_monsters_for_20_rounds(asset_mgr):
+    """UltimaSpellCombat.c:237 and 1102-1105:
+
+        case 12: /* Altair */ gTimeNegate = 20; break;
+        ...
+        if (gTimeNegate != 0) {
+            gTimeNegate--;
+            goto combatstart;
+
+    The count is tested before it drops, so 20 monster phases are skipped
+    (the port skipped 19: it dropped the count first)."""
+    arena = _board(asset_mgr)
+    moved: list[int] = []
+    arena._execute_single_monster_ai = lambda m: moved.append(arena.round_count)
+    arena.party.aura.set(magic.AuraType.QUICKNESS, 20)
+    for _ in range(21):
+        arena.execute_monster_turns()
+    assert moved == [21]
+
+
+def test_victory_ends_stopped_time(asset_mgr):
+    """UltimaSpellCombat.c:850 (Victory): `gTimeNegate = gSongCurrent =
+    gSongNext = 0;` - stopped time does not outlast a won fight."""
+    arena = _board(asset_mgr)
+    arena.party.aura.set(magic.AuraType.QUICKNESS, 15)
+    arena.monsters[0].hp = 0
+    arena._handle_victory()
+    assert not arena.party.aura.is_active()

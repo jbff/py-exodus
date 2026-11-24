@@ -887,13 +887,17 @@ class CombatArena:
 
         aura = getattr(self.party, "aura", None)
         if aura is not None:
+            # LairWare UltimaSpellCombat.c:1102-1105: `if (gTimeNegate != 0)
+            # { gTimeNegate--; goto combatstart; }` - the count is tested
+            # before it drops, so a stop of N skips N monster phases.
+            stopped = aura.get_type() == AuraType.QUICKNESS and aura.is_active()
             aura.pass_turn()
             # USER-DIRECTED GBC-RULES DEVIATION (ruled item 16, 2026-11-14,
             # both referees): the QUICKNESS aura has NO effect during combat
             # on the EXODUS map — stop time does not function on the Castle of
             # Death, so the creature phase runs (GBC ult3.c:1024-1034; LW
             # UltimaSpellCombat.c:1082,1102-1105). The aura still ticks down.
-            if aura.get_type() == AuraType.QUICKNESS and not self._is_exodus_map():
+            if stopped and not self._is_exodus_map():
                 # The monster phase is skipped outright — no movement, no attack.
                 self._evaluate_party_status()
                 if len(self.monsters) == 0 and not self.is_finished:
@@ -1222,6 +1226,11 @@ class CombatArena:
         self.is_finished = True
         self.is_victory = True
         self.is_defeat = False
+        # LairWare Victory (UltimaSpellCombat.c:850): `gTimeNegate = ... = 0;`
+        # stopped time ends with a won fight.
+        aura = getattr(self.party, "aura", None)
+        if aura is not None and aura.get_type() == AuraType.QUICKNESS:
+            aura.set(AuraType.NONE, 0)
 
         # Java GameScreen.endCombat (GameScreen.java:421-431): a won battle
         # drops a chest on the ENCOUNTER CREATURE's overworld tile unless the

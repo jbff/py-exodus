@@ -165,12 +165,13 @@ PROJECTILE_SPELLS = {Spell.MITTAR, Spell.FULGAR, Spell.MENTAR, Spell.DECORP, Spe
 
 # Java spells whose effect branches never call finishPlayerTurn — the caster
 # acts again — plus the effect-less REPLACE ME / default cases (SpellUtil.java
-# 87-237). Only PABULUM and ALTAIR are actually castable in combat; the rest
-# are dungeon/surface/dungeon-screen spells carried here for parity.
+# 87-237). Only PABULUM and FAL_DIVI are actually castable in combat; the
+# rest are dungeon/surface/dungeon-screen spells carried here for parity.
+# ALTAIR is not here: LairWare's Altair (UltimaSpellCombat.c:237) is an
+# ordinary cast and the combat loop goes on to plrdone, spending the turn.
 NO_TURN_SPELLS = {
     Spell.LORUM,
     Spell.PABULUM,
-    Spell.ALTAIR,
     Spell.DAG_ACRON,
     Spell.REC_SU,
     Spell.REC_DU,
@@ -349,8 +350,11 @@ def cast_spell(
     # 6. Free combat spell flag: Java sets usedFreeSpellInCombat BEFORE the
     #    NEGATE check, so a negated PONTORI/REPOND still burns the free spell
     #    (SpellUtil.java:62-76).
+    # LairWare (UltimaSpellCombat.c:191, 252-253) tests the monster type
+    # before the latch: a cast against the wrong type fails without spending
+    # it, so it sets no flag here either.
     is_free_combat_spell = resolved_spell in (Spell.REPOND, Spell.PONTORI)
-    if arena is not None and is_free_combat_spell:
+    if arena is not None and is_free_combat_spell and _masskill_targets(resolved_spell, arena):
         if getattr(caster, "used_free_spell_in_combat", False):
             # REFUSED (Task 4): "Can't!" used-free-spell gate
             # (SpellUtil.java:65-67) — pre-execution.
@@ -481,6 +485,25 @@ def cast_spell(
     )
 
 
+def _masskill_targets(spell: Spell, arena: Any) -> list[Any]:
+    """The living monsters REPOND (orcs, LW gMonType 0x30) or PONTORI (undead,
+    the skeleton, LW 0x32) can strike in this fight."""
+    out = []
+    for m in getattr(arena, "monsters", ()):
+        if m.is_dead:
+            continue
+        if spell == Spell.REPOND:
+            ok = m.tile == "orc"
+        else:
+            ok = bool(
+                getattr(getattr(m, "definition", None), "undead", False)
+                or getattr(m, "undead", False)
+            )
+        if ok:
+            out.append(m)
+    return out
+
+
 def _apply_spell_effect(
     spell: Spell,
     caster_char: Character,
@@ -568,6 +591,11 @@ def _apply_spell_effect(
         killed_count = 0
         kill_lines: list[str] = []
         if arena is not None:
+            # LairWare UltimaSpellCombat.c:252-256: `if (gMonType != 0x32)
+            # { Failed(); return; }` before the g56E7 latch - the wrong type
+            # fails (the turn is spent) and leaves the latch alone.
+            if not _masskill_targets(spell, arena):
+                return SpellResult(success=False, message="FAILED", spell=spell, executed=True)
             # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): per-battle 50% masskill flag gates PONTORI/REPOND (GBC funcs5.c:1354-1358; LW latch + cast-time roll is functionally equivalent)
             if not arena.masskill:
                 # GBC faildat path: the gate fails the cast outright and the
@@ -618,6 +646,10 @@ def _apply_spell_effect(
         killed_count = 0
         kill_lines = []
         if arena is not None:
+            # LairWare UltimaSpellCombat.c:191: `(gMonType != 0x30)` fails
+            # before the g5521 latch is touched.
+            if not _masskill_targets(spell, arena):
+                return SpellResult(success=False, message="FAILED", spell=spell, executed=True)
             # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): per-battle 50% masskill flag gates PONTORI/REPOND (GBC funcs5.c:1354-1358; LW latch + cast-time roll is functionally equivalent)
             if not arena.masskill:
                 # GBC faildat path (battle.c:1235); mana was already spent.

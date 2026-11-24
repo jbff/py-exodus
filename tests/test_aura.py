@@ -117,7 +117,7 @@ def test_free_spell_check_order(asset_mgr, conflict_map):
     party = Party()
     caster = Character("Wiz", "M", Race.FUZZY, Profession.WIZARD, intelligence=75, mp=0)
     party.add_member(caster)
-    arena = CombatArena(party=party, combat_map=conflict_map, creature_tile="skeleton",
+    arena = CombatArena(party=party, combat_map=conflict_map, creature_tile="orc",
                         asset_mgr=asset_mgr, monster_count=1)
     # Force the latch: this test pins cast ordering, not the masskill gate
     arena.masskill = True
@@ -200,7 +200,9 @@ def test_no_turn_spell_set_covers_java_finish_player_turn_gate():
     """LORUM, PABULUM, ALTAIR, DAG_ACRON and the dungeon spells never call
     finishPlayerTurn in Java; the FAL_DIVI/SOMINAE no-ops likewise. The
     combat-castable members are PABULUM and ALTAIR."""
-    assert Spell.PABULUM in NO_TURN_SPELLS and Spell.ALTAIR in NO_TURN_SPELLS
+    assert Spell.PABULUM in NO_TURN_SPELLS
+    # LW Altair (UltimaSpellCombat.c:237) spends the caster's turn.
+    assert Spell.ALTAIR not in NO_TURN_SPELLS
     for s in (Spell.LORUM, Spell.DAG_ACRON, Spell.REC_SU, Spell.REC_DU,
               Spell.SUR_ACRON, Spell.DOR_ACRON, Spell.LIB_REC, Spell.SEQUITU,
               Spell.VIEDA, Spell.LUMINAE, Spell.SOMINAE, Spell.FAL_DIVI,
@@ -221,7 +223,10 @@ def test_pabulum_does_not_consume_combat_turn(asset_mgr, conflict_map):
     assert arena.active_party_member_idx == 0
 
 
-def test_altair_does_not_consume_combat_turn_and_sets_aura(asset_mgr, conflict_map):
+def test_altair_consumes_combat_turn_and_sets_aura(asset_mgr, conflict_map):
+    """LW UltimaSpellCombat.c:237: Altair sets gTimeNegate = 20 and, like
+    every cast, ends the caster's turn; the monster phase that follows is
+    the first of the 20 stopped ones (1102-1105)."""
     party = Party()
     wiz = Character("Wiz", "M", Race.FUZZY, Profession.WIZARD, intelligence=75, mp=75)
     party.add_member(wiz)
@@ -232,9 +237,9 @@ def test_altair_does_not_consume_combat_turn_and_sets_aura(asset_mgr, conflict_m
     assert party.aura.get_type() == AuraType.QUICKNESS
     # GBC menucmd.c:1551 — amended 2026-11-14: 20 rounds per LW
     # UltimaSpellCombat.c:238 + NES Bank0F.asm:3329 agreement.
-    assert party.aura.get_duration() == 20
-    assert arena.active_party_member_idx == 0
-    assert not arena.is_party_round_done
+    # The lone caster's turn ended the round; one stopped phase has passed.
+    assert party.aura.get_duration() == 19
+    assert arena.round_count == 2
 
 
 # --- Task 17 (GBC parity): stop-time does not work on the EXODUS map ----------
