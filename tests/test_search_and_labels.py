@@ -94,7 +94,7 @@ def test_search_card_of_death(asset_mgr, party_four):
     assert any("Death" in msg for msg in ow.text_log.history)
 
 
-def test_town_get_chest_party_tile_only(asset_mgr, party_four):
+def test_town_get_chest_party_tile_only(asset_mgr, party_four, monkeypatch):
     """Fix round 2 (final): G opens the chest at the PARTY'S OWN TILE only
     (SIP x/y is the unshifted per-event copy; arrows never reach getChest) —
     an adjacent chest is "Not Here!" (no adjacency scan), a chest tile under
@@ -116,6 +116,10 @@ def test_town_get_chest_party_tile_only(asset_mgr, party_four):
 
     # A chest tile directly under the party loots
     town.game_map.set_tile(10, 10, chest_tile)
+    # No trap: a sprung Bomb pays no booty (LW), which made this flaky.
+    from py_exodus.world import chests
+
+    monkeypatch.setattr(chests, "_chest_trap", lambda party, member: ([], False))
     opening_member = party_four.members[0]
     member_gold_before = opening_member.gold
     party_gold_before = party_four.gold
@@ -127,7 +131,7 @@ def test_town_get_chest_party_tile_only(asset_mgr, party_four):
 
     # Chest gold is credited to the opening member, not the party pool
     opening_gold_delta = opening_member.gold - member_gold_before
-    assert 10 <= opening_gold_delta <= 66
+    assert 30 <= opening_gold_delta <= 100  # LW GetChestBooty
     assert party_four.gold == party_gold_before + opening_gold_delta  # gold is per member (Task 4)
     assert town.game_map.get_tile(10, 10).name != "chest"
     assert opening_member.gold <= 9999

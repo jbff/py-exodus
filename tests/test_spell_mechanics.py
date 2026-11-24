@@ -207,7 +207,7 @@ def test_appar_unem_dungeon_chest_opens_exactly_once(cleric_party):
         gold_after_first = cleric_party.gold
         m = re.search(r"Chest Holds: (\d+) Gold", res.message)
         assert m is not None
-        assert 10 <= int(m.group(1)) < 70
+        assert 30 <= int(m.group(1)) <= 100
 
         res2 = cast_spell(
             spell=Spell.APPAR_UNEM,

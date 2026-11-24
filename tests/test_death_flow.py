@@ -457,12 +457,12 @@ def test_overworld_chest_acid_trap_wipe_transitions_to_start_screen(sm, asset_mg
     class _FakeRandom:
         # trap hits; the LW disarm draw (first 256) is 255, so it fails;
         # the two typing draws (256, 256) are 0: trap #0 = acid
-        _rolls256 = [255, 0, 0]
+        _rolls256 = [255, 0, 0, 0x37]  # acid hurts RandNum & 0x37 = 55 (LW)
 
         def randrange(self, n: int) -> int:
             if n == 256 and self._rolls256:
                 return self._rolls256.pop(0)
-            return {2: 0, 100: 99, 4: 0, 256: 0, 7: 0, 50: 0, 8: 0, 32: 31}[n]
+            return {2: 0, 100: 99, 101: 50, 4: 0, 256: 255, 7: 0, 50: 0, 8: 0, 32: 31}[n]
 
     import py_exodus.world.chests as chests_mod
 
@@ -634,12 +634,12 @@ def test_town_chest_acid_trap_wipe_transitions_to_start_screen(sm, asset_mgr, mo
     """
 
     class _FakeRandom:
-        _rolls256 = [255, 0, 0]  # LW disarm draw fails, then acid
+        _rolls256 = [255, 0, 0, 0x37]  # LW disarm draw fails, then acid (55)
 
         def randrange(self, n: int) -> int:
             if n == 256 and self._rolls256:
                 return self._rolls256.pop(0)
-            return {2: 0, 100: 99, 4: 0, 256: 0, 7: 0, 50: 0, 8: 0, 32: 31}[n]
+            return {2: 0, 100: 99, 101: 50, 4: 0, 256: 255, 7: 0, 50: 0, 8: 0, 32: 31}[n]
 
     import py_exodus.world.chests as chests_mod
 

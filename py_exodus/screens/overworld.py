@@ -831,6 +831,12 @@ class OverworldScreen(BaseScreen):
                 # still consumes the turn at the party's tile (SIP:459).
                 self._finish_turn(None)  # no standing effect (LW ValidDir)
                 return
+            # LairWare GetChest (UltimaMain.c:1600-1603): the opener must be
+            # alive (CheckAlive: good or poisoned), else "Incapacitated!".
+            if member.is_disabled():
+                self.text_log.add_message("Incapacitated!")
+                self._finish_turn(None)
+                return
 
             px, py = self.party.x, self.party.y
             try:

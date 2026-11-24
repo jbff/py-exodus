@@ -1,21 +1,9 @@
 """Shared treasure-chest pipeline used by the overworld, town, and dungeon screens.
 
-Java truth:
-- ``exodus.GameScreen.getChest`` (GameScreen.java:1036-1074) — discovery, trap, gold,
-  and the ``"The Chest Holds: %d Gold"`` / ``"Not Here!"`` log strings.
-- ``exodus.Context.getChestTrapHandler`` (Context.java:248-285) — 50% trap chance,
-  the ``dex + 25 < rand(100)`` evade roll, and the Acid/Gas/Poison trap effects.
-- ``exodus.Party.getChestGold`` (Party.java:273-277) — ``rand(50) + rand(8) + 10``
-  credited to the opening member (``adjustGold`` caps a purse at 9999).
-- ``exodus.Party.applyEffect`` / ``PartyMember.applyEffect`` (Party.java:279-370) —
-  FIRE/LAVA damage of ``16 + rand(32)`` skipped by Mark of Fire (``marks[1]``),
-  POISON status, and dead members being immune.
-
-USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): chest ITEM DROPS after the gold
-credit (LW ``GetChestBooty`` UltimaMain.c:1736-1760; GBC menucmd.c:1148-1170) —
-~25% weapon find, else an independent ~25% armor find (see
-``_chest_item_drops``). Java never implemented them; the gold band stays
-py/Java (the refs' gold bands mutually diverge).
+Rules: LairWare GetChest / GetChestBooty / BombTrap (UltimaMain.c:1583-1740)
+with StealDisarmFail (UltimaMisc.c:510-529). The chest-object bookkeeping
+(``take_chest_object``) and the 50% trap roll follow Java
+(GameScreen.java:1036-1074, Context.java:248-285), which agree with LW.
 """
 from __future__ import annotations
 
@@ -93,44 +81,55 @@ def open_chest(
             # BombTrap — no GetChestBooty gold or item drops, wipe or not.
             return lines
 
-    gold = random.randrange(50) + random.randrange(8) + 10
+    lines.gold = chest_booty(member, lines)
+    return lines
+
+
+def chest_booty(member: PartyMember, lines: ChestOpenResult | None = None) -> int:
+    """LairWare GetChestBooty (UltimaMain.c:1684-1726), shared by G, the
+    disarmed APPAR UNEM path and a successful Steal (GetChest(2, ...)).
+
+    Gold is ``RandNum(0, 100)``, raised by 30 when under 30 (30-100), added
+    with AddGold's 9999 cap. Then ``RandNum(0, 255) > 63`` ends it (75%);
+    otherwise a weapon roll ``w = RandNum(0, 255)``: when ``w < 128`` the
+    weapon is ``(RandNum(0, 255) & w) & 7`` and a nonzero one is the find
+    (Dagger..2-Handed Sword). With no weapon, the armour roll works the same
+    way with ``& 3`` (Cloth..Chain). AddItem caps a stack at 99
+    (UltimaMisc.c:504-508). Returns the gold; appends the log lines.
+    """
+    if lines is None:
+        lines = ChestOpenResult()
+    gold = random.randrange(101)  # RandNum(0, 100)
+    if gold < 30:
+        gold += 30
     member.gold = max(0, min(9999, member.gold + gold))
     lines.append(f"The Chest Holds: {gold} Gold")
     lines.gold = gold
 
     lines.item_lines = _chest_item_drops(member)
     lines.extend(lines.item_lines)
-    return lines
+    return gold
 
 
 def _chest_item_drops(member: PartyMember) -> list[str]:
-    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): chest item drops (LW GetChestBooty UltimaMain.c:1736-1760; GBC menucmd.c:1148-1170 corroborates ~25% find)
-
-    After gold, a ~25% weapon find (index 1..7 -> DAGGER..SWORD_2H via
-    list(WeaponType), +1 to the opening member's stack), else an independent
-    ~25% armor find (index 1..3 -> CLOTH..CHAIN). LW's weapon grant returns
-    before the armor block (UltimaMain.c:1750-1755); a weapon stack already
-    at the 9 cap falls straight to the armor side, per the steal/dig stack
-    conventions (special_commands.bump_stack, cap 9). Names come from the
-    same enum tables the vendor/steal messages use.
-    """
-    item_lines: list[str] = []
-    weapon_side = random.randrange(4) == 0  # LW RandNum(0,255) <= 63 (~25%)
-    weapon_granted = False
-    if weapon_side:
-        weapon = special_commands.WEAPON_ORDER[random.randrange(7) + 1]
-        weapon_granted = special_commands.bump_stack(member.weapons, weapon)
-        if weapon_granted:
-            item_lines.append(f"You found a {weapon.name.capitalize()}!")
-    if weapon_granted:
-        return item_lines
-    if weapon_side or random.randrange(4) == 0:
-        # weapon side fired but the stack was capped: the armor side rolls
-        # directly; the weapon side missing: armor needs its own ~25% roll.
-        armor = special_commands.ARMOR_ORDER[random.randrange(3) + 1]
-        if special_commands.bump_stack(member.armors, armor):
-            item_lines.append(f"You found a {armor.name.capitalize()}!")
-    return item_lines
+    """LairWare GetChestBooty's item rolls (UltimaMain.c:1702-1726)."""
+    if random.randrange(256) > 63:
+        return []
+    wpn = random.randrange(256)
+    if wpn < 128:
+        wpn = (random.randrange(256) & wpn) & 0x07
+        if wpn != 0:
+            weapon = special_commands.WEAPON_ORDER[wpn]
+            special_commands.add_item(member.weapons, weapon, getattr(member, "weapon", None))
+            return [f"You found a {weapon.name.capitalize()}!"]
+    arm = random.randrange(256)
+    if arm < 128:
+        arm = (random.randrange(256) & arm) & 0x03
+        if arm != 0:
+            armor = special_commands.ARMOR_ORDER[arm]
+            special_commands.add_item(member.armors, armor, getattr(member, "armor", None))
+            return [f"You found a {armor.name.capitalize()}!"]
+    return []
 
 
 def disarm_factor(member: Any) -> int:
@@ -209,8 +208,10 @@ def _chest_trap(party: Party, member: PartyMember) -> tuple[list[str], bool]:
         # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): Gas trap poisons every living member (GBC menucmd.c:1077-1147; LW UltimaMain.c:1665-1681 case 3)
         # Same status write as the POISON branch above — a party-wide loop
         # instead of the opener alone, skipping dead members.
+        # LW poisons CheckAlive members only (UltimaMain.c:1672-1679): the
+        # dead and the ashes are untouched.
         for m in party.members:
-            if m.status != Status.DEAD and m.status != Status.POISONED:
+            if not m.is_disabled() and m.status != Status.POISONED:
                 m.status = Status.POISONED
         return ["Gas Trap!"], False
 
@@ -219,12 +220,12 @@ def _chest_trap(party: Party, member: PartyMember) -> tuple[list[str], bool]:
 
 
 def _apply_fire_lava(member: PartyMember) -> None:
-    """Java PartyMember.applyEffect FIRE/LAVA (Party.java:353-358):
-    16 + rand(32) damage through apply_damage unless Mark of Fire."""
+    """LairWare acid trap (UltimaMain.c:1637-1646): HPSubtract of
+    ``RandNum(0, 255) & 0x37`` (0-55) on the opener; no Mark of Fire
+    immunity (that was Java's FIRE/LAVA effect)."""
     if member.is_dead():
         return
-    if member.marks[1] == 0:
-        try:
-            member.apply_damage(16 + random.randrange(32))
-        except PartyDeathException:
-            pass
+    try:
+        member.apply_damage(random.randrange(256) & 0x37)
+    except PartyDeathException:
+        pass

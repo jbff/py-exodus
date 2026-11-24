@@ -85,6 +85,7 @@ WEAPON_ORDER = list(WeaponType)
 ARMOR_ORDER = list(ArmorType)
 
 _STACK_CAP = 9
+_ITEM_CAP = 99  # LairWare AddItem (UltimaMisc.c:504-508)
 _GOLD_CAP = 9999
 
 
@@ -476,6 +477,16 @@ def _steal_bonus_item(member, roll) -> str | None:
     if bump_stack(member.armors, armor):
         return f"and {armor.name.capitalize()}!"
     return None
+
+
+def add_item(stacks: dict, kind, equipped=None) -> None:
+    """LairWare AddItem (UltimaMisc.c:504-508): +1, the stack capped at 99.
+
+    LW counts the readied weapon / worn armour in its stack; the port keeps
+    it out of ``stacks``, so the cap leaves room for it.
+    """
+    cap = _ITEM_CAP - (1 if equipped == kind else 0)
+    stacks[kind] = min(cap, int(stacks.get(kind, 0)) + 1)
 
 
 def bump_stack(stacks: dict, kind) -> bool:

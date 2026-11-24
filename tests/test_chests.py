@@ -67,15 +67,15 @@ def make_party(members: list[PartyMember], gold: int | None = None, food: int | 
 # --- Step 1: pipeline gold behavior ---
 
 def test_chest_gold_credits_member_not_party_pool(monkeypatch):
-    """Chest gold goes to member.gold within 10-66; other members are untouched
+    """Chest gold goes to member.gold within 30-100; other members are untouched
     and the party total rises only by the chest amount (per-member model)."""
     member = make_member("Fighter", dexterity=15)
     other = make_member("Cleric", dexterity=15)
     party = make_party([member, other], gold=500)
 
-    # No trap (roll 1), then gold rolls: 25 of 50 + 6 of 8 + 10 = 41,
-    # then the drop rolls both miss (3, 3).
-    monkeypatch.setattr(chests, "random", ScriptedRNG([1, 25, 6, 3, 3]))
+    # No trap (roll 1), then LW gold RandNum(0, 100) = 41 (30-100), then
+    # the item gate misses (200 > 63).
+    monkeypatch.setattr(chests, "random", ScriptedRNG([1, 41, 200]))
 
     lines = open_chest(party, member, dungeon=False)
 
@@ -85,8 +85,9 @@ def test_chest_gold_credits_member_not_party_pool(monkeypatch):
     assert party.gold == 500 + 41
 
 
-def test_chest_gold_value_range_10_to_66(monkeypatch):
-    """Over many seeded chests, credited gold is always 10-66 and member-only."""
+def test_chest_gold_value_range_30_to_100(monkeypatch):
+    """Over many seeded chests, credited gold is always 30-100 (LW
+    GetChestBooty, UltimaMain.c:1686-1689) and member-only."""
     member = make_member("Fighter", dexterity=255)
     other = make_member("Cleric")
     party = make_party([member, other], gold=500)
@@ -96,7 +97,7 @@ def test_chest_gold_value_range_10_to_66(monkeypatch):
         before = member.gold
         lines = open_chest(party, member, dungeon=False)
         delta = member.gold - before
-        assert 10 <= delta <= 66
+        assert 30 <= delta <= 100
         gold_line = f"The Chest Holds: {delta} Gold"
         assert gold_line in lines
         assert lines.index(gold_line) == (1 if lines[0] == "Evaded!" else 0)
@@ -131,14 +132,15 @@ def test_high_dex_always_evades_traps(monkeypatch):
 
 
 def test_acid_trap_damages_opener(monkeypatch):
-    """A failed evade on the Acid trap applies the FIRE effect to that member."""
+    """A failed evade on the Acid trap hurts that member RandNum(0,255) & 0x37
+    (LW UltimaMain.c:1637-1646)."""
     member = make_member("Fighter")  # dex 15, no marks
     other = make_member("Cleric")
     party = make_party([member, other])
 
-    # Trap present, evade roll 99 (hit for dex 15), acid, damage roll 5 -> 21,
-    # gold, then the drop rolls both miss (3, 3)
-    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 0, 0, 5, 25, 6, 3, 3]))
+    # Trap present, evade roll 99 (hit for dex 15), acid, damage roll 21 & 0x37
+    # = 21, gold 41, then the item gate misses
+    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 0, 0, 21, 41, 200]))
 
     lines = open_chest(party, member, dungeon=False)
 
@@ -152,8 +154,8 @@ def test_apply_fire_lava_exact_zero_hp_stays_alive(monkeypatch):
     """Item 45: _apply_fire_lava routes through apply_damage, so exact 0 HP stays GOOD."""
     member = make_member("Fighter", hp=21, max_hp=100)
     make_party([member])
-    # 16 + 5 == 21 exact damage
-    monkeypatch.setattr(chests, "random", ScriptedRNG([5]))
+    # 21 & 0x37 == 21 exact damage
+    monkeypatch.setattr(chests, "random", ScriptedRNG([21]))
 
     chests._apply_fire_lava(member)
 
@@ -167,8 +169,8 @@ def test_apply_fire_lava_below_zero_kills_without_raising_out_of_open_chest(monk
     so open_chest still yields its Acid Trap log before screen check_party_death."""
     member = make_member("Fighter", hp=20, max_hp=100)
     party = make_party([member])
-    # Trap present, evade fails, Acid (0), damage roll 5 -> 21 > 20 HP, gold rolls, drops miss
-    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 0, 0, 5, 25, 6, 3, 3]))
+    # Trap present, evade fails, Acid (0), damage 21 > 20 HP, gold 41, gate misses
+    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 0, 0, 21, 41, 200]))
 
     lines = open_chest(party, member, dungeon=False)
 
@@ -178,20 +180,18 @@ def test_apply_fire_lava_below_zero_kills_without_raising_out_of_open_chest(monk
     assert member.is_dead()
 
 
-def test_acid_trap_with_mark_of_fire_is_a_no_op(monkeypatch):
-    """Mark of Fire immunity: the acid trap logs but deals no damage (no damage roll)."""
+def test_acid_trap_ignores_mark_of_fire(monkeypatch):
+    """LW's acid trap is a plain HPSubtract (UltimaMain.c:1637-1646): the Mark
+    of Fire (Java's FIRE/LAVA immunity) does not shield the opener."""
     member = make_member("Fighter", dexterity=0, marks=[0, 1, 0, 0])
     party = make_party([make_member("Cleric"), member])
 
-    # Trap present, hit, acid; NO damage roll is consumed, then gold rolls,
-    # then the drop rolls both miss (3, 3)
-    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 0, 0, 25, 6, 3, 3]))
+    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 0, 0, 21, 41, 200]))
 
     lines = open_chest(party, member, dungeon=False)
 
     assert lines == ["Acid Trap!", "The Chest Holds: 41 Gold"]
-    assert member.hp == 100
-    assert member.status == Status.GOOD
+    assert member.hp == 100 - 21
     assert member.gold == 150 + 41
 
 
@@ -207,7 +207,7 @@ def test_gas_trap_poisons_whole_party(monkeypatch):
 
     # Trap, hit, gas; no damage rolls exist under GBC rules, then gold, then
     # the drop rolls both miss (3, 3)
-    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 3, 3, 25, 6, 3, 3]))
+    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 3, 3, 41, 200]))
     already.status = Status.POISONED
     dead.status = Status.DEAD
 
@@ -227,7 +227,7 @@ def test_gas_trap_hits_living_members_only(monkeypatch):
     dead = make_member("Wizard")
     party = make_party([member, dead])
 
-    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 3, 3, 25, 6]))
+    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 3, 3, 41, 200]))
     dead.status = Status.DEAD
     dead.hp = 0
 
@@ -243,7 +243,7 @@ def test_poison_trap_poisons_opener(monkeypatch):
     member = make_member("Fighter")
     party = make_party([member])
 
-    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 1, 1, 25, 6, 3, 3]))
+    monkeypatch.setattr(chests, "random", ScriptedRNG([0, 99, 1, 1, 41, 200]))
 
     lines = open_chest(party, member, dungeon=False)
 
@@ -396,7 +396,7 @@ def test_disarmed_chest_yields_gold_and_no_trap_roll(monkeypatch):
 
     # Only the gold rolls plus the drop rolls exist in the script: the trap
     # roll never happens (both drop rolls miss — 4, 4).
-    rng = ScriptedRNG([25, 6, 3, 3])
+    rng = ScriptedRNG([41, 200])
     monkeypatch.setattr(chests, "random", rng)
 
     lines = open_chest(party, member, dungeon=False, disarmed=True)
@@ -472,7 +472,7 @@ def test_dungeon_get_opens_chest_on_party_tile(monkeypatch):
     screen.dungeon_map.set_tile(2, 2, 0, DungeonTile.CHEST)
     moves_before = party.moves
 
-    monkeypatch.setattr(chests, "random", ScriptedRNG([1, 25, 6, 3, 3]))
+    monkeypatch.setattr(chests, "random", ScriptedRNG([1, 41, 200]))
 
     press_and_answer(screen, ["1"])
 
@@ -530,13 +530,12 @@ def test_dungeon_get_checks_only_party_tile(monkeypatch):
 
 
 def test_weapon_drop_line_and_stack(monkeypatch):
-    """A weapon-side hit grants +1 of the scripted weapon and logs the line."""
+    """Gate open (<= 63), weapon roll 0x7F, mask roll 4 -> (4 & 0x7F) & 7 = 4
+    (AXE): +1 to the stack and the line logged."""
     member = make_member("Fighter")
     party = make_party([member])
 
-    # No trap, gold 41, weapon side hit (0), weapon idx 3 (+1 = AXE);
-    # the trailing 0 stays unconsumed — the armor side never rolled.
-    monkeypatch.setattr(chests, "random", ScriptedRNG([1, 25, 6, 0, 3, 0]))
+    monkeypatch.setattr(chests, "random", ScriptedRNG([1, 41, 0, 0x7F, 4, 0]))
 
     lines = open_chest(party, member, dungeon=False)
 
@@ -548,13 +547,11 @@ def test_weapon_drop_line_and_stack(monkeypatch):
 
 
 def test_armor_drop_after_weapon_roll_misses(monkeypatch):
-    """The armor find is an independent 25% when the weapon side misses."""
+    """Weapon roll >= 128: the armour roll follows (0x7F, mask 3 -> CHAIN)."""
     member = make_member("Fighter")
     party = make_party([member])
 
-    # No trap, gold 41, weapon side miss (3), armor side hit (0),
-    # armor idx 2 (+1 = CHAIN).
-    monkeypatch.setattr(chests, "random", ScriptedRNG([1, 25, 6, 3, 0, 2]))
+    monkeypatch.setattr(chests, "random", ScriptedRNG([1, 41, 0, 200, 0x7F, 3]))
 
     lines = open_chest(party, member, dungeon=False)
 
@@ -568,59 +565,47 @@ def test_weapon_hit_skips_the_armor_side(monkeypatch):
     member = make_member("Fighter")
     party = make_party([member])
 
-    # Weapon side hit (0), idx 5 (+1 = SWORD). The trailing rolls are never
-    # consumed: no armor-side roll follows a granted weapon.
-    monkeypatch.setattr(chests, "random", ScriptedRNG([1, 25, 6, 0, 5, 0, 0]))
+    rng = ScriptedRNG([1, 41, 0, 0x7F, 6, 0, 0])
+    monkeypatch.setattr(chests, "random", rng)
 
     lines = open_chest(party, member, dungeon=False)
 
     assert lines == ["The Chest Holds: 41 Gold", "You found a Sword!"]
     assert all(c == 0 for c in member.armors.values())
+    assert rng.rolls == [0, 0]
 
 
-def test_capped_weapon_stack_falls_to_armor_side(monkeypatch):
-    """A 9/9 weapon stack gets no weapon; the armor side rolls directly."""
+def test_zero_weapon_roll_falls_to_armor_side(monkeypatch):
+    """A masked weapon roll of 0 grants no weapon; the armour roll follows."""
     member = make_member("Fighter")
-    member.weapons[WeaponType.MACE] = 9  # weapon idx roll 1 (+1 = MACE) is capped
     party = make_party([member])
 
-    # Weapon side hit (0), weapon idx 1 — capped → armor idx 2 (+1 = CHAIN)
-    # granted directly with no armor-side 25% roll (steal fall-through).
-    monkeypatch.setattr(chests, "random", ScriptedRNG([1, 25, 6, 0, 1, 2]))
+    monkeypatch.setattr(chests, "random", ScriptedRNG([1, 41, 0, 0x7F, 8, 0x7F, 1]))
 
     lines = open_chest(party, member, dungeon=False)
 
-    assert lines == ["The Chest Holds: 41 Gold", "You found a Chain!"]
-    assert member.weapons[WeaponType.MACE] == 9  # capped: not granted
-    assert member.armors[ArmorType.CHAIN] == 1
+    assert lines == ["The Chest Holds: 41 Gold", "You found a Cloth!"]
+    assert member.armors[ArmorType.CLOTH] == 1
 
 
-def test_capped_weapon_and_armor_stacks_grant_nothing(monkeypatch):
-    """Both stacks capped: the chest credits gold only."""
+def test_closed_gate_grants_nothing(monkeypatch):
+    """Gate roll > 63: gold only."""
     member = make_member("Fighter")
-    member.weapons[WeaponType.MACE] = 9
-    member.armors[ArmorType.CHAIN] = 9
     party = make_party([member])
 
-    monkeypatch.setattr(chests, "random", ScriptedRNG([1, 25, 6, 3, 3]))
+    monkeypatch.setattr(chests, "random", ScriptedRNG([1, 41, 64]))
 
     lines = open_chest(party, member, dungeon=False)
 
     assert lines == ["The Chest Holds: 41 Gold"]
-    assert member.weapons[WeaponType.MACE] == 9
-    assert member.armors[ArmorType.CHAIN] == 9
 
 
 def test_disarmed_chest_yields_item_drops_too(monkeypatch):
-    """The APPAR_UNEM path opens the same booty rolls: gold + item, no trap.
-
-    LW's trap cases all fall through to the same GetChestBooty rolls (m5BDC=0
-    skips the TRAP, not the booty), so the disarmed path drops items too."""
+    """The APPAR_UNEM path opens the same booty rolls: gold + item, no trap."""
     member = make_member("Fighter")
     party = make_party([member])
 
-    # Gold 41 (no trap roll), weapon side hit (0), weapon idx 1 (+1 = MACE).
-    monkeypatch.setattr(chests, "random", ScriptedRNG([25, 6, 0, 1]))
+    monkeypatch.setattr(chests, "random", ScriptedRNG([41, 0, 0x7F, 2]))
 
     lines = open_chest(party, member, dungeon=False, disarmed=True)
 
@@ -629,24 +614,21 @@ def test_disarmed_chest_yields_item_drops_too(monkeypatch):
     assert member.weapons[WeaponType.MACE] == 1
 
 
-def test_seeded_drop_trials_approx_25_each_and_gold_band(monkeypatch):
-    """Seeded trials: item lines ~25% each, named from the vendor tables,
-    gold band 10-66 per open (gold regression unchanged).
-
-    Each trial opens with a fresh member so the 9-cap fall-throughs (which
-    drain a persistent member's stacks into armor) don't skew the share."""
+def test_seeded_drop_trials_lairware_shares_and_gold_band(monkeypatch):
+    """Seeded trials: gold 30-100 per open; LW's masked rolls give a weapon
+    about 7% of the time (1/4 * 1/2 * 37/64) and armour about 4%."""
     monkeypatch.setattr(chests, "random", random.Random(11))
 
     weapon_names = {w.name.capitalize() for w in list(WeaponType)[1:8]}
     armor_names = {a.name.capitalize() for a in list(ArmorType)[1:4]}
     weapon_drops = armor_drops = 0
-    for _ in range(1000):
-        member = make_member("Fighter", dexterity=255, gold=100)  # LW: RandNum(0,255) > 255 never
+    for _ in range(2000):
+        member = make_member("Fighter", dexterity=255, gold=100)
         party = make_party([member])
         before = member.gold
         lines = open_chest(party, member, dungeon=False)
         delta = member.gold - before
-        assert 10 <= delta <= 66  # gold band regression unchanged
+        assert 30 <= delta <= 100
         assert f"The Chest Holds: {delta} Gold" in lines
         for line in lines:
             if line.startswith("You found a "):
@@ -656,14 +638,9 @@ def test_seeded_drop_trials_approx_25_each_and_gold_band(monkeypatch):
                     weapon_drops += 1
                 else:
                     armor_drops += 1
-        assert sum(member.weapons.values()) == sum(
-            1 for c in member.weapons.values() if c == 1
-        )  # a fresh member gains at most one +1 weapon stack
 
-    # ~25% each over 1000 seeded trials; the armor side runs only when no
-    # weapon was granted, so its share is a bit under the weapon share.
-    assert 150 <= weapon_drops <= 350, weapon_drops
-    assert 100 <= armor_drops <= 350, armor_drops
+    assert 90 <= weapon_drops <= 200, weapon_drops
+    assert 40 <= armor_drops <= 120, armor_drops
 
 
 def test_trap_dodge_follows_lairware_steal_disarm(monkeypatch):

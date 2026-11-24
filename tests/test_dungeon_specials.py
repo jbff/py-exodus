@@ -521,7 +521,7 @@ def test_dungeon_chest_delegates_to_pipeline(open_dmap, test_party, monkeypatch)
 
     def fake_randrange(n, **kwargs):
         calls.append(n)
-        return 1  # no trap; gold 1+1+10 = 12
+        return 1  # no trap; LW gold 1 + 30 = 31; gate open, weapon (1 & 1) & 7 = Dagger
 
     monkeypatch.setattr(chests, "random", type("M", (), {"randrange": staticmethod(fake_randrange)}))
 
@@ -537,8 +537,8 @@ def test_dungeon_chest_delegates_to_pipeline(open_dmap, test_party, monkeypatch)
     )
     ev = state.open_chest(member_index=0, disarm=True)
     assert ev.type == DungeonEventType.CHEST
-    assert ev.gold == 12
-    assert test_party.members[0].gold == 212
+    assert ev.gold == 31
+    assert test_party.members[0].gold == 231
     assert open_dmap.get_tile(5, 5, 0) == DungeonTile.NOTHING
 
 
@@ -591,8 +591,8 @@ def test_dungeon_chest_disarm_skips_trap(open_dmap, test_party, monkeypatch):
     ev = state.open_chest(member_index=0, disarm=True)
     assert ev.type == DungeonEventType.CHEST
     assert m0.hp == m0.max_hp  # untouched: the trap roll was skipped
-    assert ev.gold == 10
-    assert m0.gold == 150 + 10  # Character default purse + chest gold
+    assert ev.gold == 30  # LW RandNum(0, 100) = 0 -> +30
+    assert m0.gold == 150 + 30  # Character default purse + chest gold
 
 
 # --- Combat exit: endCombat port (DungeonScreen.java:740-769) ---
