@@ -114,3 +114,83 @@ def test_open_moongate_is_taken_even_from_a_pirate_lane():
         assert not (54 <= p.x <= 59 and 43 <= p.y <= 47), (p.x, p.y)
     finally:
         random.setstate(rng)
+
+
+def test_capture_crosses_lanes_to_a_pinned_pirate_instead_of_pacing():
+    """Live trace 2026-11-24 (trace_20261124-111105): on Ambrosia, on foot,
+    for the intelligence shrine, the trip captures a ship in the north bay.
+    Two pirates sit at the bay's east tip, (35,10) and (36,11). Under
+    LairWare's MoveMonsters (UltimaMisc.c:1191-1236) each tries the diagonal,
+    vertical and horizontal step toward the party, onto water only
+    (ValidMonsterDir, 263-272); from the tip all three are land, so they
+    never come closer and fire instead (moveshoot). Every way to a tile next
+    to them crosses a lane. The capture stepped (38,8) -> (38,9) into a lane,
+    the lane escape found no lane-free walk on and stepped back north, and
+    so on for 7,000 steps under fire until the user quit."""
+    pygame.init()
+    pygame.font.init()
+    rng = random.getstate()
+    trng = tile_effects._rng.getstate()
+    try:
+        random.seed(1)
+        tile_effects._rng.seed(1)
+        batch._seed_dungeon_rngs()
+        am = batch._assets()
+        party = batch.build_party()
+        from py_exodus.autoplay.planner import stat_cap
+        for m, lv in zip(party.members, (20, 16, 7, 13)):  # the trace's party
+            m.level = lv
+            m.max_hp = m.hp = lv * 100 + 50
+            m.food = 300
+            m.keys = 2
+            m.gold = 1425
+            m.marks = [1, 1, 1, 1]
+            m.cards = [1, 1, 1, 1]
+            m.weapon = WeaponType.EXOTIC
+            m.armor = ArmorType.EXOTIC
+            m.wisdom = stat_cap(m, "max_wis")
+            m.dexterity = stat_cap(m, "max_dex")
+        sm = StateMachine(asset_mgr=am, audio=None)
+        scr = OverworldScreen(party=party, asset_mgr=am)
+        sm.set_screen(scr)
+        pool = next(c for c in scr.creatures if c["tile_name"] == "whirlpool")
+        party.x, party.y = pool["x"], pool["y"]
+        party.transport = Transport.SHIP
+        scr._check_whirlpool_engulf()
+        assert next_shrine_goal(party)[1] == "intelligence"  # (6,6): by ship
+        scr.creatures = [c for c in scr.creatures if (c["x"], c["y"]) != (35, 10)] + [
+            {"tile_name": "pirate", "tile": "pirate", "x": 35, "y": 10},
+            {"tile_name": "pirate", "tile": "pirate", "x": 36, "y": 11},
+        ]
+        party.x, party.y = 38, 8
+        fights = []
+        orig_fight = scr._trigger_combat
+
+        def fight(name, creature=None):
+            fights.append((name, (creature["x"], creature["y"]), (party.x, party.y)))
+            return orig_fight(name, creature)
+
+        scr._trigger_combat = fight
+        ctrl = AutoPlayController(enabled=True)
+        sm.autoplay_enabled = True
+        seen = []
+        for _ in range(40):
+            ctrl.step(sm)
+            sm.update(0.1)
+            seen.append((party.x, party.y))
+            if fights:
+                break
+        assert fights, seen
+        name, (cx, cy), (fx, fy) = fights[0]
+        assert name == "pirate", fights
+        assert max(abs(cx - fx), abs(cy - fy)) == 1, fights  # adjacent
+        # The fight won, the party boards the pirate's frigate.
+        for _ in range(400):
+            ctrl.step(sm)
+            sm.update(0.1)
+            if party.transport == Transport.SHIP:
+                break
+        assert party.transport == Transport.SHIP, (party.x, party.y)
+    finally:
+        random.setstate(rng)
+        tile_effects._rng.setstate(trng)

@@ -2777,7 +2777,17 @@ class AutoPlayController:
 
     def _capture_escape_rank(self, gmap, party, th):
         """While a pirate capture is under way (it acted this turn or last),
-        rank lane-escape steps by their lane-free walk on to its target."""
+        rank lane-escape steps by their lane-free walk on to its target;
+        with none, by the plain walk (lanes crossed), after every lane-free
+        one.
+
+        Live trace 2026-11-24 (Ambrosia's north bay): two pirates at the
+        bay's tip can't step toward the party over land (LairWare
+        MoveMonsters/ValidMonsterDir), so they never close in, and every
+        tile next to them is ringed by their lanes. With no lane-free walk
+        anywhere every step ranked the same, the escape took the one
+        farthest from them, back where the capture had just stepped from,
+        and the two undid each other for 7,000 steps under fire."""
         goal = self._capture_goal
         if goal is None or self._ow_turn - self._capture_turn > 1:
             return None
@@ -2789,7 +2799,12 @@ class AutoPlayController:
             _d, cost = find_2d_step_and_cost(
                 gmap, start=tile, goals={goal}, transport=Transport.FOOT, party=party, avoid_tiles=avoid
             )
-            return cost if cost is not None else 10_000
+            if cost is not None:
+                return cost
+            _d, cost = find_2d_step_and_cost(
+                gmap, start=tile, goals={goal}, transport=Transport.FOOT, party=party
+            )
+            return 1_000 + cost if cost is not None else 10_000
 
         return rank
 
