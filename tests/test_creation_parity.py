@@ -310,6 +310,70 @@ class TestLordBritish:
 
 
 # --------------------------------------------------------------------------- #
+# (c) Remove-from-party returns the member to a roster slot
+# --------------------------------------------------------------------------- #
+class TestRosterRemoval:
+    def _screen(self, roster, party):
+        return RosterScreen(party=party, roster=list(roster), asset_mgr=None)
+
+    def test_removed_member_returns_to_roster(self, pygame_setup):
+        aria = Character(name="Aria", profession=Profession.FIGHTER)
+        roster = [Character(name=f"R{i}", profession=Profession.THIEF) for i in range(3)]
+        party = _make_party(aria)
+        scr = self._screen(roster, party)
+        scr.focus_panel = "party"
+        scr.selected_party_idx = 0
+
+        scr._remove_from_party()
+
+        assert len(party.members) == 0
+        names = [c.name for c in scr.roster]
+        assert "Aria" in names
+        assert len(scr.roster) == 4  # appended as a new slot
+
+    def test_removed_member_overwrites_matching_roster_slot(self, pygame_setup):
+        """Java: same-name roster slot is replaced with the party state
+        (ManagePartyScreen.java:355-367), not duplicated."""
+        roster_aria = Character(name="Aria", profession=Profession.FIGHTER, level=1)
+        roster = [roster_aria, Character(name="Bob", profession=Profession.THIEF)]
+        party_aria = Character(name="Aria", profession=Profession.FIGHTER, level=3)
+        party = _make_party(party_aria)
+        scr = self._screen(roster, party)
+        scr.focus_panel = "party"
+        scr.selected_party_idx = 0
+
+        scr._remove_from_party()
+
+        assert len(party.members) == 0
+        arias = [c for c in scr.roster if c.name == "Aria"]
+        assert len(arias) == 1
+        assert arias[0].level == 3  # party version carried back
+
+    def test_remove_fails_when_roster_full(self, pygame_setup):
+        """Roster.java holds 20 slots; with no free slot the removal fails and
+        the member stays in the party."""
+        roster = [Character(name=f"R{i}", profession=Profession.THIEF) for i in range(20)]
+        otto = Character(name="Otto", profession=Profession.FIGHTER)
+        party = _make_party(otto)
+        scr = self._screen(roster, party)
+        scr.focus_panel = "party"
+        scr.selected_party_idx = 0
+
+        scr._remove_from_party()
+
+        assert len(party.members) == 1  # still in the party
+        assert otto.name not in [c.name for c in scr.roster]
+        assert any("roster" in h.lower() for h in scr.text_log.history)
+
+
+# --------------------------------------------------------------------------- #
+# (d) Shrine donation
+# --------------------------------------------------------------------------- #
+
+
+# --------------------------------------------------------------------------- #
+# (e) Mark-of-Kings gate: required only from level 6 (expLvl >= 5)
+# --------------------------------------------------------------------------- #
 class TestMarkGate:
     def test_level_5_reachable_without_mark(self):
         """exp 450: four visits take level 1 to 5 with no Mark of Kings."""
