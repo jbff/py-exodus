@@ -194,134 +194,169 @@
     </vendorClass>
 
     <vendorClass type="TAVERNINFO" music="SHOPPING">
+        <!-- LairWare Shop case 0 (UltimaMisc.c:1606-1655): a drink costs 7 gold; the
+             whole payment (7-99) is taken and the line is Pub[paid / 10]. -->
         <vendor id="FAWN" name="Sam's Canteen" owner="Sam" genericField1="Lamb Chops" type="TAVERNINFO" startX="43" startY="26">
             <item type="FOOD" name="Lamb Chops" price="1" />
-            <item type="FOOD" name="ale" price="2" />
-            <item type="TAVERNINFO" price="10" description="%s says: Have you ever heard of Ambrosia?" />
-            <item type="TAVERNINFO" price="20" description="%s says: Dawn is a city of myths and magic. The conjunction of the moons finds link." />
-            <item type="TAVERNINFO" price="30" description="%s says: Go to Fawn, and find something invokes the Snake." />
-            <item type="TAVERNINFO" price="40" description="%s says: None return or so I'm told from the pool dark and cold." />
-            <item type="TAVERNINFO" price="50" description="%s says: Fountains fair. fountains foul. All are found in Dungeons bowel.." />
-            <item type="TAVERNINFO" price="60" description="%s says: Shrines of knowledge, shrines of strength, are all but lost into the brink." />
-            <item type="TAVERNINFO" price="70" description="%s says: Seek ye out the Lord of Time and the one way is a sure find!" />
+            <item type="FOOD" name="ale" price="7" />
+            <item type="TAVERNINFO" price="0" description="%s says: Thank you, kindly!" />
+            <item type="TAVERNINFO" price="10" description="%s says: Ambrosia, ever heard of it?" />
+            <item type="TAVERNINFO" price="20" description="%s says: Dawn, the city of myths &amp; magic!" />
+            <item type="TAVERNINFO" price="30" description="%s says: The conjunction of the moons finds link!" />
+            <item type="TAVERNINFO" price="40" description="%s says: Nasty creatures, nasty dark, sure thee ready, fore thee embark." />
+            <item type="TAVERNINFO" price="50" description="%s says: None return or so I'm told, from the pool, dark and cold!" />
+            <item type="TAVERNINFO" price="60" description="%s says: Shrines of knowledge, shrines of strength, all are lost into the brink!" />
+            <item type="TAVERNINFO" price="70" description="%s says: Fountains fair &amp; fountains foul, all are found in dungeons bowel." />
+            <item type="TAVERNINFO" price="80" description="%s says: EXODUS: Ultima III, which is next? Now could it be." />
+            <item type="TAVERNINFO" price="90" description="%s says: Seek ye out the Lord of Time, and the one way is a sure find!" />
         </vendor>
         <vendor id="DAWN" name="Ballyhoo" owner="Brida" genericField1="Walnut Bread" type="TAVERNINFO" startX="43" startY="50">
             <item type="FOOD" name="Walnut Bread" price="1" />
-            <item type="FOOD" name="ale" price="2" />
-            <item type="TAVERNINFO" price="10" description="%s says: Have you ever heard of Ambrosia?" />
-            <item type="TAVERNINFO" price="20" description="%s says: Dawn is a city of myths and magic. The conjunction of the moons finds link." />
-            <item type="TAVERNINFO" price="30" description="%s says: Go to Fawn, and find something invokes the Snake." />
-            <item type="TAVERNINFO" price="40" description="%s says: None return or so I'm told from the pool dark and cold." />
-            <item type="TAVERNINFO" price="50" description="%s says: Fountains fair. fountains foul. All are found in Dungeons bowel.." />
-            <item type="TAVERNINFO" price="60" description="%s says: Shrines of knowledge, shrines of strength, are all but lost into the brink." />
-            <item type="TAVERNINFO" price="70" description="%s says: Seek ye out the Lord of Time and the one way is a sure find!" />
+            <item type="FOOD" name="ale" price="7" />
+            <item type="TAVERNINFO" price="0" description="%s says: Thank you, kindly!" />
+            <item type="TAVERNINFO" price="10" description="%s says: Ambrosia, ever heard of it?" />
+            <item type="TAVERNINFO" price="20" description="%s says: Dawn, the city of myths &amp; magic!" />
+            <item type="TAVERNINFO" price="30" description="%s says: The conjunction of the moons finds link!" />
+            <item type="TAVERNINFO" price="40" description="%s says: Nasty creatures, nasty dark, sure thee ready, fore thee embark." />
+            <item type="TAVERNINFO" price="50" description="%s says: None return or so I'm told, from the pool, dark and cold!" />
+            <item type="TAVERNINFO" price="60" description="%s says: Shrines of knowledge, shrines of strength, all are lost into the brink!" />
+            <item type="TAVERNINFO" price="70" description="%s says: Fountains fair &amp; fountains foul, all are found in dungeons bowel." />
+            <item type="TAVERNINFO" price="80" description="%s says: EXODUS: Ultima III, which is next? Now could it be." />
+            <item type="TAVERNINFO" price="90" description="%s says: Seek ye out the Lord of Time, and the one way is a sure find!" />
         </vendor>
         <vendor id="DEATH" name="the Draught" owner="Sorry" genericField1="Black Pudding" type="TAVERNINFO" startX="52" startY="30">
             <item type="FOOD" name="Black Pudding" price="1" />
-            <item type="FOOD" name="ale" price="2" />
-            <item type="TAVERNINFO" price="10" description="%s says: Have you ever heard of Ambrosia?" />
-            <item type="TAVERNINFO" price="20" description="%s says: Dawn is a city of myths and magic. The conjunction of the moons finds link." />
-            <item type="TAVERNINFO" price="30" description="%s says: Go to Fawn, and find something invokes the Snake." />
-            <item type="TAVERNINFO" price="40" description="%s says: None return or so I'm told from the pool dark and cold." />
-            <item type="TAVERNINFO" price="50" description="%s says: Fountains fair. fountains foul. All are found in Dungeons bowel.." />
-            <item type="TAVERNINFO" price="60" description="%s says: Shrines of knowledge, shrines of strength, are all but lost into the brink." />
-            <item type="TAVERNINFO" price="70" description="%s says: Seek ye out the Lord of Time and the one way is a sure find!" />
+            <item type="FOOD" name="ale" price="7" />
+            <item type="TAVERNINFO" price="0" description="%s says: Thank you, kindly!" />
+            <item type="TAVERNINFO" price="10" description="%s says: Ambrosia, ever heard of it?" />
+            <item type="TAVERNINFO" price="20" description="%s says: Dawn, the city of myths &amp; magic!" />
+            <item type="TAVERNINFO" price="30" description="%s says: The conjunction of the moons finds link!" />
+            <item type="TAVERNINFO" price="40" description="%s says: Nasty creatures, nasty dark, sure thee ready, fore thee embark." />
+            <item type="TAVERNINFO" price="50" description="%s says: None return or so I'm told, from the pool, dark and cold!" />
+            <item type="TAVERNINFO" price="60" description="%s says: Shrines of knowledge, shrines of strength, all are lost into the brink!" />
+            <item type="TAVERNINFO" price="70" description="%s says: Fountains fair &amp; fountains foul, all are found in dungeons bowel." />
+            <item type="TAVERNINFO" price="80" description="%s says: EXODUS: Ultima III, which is next? Now could it be." />
+            <item type="TAVERNINFO" price="90" description="%s says: Seek ye out the Lord of Time, and the one way is a sure find!" />
         </vendor>
         
         <vendor id="MONTOR_W" name="the Bar" owner="Dujek" genericField1="Pork Grizzle" type="TAVERNINFO" startX="25" startY="50">
             <item type="FOOD" name="Pork Grizzle" price="1" />
-            <item type="FOOD" name="ale" price="2" />
-            <item type="TAVERNINFO" price="10" description="%s says: Have you ever heard of Ambrosia?" />
-            <item type="TAVERNINFO" price="20" description="%s says: Dawn is a city of myths and magic. The conjunction of the moons finds link." />
-            <item type="TAVERNINFO" price="30" description="%s says: Go to Fawn, and find something invokes the Snake." />
-            <item type="TAVERNINFO" price="40" description="%s says: None return or so I'm told from the pool dark and cold." />
-            <item type="TAVERNINFO" price="50" description="%s says: Fountains fair. fountains foul. All are found in Dungeons bowel.." />
-            <item type="TAVERNINFO" price="60" description="%s says: Shrines of knowledge, shrines of strength, are all but lost into the brink." />
-            <item type="TAVERNINFO" price="70" description="%s says: Seek ye out the Lord of Time and the one way is a sure find!" />
+            <item type="FOOD" name="ale" price="7" />
+            <item type="TAVERNINFO" price="0" description="%s says: Thank you, kindly!" />
+            <item type="TAVERNINFO" price="10" description="%s says: Ambrosia, ever heard of it?" />
+            <item type="TAVERNINFO" price="20" description="%s says: Dawn, the city of myths &amp; magic!" />
+            <item type="TAVERNINFO" price="30" description="%s says: The conjunction of the moons finds link!" />
+            <item type="TAVERNINFO" price="40" description="%s says: Nasty creatures, nasty dark, sure thee ready, fore thee embark." />
+            <item type="TAVERNINFO" price="50" description="%s says: None return or so I'm told, from the pool, dark and cold!" />
+            <item type="TAVERNINFO" price="60" description="%s says: Shrines of knowledge, shrines of strength, all are lost into the brink!" />
+            <item type="TAVERNINFO" price="70" description="%s says: Fountains fair &amp; fountains foul, all are found in dungeons bowel." />
+            <item type="TAVERNINFO" price="80" description="%s says: EXODUS: Ultima III, which is next? Now could it be." />
+            <item type="TAVERNINFO" price="90" description="%s says: Seek ye out the Lord of Time, and the one way is a sure find!" />
         </vendor>
         
         <vendor id="MONTOR_W" name="the Bar" owner="Whiskeyjack" genericField1="Spiced Ham" type="TAVERNINFO" startX="39" startY="50">
             <item type="FOOD" name="Spiced Ham" price="1" />
-            <item type="FOOD" name="ale" price="2" />
-            <item type="TAVERNINFO" price="10" description="%s says: Have you ever heard of Ambrosia?" />
-            <item type="TAVERNINFO" price="20" description="%s says: Dawn is a city of myths and magic. The conjunction of the moons finds link." />
-            <item type="TAVERNINFO" price="30" description="%s says: Go to Fawn, and find something invokes the Snake." />
-            <item type="TAVERNINFO" price="40" description="%s says: None return or so I'm told from the pool dark and cold." />
-            <item type="TAVERNINFO" price="50" description="%s says: Fountains fair. fountains foul. All are found in Dungeons bowel.." />
-            <item type="TAVERNINFO" price="60" description="%s says: Shrines of knowledge, shrines of strength, are all but lost into the brink." />
-            <item type="TAVERNINFO" price="70" description="%s says: Seek ye out the Lord of Time and the one way is a sure find!" />
+            <item type="FOOD" name="ale" price="7" />
+            <item type="TAVERNINFO" price="0" description="%s says: Thank you, kindly!" />
+            <item type="TAVERNINFO" price="10" description="%s says: Ambrosia, ever heard of it?" />
+            <item type="TAVERNINFO" price="20" description="%s says: Dawn, the city of myths &amp; magic!" />
+            <item type="TAVERNINFO" price="30" description="%s says: The conjunction of the moons finds link!" />
+            <item type="TAVERNINFO" price="40" description="%s says: Nasty creatures, nasty dark, sure thee ready, fore thee embark." />
+            <item type="TAVERNINFO" price="50" description="%s says: None return or so I'm told, from the pool, dark and cold!" />
+            <item type="TAVERNINFO" price="60" description="%s says: Shrines of knowledge, shrines of strength, all are lost into the brink!" />
+            <item type="TAVERNINFO" price="70" description="%s says: Fountains fair &amp; fountains foul, all are found in dungeons bowel." />
+            <item type="TAVERNINFO" price="80" description="%s says: EXODUS: Ultima III, which is next? Now could it be." />
+            <item type="TAVERNINFO" price="90" description="%s says: Seek ye out the Lord of Time, and the one way is a sure find!" />
         </vendor>
         
         <vendor id="MONTOR_E" name="the Brown Orc" owner="Gothrug" genericField1="Spiced Ham" type="TAVERNINFO" startX="32" startY="50">
             <item type="FOOD" name="Spiced Ham" price="1" />
-            <item type="FOOD" name="ale" price="2" />
-            <item type="TAVERNINFO" price="10" description="%s says: Have you ever heard of Ambrosia?" />
-            <item type="TAVERNINFO" price="20" description="%s says: Dawn is a city of myths and magic. The conjunction of the moons finds link." />
-            <item type="TAVERNINFO" price="30" description="%s says: Go to Fawn, and find something invokes the Snake." />
-            <item type="TAVERNINFO" price="40" description="%s says: None return or so I'm told from the pool dark and cold." />
-            <item type="TAVERNINFO" price="50" description="%s says: Fountains fair. fountains foul. All are found in Dungeons bowel.." />
-            <item type="TAVERNINFO" price="60" description="%s says: Shrines of knowledge, shrines of strength, are all but lost into the brink." />
-            <item type="TAVERNINFO" price="70" description="%s says: Seek ye out the Lord of Time and the one way is a sure find!" />
+            <item type="FOOD" name="ale" price="7" />
+            <item type="TAVERNINFO" price="0" description="%s says: Thank you, kindly!" />
+            <item type="TAVERNINFO" price="10" description="%s says: Ambrosia, ever heard of it?" />
+            <item type="TAVERNINFO" price="20" description="%s says: Dawn, the city of myths &amp; magic!" />
+            <item type="TAVERNINFO" price="30" description="%s says: The conjunction of the moons finds link!" />
+            <item type="TAVERNINFO" price="40" description="%s says: Nasty creatures, nasty dark, sure thee ready, fore thee embark." />
+            <item type="TAVERNINFO" price="50" description="%s says: None return or so I'm told, from the pool, dark and cold!" />
+            <item type="TAVERNINFO" price="60" description="%s says: Shrines of knowledge, shrines of strength, all are lost into the brink!" />
+            <item type="TAVERNINFO" price="70" description="%s says: Fountains fair &amp; fountains foul, all are found in dungeons bowel." />
+            <item type="TAVERNINFO" price="80" description="%s says: EXODUS: Ultima III, which is next? Now could it be." />
+            <item type="TAVERNINFO" price="90" description="%s says: Seek ye out the Lord of Time, and the one way is a sure find!" />
         </vendor>
         
         <vendor id="DEVIL" name="Le Grog Shop" owner="Spindle" genericField1="Gruel" type="TAVERNINFO" startX="49" startY="14">
             <item type="FOOD" name="Gruel" price="1" />
-            <item type="FOOD" name="ale" price="2" />
-            <item type="TAVERNINFO" price="10" description="%s says: Have you ever heard of Ambrosia?" />
-            <item type="TAVERNINFO" price="20" description="%s says: Dawn is a city of myths and magic. The conjunction of the moons finds link." />
-            <item type="TAVERNINFO" price="30" description="%s says: Go to Fawn, and find something invokes the Snake." />
-            <item type="TAVERNINFO" price="40" description="%s says: None return or so I'm told from the pool dark and cold." />
-            <item type="TAVERNINFO" price="50" description="%s says: Fountains fair. fountains foul. All are found in Dungeons bowel.." />
-            <item type="TAVERNINFO" price="60" description="%s says: Shrines of knowledge, shrines of strength, are all but lost into the brink." />
-            <item type="TAVERNINFO" price="70" description="%s says: Seek ye out the Lord of Time and the one way is a sure find!" />
+            <item type="FOOD" name="ale" price="7" />
+            <item type="TAVERNINFO" price="0" description="%s says: Thank you, kindly!" />
+            <item type="TAVERNINFO" price="10" description="%s says: Ambrosia, ever heard of it?" />
+            <item type="TAVERNINFO" price="20" description="%s says: Dawn, the city of myths &amp; magic!" />
+            <item type="TAVERNINFO" price="30" description="%s says: The conjunction of the moons finds link!" />
+            <item type="TAVERNINFO" price="40" description="%s says: Nasty creatures, nasty dark, sure thee ready, fore thee embark." />
+            <item type="TAVERNINFO" price="50" description="%s says: None return or so I'm told, from the pool, dark and cold!" />
+            <item type="TAVERNINFO" price="60" description="%s says: Shrines of knowledge, shrines of strength, all are lost into the brink!" />
+            <item type="TAVERNINFO" price="70" description="%s says: Fountains fair &amp; fountains foul, all are found in dungeons bowel." />
+            <item type="TAVERNINFO" price="80" description="%s says: EXODUS: Ultima III, which is next? Now could it be." />
+            <item type="TAVERNINFO" price="90" description="%s says: Seek ye out the Lord of Time, and the one way is a sure find!" />
         </vendor>
         
         <vendor id="GREY" name="the Tap House" owner="Spindle" genericField1="Barbacoa" type="TAVERNINFO" startX="39" startY="22">
             <item type="FOOD" name="Barbacoa" price="1" />
-            <item type="FOOD" name="ale" price="2" />
-            <item type="TAVERNINFO" price="10" description="%s says: Have you ever heard of Ambrosia?" />
-            <item type="TAVERNINFO" price="20" description="%s says: Dawn is a city of myths and magic. The conjunction of the moons finds link." />
-            <item type="TAVERNINFO" price="30" description="%s says: Go to Fawn, and find something invokes the Snake." />
-            <item type="TAVERNINFO" price="40" description="%s says: None return or so I'm told from the pool dark and cold." />
-            <item type="TAVERNINFO" price="50" description="%s says: Fountains fair. fountains foul. All are found in Dungeons bowel.." />
-            <item type="TAVERNINFO" price="60" description="%s says: Shrines of knowledge, shrines of strength, are all but lost into the brink." />
-            <item type="TAVERNINFO" price="70" description="%s says: Seek ye out the Lord of Time and the one way is a sure find!" />
+            <item type="FOOD" name="ale" price="7" />
+            <item type="TAVERNINFO" price="0" description="%s says: Thank you, kindly!" />
+            <item type="TAVERNINFO" price="10" description="%s says: Ambrosia, ever heard of it?" />
+            <item type="TAVERNINFO" price="20" description="%s says: Dawn, the city of myths &amp; magic!" />
+            <item type="TAVERNINFO" price="30" description="%s says: The conjunction of the moons finds link!" />
+            <item type="TAVERNINFO" price="40" description="%s says: Nasty creatures, nasty dark, sure thee ready, fore thee embark." />
+            <item type="TAVERNINFO" price="50" description="%s says: None return or so I'm told, from the pool, dark and cold!" />
+            <item type="TAVERNINFO" price="60" description="%s says: Shrines of knowledge, shrines of strength, all are lost into the brink!" />
+            <item type="TAVERNINFO" price="70" description="%s says: Fountains fair &amp; fountains foul, all are found in dungeons bowel." />
+            <item type="TAVERNINFO" price="80" description="%s says: EXODUS: Ultima III, which is next? Now could it be." />
+            <item type="TAVERNINFO" price="90" description="%s says: Seek ye out the Lord of Time, and the one way is a sure find!" />
         </vendor>
         
         <vendor id="MOON" name="the Blue Boar" owner="Thyra" genericField1="Pork Chops" type="TAVERNINFO" startX="45" startY="14">
             <item type="FOOD" name="Pork Chops" price="1" />
-            <item type="FOOD" name="ale" price="2" />
-            <item type="TAVERNINFO" price="10" description="%s says: Have you ever heard of Ambrosia?" />
-            <item type="TAVERNINFO" price="20" description="%s says: Dawn is a city of myths and magic. The conjunction of the moons finds link." />
-            <item type="TAVERNINFO" price="30" description="%s says: Go to Fawn, and find something invokes the Snake." />
-            <item type="TAVERNINFO" price="40" description="%s says: None return or so I'm told from the pool dark and cold." />
-            <item type="TAVERNINFO" price="50" description="%s says: Fountains fair. fountains foul. All are found in Dungeons bowel.." />
-            <item type="TAVERNINFO" price="60" description="%s says: Shrines of knowledge, shrines of strength, are all but lost into the brink." />
-            <item type="TAVERNINFO" price="70" description="%s says: Seek ye out the Lord of Time and the one way is a sure find!" />
+            <item type="FOOD" name="ale" price="7" />
+            <item type="TAVERNINFO" price="0" description="%s says: Thank you, kindly!" />
+            <item type="TAVERNINFO" price="10" description="%s says: Ambrosia, ever heard of it?" />
+            <item type="TAVERNINFO" price="20" description="%s says: Dawn, the city of myths &amp; magic!" />
+            <item type="TAVERNINFO" price="30" description="%s says: The conjunction of the moons finds link!" />
+            <item type="TAVERNINFO" price="40" description="%s says: Nasty creatures, nasty dark, sure thee ready, fore thee embark." />
+            <item type="TAVERNINFO" price="50" description="%s says: None return or so I'm told, from the pool, dark and cold!" />
+            <item type="TAVERNINFO" price="60" description="%s says: Shrines of knowledge, shrines of strength, all are lost into the brink!" />
+            <item type="TAVERNINFO" price="70" description="%s says: Fountains fair &amp; fountains foul, all are found in dungeons bowel." />
+            <item type="TAVERNINFO" price="80" description="%s says: EXODUS: Ultima III, which is next? Now could it be." />
+            <item type="TAVERNINFO" price="90" description="%s says: Seek ye out the Lord of Time, and the one way is a sure find!" />
         </vendor>
         
         <vendor id="LCB" name="the Pub" owner="Alfred" genericField1="Pork Chops" type="TAVERNINFO" startX="17" startY="12">
             <item type="FOOD" name="Pork Chops" price="1" />
-            <item type="FOOD" name="ale" price="2" />
-            <item type="TAVERNINFO" price="10" description="%s says: Have you ever heard of Ambrosia?" />
-            <item type="TAVERNINFO" price="20" description="%s says: Dawn is a city of myths and magic. The conjunction of the moons finds link." />
-            <item type="TAVERNINFO" price="30" description="%s says: Go to Fawn, and find something invokes the Snake." />
-            <item type="TAVERNINFO" price="40" description="%s says: None return or so I'm told from the pool dark and cold." />
-            <item type="TAVERNINFO" price="50" description="%s says: Fountains fair. fountains foul. All are found in Dungeons bowel.." />
-            <item type="TAVERNINFO" price="60" description="%s says: Shrines of knowledge, shrines of strength, are all but lost into the brink." />
-            <item type="TAVERNINFO" price="70" description="%s says: Seek ye out the Lord of Time and the one way is a sure find!" />
+            <item type="FOOD" name="ale" price="7" />
+            <item type="TAVERNINFO" price="0" description="%s says: Thank you, kindly!" />
+            <item type="TAVERNINFO" price="10" description="%s says: Ambrosia, ever heard of it?" />
+            <item type="TAVERNINFO" price="20" description="%s says: Dawn, the city of myths &amp; magic!" />
+            <item type="TAVERNINFO" price="30" description="%s says: The conjunction of the moons finds link!" />
+            <item type="TAVERNINFO" price="40" description="%s says: Nasty creatures, nasty dark, sure thee ready, fore thee embark." />
+            <item type="TAVERNINFO" price="50" description="%s says: None return or so I'm told, from the pool, dark and cold!" />
+            <item type="TAVERNINFO" price="60" description="%s says: Shrines of knowledge, shrines of strength, all are lost into the brink!" />
+            <item type="TAVERNINFO" price="70" description="%s says: Fountains fair &amp; fountains foul, all are found in dungeons bowel." />
+            <item type="TAVERNINFO" price="80" description="%s says: EXODUS: Ultima III, which is next? Now could it be." />
+            <item type="TAVERNINFO" price="90" description="%s says: Seek ye out the Lord of Time, and the one way is a sure find!" />
         </vendor>
         
         <vendor id="LCB" name="the Pub" owner="Ethelred" genericField1="Pork Chops" type="TAVERNINFO" startX="17" startY="14">
             <item type="FOOD" name="Pork Chops" price="1" />
-            <item type="FOOD" name="ale" price="2" />
-            <item type="TAVERNINFO" price="10" description="%s says: Have you ever heard of Ambrosia?" />
-            <item type="TAVERNINFO" price="20" description="%s says: Dawn is a city of myths and magic. The conjunction of the moons finds link." />
-            <item type="TAVERNINFO" price="30" description="%s says: Go to Fawn, and find something invokes the Snake." />
-            <item type="TAVERNINFO" price="40" description="%s says: None return or so I'm told from the pool dark and cold." />
-            <item type="TAVERNINFO" price="50" description="%s says: Fountains fair. fountains foul. All are found in Dungeons bowel.." />
-            <item type="TAVERNINFO" price="60" description="%s says: Shrines of knowledge, shrines of strength, are all but lost into the brink." />
-            <item type="TAVERNINFO" price="70" description="%s says: Seek ye out the Lord of Time and the one way is a sure find!" />
+            <item type="FOOD" name="ale" price="7" />
+            <item type="TAVERNINFO" price="0" description="%s says: Thank you, kindly!" />
+            <item type="TAVERNINFO" price="10" description="%s says: Ambrosia, ever heard of it?" />
+            <item type="TAVERNINFO" price="20" description="%s says: Dawn, the city of myths &amp; magic!" />
+            <item type="TAVERNINFO" price="30" description="%s says: The conjunction of the moons finds link!" />
+            <item type="TAVERNINFO" price="40" description="%s says: Nasty creatures, nasty dark, sure thee ready, fore thee embark." />
+            <item type="TAVERNINFO" price="50" description="%s says: None return or so I'm told, from the pool, dark and cold!" />
+            <item type="TAVERNINFO" price="60" description="%s says: Shrines of knowledge, shrines of strength, all are lost into the brink!" />
+            <item type="TAVERNINFO" price="70" description="%s says: Fountains fair &amp; fountains foul, all are found in dungeons bowel." />
+            <item type="TAVERNINFO" price="80" description="%s says: EXODUS: Ultima III, which is next? Now could it be." />
+            <item type="TAVERNINFO" price="90" description="%s says: Seek ye out the Lord of Time, and the one way is a sure find!" />
         </vendor>
         
     </vendorClass>

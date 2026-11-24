@@ -62,13 +62,12 @@ def test_tavern_ale_tipping_reveals_rumor(asset_mgr, party):
     # Choose 'A' for ale
     town.text_log.handle_char("A")
 
-    # Ale costs 2gp; tip 20gp -> pay 22gp
+    # A drink costs 7gp; paying 22gp buys LairWare's Pub[22 / 10] line
     assert town.text_log.is_waiting_for_input
     town.text_log.submit_input("22")
 
     assert party.gold == initial_gold - 22
-    # 20gp tip corresponds to Dawn conjunction clue: "Dawn is a city of myths and magic"
-    assert any("Dawn is a city" in msg for msg in town.text_log.history)
+    assert any("Dawn, the city of myths & magic!" in msg for msg in town.text_log.history)
 
 
 def test_oracle_prophecy_offering(asset_mgr, party):

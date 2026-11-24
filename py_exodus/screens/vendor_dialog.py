@@ -371,15 +371,12 @@ class TavernVendorDialog(BaseVendorDialog):
                 f"Here's a mug of our best. That'll be {self.ale.price}gp."
             )
             self.ask("You pay?")
-        elif self.state == ConvState.BUY_ALE:
+        elif self.state in (ConvState.BUY_ALE, ConvState.BUY_ALE_WITH_TIP):
+            # LairWare UltimaMisc.c:1628-1632: every paid drink gets the line
+            # Pub[paid / 10] ("Thank you, kindly!" for 7-9 gold).
             self._player().adjust_gold(-self.you_pay)
             self.display("Here ye arr.")
-            self.ask("Somethin' else?")
-            self.state = ConvState.ANYTHING_ELSE
-        elif self.state == ConvState.BUY_ALE_WITH_TIP:
-            self._player().adjust_gold(-self.you_pay)
-            self.display("Here ye arr.")
-            item = self._get_tavern_info(self.tip)
+            item = self._get_tavern_info(self.you_pay)
             if item is not None:
                 self.display(self._clue_text(item, self.vendor.owner))
             else:
@@ -425,7 +422,9 @@ class TavernVendorDialog(BaseVendorDialog):
         elif self.state == ConvState.WAIT_YOU_PAY:
             amnt = self.ale.price
             try:
-                amnt = int(inp)
+                # LairWare UInputNum (UltimaText.c:469-479): two characters,
+                # Absolute() -- 99 gold at most.
+                amnt = abs(int(inp.strip()[:2]))
             except ValueError:
                 pass
             self.you_pay = amnt
@@ -443,9 +442,11 @@ class TavernVendorDialog(BaseVendorDialog):
                 self.state = ConvState.BUY_ALE_WITH_TIP
 
     # --- Java TavernService.java:175-184 ------------------------------------
-    def _get_tavern_info(self, tip: int) -> VendorItemDef | None:
+    def _get_tavern_info(self, paid: int) -> VendorItemDef | None:
+        """LairWare keys the line on the whole payment (``Pub[input / 10]``);
+        Java keyed it on the tip above the ale's price."""
         for item in self.vendor.items:
-            if (item.item_type or "").upper() == "TAVERNINFO" and tip // 10 == item.price // 10:
+            if (item.item_type or "").upper() == "TAVERNINFO" and paid // 10 == item.price // 10:
                 return item
         return None
 

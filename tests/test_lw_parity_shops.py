@@ -235,3 +235,57 @@ def test_grocer_not_enough_room_past_9999(assets):
     assert "how many" in town.text_log.current_prompt.lower()
     town.text_log.submit_input("99")
     assert m.food == 9999 and m.gold == 401
+
+
+# --- Pub -------------------------------------------------------------------------
+
+
+def _pub(assets, gold: int = 500):
+    party = _party(gold)
+    town = _shop(_vendor(assets, "FAWN", "TAVERNINFO"), party)
+    town.text_log.submit_input("a")
+    return party.members[0], town
+
+
+def test_pub_drink_costs_seven(assets):
+    """UltimaMisc.c:1609-1619 (message 186 "It cost 7 g.p."): ``if (input <
+    7)`` -> "LEAVE MY SHOP! YOU SCUM!!" and the visit ends, nothing paid."""
+    m, town = _pub(assets)
+    assert "7gp" in _log(town)
+    town.text_log.submit_input("6")
+    assert m.gold == 500
+    assert not town.text_log.is_waiting_for_input
+
+
+@pytest.mark.parametrize(
+    "pay, clue",
+    [
+        (7, "Thank you, kindly!"),
+        (9, "Thank you, kindly!"),
+        (10, "Ambrosia, ever heard of it?"),
+        (29, "Dawn, the city of myths & magic!"),
+        (30, "The conjunction of the moons finds link!"),
+        (45, "Nasty creatures, nasty dark"),
+        (50, "None return or so I'm told"),
+        (60, "Shrines of knowledge"),
+        (70, "Fountains fair & fountains foul"),
+        (80, "EXODUS: Ultima III, which is next?"),
+        (99, "Seek ye out the Lord of Time"),
+    ],
+)
+def test_pub_clue_by_amount_paid(assets, pay, clue):
+    """UltimaMisc.c:1628-1632: the whole payment is taken and the line is
+    ``Pub[input / 10]`` (Pub.plist, ten lines for 7-9, 10-19, ... 90-99)."""
+    m, town = _pub(assets)
+    town.text_log.submit_input(str(pay))
+    assert m.gold == 500 - pay
+    assert clue in _log(town)
+
+
+def test_pub_pays_at_most_two_digits(assets):
+    """UltimaMisc.c:1612 ``input = UInputNum(tx, ty);`` and UltimaText.c:469-
+    479: UInputNum reads two characters, so 99 is the most a drink costs."""
+    m, town = _pub(assets)
+    town.text_log.submit_input("150")
+    assert m.gold == 500 - 15
+    assert "Ambrosia, ever heard of it?" in _log(town)
