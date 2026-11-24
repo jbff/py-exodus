@@ -289,3 +289,19 @@ def test_pub_pays_at_most_two_digits(assets):
     town.text_log.submit_input("150")
     assert m.gold == 500 - 15
     assert "Ambrosia, ever heard of it?" in _log(town)
+
+
+# --- Oracle ----------------------------------------------------------------------
+
+
+def test_oracle_offering_is_one_digit(assets):
+    """UltimaMisc.c:2065-2071: ``while (... (input < 0 || input > 9)) input =
+    CursorKey(false) - '0';`` then ``input *= 100`` -- one key, 0-9 hundred
+    gold. A typed "15" is the 1 (100 gold and Radrion[1]), never 1,500."""
+    party = _party(5000)
+    m = party.members[0]
+    town = _shop(_vendor(assets, "BRITISH", "ORACLEINFO"), party)
+    assert town.text_log.single_char
+    town.text_log.submit_input("15")
+    assert m.gold == 4900
+    assert "marks and playing cards" in _log(town)

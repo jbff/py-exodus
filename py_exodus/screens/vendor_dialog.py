@@ -517,11 +517,10 @@ class OracleVendorDialog(BaseVendorDialog):
         inp = (input or "").lower()
         # Java OracleService.java:58-86
         if self.state == ConvState.WAIT_BUY_INPUT:
-            offering = 1
-            try:
-                offering = int(inp)
-            except ValueError:
-                offering = 1
+            # LairWare UltimaMisc.c:2065-2071: one key, 0-9 hundred gold
+            # (Java parsed any number; a non-digit is still Java's 1).
+            key = inp.strip()[:1]
+            offering = int(key) if key.isdigit() else 1
             self.current_count = offering * 100
             if not self._check_can_pay(self.current_count):
                 self.state = ConvState.ANYTHING_ELSE
@@ -560,7 +559,7 @@ class OracleVendorDialog(BaseVendorDialog):
 
     def _prompt_for_state(self) -> tuple[str, str, bool]:
         if self.state == ConvState.WAIT_BUY_INPUT:
-            return ("Your offering?", "(in 100 gp units)", False)
+            return ("Your offering?", "(0-9, in 100 gp units)", True)
         return ("More offering?", "(y or n)", True)
 
 
