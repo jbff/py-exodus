@@ -1085,7 +1085,7 @@ def test_overworld_commands_cast_ztats_get_chest_pass(pygame_setup, asset_mgr, s
     assert len(sample_party.dynamic_objects) == 0
     opening_gold_delta = opening_member.gold - member_gold_before
     assert sample_party.gold == 100 + opening_gold_delta
-    assert 10 <= opening_gold_delta <= 66
+    assert 30 <= opening_gold_delta <= 100  # LW GetChestBooty (UltimaMain.c:1655-1660)
     assert opening_member.gold <= 9999
     assert any("The Chest Holds: " in msg for msg in overworld.text_log.history)
 

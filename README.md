@@ -29,6 +29,7 @@ A Python 3 / Pygame-CE reimplementation of *Ultima III: Exodus*, with **Auto-Com
   - **Yell**: `EVOCARE` (with the Mark of Snake) carries the party three rows past the Great Earth Serpent, which stays; any other word works as an Other command.
   - **INSERT**: the Cards go in Love, Sol, Moons, Death order, each at its own panel; a card out of order, at the wrong panel or a second time kills the member who inserts it.
   - **Hand** (`H`): from, to, then **F**ood or **G**old with an amount (the taker holds at most 9,999), **E**quipment (gems, keys, powder, torches; at most 99), or one **W**eapon or **A**rmour by letter; the readied weapon or worn armour stays unless the giver has another.
+  - **Turns**: every letter command takes one turn, whether it works, is refused or is cancelled.
   - **UNSPEAKABLE** kills like ZXKUQYB: each monster has a 75% chance to die outright.
   - **Shrines**: no shrine screen. Enter on an Ambrosia shrine, name who enters, offer 0-9 hundred gold, all in the message log with the map still in view (no shrine picture or chant). The stat goes up by the offering, capped by race (the cap lifts after Exodus, never past 99).
   - **Opening**: LairWare's intro sequence, with py-exodus's own C64-style title art (pyExodus and Ultima III dissolving in, kept blocky by whole-pixel scaling), "by Lord British" written stroke by stroke, the copyright line (Ultima III © 1983 Lord British / Richard Garriott; py-exodus © 2026), the duel under pixel-art stalactites, with the party and dragon drawn from the current tile set and blocky EGA-coloured fire; the crackle plays only while each logo dissolves in), then the View, a scripted scene of Sosaria with its tiles animating at the in-game pace, attacks drawn as combat's hit orbs, and the songs playing one after another, until a key. The main menu is silent. Any key skips the intro; the main menu has "Return to the View". Never in headless or autoplay runs.
@@ -126,7 +127,7 @@ Each seed prints `WON@<steps>`, `WIPED@<steps>` or `STEP_CAP@<steps>`. A trace r
 uv run python -m pytest
 ```
 
-About **1,400 tests** covering mechanics, LairWare/Java/GBC parity, vendors, dungeons, combat, rendering and autoplay regressions (most autoplay fixes come with a test that fails on the old code).
+About **1,500 tests** covering mechanics, LairWare/Java/GBC parity, vendors, dungeons, combat, rendering and autoplay regressions (most autoplay fixes come with a test that fails on the old code).
 
 ---
 

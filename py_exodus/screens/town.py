@@ -211,6 +211,7 @@ class TownScreen(BaseScreen):
 
         if self.text_log.is_waiting_for_input:
             self.text_log.handle_event(event)
+            self._settle_letter_turn()
             return
 
         # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): debug cheat
@@ -227,6 +228,11 @@ class TownScreen(BaseScreen):
             return
 
         # Movement: Arrow keys and Keypad ONLY (no WASD)
+        # LairWare main loop (UltimaMain.c:1057-1059): ``LetterCommand();
+        # Routine6E35();`` -- every letter ends the turn once, whatever the
+        # command did; _settle_letter_turn adds it when the command didn't.
+        if pygame.K_a <= event.key <= pygame.K_z:
+            self._letter_turn = (self.party.moves, self.map_id)
         if event.key in (pygame.K_UP, pygame.K_KP8):
             self._try_move(Direction.NORTH)
         elif event.key in (pygame.K_DOWN, pygame.K_KP2):
@@ -314,6 +320,22 @@ class TownScreen(BaseScreen):
             # explicit early return — including unhandled D, I and K — fall
             # through to finishTurn with no message.
             self._consume_pass_turn()
+        self._settle_letter_turn()
+
+    def _settle_letter_turn(self) -> None:
+        """Once a letter command's prompts are done, take its turn if the
+        command didn't (LairWare Routine6E35 after every LetterCommand,
+        UltimaMain.c:1057-1059)."""
+        mark = getattr(self, "_letter_turn", None)
+        if mark is None or self.text_log.is_waiting_for_input:
+            return
+        self._letter_turn = None
+        moves, map_id = mark
+        # A command that left the map (Enter, a whirlpool) already set the
+        # new one up; its turn is not replayed there.
+        if self.is_finished or self.party.moves != moves or self.map_id != map_id:
+            return
+        self._consume_pass_turn()
 
     def _prompt_attack(self) -> None:
         """LairWare Attack (UltimaMain.c:1329-1340): a direction, then

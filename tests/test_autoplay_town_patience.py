@@ -86,6 +86,7 @@ def _party_on_a_chest(dead_cleric: bool, level: int):
         cleric.hp = 0
     sm = StateMachine(asset_mgr=am, audio=None)
     ow = OverworldScreen(party=p, asset_mgr=am)
+    ow.creatures = []  # a random pirate nearby changes the plan (seeds 266, 353)
     sm.set_screen(ow)
     p.transport = Transport.FOOT
     p.dynamic_objects = list(getattr(p, "dynamic_objects", []) or []) + [

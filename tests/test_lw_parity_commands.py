@@ -703,3 +703,39 @@ def test_hand_same_member_refused(overworld):
     _hand(scr, "11")
     assert not scr.text_log.is_waiting_for_input
     assert a.food == 500
+
+
+# --- Every letter command takes a turn --------------------------------------------
+
+
+_LETTERS = "abcdefghijklmnopqrstuvwxyz"
+
+
+def _press_letter_and_escape(scr, ch: str) -> None:
+    _key(scr, ord(ch), ch)
+    for _ in range(6):
+        if getattr(scr, "gem_view_active", False):
+            _key(scr, pygame.K_ESCAPE)
+        if not scr.text_log.is_waiting_for_input:
+            break
+        _key(scr, pygame.K_ESCAPE)
+
+
+@pytest.mark.parametrize("ch", [c for c in _LETTERS if c not in "eq"])
+def test_every_letter_takes_one_turn_overworld(overworld, ch):
+    """UltimaMain.c:1057-1059: ``LetterCommand(gKeyPress); Routine6E35();``
+    -- every letter, done, refused or cancelled, ends the turn once."""
+    scr = overworld()
+    before = scr.party.moves
+    _press_letter_and_escape(scr, ch)
+    assert scr.party.moves == before + 1, ch
+
+
+@pytest.mark.parametrize("ch", [c for c in _LETTERS if c not in "e"])
+def test_every_letter_takes_one_turn_town(town, ch):
+    """UltimaMain.c:1057-1059, in towns too."""
+    scr = town()
+    scr.game_map.npcs = []
+    before = scr.party.moves
+    _press_letter_and_escape(scr, ch)
+    assert scr.party.moves == before + 1, ch

@@ -643,6 +643,7 @@ class OverworldScreen(BaseScreen):
 
         if self.text_log.is_waiting_for_input:
             self.text_log.handle_event(event)
+            self._settle_letter_turn()
             return
 
         # PageUp/PageDown always scroll the text log back (arrow keys scroll
@@ -659,6 +660,11 @@ class OverworldScreen(BaseScreen):
             return
 
         # Directional Movement: Arrow keys and Keypad ONLY (no WASD)
+        # LairWare main loop (UltimaMain.c:1057-1059): ``LetterCommand();
+        # Routine6E35();`` -- every letter ends the turn once, whatever the
+        # command did; _settle_letter_turn adds it when the command didn't.
+        if pygame.K_a <= event.key <= pygame.K_z:
+            self._letter_turn = (self.party.moves, self.map_id)
         if event.key in (pygame.K_UP, pygame.K_KP8):
             self._move_avatar(Direction.NORTH)
         elif event.key in (pygame.K_DOWN, pygame.K_KP2):
@@ -733,6 +739,22 @@ class OverworldScreen(BaseScreen):
             # has no explicit early return — including the unhandled D, I and
             # K — falls through to finishTurn(v.x, v.y) with no message.
             self._consume_pass_turn()
+        self._settle_letter_turn()
+
+    def _settle_letter_turn(self) -> None:
+        """Once a letter command's prompts are done, take its turn if the
+        command didn't (LairWare Routine6E35 after every LetterCommand,
+        UltimaMain.c:1057-1059)."""
+        mark = getattr(self, "_letter_turn", None)
+        if mark is None or self.text_log.is_waiting_for_input:
+            return
+        self._letter_turn = None
+        moves, map_id = mark
+        # A command that left the map (Enter, a whirlpool) already set the
+        # new one up; its turn is not replayed there.
+        if self.is_finished or self.party.moves != moves or self.map_id != map_id:
+            return
+        self._consume_pass_turn()
 
     def _consume_pass_turn(self) -> None:
         """Java GameScreen.keyUp tail (GameScreen.java:628): finishTurn on the
