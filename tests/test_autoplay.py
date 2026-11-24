@@ -1928,7 +1928,7 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
     assert p_exo.exodus_cards_status == 0xF
     assert getattr(p_exo, "exodus_defeated", 0) > 0
 
-    # CONQUER_EXODUS at (10, 59) on ship yells EVOCARE to clear the Great Earth Serpent at (10, 57..58)
+    # CONQUER_EXODUS at (10, 59) on ship yells EVOCARE: LW carries the party past the serpent to (10, 56)
     p_evo = _make_party(
         level=25, exp=2400, gold=100, food=500, marks=[1, 1, 1, 1], cards=[1, 1, 1, 1],
         weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC, transport=Transport.SHIP,
@@ -1941,10 +1941,14 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
     ctrl_evo = AutoPlayController(enabled=True)
     for _ in range(12):
         ctrl_evo.step(sm_evo)
-        if str(getattr(ow_evo.game_map.get_tile(10, 58), "name", "")).lower() == "water":
+        if p_evo.y <= 56:
             break
-    assert str(getattr(ow_evo.game_map.get_tile(10, 58), "name", "")).lower() == "water"
-    assert str(getattr(ow_evo.game_map.get_tile(10, 57), "name", "")).lower() == "water"
+    assert (p_evo.x, p_evo.y) == (10, 56)
+    assert str(getattr(ow_evo.game_map.get_tile(10, 58), "name", "")).startswith("snake")
+    # Past the serpent, the goal no longer sails back to yell again.
+    for _ in range(6):
+        ctrl_evo.step(sm_evo)
+    assert p_evo.y <= 56
 
 
 def _make_stub_grid(width: int, height: int, tiles: dict[tuple[int, int], str], default: str = "water", map_id: int = 0):

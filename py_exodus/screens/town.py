@@ -1183,48 +1183,50 @@ class TownScreen(BaseScreen):
         too — user ruling 2026-11-14): it falls through to the generic
         "Nothing happened.".
         """
-        def _on_other(cmd: str) -> None:
-            c = cmd.strip().upper()
-            if not c:
-                return
-            if c == "PRAY":
-                self.text_log.add_message(
-                    special_commands.do_pray(
-                        self.avatar_x,
-                        self.avatar_y,
-                        self.map_id,
-                        str(getattr(self.game_map, "name", "") or ""),
-                    )
-                )
-            elif c == "BRIBE":
-                special_commands.bribe_flow(
-                    self.text_log,
-                    self.party,
+        self.text_log.prompt("Other Command? ", callback=self._run_other)
+
+    def _run_other(self, cmd: str) -> None:
+        """One Other word (LairWare OtherCommand, UltimaMisc.c:2262-2510);
+        Yell runs the same words (Yell(0) is OtherCommand(1))."""
+        c = cmd.strip().upper()
+        if not c:
+            return
+        if c == "PRAY":
+            self.text_log.add_message(
+                special_commands.do_pray(
                     self.avatar_x,
                     self.avatar_y,
-                    self.game_map,
-                    creatures=self.creatures,
+                    self.map_id,
+                    str(getattr(self.game_map, "name", "") or ""),
                 )
-            elif c == "STEAL":
-                special_commands.steal_flow(
-                    self.text_log, self.party, self.avatar_x, self.avatar_y, self.game_map
-                )
-            elif c == "DIG":
-                special_commands.dig_flow(
-                    self.text_log, self.party, self.avatar_x, self.avatar_y, self.game_map
-                )
-            elif c == "SEARCH":
-                special_commands.search_flow(
-                    self.text_log, self.party, self.avatar_x, self.avatar_y, self.game_map
-                )
-            elif c == "SCORE":
-                self.text_log.add_message(special_commands.do_score(self.party))
-            elif c == "INSERT":
-                prompt_insert_card(self, self.avatar_x, self.avatar_y)
-            else:
-                self.text_log.add_message(f"'{c}': Nothing happened.")
-
-        self.text_log.prompt("Other Command? ", callback=_on_other)
+            )
+        elif c == "BRIBE":
+            special_commands.bribe_flow(
+                self.text_log,
+                self.party,
+                self.avatar_x,
+                self.avatar_y,
+                self.game_map,
+                creatures=self.creatures,
+            )
+        elif c == "STEAL":
+            special_commands.steal_flow(
+                self.text_log, self.party, self.avatar_x, self.avatar_y, self.game_map
+            )
+        elif c == "DIG":
+            special_commands.dig_flow(
+                self.text_log, self.party, self.avatar_x, self.avatar_y, self.game_map
+            )
+        elif c == "SEARCH":
+            special_commands.search_flow(
+                self.text_log, self.party, self.avatar_x, self.avatar_y, self.game_map
+            )
+        elif c == "SCORE":
+            self.text_log.add_message(special_commands.do_score(self.party))
+        elif c == "INSERT":
+            prompt_insert_card(self, self.avatar_x, self.avatar_y)
+        else:
+            self.text_log.add_message(f"'{c}': Nothing happened.")
 
     def _prompt_modify_order(self) -> None:
         """Modify marching order (Java BaseScreen.java:165-204
@@ -1260,47 +1262,40 @@ class TownScreen(BaseScreen):
         self.text_log.prompt("YELL> Which party member? (1-4):", callback=_on_member, single_char=True)
 
     def _yell(self, member, phrase: str) -> None:
+        """LairWare Yell (UltimaMain.c:2544-2590): EVOCARE, with the Mark of
+        Snake, carries the party three rows past the Great Earth Serpent
+        (a serpent tile 236 north, or 232 south); the serpent stays. Any
+        other word is an Other command (Yell(0) is OtherCommand(1))."""
         word = phrase.strip().upper()
         if not word:
             return
         if word != "EVOCARE":
-            self.text_log.add_message("What?")
+            self._run_other(word)
             return
-
+        if member.is_disabled():
+            self.text_log.add_message("Incapacitated!")  # OtherCommand CheckAlive
+            return
+        if getattr(member, "marks", [0, 0, 0, 0])[2] <= 0:  # Mark of Snake
+            self.text_log.add_message("No effect.")
+            return
         gm = self.game_map
+        x, y = self.avatar_x, self.avatar_y
 
-        def _is_snake(x: int, y: int) -> bool:
-            tile = gm.get_tile(x, y) if gm else None
-            return tile is not None and str(getattr(tile, "name", "")).startswith("snake")
+        def _index(tx: int, ty: int) -> int:
+            tile = gm.get_tile(tx, ty) if gm else None
+            return getattr(tile, "index", -1)
 
-        if not (_is_snake(self.avatar_x, self.avatar_y - 1) or _is_snake(self.avatar_x, self.avatar_y + 1)):
+        oy = y
+        if _index(x, y - 1) == 59:  # snake2, LW tile value 236
+            oy -= 3
+        if _index(x, y + 1) == 58:  # snake1, LW tile value 232
+            oy += 3
+        if oy == y:
             self.text_log.add_message("No effect.")
             return
-
-        if getattr(member, "marks", [0, 0, 0, 0])[2] > 0:  # Mark of Snake (SIP:546)
-            if self.audio is not None:
-                self.audio.play_sfx("rocks")
-            # Java YellInputAdapter replaces the fixed serpent tiles with
-            # water (SIP:548-549).
-            self._replace_tile("water", 10, 57)
-            self._replace_tile("water", 10, 58)
-        else:
-            if self.audio is not None:
-                self.audio.play_sfx("negative_effect")
-            self.text_log.add_message("No effect.")
-
-    def _replace_tile(self, name: str, x: int, y: int) -> None:
-        """Java ``GameScreen.replaceTile`` — swap the map tile for `name`."""
-        if self.game_map is None:
-            return
-        tile = None
-        if self.asset_mgr is not None:
-            tile = self.asset_mgr.get_tile_by_name(name)
-        if tile is None:
-            from py_exodus.assets import TileDef
-
-            tile = TileDef(index=2, name=name)
-        self.game_map.set_tile(x, y, tile)
+        if self.audio is not None:
+            self.audio.play_sfx("rocks")
+        self.avatar_y = oy
 
     def update(self, dt: float) -> None:
         self.anim_timer += dt

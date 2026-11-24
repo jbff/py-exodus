@@ -1987,7 +1987,11 @@ class AutoPlayController:
         if goal == Goal.CONQUER_EXODUS:
             snake_tile = gmap.get_tile(10, 58)
             snake_active = snake_tile is not None and str(getattr(snake_tile, "name", "")).startswith("snake")
-            if snake_active and cur_map_id == 0:
+            # LairWare's EVOCARE carries the party three rows past the serpent,
+            # which stays (UltimaMain.c:2569-2590): once inside Exodus's
+            # enclosure (x 7-13, y 51-56) head for the castle.
+            past_snake = 7 <= px <= 13 and 51 <= py <= 56
+            if snake_active and cur_map_id == 0 and not past_snake:
                 def _evocare() -> int:
                     snake_idx = next(
                         (i + 1 for i, m in enumerate(party.members) if not m.is_dead() and m.marks[2] > 0),

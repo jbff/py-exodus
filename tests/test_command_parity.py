@@ -639,8 +639,9 @@ class TestTalkSignsOnly:
 
 
 class TestYell:
-    """(i) Y: member + word prompts; EVOCARE replaces adjacent snake tiles
-    with water only when the talker has marks[2]."""
+    """(i) Y: member + word prompts; EVOCARE with marks[2] carries the party
+    three rows past the serpent (LW Yell, UltimaMain.c:2544-2590); other
+    words are Other commands."""
 
     def _yell(self, screen, word, member="1"):
         key(screen, pygame.K_y)
@@ -649,9 +650,9 @@ class TestYell:
         assert "Yell what?" in screen.text_log.current_prompt
         answer(screen, word)
 
-    def test_yell_unknown_word_what(self, ow):
+    def test_yell_unknown_word_is_an_other_word(self, ow):
         self._yell(ow, "XYZZY")
-        assert any(m == "What?" for m in ow.text_log.history)
+        assert any("Nothing happened." in m for m in ow.text_log.history)
 
     def test_evocare_far_from_snakes_no_effect(self, ow):
         self._yell(ow, "EVOCARE")
@@ -661,8 +662,8 @@ class TestYell:
         sample_party.members[0].marks = [0, 0, 1, 0]
         sample_party.x, sample_party.y = 10, 56  # north tile (10,57) is snake
         self._yell(ow, "EVOCARE")
-        assert ow.game_map.get_tile(10, 57).name == "water"
-        assert ow.game_map.get_tile(10, 58).name == "water"
+        assert (sample_party.x, sample_party.y) == (10, 59)
+        assert ow.game_map.get_tile(10, 57).name.startswith("snake")
         assert not any(m == "No effect." for m in ow.text_log.history)
 
     def test_evocare_without_mark_no_effect(self, ow, sample_party):
@@ -684,14 +685,14 @@ class TestYell:
         key(ow, pygame.K_RETURN)
         assert ow.text_log.is_waiting_for_input
         assert "Yell what?" in ow.text_log.current_prompt
-        assert not any(m == "What?" for m in ow.text_log.history)
+        assert not any("Nothing happened." in m for m in ow.text_log.history)
 
         # Typing a word and pressing ENTER afterwards still submits normally
         for ch in "XYZZY":
             key(ow, ord(ch.lower()), unicode=ch)
         key(ow, pygame.K_RETURN)
         assert not ow.text_log.is_waiting_for_input
-        assert any(m == "What?" for m in ow.text_log.history)
+        assert any("Nothing happened." in m for m in ow.text_log.history)
 
     def test_yell_escape_still_cancels_cleanly(self, ow):
         key(ow, pygame.K_y)

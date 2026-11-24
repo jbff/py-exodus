@@ -552,3 +552,48 @@ def test_attack_in_town_fights_the_person(town):
     assert scr.is_finished
     assert type(scr.next_screen).__name__ == "CombatScreen"
     assert scr._combat_npc is not None and scr._combat_npc.tile_name == "guard"
+
+
+# --- Yell -----------------------------------------------------------------------
+
+
+def test_yell_evocare_carries_party_past_the_serpent(overworld):
+    """UltimaMain.c:2557-2590: with the Mark of Snake, ``if (GetXYVal(xpos,
+    ypos - 1) == 236) oy -= 3; if (GetXYVal(xpos, ypos + 1) == 232) oy += 3;
+    ... ypos = oy;`` -- the party jumps three rows past the serpent, which
+    stays (the port replaced the serpent tiles with water for good)."""
+    m = _pm()
+    m.marks[2] = 1
+    scr = overworld(10, 59, party=_party(m))
+    scr.party.transport = Transport.SHIP
+    _key(scr, pygame.K_y, "y")
+    _key(scr, pygame.K_1, "1")
+    _type(scr, "EVOCARE\n")
+    assert (scr.party.x, scr.party.y) == (10, 56)
+    assert scr.game_map.get_tile(10, 57).name.startswith("snake")
+    assert scr.game_map.get_tile(10, 58).name.startswith("snake")
+    _key(scr, pygame.K_y, "y")
+    _key(scr, pygame.K_1, "1")
+    _type(scr, "EVOCARE\n")
+    assert (scr.party.x, scr.party.y) == (10, 59)
+
+
+def test_yell_evocare_needs_the_mark(overworld):
+    """UltimaMain.c:2563-2567: ``if ((Player[rosNum][14] & 0x40) == 0) {
+    NoEffect(); return; }``"""
+    scr = overworld(10, 59)
+    _key(scr, pygame.K_y, "y")
+    _key(scr, pygame.K_1, "1")
+    _type(scr, "EVOCARE\n")
+    assert (scr.party.x, scr.party.y) == (10, 59)
+
+
+def test_yell_takes_the_other_words(town):
+    """UltimaMain.c:2546-2550: ``Yell(0)`` is ``OtherCommand(1)`` -- any Other
+    word can be yelled (here BRIBE asks its direction)."""
+    scr = town()
+    _key(scr, pygame.K_y, "y")
+    _key(scr, pygame.K_1, "1")
+    _type(scr, "BRIBE\n")
+    assert scr.text_log.is_waiting_for_input
+    assert "BRIBE" in scr.text_log.current_prompt

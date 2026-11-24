@@ -740,8 +740,9 @@ def test_terrain_sees_the_snake_turn_to_water_after_evocare():
         ow = OverworldScreen(party=party, map_id=0, asset_mgr=am)
         gmap = ow.game_map
         assert (10, 58) not in terrain_for(gmap, party, 0).sea_comp
-        ow._replace_tile("water", 10, 57)
-        ow._replace_tile("water", 10, 58)
+        water = am.get_tile_by_name("water")
+        gmap.set_tile(10, 57, water)
+        gmap.set_tile(10, 58, water)
         assert (10, 58) in terrain_for(gmap, party, 0).sea_comp
     finally:
         random.setstate(rng_state)
