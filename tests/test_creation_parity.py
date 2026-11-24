@@ -2,7 +2,8 @@
 
 Java truth:
 - exodus/ManagePartyScreen.java:165-199,355-367 (stat sliders 5-25, total <= 50
-  reject, name <= 16 chars, health/food/gold = 150, NO starting weapon/armor)
+  reject, health/food/gold = 150); the starting kit is
+  LairWare's readied Dagger and Cloth (UltimaMain.c:814-817)
 - exodus/SecondaryInputProcessor.java:179-202 (no resurrection, talking-member
   only level advance)
 - objects/SaveGame.java:394-433 (Mark-of-Kings gate at expLvl >= 5), 164-169
@@ -95,7 +96,7 @@ def _binary_record(**overrides: int) -> bytes:
 # (a) Character creation parity
 # --------------------------------------------------------------------------- #
 class TestCreationParity:
-    def test_start_values_health_food_gold_150_no_gear(self, pygame_setup, asset_mgr):
+    def test_start_values_health_food_gold_150_dagger_cloth(self, pygame_setup, asset_mgr):
         scr = RosterScreen(asset_mgr=asset_mgr)
         before = len(scr.roster)
         _drive_creation_wizard(scr, "Lancelot", prof="F", stats=[10, 10, 10, 10])
@@ -106,20 +107,20 @@ class TestCreationParity:
         assert c.max_hp == 150
         assert c.food == 150
         assert c.gold == 150
-        # NO starting weapon/armor (ManagePartyScreen.java:185-192)
-        assert c.weapon == WeaponType.NONE
-        assert c.armor == ArmorType.NONE
+        # LairWare starting kit: readied Dagger and Cloth (UltimaMain.c:814-817)
+        assert c.weapon == WeaponType.DAGGER
+        assert c.armor == ArmorType.CLOTH
         assert c.weapons.get(WeaponType.SWORD, 0) == 0
         assert c.armors.get(ArmorType.LEATHER, 0) == 0
 
-    def test_name_up_to_16_chars(self, pygame_setup, asset_mgr):
+    def test_name_up_to_12_chars(self, pygame_setup, asset_mgr):
         scr = RosterScreen(asset_mgr=asset_mgr)
-        _drive_creation_wizard(scr, "A" * 16, stats=[5, 5, 5, 5])
-        assert scr.roster[-1].name == "A" * 16
-        # Name longer than 16 is truncated to 16 (nameField.setMaxLength(16))
+        _drive_creation_wizard(scr, "A" * 12, stats=[5, 5, 5, 5])
+        assert scr.roster[-1].name == "A" * 12
+        # Longer names are cut to 12 (LairWare UltimaMacIF.c:2430-2432)
         scr2 = RosterScreen(asset_mgr=asset_mgr)
         _drive_creation_wizard(scr2, "B" * 20, stats=[5, 5, 5, 5])
-        assert scr2.roster[-1].name == "B" * 16
+        assert scr2.roster[-1].name == "B" * 12
 
     def test_portrait_field_preserved_but_invisible(self, pygame_setup, asset_mgr):
         """User ruling: "dump the faces/images for characters" — the wizard

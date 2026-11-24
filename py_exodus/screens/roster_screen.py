@@ -7,9 +7,11 @@ from typing import TYPE_CHECKING, Any
 import pygame
 
 from py_exodus.constants import (
+    ArmorType,
     Profession,
     Race,
     Sex,
+    WeaponType,
 )
 from py_exodus.entities.character import Character
 from py_exodus.entities.party import Party
@@ -36,6 +38,8 @@ ROSTER_SLOTS = 20
 CREATION_MIN_STAT = 5
 CREATION_MAX_STAT = 25
 CREATION_MAX_POINTS = 50
+# Name length: LairWare UltimaMacIF.c:2430-2432,2492-2496 keeps 12 letters.
+CREATION_MAX_NAME = 12
 
 
 class RosterScreen(BaseScreen):
@@ -307,8 +311,10 @@ class RosterScreen(BaseScreen):
         Java truth: ``exodus/ManagePartyScreen.java:165-199,355-367`` — the
         stat sliders allocate each of STR/DEX/INT/WIS in 5..25, the total may
         not exceed 50 (over-budget apply is refused, nothing is committed),
-        the name field accepts up to 16 characters, and a created character
-        starts with health/food/gold = 150 and NO weapon or armor. Stat
+        the name keeps at most 12 letters (LairWare UltimaMacIF.c:2430-2432),
+        and a created character
+        starts with health/food/gold = 150 and a readied Dagger and Cloth
+        (LairWare UltimaMain.c:814-817). Stat
         validation is delegated to ``Character.validate_creation``.
         """
         self._new_char_data = {}
@@ -378,9 +384,11 @@ class RosterScreen(BaseScreen):
                 self.text_log.add_message("The roster is full (20 adventurers)!")
                 return
 
-            # Starting record: health/food/gold = 150 and NO weapon or armor
-            # (ManagePartyScreen.java:185-192). Max MP is derived from
-            # profession/stats, not chosen here.
+            # Starting record: health/food/gold = 150 (ManagePartyScreen.java:
+            # 185-192), plus LairWare's starting kit: one Dagger and one Cloth,
+            # both readied (LairWare UltimaMain.c:814-817, Player[41]/[40]
+            # Cloth readied, Player[49]/[48] Dagger readied). Max MP is
+            # derived from profession/stats, not chosen here.
             new_char = Character(
                 name=name,
                 sex=sex,
@@ -394,6 +402,8 @@ class RosterScreen(BaseScreen):
                 max_hp=150,
                 food=150,
                 gold=150,
+                weapon=WeaponType.DAGGER,
+                armor=ArmorType.CLOTH,
                 # portrait_index keeps its default (43): the field survives for
                 # save compatibility but the creation wizard never asks for it
                 # and no UI renders it (user ruling, see _step_profession).
@@ -468,15 +478,16 @@ class RosterScreen(BaseScreen):
             self.text_log.prompt("Race: [H]uman [E]lf [D]warf [B]obit [F]uzzy:", _step_race, single_char=True)
 
         def _step_name(name_str: str) -> None:
-            # nameField.setMaxLength(16) (ManagePartyScreen.java:389); the
-            # apply listener refuses an empty name.
-            name = name_str.strip()[:16]
+            # A name is at most 12 letters: LairWare cuts the name field at
+            # 12 (UltimaMacIF.c:2430-2432) and stores name bytes 0..11
+            # (UltimaMacIF.c:2492-2496). Java allowed 16.
+            name = name_str.strip()[:CREATION_MAX_NAME]
             if not name:
                 name = f"Hero{len(self.roster) + 1}"
             self._new_char_data["name"] = name
             _sex_prompt()
 
-        self.text_log.prompt("Character Name (up to 16 chars):", _step_name)
+        self.text_log.prompt(f"Character Name (up to {CREATION_MAX_NAME} chars):", _step_name)
 
     def _embark(self) -> None:
         """Validate party and launch overworld adventure."""

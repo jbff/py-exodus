@@ -123,11 +123,12 @@ def test_roster_screen_character_creation(pygame_setup, asset_mgr):
     assert created.sex == Sex.MALE
     assert created.race == Race.HUMAN
     assert created.profession == Profession.PALADIN
-    # Java ManagePartyScreen.java:185-192 — creation start values
+    # Java ManagePartyScreen.java:185-192 — creation start values; the
+    # readied Dagger and Cloth are LairWare's kit (UltimaMain.c:814-817)
     assert created.hp == 150 and created.max_hp == 150
     assert created.food == 150 and created.gold == 150
-    assert created.weapon == WeaponType.NONE
-    assert created.armor == ArmorType.NONE
+    assert created.weapon == WeaponType.DAGGER
+    assert created.armor == ArmorType.CLOTH
     # Portrait field preserved for save compatibility but invisible: the
     # wizard no longer asks, the value stays at its default.
     assert created.portrait_index == 43
