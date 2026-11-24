@@ -603,6 +603,10 @@ class TownScreen(BaseScreen):
                 self.text_log.add_message("Nobody selected!")
                 return
             speaker = self.party.members[idx]
+            # LairWare Transact (UltimaMain.c:2302-2305): a living member only.
+            if speaker.is_disabled():
+                self.text_log.add_message("Incapacitated!")
+                return
 
             def _on_dir(d_str: str) -> None:
                 d = Direction.from_name_or_key(d_str)
@@ -702,7 +706,7 @@ class TownScreen(BaseScreen):
             self.text_log.add_message("Lord British says:\n'Welcome my child..\nExperience more!'")
             return
 
-        if target.character.meet_lord_british():
+        if target.character.meet_lord_british(bool(getattr(self.party, "exodus_defeated", 0))):
             self.text_log.add_message("Lord British says:\n'Thou hast been advanced!'")
             if self.audio is not None:
                 self.audio.play_sfx("magic")

@@ -762,15 +762,17 @@ def test_lord_british_levels_all_eligible_members_and_exits(pygame_setup):
     sm.set_screen(ts)
 
     ctrl = AutoPlayController(enabled=True)
-    for _ in range(20):
+    for _ in range(40):
         ctrl.step(sm)
 
     assert party.members[0].level == 2
-    assert party.members[1].level == 3
+    assert party.members[1].level == 3  # two visits: LW gives one level each
     assert party.members[2].level == 5
     assert party.members[3].level == 2
-    # Should have left (32, 15) heading toward the exit rather than looping T 1 N
-    assert (ts.avatar_x, ts.avatar_y) != (32, 15)
+    # No talk loop once nobody can level: exactly the three advancing talks.
+    # (LW's Lord British does not heal, so the party may rest here after.)
+    talks = [m for m in ts.text_log.history if str(m).startswith("TALK>")]
+    assert len(talks) == 3
 
 
 def test_buy_keys_before_ambrosia_and_unlock_locked_door(pygame_setup):

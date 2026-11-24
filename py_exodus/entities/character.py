@@ -331,25 +331,25 @@ class Character(metaclass=CharacterMeta):
         self.gold = max(0, min(9999, self.gold + pts))
         return self.gold
 
-    def meet_lord_british(self) -> bool:
-        """Advance character level when visiting Lord British with sufficient EXP."""
-        if self.level >= 25:
-            return False
+    def meet_lord_british(self, exodus_defeated: bool = False) -> bool:
+        """LairWare Transact, Lord British (UltimaMain.c:2345-2386).
 
-        eligible_level = self.exp // 100 + 1
-        # Mark of Kings gate (Java truth: objects/SaveGame.java:406): advancing
-        # past level 5 requires the Mark of Kings. Without it, a character who
-        # accumulated >= 500 EXP while still below level 5 can still advance up
-        # to level 5 instead of soft-locking below level 5.
-        if not self.marks or self.marks[0] == 0:
-            eligible_level = min(eligible_level, 5)
-        if eligible_level <= self.level:
+        The max-HP hundreds (an old x50 max counts as the hundred below) are
+        the level: experience hundreds below it -> "Experience more"; at 25
+        while Exodus stands -> "No more"; past 4 without the Mark of Kings
+        -> "Seek ye the Mark of Kings". Otherwise max HP rises by 100 (cap
+        9950) -- one level per visit, with no healing and no cure.
+        """
+        # The port keeps that level as ``level`` (max HP = level * 100 + 50).
+        hp_level = int(self.level)
+        if self.exp // 100 < hp_level:
             return False
-
-        self.level = eligible_level
-        self.status = Status.GOOD
-        self.max_hp = self.level * 100 + 50
-        self.hp = self.max_hp
+        if hp_level >= 25 and not exodus_defeated:
+            return False
+        if hp_level > 4 and (not self.marks or self.marks[0] == 0):
+            return False
+        self.level = min(99, hp_level + 1)
+        self.max_hp = min(9950, self.level * 100 + 50)
 
         # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): no random stat gains on level-up — stats increase only at shrines (ruling; GBC/NES/LW all agree no gains; LW UltimaMisc.c:442-456)
 

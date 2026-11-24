@@ -692,8 +692,12 @@ class AutoPlayController:
         self._sell_plan = None  # a talk in progress answers prompts, not steps
         gmap = screen.game_map
         map_id = getattr(gmap, "id", getattr(screen, "map_id", party.map_id))
+        # Lord British raises max HP without healing (LairWare Transact,
+        # UltimaMain.c:2373-2380), so level first, rest after.
+        british_levels = map_id == 1 and any(self._can_level_at_british(m) for m in party.members)
         if (
             map_id not in _UNSAFE_REST_TOWN_MAPS
+            and not british_levels
             and needs_heal(party)
             and self._can_rest_indoors(party, goal)
         ):
@@ -2971,13 +2975,15 @@ class AutoPlayController:
 
     @staticmethod
     def _can_level_at_british(member) -> bool:
-        """Return True iff ``member.meet_lord_british()`` would actually advance their level."""
-        if member.is_dead() or member.level >= 25:
+        """Return True iff ``member.meet_lord_british()`` would advance them
+        (LairWare: one level per visit, experience hundreds >= the max-HP
+        hundreds, the Mark of Kings past level 5, 25 while Exodus stands)."""
+        if member.is_dead():
             return False
-        eligible_level = member.exp // 100 + 1
-        if not member.marks or member.marks[0] == 0:
-            eligible_level = min(eligible_level, 5)
-        return eligible_level > member.level
+        hp_level = int(member.level)
+        if hp_level >= 25 or member.exp // 100 < hp_level:
+            return False
+        return hp_level <= 4 or bool(member.marks and member.marks[0])
 
     # Who takes chests with G once no APPAR UNEM caster is left alive (user
     # ruling 2026-11-22): the Thief (LairWare's +128 disarm bonus), then the

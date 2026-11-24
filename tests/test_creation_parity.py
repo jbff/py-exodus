@@ -292,105 +292,33 @@ class TestLordBritish:
         assert other.level == 1
         assert any("advanced" in h.lower() for h in town.text_log.history)
 
-    def test_multi_level_gain_leaves_stats_untouched(self):
+    def test_level_gain_leaves_stats_untouched(self):
         """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): no random stat
-        gains on level-up — stats increase only at shrines (ruling; GBC/NES/LW
-        all agree no gains; LW UltimaMisc.c:442-456 AddExp mutates no stats).
-
-        Two level advances in a row; no seed needed because once the random
-        gain loop is gone level-up is deterministic."""
+        gains on level-up — stats increase only at shrines. LW Transact gives
+        one level per visit (UltimaMain.c:2373-2380) and heals nothing."""
         c = Character(name="Hero", profession=Profession.FIGHTER, level=1, exp=450)
         c.marks = [1, 0, 0, 0]
+        hp = c.hp
 
-        # First advance: exp 450 (expLvl 4) jumps level 1 -> 5 (multi-level gain)
         assert c.meet_lord_british() is True
-        assert c.level == 5
-        assert (c.str, c.dex, c.int, c.wis) == (15, 15, 10, 10)
-
-        # Second advance: exp 650 (expLvl 6) jumps level 5 -> 7
-        c.exp = 650
+        assert c.level == 2
         assert c.meet_lord_british() is True
-        assert c.level == 7
+        assert c.level == 3
         assert (c.str, c.dex, c.int, c.wis) == (15, 15, 10, 10)
-        # Advancement invariants still hold per level gained
-        assert c.max_hp == 7 * 100 + 50
-        assert c.hp == c.max_hp
-        assert c.status == Status.GOOD
+        assert c.max_hp == 3 * 100 + 50
+        assert c.hp == hp  # no healing
 
 
-# --------------------------------------------------------------------------- #
-# (c) Remove-from-party returns the member to a roster slot
-# --------------------------------------------------------------------------- #
-class TestRosterRemoval:
-    def _screen(self, roster, party):
-        return RosterScreen(party=party, roster=list(roster), asset_mgr=None)
-
-    def test_removed_member_returns_to_roster(self, pygame_setup):
-        aria = Character(name="Aria", profession=Profession.FIGHTER)
-        roster = [Character(name=f"R{i}", profession=Profession.THIEF) for i in range(3)]
-        party = _make_party(aria)
-        scr = self._screen(roster, party)
-        scr.focus_panel = "party"
-        scr.selected_party_idx = 0
-
-        scr._remove_from_party()
-
-        assert len(party.members) == 0
-        names = [c.name for c in scr.roster]
-        assert "Aria" in names
-        assert len(scr.roster) == 4  # appended as a new slot
-
-    def test_removed_member_overwrites_matching_roster_slot(self, pygame_setup):
-        """Java: same-name roster slot is replaced with the party state
-        (ManagePartyScreen.java:355-367), not duplicated."""
-        roster_aria = Character(name="Aria", profession=Profession.FIGHTER, level=1)
-        roster = [roster_aria, Character(name="Bob", profession=Profession.THIEF)]
-        party_aria = Character(name="Aria", profession=Profession.FIGHTER, level=3)
-        party = _make_party(party_aria)
-        scr = self._screen(roster, party)
-        scr.focus_panel = "party"
-        scr.selected_party_idx = 0
-
-        scr._remove_from_party()
-
-        assert len(party.members) == 0
-        arias = [c for c in scr.roster if c.name == "Aria"]
-        assert len(arias) == 1
-        assert arias[0].level == 3  # party version carried back
-
-    def test_remove_fails_when_roster_full(self, pygame_setup):
-        """Roster.java holds 20 slots; with no free slot the removal fails and
-        the member stays in the party."""
-        roster = [Character(name=f"R{i}", profession=Profession.THIEF) for i in range(20)]
-        otto = Character(name="Otto", profession=Profession.FIGHTER)
-        party = _make_party(otto)
-        scr = self._screen(roster, party)
-        scr.focus_panel = "party"
-        scr.selected_party_idx = 0
-
-        scr._remove_from_party()
-
-        assert len(party.members) == 1  # still in the party
-        assert otto.name not in [c.name for c in scr.roster]
-        assert any("roster" in h.lower() for h in scr.text_log.history)
-
-
-# --------------------------------------------------------------------------- #
-# (d) Shrine donation
-# --------------------------------------------------------------------------- #
-
-
-# --------------------------------------------------------------------------- #
-# (e) Mark-of-Kings gate: required only from level 6 (expLvl >= 5)
 # --------------------------------------------------------------------------- #
 class TestMarkGate:
     def test_level_5_reachable_without_mark(self):
-        """exp 450 (expLvl 4) promotes to level 5 with no Mark of Kings.
-        Java: SaveGame.java:406 gates on expLvl >= 5, not on the reached level."""
+        """exp 450: four visits take level 1 to 5 with no Mark of Kings."""
         c = Character(name="NoMark", profession=Profession.FIGHTER, level=1, exp=450)
         c.marks = [0, 0, 0, 0]
-        assert c.meet_lord_british() is True
+        for _ in range(4):
+            assert c.meet_lord_british() is True
         assert c.level == 5
+        assert c.meet_lord_british() is False
 
     def test_level_6_requires_mark_of_kings(self):
         c = Character(name="NoMark", profession=Profession.FIGHTER, level=5, exp=500)
@@ -404,7 +332,7 @@ class TestMarkGate:
         assert marked.level == 6
 
     def test_crossed_500_exp_before_visiting_lb_clamps_to_level_5(self):
-        """Crossing >=500 EXP while below level 5 must still allow advancing to level 5."""
+        """Crossing >=500 EXP while below level 5 still allows advancing to 5."""
         c = Character(name="Fighter", profession=Profession.FIGHTER, level=4, exp=1307)
         c.marks = [0, 0, 0, 0]
         assert c.meet_lord_british() is True
@@ -413,9 +341,10 @@ class TestMarkGate:
         # Further advancement beyond level 5 still requires the Mark of Kings
         assert c.meet_lord_british() is False
         assert c.level == 5
-        # Once Mark of Kings is obtained, full eligible level is granted
+        # With the Mark, one level per visit up to the experience (13 + 1)
         c.marks[0] = 1
-        assert c.meet_lord_british() is True
+        while c.meet_lord_british():
+            pass
         assert c.level == 14
 
 

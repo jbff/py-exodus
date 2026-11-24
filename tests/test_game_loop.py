@@ -959,7 +959,9 @@ def test_lord_british_advances_active_member_without_mark_at_level_5(pygame_setu
         asset_mgr=asset_mgr,
     )
 
-    town._interact_lord_british()
+    # LW Transact: one level per visit (UltimaMain.c:2373-2380).
+    for _ in range(4):
+        town._interact_lord_british()
 
     assert sample_party.members[0].level == 5
     assert any("Thou hast been advanced!" in msg for msg in town.text_log.history)

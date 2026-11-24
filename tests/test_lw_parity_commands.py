@@ -466,3 +466,67 @@ def test_enter_town_at_1_32_castle_at_32_62(asset_mgr):
         assert starts[town_id] == (1, 32), town_id
     assert starts[1] == (32, 62)
     assert starts[2] == (32, 62)
+
+
+# --- Transact: Lord British ------------------------------------------------------
+
+
+def _lb_char(level: int, exp: int, kings: bool = True) -> Character:
+    c = Character("Hero", "M", Race.HUMAN, Profession.FIGHTER, level=level, exp=exp)
+    c.max_hp = level * 100 + 50
+    c.hp = 40
+    c.marks = [1 if kings else 0, 0, 0, 0]
+    return c
+
+
+def test_lord_british_one_level_per_visit_no_heal():
+    """UltimaMain.c:2373-2380: ``hpmax += 100; if (hpmax > 9950) hpmax =
+    9950;`` -- one step per visit, and current HP is not touched (the port
+    jumped to the experience level and healed to full)."""
+    c = _lb_char(1, 650)
+    assert c.meet_lord_british() is True
+    assert (c.level, c.max_hp, c.hp) == (2, 250, 40)
+    assert c.meet_lord_british() is True
+    assert c.level == 3
+
+
+def test_lord_british_does_not_cure_or_raise():
+    """UltimaMain.c:2373-2380 writes only the max-HP bytes (28/29)."""
+    c = _lb_char(1, 650)
+    c.status = Status.POISONED
+    c.meet_lord_british()
+    assert c.status == Status.POISONED
+
+
+def test_lord_british_past_25_only_after_exodus():
+    """UltimaMain.c:2361-2366: ``if (hpmax >= 25 && Party[16] == 0) "NO
+    MORE!"`` -- once Exodus is destroyed the max HP keeps rising (to 9950)."""
+    c = _lb_char(25, 9999)
+    assert c.meet_lord_british() is False
+    assert c.meet_lord_british(exodus_defeated=True) is True
+    assert (c.level, c.max_hp) == (26, 2650)
+    c.level, c.max_hp = 99, 9950
+    assert c.meet_lord_british(exodus_defeated=True) is True
+    assert c.max_hp == 9950
+
+
+def test_lord_british_needs_experience_and_mark():
+    """UltimaMain.c:2352-2372: ``level < hpmax`` (exp hundreds below the
+    max-HP hundreds) -> "EXPERIENCE MORE"; ``hpmax > 4`` without the Mark of
+    Kings -> "SEEK YE THE MARK OF KINGS"."""
+    assert _lb_char(3, 299).meet_lord_british() is False
+    assert _lb_char(3, 300).meet_lord_british() is True
+    assert _lb_char(5, 900, kings=False).meet_lord_british() is False
+    assert _lb_char(4, 900, kings=False).meet_lord_british() is True
+
+
+def test_transact_needs_living_member(town):
+    """UltimaMain.c:2302-2305: ``if (CheckAlive(chnum - 1) == 0) { Incap();
+    return; }`` -- before the direction, for every Transact."""
+    dead = _pm("Dead")
+    dead.status = Status.DEAD
+    scr = town(party=_party(dead, _pm("Live")))
+    _key(scr, pygame.K_t, "t")
+    _key(scr, pygame.K_1, "1")
+    assert scr.text_log.history[-1] == "Incapacitated!"
+    assert not scr.text_log.is_waiting_for_input

@@ -180,12 +180,13 @@ def test_character_status_and_progression():
     # Level 1 max HP is 150 (level * 100 + 50)
     assert c.max_hp == 150
 
-    promoted = c.meet_lord_british()
-    assert promoted is True
+    hp = c.hp
+    assert c.meet_lord_british() is True
+    assert c.meet_lord_british() is True  # LW: one level per visit
     # Exp 250 allows reaching Level 3
     assert c.level == 3
     assert c.max_hp == 350
-    assert c.hp == 350
+    assert c.hp == hp  # LW Lord British does not heal
 
 
 def test_party_membership_and_swapping():
