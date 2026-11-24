@@ -394,7 +394,7 @@ def test_horses_cost_200_per_member(assets):
 
 
 def test_horses_refused_short_of_party_price(assets):
-    """UltimaMisc.c:2128-2135: ``if (gold < opnum)`` -> "I'm sorry but you
+    """UltimaMisc.c:2139-2146: ``if (gold < opnum)`` -> "I'm sorry but you
     haven't the gold!" -- 799 gold can't buy four horses."""
     party = _party(799, 0, 0, 0)
     m = party.members[0]
