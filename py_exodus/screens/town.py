@@ -22,6 +22,7 @@ from py_exodus.screens.member_prompts import (
     prompt_modify_order,
     prompt_ready_weapon,
     prompt_wear_armor,
+    prompt_whose_item,
 )
 from py_exodus.screens.final import (
     apply_exodus_card_tiles,
@@ -943,28 +944,19 @@ class TownScreen(BaseScreen):
         self.text_log.prompt("GET> Which party member? (1-4):", callback=_on_who, single_char=True)
 
     def _peer_gem(self) -> None:
-        """Peer into a mystical gem to view the map.
+        """PEER AT GEM: LairWare PeerGem (UltimaMain.c:2143-2159) asks whose
+        gem; that member spends one and the map shows. The turn passes
+        either way; closing the view costs none."""
+        from py_exodus.ui.gem_view import PEER_MESSAGE
 
-        Java truth: GameScreen.java:1076-1087 — peerGem() picks the FIRST
-        member holding gems (no member prompt), decrements that member, logs
-        "Peer at a Gem!" and swaps input to PeerGemInputAdapter (map view,
-        timer paused, GameScreen.java:1114-1152); with none it logs
-        "Thou dost have no gems!". P itself (GameScreen.java:604-605) is a
-        GameScreen branch, so towns run it and then the keyUp tail consumes
-        the turn.
-        """
-        from py_exodus.ui.gem_view import (
-            NO_GEMS_MESSAGE,
-            PEER_MESSAGE,
-            consume_peer_gem,
-        )
-
-        if consume_peer_gem(self.party) is not None:
+        def _spent(_member) -> None:
             self.text_log.add_message(PEER_MESSAGE)
             self.gem_view_active = True
-        else:
-            self.text_log.add_message(NO_GEMS_MESSAGE)
-        self._consume_pass_turn()
+
+        prompt_whose_item(
+            self.text_log, self.party, "PEER> Whose gem? (1-4):", "gems",
+            _spent, turn_callback=self._consume_pass_turn,
+        )
 
     def _prompt_cast(self) -> None:
         """Cast non-combat spells while in town."""
@@ -1070,19 +1062,18 @@ class TownScreen(BaseScreen):
         self.party.pool_gold(self.party.members.index(member))
 
     def _negate_time(self) -> None:
-        """NEGATE TIME: consume the FIRST member's powder for a QUICKNESS aura
-        (Java GameScreen.java:1089-1100 negateTime). The duration is 10 per
-        USER-DIRECTED GBC-RULES DEVIATION (2026-11-14) (GBC battle2.c:722-733;
-        LW UltimaMain.c:2129-2139) — superseding the old 6-turn reading."""
-        for m in self.party.members:
-            if getattr(m, "powder", 0) > 0:
-                m.powder -= 1
-                self.text_log.add_message("Stop time with a powder!")
-                self.party.aura.set(AuraType.QUICKNESS, 10)
-                self._consume_pass_turn()  # Java keyUp tail: N falls through
-                return
-        self.text_log.add_message("None!")
-        self._consume_pass_turn()  # Java keyUp tail: N falls through
+        """NEGATE TIME: LairWare NegateTime (UltimaMain.c:2122-2139) asks
+        whose powder; that member spends one and time stops for 10 turns
+        (gTimeNegate = 10)."""
+
+        def _spent(_member) -> None:
+            self.text_log.add_message("Stop time with a powder!")
+            self.party.aura.set(AuraType.QUICKNESS, 10)
+
+        prompt_whose_item(
+            self.text_log, self.party, "NEGATE TIME> Whose powder? (1-4):", "powder",
+            _spent, turn_callback=self._consume_pass_turn,
+        )
 
     def _search(self) -> None:
         """SEARCH: a member 1-4 searches the party's tile (Java SIP:240-250

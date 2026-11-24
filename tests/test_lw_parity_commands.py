@@ -337,3 +337,45 @@ def test_other_needs_living_member(town):
     _type(scr, "SEARCH\n")
     _key(scr, pygame.K_1, "1")
     assert scr.text_log.history[-1] == "Incapacitated!"
+
+
+# --- NegateTime / PeerGem: whose item -----------------------------------------
+
+
+@pytest.mark.parametrize("where", ["overworld", "town"])
+def test_negatetime_asks_whose_powder(where, request):
+    """UltimaMain.c:2122-2139: ``UPrintMessage(74); chnum = GetChar(); ...
+    if (Player[rosNum][39] < 1) { "None left!"; return; } Player[rosNum][39]--;
+    gTimeNegate = 10;`` -- the chosen member pays (the port took the first
+    member holding one)."""
+    from py_exodus.aura import AuraType
+
+    a, b = _pm("A"), _pm("B")
+    a.powder, b.powder = 3, 3
+    scr = request.getfixturevalue(where)(party=_party(a, b))
+    _key(scr, pygame.K_n, "n")
+    assert scr.text_log.is_waiting_for_input
+    _key(scr, pygame.K_2, "2")
+    assert (a.powder, b.powder) == (3, 2)
+    assert scr.party.aura.get_type() == AuraType.QUICKNESS
+    assert scr.party.aura.get_duration() >= 9  # 10, less the turn N takes
+    b.powder = 0
+    scr.party.aura.set(AuraType.NONE, 0)
+    _key(scr, pygame.K_n, "n")
+    _key(scr, pygame.K_2, "2")
+    assert a.powder == 3
+    assert scr.party.aura.get_type() != AuraType.QUICKNESS
+
+
+@pytest.mark.parametrize("where", ["overworld", "town"])
+def test_peergem_asks_whose_gem(where, request):
+    """UltimaMain.c:2143-2159: ``UPrintMessage(75); chnum = GetChar(); ...
+    if (Player[rosnum][37] < 1) "None left!" else { [37]--; DrawMiniMap(); }``"""
+    a, b = _pm("A"), _pm("B")
+    a.gems, b.gems = 2, 2
+    scr = request.getfixturevalue(where)(party=_party(a, b))
+    _key(scr, pygame.K_p, "p")
+    assert scr.text_log.is_waiting_for_input
+    _key(scr, pygame.K_2, "2")
+    assert (a.gems, b.gems) == (2, 1)
+    assert scr.gem_view_active

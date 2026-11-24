@@ -188,3 +188,31 @@ def prompt_modify_order(
         text_log.prompt("With member #? (1-4): ", callback=_on_second, single_char=True)
 
     text_log.prompt("Modify Order: Exchange member #? (1-4): ", callback=_on_first, single_char=True)
+
+
+def prompt_whose_item(
+    text_log: TextLog,
+    party: Party,
+    query: str,
+    attr: str,
+    on_spent: Callable[[object], None],
+    turn_callback: Callable[[], None] | None = None,
+) -> None:
+    """LairWare NegateTime / PeerGem (UltimaMain.c:2122-2159): ask whose
+    item, then that member spends one (``Player[rosNum][n] < 1`` -> "None
+    left!"). No CheckAlive: a dead member's powder or gem works too. A key
+    outside 1-4 just ends the command. The turn passes either way."""
+    if turn_callback is None:
+        turn_callback = _noop
+
+    def _on_member(m_str: str) -> None:
+        member = party.get_member(_parse_index(m_str))
+        if member is not None:
+            if getattr(member, attr, 0) < 1:
+                text_log.add_message("None left!")
+            else:
+                setattr(member, attr, getattr(member, attr) - 1)
+                on_spent(member)
+        turn_callback()
+
+    text_log.prompt(query, callback=_on_member, single_char=True, on_cancel=turn_callback)

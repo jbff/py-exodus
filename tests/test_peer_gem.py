@@ -38,7 +38,6 @@ from py_exodus.screens.overworld import OverworldScreen
 from py_exodus.screens.town import TownScreen
 from py_exodus.ui.gem_view import (
     CELL,
-    NO_GEMS_MESSAGE,
     PEER_MESSAGE,
     WHOLE_MAP_MIN_CELL,
     render_gem_view,
@@ -90,42 +89,36 @@ def key(screen, k):
     screen.handle_event(pygame.event.Event(pygame.KEYDOWN, key=k))
 
 
-def test_peer_gem_uses_first_member_with_gems(ow, sample_party):
+def peer(screen, who="1"):
+    """P, then whose gem (LW PeerGem, UltimaMain.c:2143-2159)."""
+    key(screen, pygame.K_p)
+    assert "gem" in screen.text_log.current_prompt.lower()
+    screen.text_log.submit_input(who)
+
+
+def test_peer_gem_uses_chosen_member(ow, sample_party):
     sample_party.members[0].gems = 3
     sample_party.members[1].gems = 5
-    key(ow, pygame.K_p)
-    # Java GameScreen.java:1077-1080 — the first member with gems pays.
-    assert sample_party.members[0].gems == 2
-    assert sample_party.members[1].gems == 5
+    peer(ow, "2")
+    assert sample_party.members[0].gems == 3
+    assert sample_party.members[1].gems == 4
     assert any(m == PEER_MESSAGE == "Peer at a Gem!" for m in ow.text_log.history)
-    # The view opens after a paid gem (Java swaps to PeerGemInputAdapter).
     assert ow.gem_view_active is True
 
 
-def test_peer_gem_skips_gemless_members(ow, sample_party):
+def test_peer_gem_gemless_member_none_left(ow, sample_party):
     sample_party.members[0].gems = 0
     sample_party.members[1].gems = 5
-    key(ow, pygame.K_p)
-    assert sample_party.members[0].gems == 0
-    assert sample_party.members[1].gems == 4
-    assert any(m == "Peer at a Gem!" for m in ow.text_log.history)
-    assert ow.gem_view_active is True
-
-
-def test_peer_gem_no_gems_message_and_no_view(ow, sample_party):
-    key(ow, pygame.K_p)
-    assert any(m == NO_GEMS_MESSAGE == "Thou dost have no gems!" for m in ow.text_log.history)
-    assert not any("None owned!" in m for m in ow.text_log.history)
+    peer(ow, "1")
+    assert sample_party.members[1].gems == 5
+    assert any(m == "None left!" for m in ow.text_log.history)
     assert ow.gem_view_active is False
-    assert all(m.gems == 0 for m in sample_party.members)
 
 
 def test_peer_gem_consumes_turn_without_gems(ow, sample_party, monkeypatch):
     ticks = []
     monkeypatch.setattr(ow, "_consume_pass_turn", lambda: ticks.append(1))
-    key(ow, pygame.K_p)
-    # GameScreen.java:604-605 + 628 — P falls through the keyUp tail even
-    # when peerGem logs the no-gems message.
+    peer(ow)
     assert ticks == [1]
 
 
@@ -133,14 +126,14 @@ def test_peer_gem_consumes_turn_with_gems(ow, sample_party, monkeypatch):
     sample_party.members[0].gems = 1
     ticks = []
     monkeypatch.setattr(ow, "_consume_pass_turn", lambda: ticks.append(1))
-    key(ow, pygame.K_p)
+    peer(ow)
     assert ticks == [1]
     assert ow.gem_view_active is True
 
 
 def test_gem_view_exit_consumes_no_turn(ow, sample_party, monkeypatch):
     sample_party.members[0].gems = 2
-    key(ow, pygame.K_p)
+    peer(ow)
     assert ow.gem_view_active is True
     finish_calls = []
     monkeypatch.setattr(ow, "_finish_turn", lambda *a, **k: finish_calls.append(1))
@@ -148,38 +141,26 @@ def test_gem_view_exit_consumes_no_turn(ow, sample_party, monkeypatch):
     key(ow, pygame.K_RETURN)
     assert ow.gem_view_active is False
     assert finish_calls == []
-    # The exit did not grant a free turn: a fresh P still costs a gem and
-    # the exit consumed nothing beyond the opening press.
-    key(ow, pygame.K_p)
-    assert sample_party.members[0].gems == 0
 
 
-def test_town_peer_gem_first_member_and_view(town, sample_party):
+def test_town_peer_gem_chosen_member_and_view(town, sample_party):
     sample_party.members[0].gems = 0
     sample_party.members[1].gems = 7
-    key(town, pygame.K_p)
+    peer(town, "2")
     assert sample_party.members[1].gems == 6
     assert any(m == "Peer at a Gem!" for m in town.text_log.history)
     assert town.gem_view_active is True
 
 
-def test_town_peer_gem_no_gems_message(town, sample_party):
-    key(town, pygame.K_p)
-    assert any(m == "Thou dost have no gems!" for m in town.text_log.history)
+def test_town_peer_gem_none_left(town, sample_party):
+    peer(town, "1")
+    assert any(m == "None left!" for m in town.text_log.history)
     assert town.gem_view_active is False
-
-
-def test_town_peer_gem_pays_first_member(town, sample_party):
-    sample_party.members[0].gems = 3
-    sample_party.members[1].gems = 9
-    key(town, pygame.K_p)
-    assert sample_party.members[0].gems == 2
-    assert sample_party.members[1].gems == 9
 
 
 def test_gem_view_render_deterministic_320x200(ow, sample_party):
     sample_party.members[0].gems = 1
-    key(ow, pygame.K_p)
+    peer(ow)
     s1 = pygame.Surface((320, 200))
     s2 = pygame.Surface((320, 200))
     ow.render(s1)
@@ -189,7 +170,7 @@ def test_gem_view_render_deterministic_320x200(ow, sample_party):
 
 def test_town_gem_view_render_deterministic_320x200(town, sample_party):
     sample_party.members[0].gems = 1
-    key(town, pygame.K_p)
+    peer(town)
     s1 = pygame.Surface((320, 200))
     s2 = pygame.Surface((320, 200))
     town.render(s1)
@@ -199,7 +180,7 @@ def test_town_gem_view_render_deterministic_320x200(town, sample_party):
 
 def test_gem_view_marks_party_cell_yellow(ow, sample_party):
     sample_party.members[0].gems = 1
-    key(ow, pygame.K_p)
+    peer(ow)
     surf = pygame.Surface((320, 200))
     ow.render(surf)
     # The 64x64 overworld fits whole-map mode; the party mark lands at its

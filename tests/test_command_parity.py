@@ -280,38 +280,39 @@ class TestJoinGold:
 
 
 class TestNegateTime:
-    """(d) N consumes the first member's powder → QUICKNESS aura for 10 turns
-    (GBC battle2.c:722-733 — amended 2026-11-14; LW UltimaMain.c:2129-2139)."""
+    """(d) N asks whose powder (LW NegateTime, UltimaMain.c:2122-2139); that
+    member's powder buys a QUICKNESS aura for 10 turns."""
 
-    def test_negate_time_first_member_powder(self, ow, sample_party):
+    def test_negate_time_chosen_member_powder(self, ow, sample_party):
         sample_party.members[0].powder = 1
         sample_party.members[1].powder = 2
         key(ow, pygame.K_n)
+        answer(ow, "2")
         assert any("Stop time with a powder!" in m for m in ow.text_log.history)
-        assert sample_party.members[0].powder == 0
-        assert sample_party.members[1].powder == 2
+        assert sample_party.members[0].powder == 1
+        assert sample_party.members[1].powder == 1
         assert sample_party.aura.get_type() == AuraType.QUICKNESS
-        # Java GameScreen.java:604-628 — N runs negateTime (set 10) and the
-        # keyUp tail finishTurn immediately ticks aura.passTurn, so the
-        # effective duration right after the key is 9.
+        # set 10, then the command's turn ticks aura.passTurn: 9 left.
         assert sample_party.aura.get_duration() == 9
 
     def test_negate_time_none(self, ow, sample_party):
         key(ow, pygame.K_n)
-        assert any(m == "None!" for m in ow.text_log.history)
+        answer(ow, "1")
+        assert any(m == "None left!" for m in ow.text_log.history)
         assert sample_party.aura.get_type() == AuraType.NONE
 
     def test_town_negate_time_consumes_powder(self, town, sample_party):
         sample_party.members[0].powder = 1
         key(town, pygame.K_n)
+        answer(town, "1")
         assert sample_party.members[0].powder == 0
         assert sample_party.aura.get_type() == AuraType.QUICKNESS
         assert any("Stop time with a powder!" in m for m in town.text_log.history)
-        assert not any("None owned!" in m for m in town.text_log.history)
 
     def test_town_negate_time_none_when_out_of_powder(self, town, sample_party):
         key(town, pygame.K_n)
-        assert any(m == "None!" for m in town.text_log.history)
+        answer(town, "1")
+        assert any(m == "None left!" for m in town.text_log.history)
 
     def test_aura_pass_turn_decrements(self, sample_party):
         aura = sample_party.aura

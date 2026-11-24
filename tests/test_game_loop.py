@@ -1583,6 +1583,7 @@ def test_all_overland_commands_a_to_z(pygame_setup, asset_mgr, sample_party):
     # (GBC battle2.c:722-733 — amended 2026-11-14; LW UltimaMain.c:2129-2139)
     sample_party.members[0].powder = 2
     ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_n))
+    ow.text_log.submit_input("1")  # whose powder (LW NegateTime)
     assert sample_party.members[0].powder == 1
     assert sample_party.aura.get_type() == AuraType.QUICKNESS
     # Java GameScreen.java:604-628 — N falls through to finishTurn, whose

@@ -1,9 +1,7 @@
 """Peer Gem (P) view state and renderer.
 
-Java truth: ``exodus/GameScreen.java:1076-1087`` — ``peerGem()`` uses the
-FIRST party member holding gems, logs ``"Peer at a Gem!"`` and swaps input
-to ``PeerGemInputAdapter``; with no gems it logs
-``"Thou dost have no gems!"`` (GameScreen.java:1086). The adapter
+Who pays: LairWare PeerGem (UltimaMain.c:2143-2159) asks whose gem
+(``member_prompts.prompt_whose_item``); "Peer at a Gem!" opens the view. The adapter
 (GameScreen.java:1114-1152) shows the map picture with
 ``gameTimer.active = False``; any key removes the image and restores the
 timer, so no turn passes while the view is up. P itself has no early return
@@ -67,9 +65,8 @@ from py_exodus.ui.text_log import (
     EGA_YELLOW,
 )
 
-# GameScreen.java:1081 (peer log) and GameScreen.java:1086 (no-gems log).
+# GameScreen.java:1081 (peer log).
 PEER_MESSAGE = "Peer at a Gem!"
-NO_GEMS_MESSAGE = "Thou dost have no gems!"
 
 CELL = 8
 
@@ -160,24 +157,6 @@ def _tile_color(tile_name: str):
         # not) so repeated renders of the same map are byte-identical.
         color = _FALLBACK_PALETTE[zlib.crc32(tile_name.encode()) % len(_FALLBACK_PALETTE)]
     return color
-
-
-def find_first_gem_member(party):
-    """Java ``peerGem`` scan (GameScreen.java:1077-1080): the FIRST member
-    holding gems, in roster order; None when nobody holds any."""
-    for member in party.members:
-        if getattr(member, "gems", 0) > 0:
-            return member
-    return None
-
-
-def consume_peer_gem(party):
-    """Take one gem from the first member holding any (Java truth above).
-    Returns the payer, or None with no gems taken."""
-    member = find_first_gem_member(party)
-    if member is not None:
-        member.gems -= 1
-    return member
 
 
 def whole_map_cell(width: int, height: int, map_w: int, map_h: int) -> int:
