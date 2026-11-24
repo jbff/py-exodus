@@ -1899,6 +1899,11 @@ class OverworldScreen(BaseScreen):
                 "y": sy,
                 # Java Creature.sailDir defaults to EAST (Creature.java:63).
                 **({"sail_dir": "EAST"} if c_name == "pirate" else {}),
+                # LairWare SpawnMonster (UltimaMisc.c:1177-1184): once Exodus
+                # has fallen a new monster wanders (HPMON 0x40), except the
+                # pirate (0x3C), which still hunts (0xC0).
+                **({"wander": True}
+                   if self.party.exodus_defeated and c_name != "pirate" else {}),
             })
             return
 
@@ -2037,6 +2042,20 @@ class OverworldScreen(BaseScreen):
             # DEVIATION, original-game spawning, 2026-11-21).
             dist = movement_distance(width, height, cx, cy, self.party.x, self.party.y)
 
+            # LairWare MoveMonsters, HPMON 0x40 (UltimaMisc.c:1280-1294,
+            # 1325-1326): a wanderer (spawned after Exodus fell) steps at
+            # random half the turns and never attacks; pirates and dragons
+            # among them still fire after the step (move7AAA -> moveshoot).
+            if c.get("wander"):
+                if random.randint(0, 255) >= 128:
+                    step = self._lw_wander_step(c, width, height)
+                    if isinstance(step, tuple):
+                        c["x"], c["y"] = step
+                    if step not in ("skip", "party") and tile_name in self.LW_SHOOTERS:
+                        self._lw_monster_shoot(c)
+                survivors.append(c)
+                continue
+
             # 3. Hostile creatures: engage at distance <= 1 (BaseMap.java:540-558).
             if dist <= 1 and not wontattack:
                 encounter_creature = c
@@ -2062,8 +2081,10 @@ class OverworldScreen(BaseScreen):
                 if step is not None:
                     c["x"], c["y"] = step
                 survivors.append(c)
-                # LairWare moveshoot: pirates fire, dragons breathe.
-                if tile_name in self.LW_SHOOTERS and not self.party.exodus_defeated:
+                # LairWare moveshoot: pirates fire, dragons breathe. A hunter
+                # (0xC0) still takes this path after Exodus falls
+                # (UltimaMisc.c:1195, 1327-1328), so the shots go on too.
+                if tile_name in self.LW_SHOOTERS:
                     self._lw_monster_shoot(c)
                 continue
 
@@ -2166,6 +2187,44 @@ class OverworldScreen(BaseScreen):
             o.get("x") == tx and o.get("y") == ty
             for o in objects_on(self.party, self.game_map)
         )
+
+    def _lw_wander_step(self, c: dict[str, Any], width: int, height: int):
+        """LairWare MoveMonsters 0x40 step (UltimaMisc.c:1283-1289, then
+        move7AAA 1209-1236): each axis takes GetHeading(RandNum(0, 255))
+        (0 -> stay, 1..127 -> +1, 128..255 -> -1); a step onto row or
+        column 0 is given up ("skip": no move, no shot). Then the diagonal,
+        the vertical and the horizontal step are tried in turn: the first
+        open one is returned as (x, y), or "party" when the party stands
+        there (no move, no shot); None when all three are closed (no move,
+        but a pirate or dragon still fires)."""
+
+        def heading(roll: int) -> int:
+            return 0 if roll == 0 else (1 if roll <= 127 else -1)
+
+        cx, cy = c["x"], c["y"]
+        dx = heading(random.randint(0, 255))
+        xs = (cx + dx) % width
+        if xs == 0:
+            return "skip"
+        dy = heading(random.randint(0, 255))
+        ys = (cy + dy) % height
+        if ys == 0:
+            return "skip"
+        kind = str(c.get("tile_name", "")).lower()
+        for tx, ty in ((xs, ys), (cx, ys), (xs, cy)):
+            if (tx, ty) == (cx, cy):
+                continue
+            if not self._lw_monster_terrain_ok(kind, tx, ty):
+                continue
+            if any(
+                o is not c and o.get("x") == tx and o.get("y") == ty
+                for o in self.creatures
+            ):
+                continue
+            if (tx, ty) == (self.party.x, self.party.y):
+                return "party"
+            return (tx, ty)
+        return None
 
     def _creature_can_enter(self, c: dict[str, Any], cr_def, tx: int, ty: int) -> bool:
         """One tile of the valid-moves test: terrain (LairWare
@@ -2414,6 +2473,10 @@ class OverworldScreen(BaseScreen):
                 creature["hp"] = int(m["hp"])
             if m.get("variant"):
                 creature["variant"] = int(m["variant"])
+            if m.get("wander"):
+                # LairWare HPMON 0x40 (spawned after Exodus fell). Saves
+                # without the flag hunt, as LairWare's monsters out before.
+                creature["wander"] = True
             self.creatures.append(creature)
 
     def _save_game(self) -> None:
@@ -2460,6 +2523,8 @@ class OverworldScreen(BaseScreen):
                         entry["hp"] = int(c["hp"])
                     if c.get("variant"):
                         entry["variant"] = int(c["variant"])
+                    if c.get("wander"):
+                        entry["wander"] = True
                     saved_monsters.append(entry)
 
                 SaveSystem.save_game(

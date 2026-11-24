@@ -168,3 +168,92 @@ def test_validmonsterdir_land_and_sea_terrain(overworld, asset_mgr):
     p_def = asset_mgr.get_creature("pirate")
     ow.party.dynamic_objects = [{"tile": "frigate", "x": 10, "y": 55}]
     assert ow._creature_can_enter(pirate, p_def, 10, 55) is False  # parked ship
+
+
+# --- M-08: after Exodus falls new wanderers are harmless ------------------------
+
+
+def test_spawnmonster_after_exodus_spawns_wanderers(overworld, monkeypatch):
+    """UltimaMisc.c:1177-1184 (SpawnMonster):
+
+        Monsters[offset + HPMON] = 0xC0;
+        ...
+        if (Party[16] != 0 && Monsters[offset] != 0x3C)
+            Monsters[offset + HPMON] = 0x40;
+
+    Once Exodus has fallen a new monster wanders (0x40), except the pirate
+    (0x3C), which still hunts (0xC0).
+    """
+    ow = overworld(20, 20)
+    ow.party.exodus_defeated = True
+    # Orc (type 0) on grass at (49, 36).
+    monkeypatch.setattr(random, "randint", _Rolls(
+        {(0, 134): [134], (0, 63): [49, 36], (0, 12): [0], (0, 1): [0]}))
+    ow._spawn_wandering_creature()
+    assert ow.creatures[-1]["tile_name"] == "orc"
+    assert ow.creatures[-1].get("wander") is True
+    # Pirate (type 10) on water at (10, 56).
+    monkeypatch.setattr(random, "randint", _Rolls(
+        {(0, 134): [134], (0, 63): [10, 56], (0, 12): [10], (0, 1): [0]}))
+    ow._spawn_wandering_creature()
+    assert ow.creatures[-1]["tile_name"] == "pirate"
+    assert not ow.creatures[-1].get("wander")
+
+
+def test_movemonsters_wanderer_never_attacks(overworld, monkeypatch):
+    """UltimaMisc.c:1280-1294, 1325-1326 and 1213-1217 (MoveMonsters):
+
+        if (value == 0x40) {
+            if (RandNum(0, 255) < 128)
+                goto movemon;
+            xs = MapConstrain(Monsters[offset + XMON] + GetHeading(RandNum(0, 255)));
+            ...
+            goto move7AAA;
+        ...
+        if (xpos == xs && ypos == ys)
+            goto movemon;
+
+    A wandering monster takes a random step half the turns and never steps
+    onto the party, so it never starts a fight; a hunter (0xC0, any monster
+    out before Exodus fell) still attacks from the next tile.
+    """
+    ow = overworld(49, 36, encounters=False)
+    ow.party.exodus_defeated = True
+    fights: list[str] = []
+    monkeypatch.setattr(ow, "_trigger_combat", lambda name, c=None: fights.append(name))
+    # A wanderer due east of the party; its roll would step west onto the party.
+    ow.creatures = [_monster("orc", 50, 36, wander=True)]
+    monkeypatch.setattr(random, "randint", _Rolls({(0, 255): [200, 200, 0]}))
+    ow._update_creatures()
+    assert fights == []
+    assert (ow.creatures[0]["x"], ow.creatures[0]["y"]) == (50, 36)
+    # The same orc as a hunter attacks.
+    ow.creatures = [_monster("orc", 50, 36)]
+    ow._update_creatures()
+    assert fights == ["orc"]
+
+
+def test_moveshoot_fires_after_exodus_falls(overworld, monkeypatch):
+    """UltimaMisc.c:1195-1201, 1240-1248, 1324-1328 (MoveMonsters):
+
+        if (Party[3] == 0 && Party[16] == 0) {    // Player hasn't beaten Exodus.
+        moveoutside:
+        ...
+        if (Monsters[offset] == 0x3C || Monsters[offset] == 0x74)
+            goto moveshoot;
+        ...
+        if (value != 0x40 && value != 0x80)
+            goto moveoutside;
+
+    After Exodus falls a hunting monster (0xC0) still takes the moveoutside
+    path, so pirates and dragons still fire; the port stopped every shot.
+    """
+    party = _party()
+    party.transport = Transport.SHIP
+    ow = overworld(20, 1, party=party, encounters=False)
+    ow.party.exodus_defeated = True
+    ow.creatures = [_monster("pirate", 23, 1)]
+    monkeypatch.setattr(random, "randint", _Rolls({(0, 255): [0]}))
+    ow._update_creatures()
+    assert (ow.creatures[0]["x"], ow.creatures[0]["y"]) == (22, 1)
+    assert party.members[0].hp == 200 - 8  # BombTrap: (0 & 0x77) + 8

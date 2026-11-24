@@ -28,6 +28,7 @@ A Python 3 / Pygame-CE reimplementation of *Ultima III: Exodus*, with **Auto-Com
   - **Party panel**: a card per member (race, class, sex and level in words; HP and MP bars; food, gold, stats, experience, weapon and armor; a colored edge and tag when poisoned, dead or ashes), then party supplies, quest chips for marks, cards and exotics, and location, turn, autoplay (with its goal) and autocombat.
   - **Ship cannons** (`F`, aboard ship): any of the four directions, up to 3 tiles, wrapping round the map; the first monster in the path is destroyed half the time (a pirate a quarter). No heading, no broadsides-only rule.
   - **Pirates and dragons fire back**: each turn, half the time, one within 3 tiles along a row, column or diagonal hits the whole party for 8-127 HP each; mountains and walls stop the shot. Ships have no hull and cannot sink.
+  - **After Exodus falls** new monsters (pirates excepted) only wander about and never attack; those already out, and every pirate, still hunt, and pirates and dragons keep firing.
   - **Monster variants**: half of Sosaria's wanderers come as a named variant: Brigands and Cutpurses, Goblins and Trolls, Ghouls and Zombies, Golems and Titans, Gargoyles and Manes, Snatches and Bradles, Griffons and Wyverns, Orcuses and Devils. Same stats, new name, their own art.
 - **Other classic references**: the Game Boy Color port (`u3gbc`) for moongate routing, ship-battle cannon barrages, meal-crossing starvation/regen and the `QUICKNESS` aura; the NES `MoonGateTbl` for the 8-site moongate table.
 
