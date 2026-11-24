@@ -52,12 +52,12 @@ def test_dawn_portal_conjunction_restriction(asset_mgr, party):
 # destination is always the fast-moon (Felucca) site of the same 8 sites.
 def test_moongate_entry_teleports_to_fast_moon_site(asset_mgr, party):
     """Standing on the visible (slow-moon) gate teleports to site[fast]."""
-    ow = OverworldScreen(party=party, map_id=0, asset_mgr=asset_mgr, start_x=7, start_y=8)
+    ow = OverworldScreen(party=party, map_id=0, asset_mgr=asset_mgr, start_x=8, start_y=8)
 
-    # moon_phase = 1: Trammel (slow) 0 -> gate visible at site 0 = (7, 8);
+    # moon_phase = 1: Trammel (slow) 0 -> gate visible at site 0 = (8, 8);
     # Felucca (fast) 1 -> destination is site 1 = (57, 46).
     ow.moon_phase = 1
-    party.x = 7
+    party.x = 8
     party.y = 8
 
     ow._check_moongates()
@@ -69,15 +69,15 @@ def test_moongate_entry_teleports_to_fast_moon_site(asset_mgr, party):
 
 def test_moongate_no_gate_at_other_sites(asset_mgr, party):
     """Only the slow-moon site is a gate: standing on any other site is inert."""
-    ow = OverworldScreen(party=party, map_id=0, asset_mgr=asset_mgr, start_x=7, start_y=8)
+    ow = OverworldScreen(party=party, map_id=0, asset_mgr=asset_mgr, start_x=8, start_y=8)
 
     # moon_phase = 10: Trammel (slow) 3 -> gate visible at site 3 = (36, 58);
     # sites 0..7 other than 3 are inert. Party stands on site 0.
     ow.moon_phase = 10
-    party.x = 7
+    party.x = 8
     party.y = 8
     ow._check_moongates()
-    assert (party.x, party.y) == (7, 8)
+    assert (party.x, party.y) == (8, 8)
     assert not any("moongate" in msg.lower() for msg in ow.text_log.history)
 
     # Same phase, party stands on site 5 (12, 55) — also inert.
@@ -89,16 +89,16 @@ def test_moongate_no_gate_at_other_sites(asset_mgr, party):
 
 def test_moongate_slow_equals_fast_is_inert(asset_mgr, party):
     """When the two moons agree the destination is the site the party is on."""
-    ow = OverworldScreen(party=party, map_id=0, asset_mgr=asset_mgr, start_x=7, start_y=8)
+    ow = OverworldScreen(party=party, map_id=0, asset_mgr=asset_mgr, start_x=8, start_y=8)
 
     # moon_phase = 0: Trammel 0, Felucca 0 — destination is site 0 itself.
     ow.moon_phase = 0
-    party.x = 7
+    party.x = 8
     party.y = 8
 
     ow._check_moongates()
 
-    assert (party.x, party.y) == (7, 8)
+    assert (party.x, party.y) == (8, 8)
 
 
 def test_moongate_routes_to_site_table_not_d_tables(asset_mgr, party):
@@ -111,9 +111,9 @@ def test_moongate_routes_to_site_table_not_d_tables(asset_mgr, party):
     for moon_phase in range(24):
         p = Party(
             [PartyMember(Character("Fighter", "M", Race.HUMAN, Profession.FIGHTER, hp=100))],
-            x=7, y=8, gold=500, transport=Transport.FOOT,
+            x=8, y=8, gold=500, transport=Transport.FOOT,
         )
-        ow = OverworldScreen(party=p, map_id=0, asset_mgr=asset_mgr, start_x=7, start_y=8)
+        ow = OverworldScreen(party=p, map_id=0, asset_mgr=asset_mgr, start_x=8, start_y=8)
         ow.moon_phase = moon_phase
         p.x, p.y = sites[ow.trammel_phase]
         ow._check_moongates()
@@ -149,8 +149,8 @@ def test_moongate_renders_only_at_slow_moon_site(asset_mgr, party, monkeypatch):
     surf = SpySurface((176, 176))
 
     # The visible gate is site[slow]: with slow phase 0 the gate renders at
-    # site 0 (7, 8), which sits dead-center when the viewport centers there.
-    wr.render_viewport(surf, game_map, center_x=7, center_y=8, moon_phase=0)
+    # site 0 (8, 8), which sits dead-center when the viewport centers there.
+    wr.render_viewport(surf, game_map, center_x=8, center_y=8, moon_phase=0)
     assert gate_blits == [(80, 80)]
 
     # A party elsewhere: the party's own site never renders a gate.

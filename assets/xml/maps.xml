@@ -28,7 +28,9 @@
              entry teleports to site[fast moon]; per-gate d1/d2/d3 destination
              tables (Java invention) removed (GBC funcs5.c:1134-1152; LW
              UltimaMisc.c:1511-1560; NES Bank0F MoonGateTbl:734-771). -->
-        <moongate name="newmoon" phase="0" x="7" y="8" />
+        <!-- LairWare MISC 400 MoonXTable[0] = 8 (GetMiscStuff, UltimaMisc.c:169-172):
+             the new-moon gate is at (8, 8), not Java's (7, 8). -->
+        <moongate name="newmoon" phase="0" x="8" y="8" />
         <moongate name="crescentwax" phase="1" x="57" y="46" />
         <moongate name="firstquarter" phase="2" x="15" y="27" />
         <moongate name="gibbouswax" phase="3" x="36" y="58" />

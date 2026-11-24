@@ -120,7 +120,7 @@ def test_maps_parsing():
     assert len(sosaria.moongates) == 8
     newmoon = next(m for m in sosaria.moongates if m.phase == 0)
     assert newmoon.name == "newmoon"
-    assert newmoon.x == 7
+    assert newmoon.x == 8  # LairWare MoonXTable[0]
     assert newmoon.y == 8
     assert not hasattr(newmoon, "d1")
     assert not hasattr(newmoon, "d2")

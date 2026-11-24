@@ -110,6 +110,19 @@ def test_handlemoonstep_castle_gate_sends_to_random_grass(town, monkeypatch):
     assert (scr.avatar_x, scr.avatar_y) == (0, 5)
 
 
+def test_moongate_new_moon_site_is_8_8(overworld):
+    """MISC 400 (MoonXTable/MoonYTable, read by GetMiscStuff,
+    UltimaMisc.c:169-172) holds X 8, 57, 15, 36, 15, 12, 31, 58 and Y 8, 46,
+    27, 58, 29, 55, 31, 31: the new-moon gate stands at (8, 8); the port had
+    (7, 8). The other seven sites already matched."""
+    scr = overworld()
+    sites = {g.phase: (g.x, g.y) for g in scr.game_map.moongates}
+    assert sites == {
+        0: (8, 8), 1: (57, 46), 2: (15, 27), 3: (36, 58),
+        4: (15, 29), 5: (12, 55), 6: (31, 31), 7: (58, 31),
+    }
+
+
 # --- SafeExodus, INSERT ---------------------------------------------------------
 
 
