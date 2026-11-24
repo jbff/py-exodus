@@ -15,6 +15,7 @@ A Python 3 / Pygame-CE reimplementation of *Ultima III: Exodus*, with **Auto-Com
   - **Wind** steers ships on Ambrosia as on Sosaria, and is shown there too.
   - **Monster attacks**: hit chance by armor (`RandNum(0, armor+16) < 8`), damage that grows with the target's max HP, and a location bonus (+16 dungeon, +32 town, +48 castles and Ambrosia). Castle Exodus is a real fight now. Dragon fire always hits.
   - **Party attacks**: half of all swings face a DEX check (a 0-99 roll above DEX misses), the rest land; a landed blow does 0 to STR (odd) + STR/2 + 3 per weapon rank (Dagger 1 .. Exotic 15) + 4.
+  - **Missiles** (sling, bows, a thrown dagger) fly over walls and water to the edge of the board, stopping only at a monster.
   - **Monsters move and attack diagonally** on Sosaria (the party still can't).
   - **Monster ground**: land monsters start on grass and walk only on grass, brush, forest and floor (never lava, nor a parked ship, a horse or a dropped chest); serpents, Man-O-Wars and pirates start and sail only on open water.
   - **Selling weapons and armour** pays the shop's full price, only for what that shop stocks (Dawn's magic gear sells only at Dawn), never past 9999 gold (the sale is cancelled), a failed sale ("You don't own one of those!") ends the visit, and the readied weapon or worn armour can go too (back to hands or skin).

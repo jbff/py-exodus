@@ -213,3 +213,33 @@ def test_combatattack_damage_formula(monkeypatch):
     # Hands (weapon 0), STR 15: 0..15 + 7 + 0 + 4.
     hero.str = 15
     assert calculate_player_damage(hero, None) == 11
+
+
+# --- B-06: missiles fly to the board edge -----------------------------------
+
+def test_shoot_flies_over_walls(asset_mgr):
+    """UltimaSpellCombat.c:708-731 (Shoot): the missile steps on until a
+    monster or the board edge,
+
+        if (x < 0 || x > 10 || y < 0 || y > 10) { ... return 255; }
+        ...
+        if (orgval > 127) goto shoot0;
+
+    with no terrain test, so a wall does not stop an arrow (CombatAttack
+    shoots for weapons 3, 5, 9 and 13, UltimaSpellCombat.c:1305-1311)."""
+    from py_exodus.combat.arena import Action
+    from py_exodus.constants import Direction, WeaponType
+
+    cmap = MapLoader(asset_mgr).load_conflict_map("CNFLCT_A.ULT")
+    cmap.set_tile(3, 5, asset_mgr.tile_defs_by_name["wall"])
+    party = _party(Transport.FOOT)
+    hero = party.members[0]
+    hero.weapon = WeaponType.BOW
+    hero.dex = 99
+    arena = CombatArena(party, cmap, creature_tile="orc", asset_mgr=asset_mgr, monster_count=1)
+    arena.player_positions[0] = (3, 7)
+    hero.x, hero.y = 3, 7
+    arena.monsters[0].x, arena.monsters[0].y = 3, 2
+    res = arena.execute_player_action(0, Action.attack(Direction.NORTH))
+    assert (3, 2) in res.attack_res.projectile_path
+    assert res.attack_res.hit

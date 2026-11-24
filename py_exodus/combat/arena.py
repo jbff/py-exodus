@@ -636,9 +636,11 @@ class CombatArena:
         is_ranged = weapon_def is not None and weapon_def.range > 1
 
         if is_ranged and weapon_def is not None:
-            # Trace projectile path
+            # Trace projectile path. LairWare Shoot (UltimaSpellCombat.c:
+            # 708-731) steps on until a monster or the board edge with no
+            # terrain test, so walls never stop a missile.
             max_range = weapon_def.range
-            attack_through = weapon_def.attack_through_objects
+            attack_through = True
             path = trace_projectile_path(
                 combat_map=self.combat_map,
                 start_x=cur_pos[0],

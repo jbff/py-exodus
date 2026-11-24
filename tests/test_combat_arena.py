@@ -261,7 +261,9 @@ def test_ranged_projectile_tracing_and_attack(asset_mgr, conflict_map):
     assert (3, 3) in res.attack_res.projectile_path
 
 
-def test_ranged_attack_blocked_by_wall(asset_mgr, conflict_map):
+def test_ranged_attack_flies_over_wall(asset_mgr, conflict_map):
+    """LairWare Shoot (UltimaSpellCombat.c:708-731) has no terrain test: the
+    arrow passes the wall and reaches the monster (Java stopped it)."""
     # Set tile (3, 5) to solid wall
     wall_tile = asset_mgr.tile_defs_by_name.get("wall") or asset_mgr.tile_defs_by_name.get("brick_wall")
     if wall_tile is not None:
@@ -278,10 +280,8 @@ def test_ranged_attack_blocked_by_wall(asset_mgr, conflict_map):
     monster.y = 2  # Behind wall at (3, 5)
 
     res = arena.execute_player_action(0, Action.attack(Direction.NORTH))
-    # Projectile stopped at wall (3, 5), did not reach monster at (3, 2)
     assert res.attack_res is not None
-    assert (3, 2) not in res.attack_res.projectile_path
-    assert not res.attack_res.hit
+    assert (3, 2) in res.attack_res.projectile_path
 
 
 def test_monster_ai_advancement_and_melee_attack(asset_mgr, conflict_map):
