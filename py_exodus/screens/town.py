@@ -547,6 +547,10 @@ class TownScreen(BaseScreen):
         gm = self.game_map
         if gm is None or not gm.npcs:
             return
+        # FinishAll (UltimaMisc.c:1120-1125), from Routine6E35 in towns too:
+        # while time is stopped (gTimeNegate) nobody moves.
+        if self.party.aura.get_type() == AuraType.QUICKNESS:
+            return
         px, py = self.avatar_x, self.avatar_y
         for npc in list(reversed(gm.npcs)):
             if npc not in gm.npcs:

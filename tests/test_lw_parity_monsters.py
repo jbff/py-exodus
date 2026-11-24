@@ -257,3 +257,39 @@ def test_moveshoot_fires_after_exodus_falls(overworld, monkeypatch):
     ow._update_creatures()
     assert (ow.creatures[0]["x"], ow.creatures[0]["y"]) == (22, 1)
     assert party.members[0].hp == 200 - 8  # BombTrap: (0 & 0x77) + 8
+
+
+# --- M-11: stopped time freezes town people -------------------------------------
+
+
+def test_finishall_stopped_time_freezes_town_people(pygame_setup, asset_mgr):
+    """UltimaMisc.c:1120-1125 (FinishAll), run from Routine6E35 in towns too:
+
+        if (gTimeNegate != 0) {
+            gTimeNegate--;
+            return;
+        }
+        SpawnMonster();
+        MoveMonsters();
+
+    While time is stopped nobody in a town or castle moves.
+    """
+    from py_exodus.screens.town import TownScreen
+
+    tw = TownScreen(party=_party(), map_id=3, asset_mgr=asset_mgr, start_x=32, start_y=32)
+    gm = tw.game_map
+    spot = next(
+        (x, y) for y in range(2, 60) for x in range(2, 60)
+        if all(gm.get_tile(x + i, y).name == "floor" for i in range(4))
+    )
+    x, y = spot
+    tw.avatar_x, tw.avatar_y = x, y
+    follower = MapNpc(tile_index=0, tile_name="cleric", x=x + 3, y=y, start_x=x + 3,
+                      start_y=y, movement="FOLLOW_AVATAR")
+    gm.npcs = [follower]
+    tw.party.aura.set(AuraType.QUICKNESS, 10)
+    tw._finish_turn(None)
+    assert (follower.x, follower.y) == (x + 3, y)
+    tw.party.aura.set(AuraType.NONE, 0)
+    tw._finish_turn(None)
+    assert (follower.x, follower.y) == (x + 2, y)
