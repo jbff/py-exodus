@@ -280,10 +280,8 @@ class FinalScreen(BaseScreen):
         (lethal, raises ``PartyDeathException`` when it kills the last living
         member). All four bits set => victory.
 
-        USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): card survives a
-        wrong-panel insert (GBC menucmd3.c:959; LW UltimaMisc.c:2305-2350 card
-        never consumed on wrong panel) — ``cards[card_idx] -= 1`` runs in the
-        correct-panel branch only.
+        The card is never used up (LairWare UltimaMisc.c:2328-2343 only tests
+        its bit), at the right panel or the wrong one.
         """
         name = self._normalize_card(str(card_name))
         card_idx = CARD_NAME_TO_INDEX.get(name)
@@ -305,8 +303,8 @@ class FinalScreen(BaseScreen):
         # else, a repeated card included, kills the member.
         in_order = self.card_status == mask - 1
         if x == panel_x and y == PANEL_Y and in_order:
-            # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): card survives a wrong-panel insert (GBC menucmd3.c:959; LW UltimaMisc.c:2305-2350 card never consumed on wrong panel)
-            char.cards[card_idx] -= 1
+            # LairWare INSERT (UltimaMisc.c:2328-2343) tests the card bit and
+            # never clears it: the member keeps the card, right panel or not.
             self.party.exodus_cards_status = self.card_status | mask
             if self.audio is not None:
                 self.audio.play_sfx("DivineMed")

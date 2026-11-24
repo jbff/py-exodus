@@ -83,7 +83,7 @@ def test_card_index_order_matches_java():
     assert CARD_NAME_TO_INDEX["death"] == 0
 
 
-def test_insert_love_consumes_cards3_and_sets_bit1():
+def test_insert_love_keeps_cards3_and_sets_bit1():
     """Inserting Love sets cards[3] and status bit 0x1, not cards[0] (SPP.java:664,682-686)."""
     party = card_party()
     scr = FinalScreen(party=party)
@@ -92,7 +92,7 @@ def test_insert_love_consumes_cards3_and_sets_bit1():
 
     assert res is True
     assert party.exodus_cards_status == 0x1
-    assert party.members[0].cards[3] == 0
+    assert party.members[0].cards[3] == 1  # LairWare keeps the card (UltimaMisc.c:2328-2343)
     assert party.members[0].cards[0] == 1  # death untouched
     assert all_cards_inserted(party.exodus_cards_status) is False
 
@@ -107,9 +107,9 @@ def test_insert_sol_moons_death_bits():
     assert scr.insert_card("moons", member_idx=0, pos=(32, 12)) is True
     assert scr.insert_card("death", member_idx=0, pos=(33, 12)) is True
     assert party.exodus_cards_status == 0xF
-    assert party.members[0].cards[1] == 0
-    assert party.members[0].cards[2] == 0
-    assert party.members[0].cards[0] == 0
+    assert party.members[0].cards[1] == 1  # kept (LairWare)
+    assert party.members[0].cards[2] == 1  # kept (LairWare)
+    assert party.members[0].cards[0] == 1  # kept (LairWare)
 
 
 def test_insert_order_is_forced():
@@ -264,7 +264,7 @@ def test_overworld_insert_flow_correct_panel(pygame_setup, asset_mgr):
     single_char(ow.text_log, "L")
 
     assert party.exodus_cards_status == 0x1
-    assert party.members[0].cards[3] == 0
+    assert party.members[0].cards[3] == 1  # kept (LairWare)
     assert ow.game_map.get_tile(30, 11).name == "floor"
     assert any(
         "Card of Love" in m for m in ow.text_log.history
@@ -332,7 +332,7 @@ def test_town_insert_flow(pygame_setup, asset_mgr):
     single_char(town.text_log, "M")
 
     assert party.exodus_cards_status == 0x7
-    assert party.members[0].cards[2] == 0
+    assert party.members[0].cards[2] == 1  # kept (LairWare)
     assert town.game_map.get_tile(32, 11).name == "floor"
 
 

@@ -250,6 +250,19 @@ def test_insert_last_card_runs_safeexodus(town):
     assert scr.game_map.get_tile(31, 3).name == "floor"
 
 
+def test_insert_card_stays_with_member():
+    """UltimaMisc.c:2328-2343: INSERT tests the card bit (``Player[rosNum][14]
+    & bytes``) and never clears it, so the member keeps the card. The port
+    took it away (Java)."""
+    from py_exodus.screens.final import FinalScreen
+
+    p, m = _exodus_party()
+    scr = FinalScreen(party=p)
+    assert scr.insert_card("love", member_idx=0, pos=(30, 12)) is True
+    assert m.player.cards == [1, 1, 1, 1]
+    assert p.exodus_cards_status == 0x1
+
+
 # --- Saves ------------------------------------------------------------------------
 
 

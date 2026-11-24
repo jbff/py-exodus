@@ -72,7 +72,7 @@ def test_final_screen_card_insertion_sequence():
         res = scr.insert_card(card, member_idx=0, pos=(px, 12))
         assert res is True
     assert p.exodus_cards_status == 0x1 | 0x2 | 0x4 | 0x8
-    assert c.cards == [0, 0, 0, 0]
+    assert c.cards == [1, 1, 1, 1]  # LairWare keeps the cards
     assert scr.victory is True
 
 
@@ -223,5 +223,5 @@ def test_final_screen_card_from_any_party_member():
     scr.handle_event(event_l)
 
     assert p.exodus_cards_status == 0x1
-    assert c2.cards[3] == 0  # Consumed from c2
+    assert c2.cards[3] == 1  # inserted by c2, who keeps it (LairWare)
 
