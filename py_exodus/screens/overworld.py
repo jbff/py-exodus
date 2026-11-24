@@ -1838,6 +1838,8 @@ class OverworldScreen(BaseScreen):
         occupied |= {
             (o.get("x"), o.get("y")) for o in objects_on(self.party, self.game_map)
         }
+        # The visible gate is no start terrain either (UltimaMisc.c:1555-1566).
+        occupied |= self._lw_moon_tiles()
         for _ in range(max(0, free_slots)):
             sx = random.randint(0, width - 1)
             if sx == self.party.x:
@@ -2171,10 +2173,30 @@ class OverworldScreen(BaseScreen):
                 return False
         elif name not in self.LW_LAND_TERRAIN:
             return False
+        if (tx, ty) in self._lw_moon_tiles():
+            return False
         return not any(
             o.get("x") == tx and o.get("y") == ty
             for o in objects_on(self.party, self.game_map)
         )
+
+    def _lw_moon_tiles(self) -> set[tuple[int, int]]:
+        """Sosaria tiles MoonGateUpdate writes into LairWare's map
+        (UltimaMisc.c:1555-1566): the gate (136) at the Trammel site, and
+        Dawn's town (24) at LocationX/Y[8] on a double new moon. Neither is a
+        value ValidMonsterDir or SpawnMonster accepts (UltimaMisc.c:263-272,
+        1177-1180), so no monster steps or spawns there."""
+        if self.game_map is None or str(self.map_id) != "0":
+            return set()
+        tiles = {
+            (g.x, g.y) for g in self.game_map.moongates if g.phase == self.trammel_phase
+        }
+        if self.trammel_phase == 0 and self.felucca_phase == 0:
+            tiles |= {
+                (p.x, p.y) for p in getattr(self.game_map, "portals", ())
+                if p.dest_map_id == 11
+            }
+        return tiles
 
     # LairWare WhirlXtable / WhirlYtable (UltimaMain.c:65-66).
     WHIRL_HEADINGS: tuple[tuple[int, int], ...] = (

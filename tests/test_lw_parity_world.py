@@ -170,6 +170,35 @@ def test_routine6e35_moon_step_on_pass(overworld):
     assert (scr.party.x, scr.party.y) == (12, 55)
 
 
+def test_validmonsterdir_gate_and_dawn_closed_to_monsters(overworld):
+    """UltimaMisc.c:1555-1566 writes the gate (136) into the map at the
+    Trammel site and Dawn's town (24) at LocationX/Y[8] = (37, 53) on a
+    double new moon; ValidMonsterDir (UltimaMisc.c:263-272) lets land
+    monsters onto 4, 8, 12 and 32 only, so neither is open to them. The
+    port's gate is drawn over grass and Dawn over forest, both open."""
+    scr = overworld(x=40, y=40)
+    scr.party.moon_phase = 12  # Trammel 4: gate at (15, 29)
+    assert not scr._lw_monster_terrain_ok("orc", 15, 29)
+    assert scr._lw_monster_terrain_ok("orc", 15, 27)  # site 2, no gate now
+    assert scr._lw_monster_terrain_ok("orc", 37, 53)  # Dawn is forest
+    scr.party.moon_phase = 0  # double new moon: Dawn shows, gate at (8, 8)
+    assert not scr._lw_monster_terrain_ok("orc", 37, 53)
+    assert not scr._lw_monster_terrain_ok("orc", 8, 8)
+    assert scr._lw_monster_terrain_ok("orc", 15, 29)
+
+
+def test_spawnmonster_never_on_the_gate(overworld, monkeypatch):
+    """UltimaMisc.c:1177-1180: a spawn needs the map value to be the type's
+    start terrain (4 or 0); the gate's 136 is neither."""
+    from py_exodus.screens import overworld as ow
+
+    scr = overworld(x=40, y=40)
+    scr.party.moon_phase = 12  # gate at (15, 29), on grass
+    monkeypatch.setattr(ow, "random", Script([134, 15, 29]))
+    scr._spawn_wandering_creature()
+    assert not any((c["x"], c["y"]) == (15, 29) for c in scr.creatures)
+
+
 # --- SafeExodus, INSERT ---------------------------------------------------------
 
 
