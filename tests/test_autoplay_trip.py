@@ -1335,7 +1335,9 @@ def test_dungeon_chest_underfoot_is_opened_with_appar_unem(pygame_setup):
             break
         ctrl.step(sm)
     assert dmap.get_tile(2, 2, 0) != DungeonTile.CHEST
-    assert cleric.mp == 35
+    # APPAR UNEM fails one cast in four (magic.py, GBC menucmd.c:1311-1313;
+    # LW UltimaSpellCombat.c:268-273), so it may take more than one 5-MP cast.
+    assert cleric.mp < 40 and (40 - cleric.mp) % 5 == 0
     assert party.gold >= gold0
     assert all(m.status.name == "GOOD" for m in party.members)
 
