@@ -917,22 +917,13 @@ class OverworldScreen(BaseScreen):
             return
 
         old_t = self.party.transport
-        if old_t == Transport.SHIP and self.game_map is not None:
-            on_shoreline = False
-            for d in (Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST):
-                nx = (self.party.x + d.dx) % self.game_map.width
-                ny = (self.party.y + d.dy) % self.game_map.height
-                ntile = self.game_map.get_tile(nx, ny)
-                if (
-                    ntile is not None
-                    and not getattr(ntile, "swimmable", False)
-                    and can_move_to(self.game_map, nx, ny, transport=Transport.FOOT, party=self.party)
-                ):
-                    on_shoreline = True
-                    break
-            if not on_shoreline:
-                self.text_log.add_message("Not on shoreline!")
-                return
+        # LairWare Exit (UltimaMain.c:2523-2538): the craft is left only on
+        # water or grass (tile value <= 4); anywhere else "Not here!". No
+        # shoreline is needed to leave a ship.
+        tile = self.game_map.get_tile(self.party.x, self.party.y) if self.game_map else None
+        if tile is None or getattr(tile, "index", 99) > 1:
+            self.text_log.add_message("Not Here!")
+            return
 
         self.party.transport = Transport.FOOT
         if old_t == Transport.HORSE:

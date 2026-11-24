@@ -231,6 +231,8 @@ class TestExitTransport:
 
     def test_town_x_dismounts_horse_never_exits(self, town, sample_party):
         sample_party.transport = Transport.HORSE
+        # LW Exit leaves a horse only on grass (UltimaMain.c:2523-2530).
+        town.game_map.set_tile(10, 10, TileDef(index=1, name="grass", rule="grass"))
         key(town, pygame.K_x)
         assert sample_party.transport == Transport.FOOT
         # User ruling 2026-11-22: what is left in a town stays there; it never

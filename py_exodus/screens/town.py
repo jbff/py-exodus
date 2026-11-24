@@ -1118,6 +1118,11 @@ class TownScreen(BaseScreen):
             return
 
         old_t = self.party.transport
+        # LairWare Exit (UltimaMain.c:2523-2538): only on water or grass.
+        tile = self.game_map.get_tile(self.avatar_x, self.avatar_y) if self.game_map else None
+        if tile is None or getattr(tile, "index", 99) > 1:
+            self.text_log.add_message("Not Here!")
+            return
         self.party.transport = Transport.FOOT
         # A transport left in a town stays with the town (which reloads),
         # never in the surface map's list at the town's coordinates (user

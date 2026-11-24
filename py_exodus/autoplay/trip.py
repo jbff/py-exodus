@@ -15,7 +15,8 @@ Search space: Dijkstra over ``(x, y, mode)`` with ``mode`` in {FOOT, SHIP}.
   costs ``SAIL_STEP_COST``.
 - B: FOOT -> SHIP on a frigate tile.
 - X: SHIP -> FOOT on a water tile with an orthogonal walkable land neighbour
-  (the engine's "Not on shoreline!" rule, overworld.py ``_exit_transport``).
+  (autoplay's own choice: LairWare's Exit allows any water tile, but a
+  party left on foot at sea can only board again).
 - CAPTURE: FOOT on a coast land tile -> SHIP on the adjacent water. With
   live ``pirates`` given, only coasts of a body of water holding a pirate
   qualify (cost grows with the distance to the nearest one); the follower

@@ -455,6 +455,10 @@ def test_town_screen_navigation_and_exit(pygame_setup, asset_mgr, sample_party):
     # Press 'X' — Task 9 parity: X only dismounts to FOOT; leaving a town is
     # border-walking only (Java GameScreen.java:584-596).
     sample_party.transport = Transport.HORSE
+    # LW Exit leaves a horse only on grass (UltimaMain.c:2523-2530).
+    from py_exodus.assets import TileDef as _TD
+
+    town.game_map.set_tile(town.avatar_x, town.avatar_y, _TD(index=1, name="grass", rule="grass"))
     town.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_x))
     assert sample_party.transport == Transport.FOOT
     assert sm.current_screen is town and not town.is_finished

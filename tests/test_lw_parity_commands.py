@@ -411,3 +411,41 @@ def test_unlock_town_door_becomes_tile_west(town):
     _key(scr, pygame.K_LEFT)
     assert scr.game_map.get_tile(28, 12).name == "floor"
     assert m.keys == 1
+
+
+# --- Exit (X) -----------------------------------------------------------------
+
+
+def test_exit_ship_at_open_sea(overworld):
+    """UltimaMain.c:2523-2538: ``tileOn = GetXYVal(xpos, ypos); if (tileOn >
+    4) NotHere; else { PutXYVal(Party[1] * 2, ...); Party[1] = 0x7E; }`` --
+    water (0) qualifies, so a ship can be left anywhere (the port demanded a
+    shoreline)."""
+    scr = overworld(50, 10)
+    assert scr.game_map.get_tile(50, 10).name == "water"
+    scr.party.transport = Transport.SHIP
+    scr._exit_transport()
+    assert scr.party.transport == Transport.FOOT
+    assert any(o.get("tile") == "frigate" and (o["x"], o["y"]) == (50, 10)
+               for o in scr.party.dynamic_objects)
+
+
+def test_exit_horse_only_on_grass(overworld, town):
+    """UltimaMain.c:2523-2530: a horse is left only on grass (4) -- brush,
+    forest or a town floor answer "Not here!"."""
+    scr = overworld(40, 40)
+    from py_exodus.assets import TileDef
+
+    scr.game_map.set_tile(40, 40, TileDef(index=2, name="brush", rule="brush"))
+    scr.party.transport = Transport.HORSE
+    scr._exit_transport()
+    assert scr.party.transport == Transport.HORSE
+    scr.game_map.set_tile(40, 40, TileDef(index=1, name="grass", rule="grass"))
+    scr._exit_transport()
+    assert scr.party.transport == Transport.FOOT
+
+    tw = town(map_id=3, x=32, y=32)
+    assert tw.game_map.get_tile(32, 32).index > 1
+    tw.party.transport = Transport.HORSE
+    tw._exit_transport()
+    assert tw.party.transport == Transport.HORSE

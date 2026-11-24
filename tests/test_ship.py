@@ -316,14 +316,15 @@ class TestFrigateNoStacking:
         ]
         assert len(frigates_at_tile) == 1
 
-    def test_disembark_requires_shoreline(self, overworld):
+    def test_disembark_at_open_sea(self, overworld):
+        """LW Exit (UltimaMain.c:2523-2538) needs only water or grass under
+        the ship; there is no shoreline rule."""
         overworld.party.x, overworld.party.y = 50, 10  # Open ocean (no adjacent land)
         overworld.party.transport = Transport.SHIP
 
         overworld._exit_transport()
 
-        assert overworld.party.transport == Transport.SHIP
-        assert any("shoreline" in msg.lower() for msg in overworld.text_log.lines)
+        assert overworld.party.transport == Transport.FOOT
 
     def test_disembark_does_not_stack_frigate(self, overworld):
         overworld.party.x, overworld.party.y = 46, 18
@@ -338,13 +339,14 @@ class TestFrigateNoStacking:
         ]
         assert len(frigates_at_tile) == 1
 
-    def test_disembark_requires_shoreline(self, overworld):
+    def test_disembark_at_open_sea(self, overworld):
+        """LW Exit (UltimaMain.c:2523-2538) needs only water or grass under
+        the ship; there is no shoreline rule."""
         overworld.party.x, overworld.party.y = 50, 10  # Open ocean (no adjacent land)
         overworld.party.transport = Transport.SHIP
 
         overworld._exit_transport()
 
-        assert overworld.party.transport == Transport.SHIP
-        assert any("shoreline" in msg.lower() for msg in overworld.text_log.lines)
+        assert overworld.party.transport == Transport.FOOT
 
 
