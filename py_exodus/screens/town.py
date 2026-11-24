@@ -244,7 +244,7 @@ class TownScreen(BaseScreen):
             self._finish_turn(None)
         # Town commands:
         elif event.key == pygame.K_a:
-            self.text_log.add_message("Attack: The guards eye thee suspiciously! Peace reigns here.")
+            self._prompt_attack()
         elif event.key == pygame.K_b:
             # Java GameScreen.java:578-580 + 945-979 — B is board(v.x, v.y) on
             # every GameScreen map ("Board: Can't!" mounted, transport scan,
@@ -313,6 +313,24 @@ class TownScreen(BaseScreen):
             # explicit early return — including unhandled D, I and K — fall
             # through to finishTurn with no message.
             self._consume_pass_turn()
+
+    def _prompt_attack(self) -> None:
+        """LairWare Attack (UltimaMain.c:1329-1340): a direction, then
+        whoever stands there is fought (AttackCode); nobody -> NotHere."""
+
+        def _on_dir(d_str: str) -> None:
+            d = Direction.from_name_or_key(d_str)
+            if d is None:
+                self.text_log.add_message("Invalid direction!")
+                return
+            npc = self._find_npc_at(self.avatar_x + d.dx, self.avatar_y + d.dy)
+            if npc is None:
+                self.text_log.add_message("Not Here!")
+                self._consume_pass_turn()
+                return
+            self._start_exodus_combat(npc)
+
+        self.text_log.prompt("Attack Direction? (N,S,E,W):", callback=_on_dir, single_char=True)
 
     def _consume_pass_turn(self) -> None:
         """Java GameScreen.keyUp tail (GameScreen.java:628): finishTurn on the

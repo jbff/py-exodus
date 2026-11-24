@@ -530,3 +530,25 @@ def test_transact_needs_living_member(town):
     _key(scr, pygame.K_1, "1")
     assert scr.text_log.history[-1] == "Incapacitated!"
     assert not scr.text_log.is_waiting_for_input
+
+
+# --- Attack in towns -------------------------------------------------------------
+
+
+def test_attack_in_town_fights_the_person(town):
+    """UltimaMain.c:1329-1340: ``GetDirection(0); monNum = MonsterHere(xs, ys);
+    if (monNum == 255) NotHere(); else AttackCode(monNum);`` -- town people
+    are monsters too, so A starts a fight (the port refused every attack)."""
+    from py_exodus.world.map import MapNpc
+
+    scr = town(map_id=3, x=32, y=32)
+    scr.game_map.npcs = [MapNpc(18, "guard", 33, 32, 33, 32)]
+    _key(scr, pygame.K_a, "a")
+    _key(scr, pygame.K_LEFT)
+    assert not scr.is_finished
+    assert scr.text_log.history[-1] == "Not Here!"
+    _key(scr, pygame.K_a, "a")
+    _key(scr, pygame.K_RIGHT)
+    assert scr.is_finished
+    assert type(scr.next_screen).__name__ == "CombatScreen"
+    assert scr._combat_npc is not None and scr._combat_npc.tile_name == "guard"
