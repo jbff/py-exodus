@@ -111,7 +111,7 @@ def test_maps_parsing():
     assert portal_to_british.x == 45
     assert portal_to_british.y == 18
     assert portal_to_british.start_x == 32
-    assert portal_to_british.start_y == 61
+    assert portal_to_british.start_y == 62  # LW Enter: castles at (32, 62)
 
     # Moongates on Sosaria (8 moon phases). USER-DIRECTED GBC-RULES DEVIATION
     # (2026-11-14): per-gate d1/d2/d3 destination tables (Java invention) are

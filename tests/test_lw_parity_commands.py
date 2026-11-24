@@ -449,3 +449,20 @@ def test_exit_horse_only_on_grass(overworld, town):
     tw.party.transport = Transport.HORSE
     tw._exit_transport()
     assert tw.party.transport == Transport.HORSE
+
+
+# --- Enter -------------------------------------------------------------------
+
+
+def test_enter_town_at_1_32_castle_at_32_62(asset_mgr):
+    """UltimaMain.c:1431-1452: a town is entered at ``ypos = 32; xpos = 1;``
+    and a castle at ``xpos = 32; ypos = 62;`` (the port used Java's (2,32),
+    (5,32) and Castle British's (32,61))."""
+    from py_exodus.world.loader import MapLoader
+
+    sos = MapLoader(asset_mgr).load_map(0)
+    starts = {p.dest_map_id: (p.start_x, p.start_y) for p in sos.portals}
+    for town_id in range(3, 13):
+        assert starts[town_id] == (1, 32), town_id
+    assert starts[1] == (32, 62)
+    assert starts[2] == (32, 62)

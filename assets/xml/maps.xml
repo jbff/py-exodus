@@ -1,18 +1,19 @@
 <maps>
     
+    <!-- Entry positions: LairWare Enter (UltimaMain.c:1431-1452), towns (1,32), castles (32,62). -->
     <map id="0" type="world" fname="sosaria.json" width="64" height="64" levels="1" borderbehavior="wrap" music="OUTSIDE">
-        <portal x="45" y="18" destmapid="1" startx="32" starty="61" />
+        <portal x="45" y="18" destmapid="1" startx="32" starty="62" />
         <portal x="10" y="53" destmapid="2" startx="32" starty="62" />
-        <portal x="46" y="19" destmapid="3" startx="2" starty="32" />
-        <portal x="34" y="16" destmapid="4" startx="2" starty="32" />
-        <portal x="6" y="13" destmapid="5" startx="2" starty="32"  />
-        <portal x="7" y="44" destmapid="6" startx="5" starty="32" />
-        <portal x="18" y="31" destmapid="7" startx="2" starty="32" />
-        <portal x="49" y="58" destmapid="8" startx="2" starty="32" />
-        <portal x="47" y="58" destmapid="9" startx="2" starty="32" />
-        <portal x="37" y="53" destmapid="11" startx="2" starty="32" />
-        <portal x="56" y="31" destmapid="10" startx="5" starty="32" />
-        <portal x="30" y="2" destmapid="12" startx="2" starty="32" />
+        <portal x="46" y="19" destmapid="3" startx="1" starty="32" />
+        <portal x="34" y="16" destmapid="4" startx="1" starty="32" />
+        <portal x="6" y="13" destmapid="5" startx="1" starty="32"  />
+        <portal x="7" y="44" destmapid="6" startx="1" starty="32" />
+        <portal x="18" y="31" destmapid="7" startx="1" starty="32" />
+        <portal x="49" y="58" destmapid="8" startx="1" starty="32" />
+        <portal x="47" y="58" destmapid="9" startx="1" starty="32" />
+        <portal x="37" y="53" destmapid="11" startx="1" starty="32" />
+        <portal x="56" y="31" destmapid="10" startx="1" starty="32" />
+        <portal x="30" y="2" destmapid="12" startx="1" starty="32" />
 
         <portal x="56" y="6" destmapid="14" startx="32" starty="62" />
         <portal x="46" y="7" destmapid="15" startx="32" starty="62" />
