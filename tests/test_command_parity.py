@@ -387,7 +387,7 @@ class TestUnlock:
 
     def _place_locked_door(self, map_):
         map_.set_tile(
-            10, 9,
+            11, 10,
             TileDef(index=100, name="locked_door", rule="locked_door", attribs=TileAttrib.LOCKEDDOOR),
         )
 
@@ -398,45 +398,45 @@ class TestUnlock:
         assert "UNLOCK" in ow.text_log.current_prompt
         answer(ow, "1")
         assert "Direction?" in ow.text_log.current_prompt
-        press_direction(ow, Direction.NORTH)
+        press_direction(ow, Direction.EAST)
         assert any(m == "Unlocked!" for m in ow.text_log.history)
         assert sample_party.members[0].keys == 0
         # USER-DIRECTED (2026-11-21, Ambrosia per LairWare): on the surface
         # an unlocked door becomes the tile WEST of it (UltimaMain.c:2428-
         # 2433), not Java's "door" tile; terrain past floor reads as grass.
-        west = ow.game_map.get_tile(9, 9)
+        west = ow.game_map.get_tile(10, 10)
         expected = west.name if west.index <= 8 else "grass"
-        assert ow.game_map.get_tile(10, 9).name == expected
+        assert ow.game_map.get_tile(11, 10).name == expected
 
     def test_overworld_unlocked_water_door_becomes_water(self, ow, sample_party):
         """Ambrosia's door in the water channel (39, 61) opens for a ship."""
         self._place_locked_door(ow.game_map)
-        ow.game_map.set_tile(9, 9, TileDef(index=0, name="water", rule="water"))
+        ow.game_map.set_tile(10, 10, TileDef(index=0, name="water", rule="water"))
         sample_party.members[0].keys = 1
-        ow._unlock_direction("N", sample_party.members[0])
-        assert ow.game_map.get_tile(10, 9).name == "water"
+        ow._unlock_direction("E", sample_party.members[0])
+        assert ow.game_map.get_tile(11, 10).name == "water"
 
     def test_overworld_u_cannot_without_keys(self, ow, sample_party):
         self._place_locked_door(ow.game_map)
         sample_party.members[1].keys = 0
         key(ow, pygame.K_u)
         answer(ow, "2")
-        press_direction(ow, Direction.NORTH)
+        press_direction(ow, Direction.EAST)
         # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): unlocking consumes one key (GBC menucmd2.c:1595-1650)
         # — keyless refusal is "You need a key!", not "Can't!".
         assert any(m == "You need a key!" for m in ow.text_log.history)
         assert sample_party.members[1].keys == 0
-        assert ow.game_map.get_tile(10, 9).rule == "locked_door"
+        assert ow.game_map.get_tile(11, 10).rule == "locked_door"
 
     def test_town_u_requires_member_key(self, town, sample_party):
         town.game_map.set_tile(
-            10, 9,
+            11, 10,
             TileDef(index=100, name="locked_door", rule="locked_door", attribs=TileAttrib.LOCKEDDOOR),
         )
         sample_party.members[0].keys = 2
         key(town, pygame.K_u)
         answer(town, "1")
-        press_direction(town, Direction.NORTH)
+        press_direction(town, Direction.EAST)
         assert any(m == "Unlocked!" for m in town.text_log.history)
         assert sample_party.members[0].keys == 1
 
@@ -448,7 +448,7 @@ class TestUnlockConsumesKey:
 
     def _locked_door(self, map_):
         map_.set_tile(
-            10, 9,
+            11, 10,
             TileDef(index=100, name="locked_door", rule="locked_door", attribs=TileAttrib.LOCKEDDOOR),
         )
 
@@ -458,10 +458,12 @@ class TestUnlockConsumesKey:
         self._locked_door(ow.game_map)
         member = sample_party.members[0]
         member.keys = 2
-        ok = doors_module.unlock_door(ow.game_map, 10, 9, member=member)
+        ok = doors_module.unlock_door(ow.game_map, 11, 10, member=member)
         assert ok is True
         assert member.keys == 1
-        assert ow.game_map.get_tile(10, 9).rule == "door"
+        # LW: the door becomes the tile west of it (UltimaMain.c:2428-2433).
+        west = ow.game_map.get_tile(10, 10)
+        assert ow.game_map.get_tile(11, 10).name == (west.name if west.index <= 8 else "grass")
 
     def test_unit_unlock_without_key_refuses_and_unchanged(self, ow, sample_party):
         import py_exodus.world.doors as doors_module
@@ -469,10 +471,10 @@ class TestUnlockConsumesKey:
         self._locked_door(ow.game_map)
         member = sample_party.members[0]
         member.keys = 0
-        ok = doors_module.unlock_door(ow.game_map, 10, 9, member=member)
+        ok = doors_module.unlock_door(ow.game_map, 11, 10, member=member)
         assert ok is False
         assert member.keys == 0
-        assert ow.game_map.get_tile(10, 9).rule == "locked_door"
+        assert ow.game_map.get_tile(11, 10).rule == "locked_door"
 
     def test_unit_unlock_door_tile_does_not_spend(self, ow, sample_party):
         """GBC menucmd2.c:1655-1657 — the spend+convert runs ONLY for the
@@ -481,45 +483,45 @@ class TestUnlockConsumesKey:
         import py_exodus.world.doors as doors_module
 
         ow.game_map.set_tile(
-            10, 9,
+            11, 10,
             TileDef(index=35, name="door", rule="door", attribs=TileAttrib.DOOR),
         )
         member = sample_party.members[0]
         member.keys = 2
-        ok = doors_module.unlock_door(ow.game_map, 10, 9, member=member)
+        ok = doors_module.unlock_door(ow.game_map, 11, 10, member=member)
         assert ok is False
         assert member.keys == 2
-        assert ow.game_map.get_tile(10, 9).rule == "door"
+        assert ow.game_map.get_tile(11, 10).rule == "door"
 
     def test_unit_unlock_member_none_legacy(self, ow, sample_party):
         import py_exodus.world.doors as doors_module
 
         self._locked_door(ow.game_map)
         sample_party.members[0].keys = 0
-        ok = doors_module.unlock_door(ow.game_map, 10, 9)
+        ok = doors_module.unlock_door(ow.game_map, 11, 10)
         assert ok is True
         assert sample_party.members[0].keys == 0
-        assert ow.game_map.get_tile(10, 9).rule == "door"
+        assert ow.game_map.get_tile(11, 10).rule == "door"
 
     def test_overworld_u_no_key_says_needs_key(self, ow, sample_party):
         self._locked_door(ow.game_map)
         sample_party.members[1].keys = 0
         key(ow, pygame.K_u)
         answer(ow, "2")
-        press_direction(ow, Direction.NORTH)
+        press_direction(ow, Direction.EAST)
         assert any(m == "You need a key!" for m in ow.text_log.history)
         assert sample_party.members[1].keys == 0
-        assert ow.game_map.get_tile(10, 9).rule == "locked_door"
+        assert ow.game_map.get_tile(11, 10).rule == "locked_door"
 
     def test_town_u_no_key_says_needs_key(self, town, sample_party):
         self._locked_door(town.game_map)
         sample_party.members[0].keys = 0
         key(town, pygame.K_u)
         answer(town, "1")
-        press_direction(town, Direction.NORTH)
+        press_direction(town, Direction.EAST)
         assert any(m == "You need a key!" for m in town.text_log.history)
         assert sample_party.members[0].keys == 0
-        assert town.game_map.get_tile(10, 9).rule == "locked_door"
+        assert town.game_map.get_tile(11, 10).rule == "locked_door"
 
 
 class TestGetChest:

@@ -379,3 +379,35 @@ def test_peergem_asks_whose_gem(where, request):
     _key(scr, pygame.K_2, "2")
     assert (a.gems, b.gems) == (2, 1)
     assert scr.gem_view_active
+
+
+# --- Unlock --------------------------------------------------------------------
+
+
+def test_unlock_refuses_north_and_south(town):
+    """UltimaMain.c:2400-2408: diagonals are switched off for the prompt, and
+    ``if ((ys != ypos) && (xs == xpos)) NotHere();`` -- only east or west."""
+    m = _pm()
+    m.keys = 2
+    scr = town(map_id=9, x=28, y=13, party=_party(m))  # Montor West door (28, 12) north
+    assert scr.game_map.get_tile(28, 12).name == "locked_door"
+    _key(scr, pygame.K_u, "u")
+    _key(scr, pygame.K_1, "1")
+    _key(scr, pygame.K_UP)
+    assert scr.game_map.get_tile(28, 12).name == "locked_door"
+    assert m.keys == 2
+
+
+def test_unlock_town_door_becomes_tile_west(town):
+    """UltimaMain.c:2428-2433: ``value = GetXYVal(xs - 1, ys); if (value >
+    0x20) value = 0x04; PutXYVal(value, xs, ys);`` -- in a town too the door
+    opens straight into the tile west of it (the port left a closed door to
+    Open with L)."""
+    m = _pm()
+    m.keys = 2
+    scr = town(map_id=9, x=29, y=12, party=_party(m))  # door (28, 12), floor west
+    _key(scr, pygame.K_u, "u")
+    _key(scr, pygame.K_1, "1")
+    _key(scr, pygame.K_LEFT)
+    assert scr.game_map.get_tile(28, 12).name == "floor"
+    assert m.keys == 1

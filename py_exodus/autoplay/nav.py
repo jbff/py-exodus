@@ -30,8 +30,8 @@ def locked_door_passable(game_map, x: int, y: int, transport: Transport, party=N
     On the surface (Sosaria 0, Ambrosia 13) LairWare turns an unlocked door
     into the tile WEST of it (UltimaMain.c:2428-2433; the overworld U command
     mirrors it), so the door is as passable as that tile: Ambrosia's door in
-    the water channel (39, 61) opens for a ship, not for walkers. Elsewhere
-    (towns) an unlocked door is a walkable door.
+    the water channel (39, 61) opens for a ship, not for walkers. Towns do
+    the same, and their doors open onto floor or grass: walkable.
     """
     if getattr(game_map, "id", None) in (0, 13):
         wx = (x - 1) % game_map.width

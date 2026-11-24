@@ -855,6 +855,11 @@ class TownScreen(BaseScreen):
         if d is None:
             self.text_log.add_message("Invalid direction!")
             return
+        if d in (Direction.NORTH, Direction.SOUTH):
+            # LairWare Unlock (UltimaMain.c:2400-2408): doors open only east
+            # or west (``(ys != ypos) && (xs == xpos)`` is NotHere).
+            self.text_log.add_message("Not Here!")
+            return
         if self.game_map is None:
             self.text_log.add_message("Can't!")
             return

@@ -1304,6 +1304,11 @@ class OverworldScreen(BaseScreen):
         if d is None:
             self.text_log.add_message("Invalid direction!")
             return
+        if d in (Direction.NORTH, Direction.SOUTH):
+            # LairWare Unlock (UltimaMain.c:2400-2408): doors open only east
+            # or west (``(ys != ypos) && (xs == xpos)`` is NotHere).
+            self.text_log.add_message("Not Here!")
+            return
         if self.game_map is None:
             self.text_log.add_message("Can't!")
             return
@@ -1315,15 +1320,8 @@ class OverworldScreen(BaseScreen):
         # member is refused with "You need a key!" (GBC refusal message).
         tx, ty = self.party.x + d.dx, self.party.y + d.dy
         if door_module.unlock_door(self.game_map, tx, ty, member=member):
-            # LairWare Unlock (UltimaMain.c:2428-2433): on the surface the
-            # door turns into the tile WEST of it (anything past floor reads
-            # as grass). Ambrosia's water door at (39, 61) therefore opens
-            # into water and a ship can pass to the whirlpool bay.
-            west = self.game_map.get_tile((tx - 1) % self.game_map.width, ty)
-            if west is not None and 0 <= getattr(west, "index", 99) <= 8:
-                self.game_map.set_tile(tx, ty, west)
-            elif self.asset_mgr is not None and self.asset_mgr.tile_defs.get(1):
-                self.game_map.set_tile(tx, ty, self.asset_mgr.tile_defs.get(1))
+            # The door becomes the tile west of it (doors.unlock_door, LW
+            # UltimaMain.c:2428-2433): Ambrosia's water door opens into water.
             self.text_log.add_message("Unlocked!")
         else:
             if getattr(member, "keys", 0) <= 0:

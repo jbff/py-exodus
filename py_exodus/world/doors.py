@@ -66,7 +66,14 @@ def unlock_door(
     if member is not None:
         if rule != "locked_door":
             return False
-        game_map.set_tile(x, y, _door_tile())
+        # LairWare Unlock (UltimaMain.c:2428-2433): the door becomes the tile
+        # WEST of it, anything past floor (0x20) reading as grass -- on every
+        # map, so a town door opens straight into its floor and Ambrosia's
+        # water door at (39, 61) into water.
+        west = game_map.get_tile((x - 1) % game_map.width, y)
+        if west is None or not 0 <= getattr(west, "index", 99) <= 8:
+            west = TileDef(index=1, name="grass", rule="grass")
+        game_map.set_tile(x, y, west)
         member.keys -= 1
         return True
     if rule not in ("door", "locked_door"):
