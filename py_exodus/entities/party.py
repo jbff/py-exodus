@@ -237,7 +237,7 @@ class Party:
         food: int | None = None,
         moves: int = 0,
         regen_turns: int = 0,
-        moon_phase: int = 0,
+        moon_phase: int = 12,
         moon_turns: int = 0,
         torch_duration: int = 0,
         active_member_index: int = 0,
@@ -314,6 +314,9 @@ class Party:
         # counts consumed turns (move or pass) behind the advance cadence —
         # every 4th on the world surface maps, every 16th elsewhere. Both
         # persisted so a save/load resumes the same integer phase.
+        # A new game starts at 12, both moons at phase 4 with fresh counters:
+        # LairWare ``gMoon[2] = {12,4}, gMoonDisp[2] = {'4','4'}``
+        # (UltimaMain.c:36). Trammel = phase // 3, Felucca = phase % 8.
         self.moon_phase = moon_phase % 24
         self.moon_turns = moon_turns
 

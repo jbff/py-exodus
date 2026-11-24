@@ -410,6 +410,7 @@ class TestMoveDrivenMoons:
 
     def test_moons_advance_every_16th_consumed_turn_underground(self, party):
         """Non-surface maps advance the phase on the 16th consumed turn."""
+        party.moon_phase = 0  # a new game starts at 12 (LairWare 4/4)
         for _ in range(15):
             party.advance_moons(surface=False)
         assert party.moon_phase == 0
@@ -420,6 +421,7 @@ class TestMoveDrivenMoons:
         """One consumed-turn counter behind the cadence, like GBC's moves
         modulo: 3 surface + 12 underground spent turns leave the 16th one
         to trigger."""
+        party.moon_phase = 0  # a new game starts at 12 (LairWare 4/4)
         for _ in range(3):
             party.advance_moons(surface=True)
         for _ in range(12):

@@ -123,6 +123,39 @@ def test_moongate_new_moon_site_is_8_8(overworld):
     }
 
 
+def test_moons_start_at_phase_four():
+    """UltimaMain.c:36: ``short gMoon[2] = {12,4}, gMoonDisp[2] =
+    {'4','4'}`` -- both moons start at phase 4 with fresh countdowns, so a
+    new game has neither the double new moon (Dawn) nor the gate at site 0.
+    Trammel turns on the 12th Sosaria turn, Felucca on the 4th
+    (UltimaMisc.c:1493-1506). The port started at phase 0 (both new)."""
+    from py_exodus.screens.overworld import OverworldScreen
+
+    p = Party()
+    assert (p.moon_phase, p.moon_turns) == (12, 0)
+    scr = OverworldScreen.__new__(OverworldScreen)
+    scr.party = p
+    assert (scr.trammel_phase, scr.felucca_phase) == (4, 4)
+    for _ in range(4):
+        p.advance_moons(surface=True)
+    assert (scr.trammel_phase, scr.felucca_phase) == (4, 5)
+    for _ in range(8):
+        p.advance_moons(surface=True)
+    assert (scr.trammel_phase, scr.felucca_phase) == (5, 7)
+
+
+def test_moongate_old_save_keeps_its_phase():
+    """A save from before the change carries its own moon_phase and loads it
+    unchanged; one with no moon keys loads phase 0, as before."""
+    p = _party()
+    p.moon_phase, p.moon_turns = 5, 7
+    d = p.to_dict()
+    q = Party.from_dict(d)
+    assert (q.moon_phase, q.moon_turns) == (5, 7)
+    del d["moon_phase"], d["moon_turns"]
+    assert Party.from_dict(d).moon_phase == 0
+
+
 # --- SafeExodus, INSERT ---------------------------------------------------------
 
 
