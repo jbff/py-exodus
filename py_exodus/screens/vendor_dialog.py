@@ -995,15 +995,13 @@ class GuildVendorDialog(BaseVendorDialog):
         elif self.state == ConvState.BUY_ITEM:
             # Java GuildVendor.java:44-64 — member-level fields
             player = self._player()
-            kind = (self.current_selected_item.guild_item_type or "").lower()
-            if kind == "gem":
-                player.gems += self.current_selected_item.quantity
-            elif kind == "key":
-                player.keys += self.current_selected_item.quantity
-            elif kind == "powder":
-                player.powder += self.current_selected_item.quantity
-            elif kind == "torch":
-                player.torches += self.current_selected_item.quantity
+            field = self._field(self.current_selected_item)
+            if field is not None:
+                # LairWare GuildGive (UltimaMisc.c:2177-2180): capped at 99.
+                setattr(
+                    player, field,
+                    min(_ITEM_MAX, getattr(player, field, 0) + self.current_selected_item.quantity),
+                )
             player.adjust_gold(-self.current_selected_item.price)
             self.ask(f"{self.vendor.owner} says: See more?")
             self.state = ConvState.ANYTHING_ELSE
@@ -1032,11 +1030,18 @@ class GuildVendorDialog(BaseVendorDialog):
                 self.state = ConvState.FAREWELL
         elif self.state == ConvState.WAIT_BUY_INPUT:
             item = self.vendor.get_item(inp)
-            if item is not None and self.check_can_pay(item):
+            field = self._field(item) if item is not None else None
+            if field is not None and getattr(self._player(), field, 0) + item.quantity > _ITEM_MAX:
+                # LairWare UltimaMisc.c:2036-2040: a stack that would pass 99
+                # -> message 260 "Not enough room!" and the list again (goto
+                # shop5a), before any gold is asked for.
+                self.display("Not enough room!")
+            elif item is not None and self.check_can_pay(item):
                 self.current_selected_item = item
                 self.state = ConvState.WAIT_BUY_ONE
             else:
                 self.state = ConvState.FAREWELL
+
         elif self.state == ConvState.WAIT_BUY_ONE:
             if inp.startswith("y"):
                 self.current_count = 1
@@ -1044,6 +1049,12 @@ class GuildVendorDialog(BaseVendorDialog):
             else:
                 self.current_count = 0
                 self.state = ConvState.FAREWELL
+
+    _FIELDS = {"gem": "gems", "key": "keys", "powder": "powder", "torch": "torches"}
+
+    def _field(self, item: VendorItemDef) -> str | None:
+        """The member field a guild item fills (Java GuildVendor BUY_ITEM)."""
+        return self._FIELDS.get((item.guild_item_type or "").lower())
 
     # --- Java GuildVendor.java:119-134 ---------------------------------------
     def check_can_pay(self, item: VendorItemDef | None) -> bool:

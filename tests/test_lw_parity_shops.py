@@ -343,3 +343,33 @@ def test_clerical_resurrect_and_recall_keep_hp():
     m.hp = m.max_hp
     assert m.heal("RECALL") is True
     assert m.status == Status.GOOD and m.hp == m.max_hp
+
+
+# --- Guild -------------------------------------------------------------------------
+
+
+def test_guild_prices_and_quantities(assets):
+    """UltimaMisc.c:2010-2023: torches 5 for 30, keys 50, powders 90, gems
+    75 (one each)."""
+    want = {"torch": (30, 5), "key": (50, 1), "powder": (90, 1), "gem": (75, 1)}
+    for v in assets.vendor_classes["GUILDITEM"].vendors:
+        got = {i.guild_item_type: (i.price, i.quantity) for i in v.items}
+        assert got == want, v.owner
+
+
+def test_guild_not_enough_room_past_99(assets):
+    """UltimaMisc.c:2036-2040: ``if (Player[rosNum][attrib] + qty > 99) {
+    UPrintMessageRewrapped(260); ErrorTone(); goto shop5a; }`` -- 95 torches
+    can't take a bundle of 5 (nothing charged); 94 can (to 99)."""
+    party = _party(1000)
+    m = party.members[0]
+    m.torches = 95
+    town = _shop(_vendor(assets, "FAWN", "GUILDITEM"), party)
+    town.text_log.submit_input("y")
+    town.text_log.submit_input("a")
+    assert "Not enough room!" in _log(town)
+    assert m.torches == 95 and m.gold == 1000
+    m.torches = 94
+    town.text_log.submit_input("a")
+    town.text_log.submit_input("y")
+    assert m.torches == 99 and m.gold == 970

@@ -22,6 +22,7 @@ A Python 3 / Pygame-CE reimplementation of *Ultima III: Exodus*, with **Auto-Com
   - **Pubs**: a drink costs 7 gold (less and you are thrown out); pay up to 99 and the barkeep's line depends on the whole amount, a tenth of it picking one of LairWare's ten (7-9 gold: "Thank you, kindly!", 90-99: the Lord of Time).
   - **The oracle** takes one key, an offering of 0-9 hundred gold, each with its line of the rhyme (a typed "15" no longer costs 1,500 gold for nothing).
   - **Healers**: curing 100, healing 200, resurrection 500, recalling 900 gold. A healing restores full HP to anyone, the dead and ashes too; resurrection and recalling only bring the member back, with the HP they had (0, unless healed first).
+  - **The guild** sells torches (5 for 30 gold), keys (50), powders (90) and gems (75), never past 99 of a kind (95 torches can't take another five: "Not enough room!").
   - **Horses** are sold in Devil Guard (and Dawn), not Grey.
   - **Join Gold** tops the receiver up to 9999 and leaves the rest with the givers (it used to destroy anything past 9999).
   - **Chest traps** are dodged by DEX, with a big bonus for Thieves; nobody is trap-proof.
