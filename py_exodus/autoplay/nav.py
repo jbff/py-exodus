@@ -107,6 +107,10 @@ def find_2d_step_and_cost(
             return False
         if tname in ("energy_field", "force_field") and not has_force:
             return False
+        # The castle gate tiles are walkable (LairWare ValidDir) but send the
+        # party to a random grass tile (HandleMoonStep): never path over one.
+        if tname == "moongate":
+            return False
         if can_move_to(game_map, nx, ny, transport=transport, party=party):
             return True
         if allow_locked_doors and t is not None and tname == "locked_door":
@@ -224,6 +228,10 @@ def reachable_2d(
         if tname in ("lava", "fire") and not has_fire:
             return False
         if tname in ("energy_field", "force_field") and not has_force:
+            return False
+        # The castle gate tiles are walkable (LairWare ValidDir) but send the
+        # party to a random grass tile (HandleMoonStep): never path over one.
+        if tname == "moongate":
             return False
         if can_move_to(game_map, nx, ny, transport=transport, party=party):
             return True

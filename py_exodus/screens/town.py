@@ -532,12 +532,39 @@ class TownScreen(BaseScreen):
             self.party.advance_moons(surface=False)
             self.party.aura.pass_turn()
             tile_effects.apply_rule_effect(self.party, effect_tile)
+            self._moon_step()
             self._exodus_castle_ball()
         except PartyDeathException:
             pass
         self.check_party_death()
         if not self.party.is_party_dead():
             self._move_people()
+
+    def _moon_step(self) -> None:
+        """LairWare Routine6E35 (UltimaMisc.c:1375-1377) and HandleMoonStep
+        off Sosaria (UltimaMisc.c:1579-1585): standing on a gate tile (136;
+        Castle British and Castle Exodus have them) sends the party to a
+        random tile of the map whose value is 4 (grass, nobody on it):
+        ``xpos = RandNum(0, gCurMapSize - 1); ypos = RandNum(0, gCurMapSize -
+        1);`` until it is."""
+        gm = self.game_map
+        if gm is None:
+            return
+        tile = gm.get_tile(self.avatar_x, self.avatar_y)
+        if str(getattr(tile, "name", "")).lower() != "moongate":
+            return
+        while True:
+            x = random.randint(0, gm.width - 1)
+            y = random.randint(0, gm.height - 1)
+            t = gm.get_tile(x, y)
+            if str(getattr(t, "name", "")).lower() != "grass":
+                continue
+            if any(n.x == x and n.y == y for n in gm.npcs):
+                continue
+            break
+        self.avatar_x, self.avatar_y = x, y
+        if self.audio is not None:
+            self.audio.play_sfx("moongate_flash")
 
     def _exodus_castle_ball(self) -> None:
         """LairWare Routine6E35 (UltimaMisc.c:1379-1398) with ExodusCastle

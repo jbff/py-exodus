@@ -33,7 +33,10 @@
     <tile index="31" name="exodus" rule="solid" />
     <tile index="32" name="energy_field" rule="energy" />
     <tile index="33" name="lava" rule="lava" />
-    <tile index="34" name="moongate" rule="solid" />
+    <!-- LairWare ValidDir (UltimaMain.c:3209-3210): the gate (136) reads as
+         grass (4), so the castle gate tiles are walkable; HandleMoonStep
+         (UltimaMisc.c:1579-1585) then sends the party to a random grass tile. -->
+    <tile index="34" name="moongate" rule="none" />
     <tile index="35" name="wall" opaque="true" rule="walls" />
     <tile index="36" name="blank" rule="signs" />
     <tile index="37" name="space" rule="signs" />
