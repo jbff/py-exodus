@@ -1,7 +1,6 @@
 """11x11 Tactical Combat Arena, turn sequencing, monster AI, and victory/defeat management."""
 from __future__ import annotations
 
-from collections import deque
 from dataclasses import dataclass
 from enum import Enum
 import random
@@ -21,17 +20,13 @@ from py_exodus.constants import (
 from py_exodus.combat.resolver import (
     AttackResolution,
     AttackResult,
-    get_relative_direction_mask,
-    monster_has_magic_attribute,
     resolve_monster_attack,
-    resolve_monster_ranged_attack,
     resolve_player_attack,
-    trace_directional_path,
     trace_projectile_path,
     try_monster_magic_poke,
 )
 from py_exodus.entities.defs import CreatureDef
-from py_exodus.world.tile_effects import apply_effect_rolled, slowed_by_tile
+from py_exodus.world.tile_effects import apply_effect_rolled
 
 if TYPE_CHECKING:
     from py_exodus.assets import AssetManager
@@ -941,77 +936,158 @@ class CombatArena:
         return results
 
     def _execute_single_monster_ai(self, monster: CombatMonster) -> MonsterTurnResult | None:
-        """Java ``CombatScreen.creatureAction`` (CombatScreen.java:688-805).
+        """One monster's turn, LairWare ``Combat`` monster loop
+        (UltimaSpellCombat.c:1105-1247) with ``FigureNewMonPosition``
+        (1359-1416).
 
-        Action selection (696-713): TELEPORT on rand.nextInt(100) <= 25 for
-        teleporters, else RANGED on nextInt(100) <= 33 — regardless of
-        distance — else ATTACK, which becomes ADVANCE when the (movement)
-        distance exceeds 1.
+        - A member within one step on both axes (diagonals too) is attacked
+          (``zp[0xD0] == 0`` -> ``afternext``).
+        - A dragon fires on RandNum(0, 255) < 128 along its heading
+          (``monshoot``).
+        - The spell casters (serpent, Man-O-War, wizard, daemon, dragon,
+          balron) may cast at a member anywhere (``monmagic``).
+        - Otherwise the monster steps toward its target (``monlb``), or
+          stays when no member can be reached.
+
+        Replaces Java ``CombatScreen.creatureAction`` (teleport, a 34% bolt
+        for every ranged creature, Manhattan-only melee, random-direction
+        moves slowed by terrain).
         """
         # Java creatureAction:692-694 — a negating creature sets the
-        # player-side NEGATE aura for 2 turns (context.setAura(AuraType
-        # .NEGATE, 2), Context.java:207) EVERY turn it acts, unconditionally:
-        # no HIT is required, and the set sits BEFORE the null-target return,
-        # so a JINX aura or a missing target does not spare it. Item 4.
+        # player-side NEGATE aura (no creature in creatures.xml negates).
         aura = getattr(self.party, "aura", None)
         if monster.negates and aura is not None:
             aura.set(AuraType.NEGATE, 2)
 
-        # Java creatureAction (implicit) — a JINX aura leaves no targetable
-        # member (nearestPartyMember yields nothing, CombatScreen.java:812),
-        # so the creature does nothing this round.
+        # A JINX aura leaves no targetable member (batch P owns the spell).
         if aura is not None and aura.get_type() == AuraType.JINX:
             return None
 
-        # 1. Teleport check (Java:697 — rand.nextInt(100) <= 25, i.e. 26/100).
-        teleports = monster.teleports and random.randrange(100) <= 25
-
-        # 2. Ranged check (Java:699 — nextInt(100) <= 33, i.e. 34/100, no
-        # distance gate). The roll only happens for non-teleporters.
-        ranged = (
-            monster.ranged
-            and not teleports
-            and random.randrange(100) <= 33
-        )
-
-        target_idx, target_member, movement_dist = self._find_nearest_player(
-            monster.x, monster.y, ranged=ranged
-        )
-        if target_idx is None or target_member is None:
-            return None
-
-        target_pos = self.player_positions[target_idx]
         from_pos = (monster.x, monster.y)
+        target_idx, close, step, heading = self._figure_new_mon_position(monster)
 
-        # Java creatureAction (CombatScreen.java:696-718) + hideOrShow (858-880):
-        # every turn a camouflaged creature revises its visibility by movement
-        # distance to the nearest party member BEFORE `switch (action)`,
-        # gating TELEPORT and RANGED as well as ATTACK/ADVANCE. A still-hidden
-        # creature takes NO action (`return true`) and stays on the map.
-        if getattr(monster.definition, "camouflage", False) and not self._hide_or_show(monster):
+        # UltimaSpellCombat.c:1083-1084: `if (zp[0xD0] == 0) goto afternext`.
+        if close and target_idx is not None:
+            return self._monster_melee(monster, target_idx, from_pos)
+
+        # UltimaSpellCombat.c:1085-1090: a dragon fires half the time. With no
+        # target of its own it has no heading and holds its fire (LW would
+        # reuse a stale zp[0xF5]/zp[0xF6]).
+        if str(monster.tile).lower() == "dragon" and target_idx is not None:
+            if random.randint(0, 255) < 128:
+                return self._monster_shoot(monster, heading, from_pos)
+
+        # UltimaSpellCombat.c:1091-1105, 1124-1132 (monmagic): RandNum(0,
+        # 0xC0) > 127 for a caster attacks a member anywhere. USER-DIRECTED
+        # GBC-RULES DEVIATION (2026-11-14): the GBC magic poke picks a random
+        # living member (LW: a random slot, only a Good member; ledger ask).
+        poke_res = try_monster_magic_poke(
+            monster, self._get_living_party_members(), context_map_id=self.context_map_id
+        )
+        if poke_res is not None:
+            poke_member = (
+                self._member_at(*poke_res.target_pos)
+                if poke_res.target_pos is not None
+                else None
+            )
+            return MonsterTurnResult(
+                monster_name=monster.name,
+                action_type="ranged",
+                from_pos=from_pos,
+                to_pos=(poke_res.target_pos or from_pos),
+                attack_res=poke_res,
+                message=self._compose_monster_message(
+                    poke_res.message,
+                    self._monster_hit_affordance_lines(monster.name, poke_member, poke_res),
+                ),
+            )
+
+        # UltimaSpellCombat.c:1106-1108, 1133-1144 (nextplr/monlb): step to
+        # zp[0xF7], zp[0xF8] when a member was found; otherwise stay.
+        if target_idx is None or step is None:
             return None
+        monster.x, monster.y = step
+        return MonsterTurnResult(
+            monster_name=monster.name,
+            action_type="advance",
+            from_pos=from_pos,
+            to_pos=step,
+            message="",
+        )
 
-        if teleports:
-            return self._monster_teleport(monster, from_pos)
+    def _figure_new_mon_position(
+        self, monster: CombatMonster
+    ) -> tuple[int | None, bool, tuple[int, int] | None, tuple[int, int]]:
+        """LairWare ``FigureNewMonPosition`` (UltimaSpellCombat.c:1359-1416).
 
-        if ranged:
-            return self._monster_ranged_attack(monster, target_idx, from_pos)
+        Walks the members in slot order, skipping the dead and ashes. A
+        member within one step on both axes is close: it becomes the target
+        (``zp[0xD0] = 0``), and an orthogonal neighbour ends the search.
+        Otherwise the nearest member by |dx| + |dy| that the monster can
+        step toward is the target (a tie keeps the earlier member); the step
+        is the diagonal (sign dx, sign dy), else the vertical, else the
+        horizontal one (``CombatValidMove``). A member no step leads toward
+        is skipped. Returns (target index, close, step, heading)."""
+        best = 0xFF
+        target: int | None = None
+        step: tuple[int, int] | None = None
+        heading = (0, 0)
+        close = False
+        mx, my = monster.x, monster.y
+        for idx in range(len(self.party.members)):
+            pos = self._board_positions().get(idx)
+            if pos is None:
+                continue
+            dx, dy = pos[0] - mx, pos[1] - my
+            adx, ady = abs(dx), abs(dy)
+            if adx < 2 and ady < 2:
+                # markclose (UltimaSpellCombat.c:1407-1411)
+                best, target, close = 0, idx, True
+                if adx + ady < 2:
+                    break
+                continue
+            if adx + ady >= best:
+                continue
+            hx = (dx > 0) - (dx < 0)
+            hy = (dy > 0) - (dy < 0)
+            for nx, ny in ((mx + hx, my + hy), (mx, my + hy), (mx + hx, my)):
+                if self._combat_valid_move(monster, nx, ny):
+                    best, target, step, heading = adx + ady, idx, (nx, ny), (hx, hy)
+                    break
+        return target, close, (None if close else step), heading
 
-        # Java:711-713 — ATTACK with dist > 1 becomes ADVANCE.
-        if movement_dist > 1:
-            action = "advance"
-        else:
-            action = "attack"
+    def _combat_valid_move(self, monster: CombatMonster, x: int, y: int) -> bool:
+        """LairWare ``CombatValidMove`` (UltimaSpellCombat.c:616-631) on the
+        board's tile: a sea monster (serpent, Man-O-War) enters only water;
+        any other only grass, brush, forest or floor. Monsters and members
+        show on the board, so their tiles never qualify. No terrain slows a
+        monster."""
+        if not (0 <= x < self.combat_map.width and 0 <= y < self.combat_map.height):
+            return False
+        tile = self.combat_map.get_tile(x, y)
+        name = str(getattr(tile, "name", "") or "").lower()
+        if tile is None:
+            pass  # a bare test board without terrain
+        elif getattr(monster.definition, "swims", False):
+            if name != "water":
+                return False
+        elif name not in ("grass", "brush", "forest", "floor"):
+            return False
+        if any(not m.is_dead and (m.x, m.y) == (x, y) for m in self.monsters):
+            return False
+        return (x, y) not in self._board_positions().values()
 
-        if action == "advance":
-            return self._monster_advance(monster, target_pos, from_pos)
-
-        # Melee ATTACK against an adjacent target (Java:720-745).
-        armor_def = self._get_player_armor(target_member)
+    def _monster_melee(
+        self, monster: CombatMonster, target_idx: int, from_pos: tuple[int, int]
+    ) -> MonsterTurnResult:
+        """LairWare ``afternext`` (UltimaSpellCombat.c:1196-1247): the armour
+        roll and damage against the close member."""
+        target_member = self.party.members[target_idx]
+        target_pos = self.player_positions[target_idx]
         attack_res = resolve_monster_attack(
             monster=monster,
             target_player=target_member,
-            armor_def=armor_def,
+            armor_def=self._get_player_armor(target_member),
             is_ranged=False,
             context_map_id=self.context_map_id,
         )
@@ -1023,10 +1099,61 @@ class CombatArena:
             attack_res=attack_res,
             message=self._compose_monster_message(
                 attack_res.message,
-                self._monster_hit_affordance_lines(
-                    monster.name, target_member, attack_res
-                ),
+                self._monster_hit_affordance_lines(monster.name, target_member, attack_res),
             ),
+        )
+
+    def _monster_shoot(
+        self, monster: CombatMonster, heading: tuple[int, int], from_pos: tuple[int, int]
+    ) -> MonsterTurnResult:
+        """LairWare ``monshoot`` (UltimaSpellCombat.c:1160-1185): the fire
+        steps along the heading to the board edge, over everything; the
+        first member on its line takes the damage roll with no armour check
+        (``goto c8777``, 1218-1226)."""
+        hx, hy = heading
+        x, y = monster.x, monster.y
+        path: list[tuple[int, int]] = []
+        while True:
+            x, y = x + hx, y + hy
+            if not (0 <= x < self.combat_map.width and 0 <= y < self.combat_map.height):
+                break
+            path.append((x, y))
+            member = self._member_at(x, y)
+            if member is None:
+                continue
+            from py_exodus.combat.resolver import (
+                _deal_monster_damage_to_member,
+                lw_monster_damage,
+            )
+
+            damage = lw_monster_damage(monster, member, self.context_map_id)
+            _deal_monster_damage_to_member(member, damage)
+            attack_res = AttackResolution(
+                hit=True,
+                damage=damage,
+                killed=getattr(member, "status", None) == Status.DEAD,
+                result=AttackResult.HIT,
+                target_pos=(x, y),
+                projectile_path=path,
+                message="Fiery Hit!",
+            )
+            return MonsterTurnResult(
+                monster_name=monster.name,
+                action_type="ranged",
+                from_pos=from_pos,
+                to_pos=(x, y),
+                attack_res=attack_res,
+                message=self._compose_monster_message(
+                    attack_res.message,
+                    self._monster_hit_affordance_lines(monster.name, member, attack_res),
+                ),
+            )
+        return MonsterTurnResult(
+            monster_name=monster.name,
+            action_type="ranged",
+            from_pos=from_pos,
+            to_pos=path[-1] if path else from_pos,
+            message="",
         )
 
     # --- Monster-hit affordance (playtest-1 fix batch, item 4) -------------
@@ -1058,273 +1185,6 @@ class CombatArena:
         parts = [p for p in ([base, *lines]) if p]
         return "\n".join(parts)
 
-    def _hide_or_show(self, monster: CombatMonster) -> bool:
-        """Java ``CombatScreen.hideOrShow`` (CombatScreen.java:858-880).
-
-        Re-finds the nearest party member at MOVEMENT distance (ranged False,
-        its own scan — not the one the chosen action used): a creature within
-        distance 5 that is hidden shows itself ("show yourself"); at >= 5 it
-        hides ("hide and take no action!"). With no eligible member the
-        visibility is untouched. Returns the creature's visibility — the
-        caller takes no action while it stays hidden."""
-        idx, _, dist = self._find_nearest_player(monster.x, monster.y, ranged=False)
-        if idx is not None:
-            if dist < 5 and not monster.visible:
-                monster.visible = True
-            elif dist >= 5:
-                monster.visible = False
-        return monster.visible
-
-    def _monster_teleport(self, monster: CombatMonster, from_pos: tuple[int, int]) -> MonsterTurnResult:
-        """Java ``CombatScreen.creatureAction`` case TELEPORT (748-768): five
-        tries at a random tile (rejected when the rule blocks creatures), then
-        moveCreature steps ONE tile toward it through the movement mask."""
-        for _ in range(5):
-            rx = random.randrange(self.combat_map.width)
-            ry = random.randrange(self.combat_map.height)
-            tile = self.combat_map.get_tile(rx, ry)
-            if tile is None:
-                continue
-            attribs = getattr(tile, "attribs", TileAttrib.NONE)
-            if bool(attribs & TileAttrib.CREATUREUNWALKABLE):
-                continue
-            step_dir = self._advance_direction(monster.x, monster.y, rx, ry)
-            if step_dir is None:
-                return MonsterTurnResult(
-                    monster_name=monster.name,
-                    action_type="teleport",
-                    from_pos=from_pos,
-                    to_pos=from_pos,
-                    message="",
-                )
-            nx = monster.x + step_dir.dx
-            ny = monster.y + step_dir.dy
-            if self._move_is_too_slow(monster, nx, ny):
-                return MonsterTurnResult(
-                    monster_name=monster.name,
-                    action_type="teleport",
-                    from_pos=from_pos,
-                    to_pos=from_pos,
-                    message="",
-                )
-            monster.x = nx
-            monster.y = ny
-            return MonsterTurnResult(
-                monster_name=monster.name,
-                action_type="teleport",
-                from_pos=from_pos,
-                to_pos=(nx, ny),
-                message="",
-            )
-        return MonsterTurnResult(
-            monster_name=monster.name,
-            action_type="teleport",
-            from_pos=from_pos,
-            to_pos=from_pos,
-            message="",
-        )
-
-    def _monster_ranged_attack(
-        self, monster: CombatMonster, target_idx: int, from_pos: tuple[int, int]
-    ) -> MonsterTurnResult:
-        """Java ``CombatScreen.creatureAction`` case RANGED (770-785) plus
-        ``rangedAttackAt`` (591-678): the relative-direction mask may hold two
-        bits, so the bolt can step diagonally; every party member standing on
-        a path tile takes the hit until one bolt HITS.
-
-        USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): the branch is first
-        replaced by GBC cannonfire in a ship battle and, for a magic-creature
-        monster with no adjacent member, by the no-LOS magic poke
-        (GBC battle3.c:856-866)
-        """
-        living_members = self._get_living_party_members()
-
-        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): a magic creature with
-        # no adjacent living member may blast a random one directly — no LOS,
-        # no bolt (GBC battle3.c:856-866)
-        poke_res = try_monster_magic_poke(
-            monster, living_members, context_map_id=self.context_map_id
-        )
-        if poke_res is not None:
-            poke_member = (
-                self._member_at(*poke_res.target_pos)
-                if poke_res.target_pos is not None
-                else None
-            )
-            return MonsterTurnResult(
-                monster_name=monster.name,
-                action_type="ranged",
-                from_pos=from_pos,
-                to_pos=(poke_res.target_pos or (from_pos)),
-                attack_res=poke_res,
-                message=self._compose_monster_message(
-                    poke_res.message,
-                    self._monster_hit_affordance_lines(
-                        monster.name, poke_member, poke_res
-                    ),
-                ),
-            )
-        tx, ty = self.player_positions[target_idx]
-        dirmask = get_relative_direction_mask(
-            self.combat_map.width,
-            self.combat_map.height,
-            tx,
-            ty,
-            monster.x,
-            monster.y,
-        )
-        path = trace_directional_path(
-            self.combat_map,
-            dirmask,
-            monster.x,
-            monster.y,
-            min_distance=1,
-            max_distance=11,
-            attack_through_objects=False,
-            check_for_creatures=False,
-            monsters=[],  # Java passes checkForCreatures=false for creature bolts
-        )
-
-        attack_res: AttackResolution | None = None
-        hit_pos = from_pos
-        hit_member = None
-        for pt in path:
-            member = self._member_at(pt[0], pt[1])
-            if member is None:
-                continue
-            armor_def = self._get_player_armor(member)
-            attack_res = resolve_monster_ranged_attack(
-                monster=monster,
-                target_player=member,
-                armor_def=armor_def,
-                context_map_id=self.context_map_id,
-            )
-            hit_pos = (member.x, member.y)
-            hit_member = member
-            if attack_res.hit:
-                break
-
-        if attack_res is None:
-            return MonsterTurnResult(
-                monster_name=monster.name,
-                action_type="ranged",
-                from_pos=from_pos,
-                to_pos=path[-1] if path else from_pos,
-                message="",
-            )
-
-        return MonsterTurnResult(
-            monster_name=monster.name,
-            action_type="ranged",
-            from_pos=from_pos,
-            to_pos=hit_pos,
-            attack_res=attack_res,
-            message=self._compose_monster_message(
-                attack_res.message,
-                self._monster_hit_affordance_lines(
-                    monster.name, hit_member, attack_res
-                ),
-            ),
-        )
-
-    def _monster_advance(
-        self,
-        monster: CombatMonster,
-        target_pos: tuple[int, int],
-        from_pos: tuple[int, int],
-    ) -> MonsterTurnResult:
-        """Java ``CombatScreen.moveCreature`` (886-957) for the ADVANCE action:
-        ``Utils.getPath`` intersects the toward-directions with the valid-move
-        mask and ``Direction.getRandomValidDirection`` rolls among what is
-        left; no direction survives → no move. The mask excludes null tiles,
-        so a creature can never step off the map (the old "flees from battle!"
-        escape is gone — Java's FLEE branch is dead code)."""
-        step_dir = self._advance_direction(
-            monster.x, monster.y, target_pos[0], target_pos[1], monster=monster
-        )
-        if step_dir is None:
-            return None
-
-        nx = monster.x + step_dir.dx
-        ny = monster.y + step_dir.dy
-        if self._move_is_too_slow(monster, nx, ny):
-            return None
-
-        monster.x = nx
-        monster.y = ny
-        return MonsterTurnResult(
-            monster_name=monster.name,
-            action_type="advance",
-            from_pos=from_pos,
-            to_pos=(nx, ny),
-            message="",
-        )
-
-    def _advance_direction(
-        self, fx: int, fy: int, tx: int, ty: int, monster: CombatMonster | None = None
-    ) -> Direction | None:
-        """``Utils.getPath`` + ``Direction.getRandomValidDirection``
-        (Utils.java:299-312, Constants.java:319-333): the toward-directions
-        filtered to passable — and OCCUPIED-FREE — tiles (Java
-        getValidMovesMask's hasBlockingCreatureAt / hasBlockingCombatPlayerAt
-        block the creature and combat-player tiles, corpses included),
-        randomized uniformly; none → None."""
-        toward_mask = get_relative_direction_mask(
-            self.combat_map.width, self.combat_map.height, tx, ty, fx, fy
-        )
-        if toward_mask == 0:
-            return None
-        candidates: list[Direction] = []
-        # Java iterates Direction.values() (NORTH, SOUTH, EAST, WEST) order.
-        for d in (Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST):
-            if not (d.mask & toward_mask):
-                continue
-            if self._is_tile_passable_for_creature(fx + d.dx, fy + d.dy, monster=monster):
-                candidates.append(d)
-        if candidates:
-            return random.choice(candidates)
-
-        # Fallback: BFS around obstacles (e.g. ship masts, pillars, allies) on the 11x11 arena
-        w, h = self.combat_map.width, self.combat_map.height
-        queue: deque[tuple[int, int, Direction]] = deque()
-        visited: set[tuple[int, int]] = {(fx, fy)}
-        best_score = (abs(fx - tx) + abs(fy - ty), (fx - tx) ** 2 + (fy - ty) ** 2)
-        best_dir: Direction | None = None
-        for d in (Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST):
-            nx, ny = fx + d.dx, fy + d.dy
-            if (nx, ny) not in visited and self._is_tile_passable_for_creature(nx, ny, monster=monster):
-                visited.add((nx, ny))
-                queue.append((nx, ny, d))
-        while queue:
-            cx, cy, first_dir = queue.popleft()
-            dist = abs(cx - tx) + abs(cy - ty)
-            if dist <= 1:
-                return first_dir
-            score = (dist, (cx - tx) ** 2 + (cy - ty) ** 2)
-            if score < best_score:
-                best_score = score
-                best_dir = first_dir
-            for d in (Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST):
-                nx, ny = cx + d.dx, cy + d.dy
-                if 0 <= nx < w and 0 <= ny < h and (nx, ny) not in visited and self._is_tile_passable_for_creature(nx, ny, monster=monster):
-                    visited.add((nx, ny))
-                    queue.append((nx, ny, first_dir))
-        return best_dir
-
-    def _move_is_too_slow(self, monster: CombatMonster, nx: int, ny: int) -> bool:
-        """Java ``moveCreature`` slowed-type gate (CombatScreen.java:925-956).
-        Swimmers/sailors are never slowed (wind handling is commented out),
-        fliers never; walkers lose the move on the tile's Context.slowedByTile
-        roll (Context.java:215-240)."""
-        if getattr(monster.definition, "swims", False) or getattr(monster.definition, "sails", False):
-            return False
-        if getattr(monster.definition, "flies", False):
-            return False
-        tile = self.combat_map.get_tile(nx, ny)
-        if tile is None:
-            return False
-        return slowed_by_tile(tile)
-
     def _member_at(self, x: int, y: int) -> PartyMember | None:
         """The party member occupying a tile (Java rangedAttackAt's defender
         scan, CombatScreen.java:593-599); the dead are off the board (LW)."""
@@ -1332,76 +1192,6 @@ class CombatArena:
             if pos == (x, y):
                 return self.party.members[p_idx]
         return None
-
-    def _find_nearest_player(
-        self, from_x: int, from_y: int, ranged: bool = False
-    ) -> tuple[int | None, PartyMember | None, int]:
-        """Java ``CombatScreen.nearestPartyMember`` (807-840).
-
-        Ranged attacks pick by the diagonal distance (Utils.distance),
-        everything else by movement distance (Utils.movementDistance, the
-        Manhattan walk). A JINX aura yields no target; ties give the further
-        candidate a 1-in-2 chance (Java:828)."""
-        best_idx: int | None = None
-        best_member: PartyMember | None = None
-        least_dist = 9999
-
-        aura = getattr(self.party, "aura", None)
-        if aura is not None and aura.get_type() == AuraType.JINX:
-            return (None, None, 9999)
-
-        for p_idx, pos in self.player_positions.items():
-            member = self.party.members[p_idx]
-            if member.fled or member.is_dead():
-                continue
-            dx = abs(from_x - pos[0])
-            dy = abs(from_y - pos[1])
-            if ranged:
-                # Utils.distance: movement distance minus the diagonal saving
-                # (Utils.java:664-675) === max(dx, dy).
-                dist = max(dx, dy)
-            else:
-                dist = dx + dy
-            if dist < least_dist or (dist == least_dist and random.randrange(2) == 0):
-                least_dist = dist
-                best_idx = p_idx
-                best_member = member
-
-        return best_idx, best_member, least_dist
-
-    def _is_tile_passable_for_creature(
-        self, x: int, y: int, monster: CombatMonster | None = None
-    ) -> bool:
-        if not (0 <= x < self.combat_map.width and 0 <= y < self.combat_map.height):
-            return False
-
-        tile = self.combat_map.get_tile(x, y)
-        if tile is not None:
-            attribs = getattr(tile, "attribs", TileAttrib.NONE)
-            cdef = getattr(monster, "definition", None) if monster is not None else None
-            if cdef is not None and getattr(cdef, "sails", False):
-                if not bool(attribs & TileAttrib.SAILABLE):
-                    return False
-            elif cdef is not None and getattr(cdef, "swims", False):
-                if not bool(attribs & TileAttrib.SWIMMABLE):
-                    return False
-            elif cdef is not None and getattr(cdef, "flies", False):
-                if bool(attribs & TileAttrib.UNFLYABLE):
-                    return False
-            elif bool(attribs & TileAttrib.UNWALKABLE) or bool(attribs & TileAttrib.CREATUREUNWALKABLE):
-                return False
-
-        # Cannot step onto another living monster
-        for m in self.monsters:
-            if not m.is_dead and (m.x, m.y) == (x, y):
-                return False
-
-        # Cannot step onto a living player (corpses are off the board, LW)
-        for pos in self._board_positions().values():
-            if pos == (x, y):
-                return False
-
-        return True
 
     def _get_player_armor(self, member: PartyMember) -> Any:
         if self.asset_mgr is not None and hasattr(member, "armor"):

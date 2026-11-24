@@ -586,16 +586,14 @@ def test_monster_hp_explicit_definition_override_kept():
 
 
 def test_ship_party_monster_ranged_is_single_target_projectile(asset_mgr, conflict_map, monkeypatch):
-    """Ship-battle monsters use single-target LoS projectiles (GBC dragonbreathbattle),
-    not party-wide cannonfire — only the lined-up target on the projectile path is hit."""
-    monkeypatch.setattr(arena_mod.random, "randrange", lambda n: 0 if n == 100 else 12)
-    monkeypatch.setattr(resolver_mod, "lw_monster_hits", lambda *a, **k: True)  # land the bolt
+    """Ship-battle monsters use single-target projectiles, not party-wide
+    cannonfire: a dragon's fire (LairWare monshoot, UltimaSpellCombat.c:
+    1160-1185) hits only the member lined up on its heading."""
+    monkeypatch.setattr(arena_mod.random, "randint", lambda a, b: a)  # fire; low damage
     party = Party(transport=Transport.SHIP)
     for i in range(2):
         party.add_member(Character(f"Hero{i}", "M", hp=60, max_hp=60))
-    arena = CombatArena(party, conflict_map, asset_mgr=asset_mgr, monster_count=1)
-    arena.monsters[0].ranged = True
-    arena.monsters[0].ranged_hit_tile = "fire"
+    arena = CombatArena(party, conflict_map, creature_tile="dragon", asset_mgr=asset_mgr, monster_count=1)
     arena.player_positions[0] = (3, 5)
     arena.player_positions[1] = (6, 5)
     arena.monsters[0].x, arena.monsters[0].y = 3, 1
@@ -645,8 +643,10 @@ def test_wizard_with_distant_party_magic_blasts(asset_mgr, conflict_map, monkeyp
     assert hero.hp == 999 - 7  # single-target roll through the melee chokepoint
 
 
-def test_adjacent_wizard_keeps_the_bolt_path(asset_mgr, conflict_map, monkeypatch):
-    """Adjacency blocks the poke: the plain bolt behavior stays untouched."""
+def test_adjacent_wizard_attacks_without_the_poke(asset_mgr, conflict_map, monkeypatch):
+    """Adjacency blocks the poke: a close member is attacked (LairWare
+    `if (zp[0xD0] == 0) goto afternext`, UltimaSpellCombat.c:1083-1084)
+    before any magic roll."""
     real_randrange = random.randrange
     poke_rolls: list[int] = []
 
@@ -654,7 +654,7 @@ def test_adjacent_wizard_keeps_the_bolt_path(asset_mgr, conflict_map, monkeypatc
         value = real_randrange(n)
         if n == 193:
             poke_rolls.append(value)
-        return 0 if n == 100 else value  # force the RANGED action
+        return value
 
     monkeypatch.setattr(arena_mod.random, "randrange", fake)
     monkeypatch.setattr(resolver_mod, "lw_monster_damage_roll", lambda *a, **k: 5)
@@ -672,10 +672,10 @@ def test_adjacent_wizard_keeps_the_bolt_path(asset_mgr, conflict_map, monkeypatc
 
     res = arena._execute_single_monster_ai(arena.monsters[0])
     assert res is not None
-    assert res.action_type == "ranged"
+    assert res.action_type == "attack"
     assert res.message != "Magic Blast!"
-    assert poke_rolls == []  # adjacent: the 34% roll is not even consumed
-    assert hero.hp == 999 - 5  # the plain bolt went through instead
+    assert poke_rolls == []
+    assert hero.hp == 999 - 5
 
 
 # --- Pending item 11 (Java SpellUtil): failed casts keep the caster active ---

@@ -6,6 +6,8 @@ docs/superpowers/plans/lw-parity-ledger.md, table "B - Battle".
 """
 from __future__ import annotations
 
+import pytest
+
 from py_exodus.combat.arena import CombatArena
 from py_exodus.constants import Transport
 from py_exodus.entities.character import Character
@@ -322,3 +324,176 @@ def test_attackcode_town_person_leaves_a_chest(asset_mgr):
     # A fresh visit has no chest there (the town resets on entry).
     again = TownScreen(party=party, map_id=1, asset_mgr=asset_mgr, start_x=10, start_y=10)
     assert again.game_map.get_tile(npc.x, npc.y).rule != "chest"
+
+
+# --- B-08: monster turns (FigureNewMonPosition and the Combat monster loop) -
+
+def _board(asset_mgr, creature="orc", members=1, arena_file="cnflct_g.json"):
+    """A fight on an all-grass arena, the members parked in the corners."""
+    party = Party(transport=Transport.FOOT)
+    for i in range(members):
+        party.add_member(Character(f"Hero{i}", "M", hp=900, max_hp=900))
+    cmap = MapLoader(asset_mgr).load_conflict_map(arena_file)
+    grass = asset_mgr.tile_defs_by_name["grass"]
+    for y in range(11):
+        for x in range(11):
+            cmap.set_tile(x, y, grass)
+    arena = CombatArena(party, cmap, creature_tile=creature, asset_mgr=asset_mgr, monster_count=1)
+    for i, m in enumerate(party.members):
+        _place(arena, i, (10 - i, 10))
+    return arena
+
+
+def _place(arena, idx, pos):
+    arena.player_positions[idx] = pos
+    m = arena.party.members[idx]
+    m.combat_x, m.combat_y = pos
+    m.x, m.y = pos
+
+
+def _rolls(monkeypatch, values):
+    """Script every random.randint call (LairWare RandNum) in order."""
+    import random as _random
+
+    seq = iter(values)
+    monkeypatch.setattr(_random, "randint", lambda a, b: next(seq))
+
+
+def test_figurenewmonposition_attacks_a_diagonal_neighbour(asset_mgr, monkeypatch):
+    """UltimaSpellCombat.c:1381-1382, 1407-1411 and 1091-1092: a member within
+    one step on BOTH axes is close (`zp[0xD2] < 2 && zp[0xD1] < 2`), so
+    zp[0xD0] = 0 and the monster attacks it (`goto afternext`), diagonals
+    included."""
+    arena = _board(asset_mgr)
+    _place(arena, 0, (5, 5))
+    orc = arena.monsters[0]
+    orc.x, orc.y = 4, 4
+    import py_exodus.combat.resolver as resolver
+
+    monkeypatch.setattr(resolver, "lw_monster_hits", lambda *a, **k: True)
+    res = arena._execute_single_monster_ai(orc)
+    assert res.action_type == "attack" and (orc.x, orc.y) == (4, 4)
+    assert arena.party.members[0].hp < 900
+
+
+def test_figurenewmonposition_steps_diagonally_to_the_nearest(asset_mgr, monkeypatch):
+    """UltimaSpellCombat.c:1384-1406: the nearest member by |dx| + |dy| is the
+    target (a tie keeps the first, `>= zp[0xD0]` skips), and the monster
+    steps on both axes at once: (MonsterX + GetHeading(dx), MonsterY +
+    GetHeading(dy))."""
+    arena = _board(asset_mgr, members=2)
+    _place(arena, 0, (7, 6))   # distance 2 + 4 = 6
+    _place(arena, 1, (3, 6))   # distance 2 + 4 = 6, later: loses the tie
+    orc = arena.monsters[0]
+    orc.x, orc.y = 5, 2
+    _rolls(monkeypatch, [0, 0, 0])  # no magic for an orc; no rolls needed
+    res = arena._execute_single_monster_ai(orc)
+    assert res.action_type == "advance"
+    assert (orc.x, orc.y) == (6, 3)
+
+
+def test_figurenewmonposition_blocked_diagonal_tries_vertical_then_horizontal(asset_mgr):
+    """UltimaSpellCombat.c:1395-1404: a blocked diagonal tries (MonsterX,
+    MonsterY + dy), then (MonsterX + dx, MonsterY)."""
+    arena = _board(asset_mgr)
+    _place(arena, 0, (8, 8))
+    orc = arena.monsters[0]
+    orc.x, orc.y = 5, 5
+    wall = arena.asset_mgr.tile_defs_by_name["wall"]
+    arena.combat_map.set_tile(6, 6, wall)
+    arena._execute_single_monster_ai(orc)
+    assert (orc.x, orc.y) == (5, 6)
+    arena.combat_map.set_tile(6, 6, arena.asset_mgr.tile_defs_by_name["grass"])
+    arena.combat_map.set_tile(6, 7, wall)
+    arena.combat_map.set_tile(5, 7, wall)
+    arena._execute_single_monster_ai(orc)
+    assert (orc.x, orc.y) == (6, 6)
+
+
+def test_combatvalidmove_monsters_are_never_slowed(asset_mgr):
+    """UltimaSpellCombat.c:616-631 (CombatValidMove): a land monster may
+    enter grass, brush, forest or floor (2, 4, 6, 0x10) and is never slowed;
+    Java's slowedByTile roll is gone. Twenty steps into forest all land."""
+    forest = asset_mgr.tile_defs_by_name["forest"]
+    for _ in range(20):
+        arena = _board(asset_mgr)
+        _place(arena, 0, (5, 9))
+        orc = arena.monsters[0]
+        orc.x, orc.y = 5, 5
+        arena.combat_map.set_tile(5, 6, forest)
+        arena._execute_single_monster_ai(orc)
+        assert (orc.x, orc.y) == (5, 6)
+
+
+def test_combatvalidmove_land_and_sea(asset_mgr, monkeypatch):
+    """UltimaSpellCombat.c:616-631: a sea monster (0x16 <= gMonType < 0x20:
+    serpent, Man-O-War) moves only onto water (0); a land monster never
+    does. With every way forward blocked, the member is not a target and the
+    monster stays (UltimaSpellCombat.c:1397-1404, `goto nextPlrTarget`)."""
+    import random as _random
+
+    monkeypatch.setattr(_random, "randrange", lambda *a: 0)  # no serpent magic
+    water = asset_mgr.tile_defs_by_name["water"]
+    for creature, expect in (("orc", (5, 5)), ("serpent", (5, 6))):
+        arena = _board(asset_mgr, creature=creature)
+        _place(arena, 0, (5, 9))
+        mon = arena.monsters[0]
+        mon.x, mon.y = 5, 5
+        arena.combat_map.set_tile(5, 6, water)
+        arena._execute_single_monster_ai(mon)
+        assert (mon.x, mon.y) == expect, creature
+        # The serpent can go no further: grass all round.
+        arena._execute_single_monster_ai(mon)
+        assert (mon.x, mon.y) == expect, creature
+
+
+def test_combat_only_dragons_shoot(asset_mgr, monkeypatch):
+    """UltimaSpellCombat.c:1086-1091: only the dragon (0x3A) shoots
+    (`monshoot`); a wizard out of reach either casts (monmagic, a RandNum(0,
+    0xC0) > 127 roll) or steps closer. Java's 34% bolt for every ranged
+    creature is gone."""
+    arena = _board(asset_mgr, creature="wizard")
+    _place(arena, 0, (5, 9))
+    wiz = arena.monsters[0]
+    wiz.x, wiz.y = 5, 2
+    import random as _random
+
+    monkeypatch.setattr(_random, "randrange", lambda *a: 0)  # the magic draw fails
+    res = arena._execute_single_monster_ai(wiz)
+    assert res.action_type == "advance" and (wiz.x, wiz.y) == (5, 3)
+
+
+def test_monshoot_dragon_fire_hits_the_first_member_in_line(asset_mgr, monkeypatch):
+    """UltimaSpellCombat.c:1086-1091 and 1160-1185 (monshoot): on RandNum(0,
+    255) < 128 a dragon fires along its heading (zp[0xF5], zp[0xF6]) to the
+    board edge; the first member on that line takes the damage roll with no
+    armour check (`goto c8777`)."""
+    arena = _board(asset_mgr, creature="dragon", members=2)
+    _place(arena, 0, (5, 9))
+    _place(arena, 1, (5, 6))  # in the line of fire, before the target
+    dragon = arena.monsters[0]
+    dragon.x, dragon.y = 5, 2
+    import py_exodus.combat.resolver as resolver
+
+    monkeypatch.setattr(resolver, "lw_armor_roll", lambda *a: pytest.fail("no armour roll"))
+    _rolls(monkeypatch, [127, 3])  # fire; damage roll 3
+    res = arena._execute_single_monster_ai(dragon)
+    assert res.action_type == "ranged"
+    assert (dragon.x, dragon.y) == (5, 2)
+    assert arena.party.members[1].hp < 900
+    assert arena.party.members[0].hp == 900
+
+
+def test_monshoot_dragon_holds_fire_on_128(asset_mgr, monkeypatch):
+    """UltimaSpellCombat.c:1086-1091: `RandNum(0, 255) < 128` - a roll of
+    128 does not fire; the dragon goes on to the magic roll and the move."""
+    arena = _board(asset_mgr, creature="dragon")
+    _place(arena, 0, (5, 9))
+    dragon = arena.monsters[0]
+    dragon.x, dragon.y = 5, 2
+    import random as _random
+
+    monkeypatch.setattr(_random, "randrange", lambda *a: 0)  # the magic draw fails
+    _rolls(monkeypatch, [128])
+    res = arena._execute_single_monster_ai(dragon)
+    assert res.action_type == "advance" and (dragon.x, dragon.y) == (5, 3)

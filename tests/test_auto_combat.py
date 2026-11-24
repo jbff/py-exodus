@@ -441,7 +441,10 @@ def test_auto_combat_never_throws_last_dagger():
 
 
 def test_combat_pathing_around_mast_for_auto_combat_and_monsters():
-    """Both auto-combat and monster AI route around an obstacle (e.g. ship mast) instead of stalling."""
+    """Auto-combat routes around an obstacle (e.g. ship mast) instead of
+    stalling; a monster does not (LairWare FigureNewMonPosition,
+    UltimaSpellCombat.c:1395-1404, tries only the diagonal, vertical and
+    horizontal steps toward the member and otherwise stays)."""
     from py_exodus.assets import TileDef
     from py_exodus.constants import TileAttrib
 
@@ -458,13 +461,14 @@ def test_combat_pathing_around_mast_for_auto_combat_and_monsters():
     assert action.type == ActionType.MOVE
     assert action.direction in (Direction.EAST, Direction.WEST)
 
-    # Monster AI must also step EAST or WEST around the mast instead of returning None
-    m_dir = arena._advance_direction(5, 3, 5, 5)
-    assert m_dir in (Direction.EAST, Direction.WEST)
+    target, close, step, _ = arena._figure_new_mon_position(arena.monsters[0])
+    assert target is None and step is None
 
 
 def test_sea_monster_advances_to_closest_water_tile_near_ship():
-    """A swimming monster unable to step onto deck/land advances to the closest water tile to the player."""
+    """A swimming monster steps only onto water toward the member (LairWare
+    CombatValidMove, UltimaSpellCombat.c:616-631); a reef straight ahead
+    stops it (no path search, FigureNewMonPosition 1395-1404)."""
     from py_exodus.assets import TileDef
     from py_exodus.constants import TileAttrib
 
@@ -486,8 +490,11 @@ def test_sea_monster_advances_to_closest_water_tile_near_ship():
     # Greedy toward_mask is EAST (3, 5) — check BFS fallback when (3, 5) is blocked by a reef
     reef = TileDef(index=99, name="reef", rule="none", attribs=TileAttrib.UNWALKABLE | TileAttrib.CREATUREUNWALKABLE)
     arena.combat_map.set_tile(3, 5, reef)
-    m_dir = arena._advance_direction(2, 5, 5, 5, monster=arena.monsters[0])
-    assert m_dir in (Direction.NORTH, Direction.SOUTH)
+    target, close, step, _ = arena._figure_new_mon_position(arena.monsters[0])
+    assert step is None
+    arena.combat_map.set_tile(3, 5, water)
+    target, close, step, _ = arena._figure_new_mon_position(arena.monsters[0])
+    assert step == (3, 5)
 
 
 def test_combat_screen_default_party_view_and_z_toggle():

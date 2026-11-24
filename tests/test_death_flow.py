@@ -734,9 +734,9 @@ def test_combat_exact_zero_hp_stays_in_fight_and_subsequent_hit_ends_game(sm, as
     assert not combat.arena.is_finished
     assert not combat.arena.is_defeat
     assert combat.arena._is_member_eligible_for_turn(0) is True
-    nearest_idx, nearest_member, _ = combat.arena._find_nearest_player(5, 4)
-    assert nearest_idx == 0
-    assert nearest_member is member
+    # Still on the board, so monsters still target it (LW
+    # FigureNewMonPosition skips only 'D' and 'A').
+    assert 0 in combat.arena._board_positions()
 
     member.apply_damage(1, combat_related_damage=True)
     combat.arena._evaluate_party_status()

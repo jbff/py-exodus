@@ -70,45 +70,14 @@ def conflict_map(asset_mgr):
 # --- (a) ranged / teleport probability + double damage ----------------------
 
 
-def test_monster_teleport_probability_is_26_of_100(asset_mgr, conflict_map, monkeypatch):
-    """Java CombatScreen.java:697 — rand.nextInt(100) <= 25 (26 outcomes)."""
-    rolls = []
-    real_randrange = arena_mod.random.randrange
-
-    def spy(n):
-        v = real_randrange(n)
-        if n == 100:
-            rolls.append(v)
-        return v
-
-    monkeypatch.setattr(arena_mod.random, "randrange", spy)
-
-    cdef = CreatureDef(id=1, name="Wisp", tile="wisp", basehp=48, teleports=True)
-    arena = CombatArena(
-        build_party(), conflict_map, asset_mgr=asset_mgr, monster_count=1
-    )
-    arena.creature_def = cdef
-    arena.monsters[0].definition = cdef
-    arena.monsters[0].teleports = True
-    arena.player_positions[0] = (5, 5)
-    arena.monsters[0].x, arena.monsters[0].y = 5, 1
-
-    for _ in range(200):
-        arena._execute_single_monster_ai(arena.monsters[0])
-
-    # 200 trials of randrange(100); 52-56 of them land <= 25 in expectation
-    assert len(rolls) == 200
-    assert sum(1 for r in rolls if r <= 25) > 25
-    assert sum(1 for r in rolls if r > 25) > 25
-
-
-def test_monster_ranged_fires_regardless_of_distance(asset_mgr, conflict_map, monkeypatch):
-    """Java CombatScreen.java:699 — 34% ranged, no distance gate."""
-    monkeypatch.setattr(arena_mod.random, "randrange", lambda n: 0)  # force RANGED
+def test_monster_ranged_adjacent_attacks_in_melee(asset_mgr, conflict_map, monkeypatch):
+    """LairWare Combat (UltimaSpellCombat.c:1083-1084): a close member is
+    attacked (`goto afternext`) whatever the creature; Java's 34% bolt at
+    any distance is gone."""
+    monkeypatch.setattr(arena_mod.random, "randrange", lambda n: 0)
 
     party = build_party(hp=1000)
     arena = CombatArena(party, conflict_map, asset_mgr=asset_mgr, monster_count=1)
-    # Ranged creature adjacent to the hero: old code fell through to melee.
     arena.player_positions[0] = (5, 5)
     arena.monsters[0].x, arena.monsters[0].y = 5, 4
     arena.monsters[0].ranged = True
@@ -116,56 +85,7 @@ def test_monster_ranged_fires_regardless_of_distance(asset_mgr, conflict_map, mo
 
     res = arena._execute_single_monster_ai(arena.monsters[0])
     assert res is not None
-    assert res.action_type == "ranged"
-
-
-def test_monster_ranged_fire_deals_damage_twice(asset_mgr, conflict_map, monkeypatch):
-    """LairWare: a landed fire bolt deals ONE damage roll (Java's double
-    dealDamage is gone, user ruling 2026-11-22)."""
-    monkeypatch.setattr(arena_mod.random, "randrange", lambda n: 0)  # force RANGED
-    monkeypatch.setattr(resolver_mod, "lw_monster_damage_roll", lambda *a, **k: 5)
-    monkeypatch.setattr(resolver_mod, "lw_monster_hits", lambda *a, **k: True)
-    monkeypatch.setattr(resolver_mod, "monster_damage_bonus", lambda *a, **k: 0)  # isolate the double
-
-    party = Party()
-    hero = Character("Hero", "M", hp=1000, max_hp=1000)
-    party.add_member(hero)
-    arena = CombatArena(party, conflict_map, asset_mgr=asset_mgr, monster_count=1,
-                        context_map_id=2)  # EXODUS auto-hit
-    # Column 3 of CNFLCT_A is a clear line from y=2 to y=7.
-    arena.player_positions[0] = (3, 7)
-    arena.monsters[0].x, arena.monsters[0].y = 3, 2
-    arena.monsters[0].ranged = True
-    arena.monsters[0].ranged_hit_tile = "fire"
-
-    res = arena._execute_single_monster_ai(arena.monsters[0])
-    assert res is not None and res.attack_res is not None
-    assert res.attack_res.damage == 5  # one roll
-    assert hero.hp == 995
-    assert res.message == "Fiery Hit!\nOrc hits Hero (-5)."
-
-
-def test_monster_ranged_energy_doubles_and_electrified(asset_mgr, conflict_map, monkeypatch):
-    monkeypatch.setattr(arena_mod.random, "randrange", lambda n: 0)
-    monkeypatch.setattr(resolver_mod, "lw_monster_damage_roll", lambda *a, **k: 7)
-    monkeypatch.setattr(resolver_mod, "lw_monster_hits", lambda *a, **k: True)
-    monkeypatch.setattr(resolver_mod, "monster_damage_bonus", lambda *a, **k: 0)  # isolate the double
-
-    party = Party()
-    hero = Character("Hero", "M", hp=1000, max_hp=1000)
-    party.add_member(hero)
-    arena = CombatArena(party, conflict_map, asset_mgr=asset_mgr, monster_count=1,
-                        context_map_id=2)
-    arena.player_positions[0] = (3, 7)
-    arena.monsters[0].x, arena.monsters[0].y = 3, 2
-    arena.monsters[0].ranged = True
-    arena.monsters[0].ranged_hit_tile = "energy"
-
-    res = arena._execute_single_monster_ai(arena.monsters[0])
-    assert res.attack_res.damage == 7  # one roll
-    assert hero.hp == 993
-    assert res.message == "Electrified!\nOrc hits Hero (-7)."
-
+    assert res.action_type == "attack"
 
 # --- (b) Context.getCombatMap ------------------------------------------------
 
@@ -291,8 +211,7 @@ def test_steal_dice_are_next_int_10_and_40(monkeypatch):
 def test_monster_melee_poisons_per_gbc_rule(asset_mgr, monkeypatch):
     """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): poisoner melee hits roll
     1-in-4 poison (GBC battle3.c:267-277); Java's melee branch has no poison."""
-    monkeypatch.setattr(resolver_mod, "roll_hit", lambda *a, **k: True)
-    monkeypatch.setattr(resolver_mod, "calculate_monster_damage", lambda basehp=48: 1)
+    monkeypatch.setattr(resolver_mod, "lw_monster_hits", lambda *a, **k: True)
     monster = CombatMonster(
         CreatureDef(id=17, name="Pincher", tile="pincher", basehp=48, poisons=True), 0, 0
     )
@@ -303,7 +222,6 @@ def test_monster_melee_poisons_per_gbc_rule(asset_mgr, monkeypatch):
         assert res.poisoned == (member.status == Status.POISONED)
         poisoned += bool(res.poisoned)
     assert 25 <= poisoned <= 75  # 1-in-4 across 200 trials (expected 50)
-
 
 def test_combat_poison_tick_removed(asset_mgr, conflict_map):
     """arena.py's per-round poison tick is gone (Java has none in combat)."""
@@ -667,24 +585,26 @@ def test_exodus_monster_melee_respects_exotic_armor(asset_mgr, conflict_map, mon
     assert hero.hp == 100
 
 
-def test_exodus_monster_ranged_auto_hits_non_exotic_defender(asset_mgr, conflict_map, monkeypatch):
-    monkeypatch.setattr(arena_mod.random, "randrange", lambda n: 0)  # force RANGED
+def test_exodus_monster_magic_auto_hits_non_exotic_defender(asset_mgr, conflict_map, monkeypatch):
+    """LairWare (UltimaSpellCombat.c:1207-1209): in Castle Exodus every
+    monster attack, a caster's spell (monmagic -> afternext) included, hits
+    a member without exotic armour."""
+    monkeypatch.setattr(arena_mod.random, "randrange", lambda n: 129 if n == 193 else 0)
     monkeypatch.setattr(resolver_mod, "lw_armor_roll", lambda *a, **k: False)
     monkeypatch.setattr(resolver_mod, "lw_monster_damage_roll", lambda *a, **k: 4)
     party = Party()
     hero = Character("Hero", "M", hp=100, max_hp=100)
     party.add_member(hero)
-    arena = CombatArena(party, conflict_map, asset_mgr=asset_mgr, monster_count=1,
-                        context_map_id=2)
+    arena = CombatArena(party, conflict_map, creature_tile="wizard", asset_mgr=asset_mgr,
+                        monster_count=1, context_map_id=2)
     arena.player_positions[0] = (3, 7)
+    hero.x, hero.y = 3, 7
     arena.monsters[0].x, arena.monsters[0].y = 3, 2
-    arena.monsters[0].ranged = True
 
     res = arena._execute_single_monster_ai(arena.monsters[0])
     assert res.action_type == "ranged"
     assert res.attack_res.hit
-    assert hero.hp == 100 - (4 + monster_damage_bonus(2))  # LW bolts take the bonus too
-
+    assert hero.hp == 100 - (4 + monster_damage_bonus(2))
 
 # --- (j) monster count -------------------------------------------------------
 
@@ -724,33 +644,6 @@ def test_non_guard_count_dice_upper_bound(asset_mgr, conflict_map, monkeypatch):
 # --- (k) AI advance randomization + never off-map ----------------------------
 
 
-def test_advance_randomizes_among_valid_toward_directions(asset_mgr, conflict_map, monkeypatch):
-    monkeypatch.setattr(arena_mod.random, "randrange", lambda n: 99)  # force ADVANCE
-    picked = []
-    real_choice = arena_mod.random.choice
-
-    def spy_choice(seq):
-        picked.append(list(seq))
-        return real_choice(seq)
-
-    monkeypatch.setattr(arena_mod.random, "choice", spy_choice)
-
-    party = build_party()
-    arena = CombatArena(party, conflict_map, asset_mgr=asset_mgr, monster_count=1)
-    # Monster at (3,3); hero at (6,5): toward directions = EAST, SOUTH, both
-    # walkable on CNFLCT_A ((4,3) and (3,4) are open).
-    arena.player_positions[0] = (6, 5)
-    arena.monsters[0].x, arena.monsters[0].y = 3, 3
-
-    res = arena._execute_single_monster_ai(arena.monsters[0])
-    assert res is not None and res.action_type == "advance"
-    assert picked, "advance must consult the valid-toward candidates"
-    candidates = picked[-1]
-    # getRandomValidDirection iterates N,S,E,W — the filtered toward set.
-    assert set(candidates) == {Direction.EAST, Direction.SOUTH}
-    assert (arena.monsters[0].x, arena.monsters[0].y) in ((4, 3), (3, 4))
-
-
 def test_advance_never_steps_off_map(asset_mgr, conflict_map, monkeypatch):
     """A monster at the edge advances inward; Java's mask excludes null tiles,
     so off-map movement (and the old Python "flees from battle!") is gone."""
@@ -768,6 +661,9 @@ def test_advance_never_steps_off_map(asset_mgr, conflict_map, monkeypatch):
 
 
 def test_advance_blocked_when_no_toward_direction_valid(asset_mgr, conflict_map, monkeypatch):
+    """LairWare FigureNewMonPosition (UltimaSpellCombat.c:1395-1404): with
+    the diagonal, vertical and horizontal steps all blocked the member is
+    not a target and the monster stays (the BFS detour is gone)."""
     monkeypatch.setattr(arena_mod.random, "randrange", lambda n: 99)
     party = build_party()
     arena = CombatArena(party, conflict_map, asset_mgr=asset_mgr, monster_count=1)
@@ -777,10 +673,8 @@ def test_advance_blocked_when_no_toward_direction_valid(asset_mgr, conflict_map,
     for y in (7, 6):
         conflict_map.set_tile(5, y, TileDef(index=9, name="wall", rule="walls",
                                             attribs=TileAttrib.UNWALKABLE | TileAttrib.CREATUREUNWALKABLE))
-    res = arena._execute_single_monster_ai(arena.monsters[0])
-    # BFS fallback routes around the wall instead of stalling behind an obstacle.
-    assert (arena.monsters[0].x, arena.monsters[0].y) in ((4, 8), (6, 8))
-
+    arena._execute_single_monster_ai(arena.monsters[0])
+    assert (arena.monsters[0].x, arena.monsters[0].y) == (5, 8)
 
 # --- combat tile effects on player moves (checkTileAffects port) -------------
 
@@ -894,7 +788,7 @@ def test_dead_member_tile_is_free_for_monsters(asset_mgr):
     assert corpse_tile != arena.player_positions[0]
     assert arena._member_at(*corpse_tile) is None
     if not any((m.x, m.y) == corpse_tile for m in arena.monsters if not m.is_dead):
-        assert arena._is_tile_passable_for_creature(*corpse_tile, arena.monsters[0])
+        assert arena._combat_valid_move(arena.monsters[0], *corpse_tile)
 
 
 def test_teleport_step_never_lands_on_occupied_tile(asset_mgr, monkeypatch):
@@ -1007,73 +901,6 @@ def test_camouflage_creature_spawns_hidden(asset_mgr):
     )
     assert visible.visible is True
     assert camo.visible is False
-
-
-def test_camouflage_hides_at_distance_and_takes_no_action(asset_mgr, conflict_map, monkeypatch):
-    monkeypatch.setattr(arena_mod.random, "randrange", lambda n: 99)  # ADVANCE path
-    party = build_party(hp=1000)
-    arena = CombatArena(party, conflict_map, asset_mgr=asset_mgr, monster_count=1)
-    arena.monsters[0].definition = CreatureDef(
-        id=4, name="Shade", tile="orc", basehp=48, camouflage=True
-    )
-    arena.monsters[0].visible = True  # started revealed; far now
-    arena.player_positions[0] = (5, 5)
-    arena.monsters[0].x, arena.monsters[0].y = 0, 0  # movement distance 10
-
-    res = arena._execute_single_monster_ai(arena.monsters[0])
-
-    assert res is None
-    assert arena.monsters[0].visible is False
-
-
-def test_camouflage_teleporter_hides_at_distance_and_takes_no_action(
-    asset_mgr, conflict_map, monkeypatch
-):
-    """Item 29: Java CombatScreen.java:696-718 gates TELEPORT behind
-    creature.getCamouflage() && !hideOrShow(creature) before switch(action)."""
-    # randrange(100) -> 0 triggers teleports=True (<= 25)
-    monkeypatch.setattr(arena_mod.random, "randrange", lambda n: 0)
-    party = build_party(hp=1000)
-    arena = CombatArena(party, conflict_map, asset_mgr=asset_mgr, monster_count=1)
-    monster = arena.monsters[0]
-    monster.definition = CreatureDef(
-        id=40, name="CamoTele", tile="orc", basehp=48, camouflage=True, teleports=True
-    )
-    monster.teleports = True
-    monster.visible = True
-    arena.player_positions[0] = (5, 5)
-    monster.x, monster.y = 0, 0  # movement distance 10 (>= 5)
-
-    res = arena._execute_single_monster_ai(monster)
-
-    assert res is None
-    assert monster.visible is False
-    assert (monster.x, monster.y) == (0, 0)
-
-
-def test_camouflage_ranged_hides_at_distance_and_takes_no_action(
-    asset_mgr, conflict_map, monkeypatch
-):
-    """Item 29: Java CombatScreen.java:696-718 gates RANGED behind
-    creature.getCamouflage() && !hideOrShow(creature) before switch(action)."""
-    # randrange(100) -> 0 triggers ranged=True (<= 33) when teleports=False
-    monkeypatch.setattr(arena_mod.random, "randrange", lambda n: 0)
-    party = build_party(hp=1000)
-    arena = CombatArena(party, conflict_map, asset_mgr=asset_mgr, monster_count=1)
-    monster = arena.monsters[0]
-    monster.definition = CreatureDef(
-        id=41, name="CamoRanged", tile="orc", basehp=48, camouflage=True, ranged=True
-    )
-    monster.ranged = True
-    monster.visible = True
-    arena.player_positions[0] = (5, 5)
-    monster.x, monster.y = 0, 0  # movement distance 10 (>= 5)
-
-    res = arena._execute_single_monster_ai(monster)
-
-    assert res is None
-    assert monster.visible is False
-    assert party.members[0].hp == 1000
 
 
 def test_camouflage_reveals_when_within_5_then_acts(asset_mgr, conflict_map, monkeypatch):
