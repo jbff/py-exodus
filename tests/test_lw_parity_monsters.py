@@ -429,3 +429,95 @@ def test_whirlpool_engulfs_ship_in_stopped_time_and_on_its_own_move(overworld, m
     ow._update_creatures()
     assert ow.map_id == 13
     assert party.whirlpool_return == (48, 18)
+
+
+# --- M-15: Sosaria's monsters wait out the Ambrosia trip ---------------------------
+
+
+def test_pushsosaria_keeps_monsters_and_whirlpool_through_ambrosia(overworld):
+    """UltimaMain.c:3041-3053, 3080-3093 (GoWhirlPool) and UltimaMisc.c:923-968
+    (PushSosaria/PullSosaria):
+
+        WhirlX = 2;
+        WhirlY = 0x3E;
+        Party[1] = 0x16; /* frigate */
+        PushSosaria();
+        ...
+        PullSosaria();
+
+    The engulfing whirlpool is moved to (2, 62) and the Sosaria map, with
+    its monsters and the whirlpool, is put aside and brought back on the
+    return. The port re-seeded fresh wanderers and Java's whirlpools.
+    """
+    from py_exodus.world import portal_entry
+
+    party = _party()
+    party.transport = Transport.SHIP
+    ow = overworld(30, 1, party=party)
+    orc = _monster("orc", 49, 36)
+    ow.creatures = [_monster("whirlpool", 30, 1, dir=[0, 1], wontattack=True), orc]
+    ow._check_whirlpool_engulf()
+    assert ow.map_id == 13
+    assert portal_entry.step_in_whirlpool_portal(ow, 32, 58)
+    assert ow.map_id == 0
+    kept = sorted((c["tile_name"], c["x"], c["y"]) for c in ow.creatures)
+    assert kept == [("orc", 49, 36), ("whirlpool", 2, 62)]
+
+
+# --- M-16: the save keeps every monster ------------------------------------------
+
+
+def test_putsosaria_saves_every_monster(overworld, monkeypatch, tmp_path):
+    """UltimaMisc.c:839-857 (PutSosaria):
+
+        *(*gCurrentMap + mapLength + 1) = (unsigned char)(WhirlX & 0xFF);
+        ...
+        for (mark = 0; mark < 256; mark++) {
+            *(*gCurrentMon + mark) = Monsters[mark];
+
+    The whole 32-slot monster table and the whirlpool (place and heading)
+    are saved; the port (Java) kept only the first 8 creatures.
+    """
+    from py_exodus import save_system
+
+    ow = overworld(20, 20)
+    ow.creatures = [_monster("whirlpool", 47, 17, dir=[-1, 0], wontattack=True)]
+    ow.creatures += [_monster("orc", 30 + i, 40, variant=1) for i in range(11)]
+    ow.creatures.append(_monster("thief", 5, 5, wander=True))
+    saved: dict = {}
+    monkeypatch.setattr(save_system.SaveSystem, "save_game",
+                        staticmethod(lambda party, path, extra=None: saved.update(extra or {})))
+    ow._save_game()
+    block = saved["overworld"]["monsters"]
+    assert len(block) == 13
+    assert block[0]["dir"] == [-1, 0]
+    assert block[-1]["wander"] is True
+
+    ow2 = overworld(20, 20, clear=False)
+    ow2._restore_world_state({"monsters": block})
+    assert len(ow2.creatures) == 13
+    assert tuple(_whirlpools(ow2)[0]["dir"]) == (-1, 0)
+    assert ow2.creatures[-1].get("wander") is True
+
+
+def test_restore_old_save_block_with_two_java_whirlpools(overworld):
+    """Old saves (before batch M) hold Java's two whirlpools without a
+    heading and no ``wander`` flags. They still load: the first whirlpool is
+    LairWare's one (heading (+1, +1), the map resource's), the second is
+    dropped, and every monster hunts (0xC0, as LairWare's monsters out
+    before Exodus fell)."""
+    block = [
+        {"name": "Whirlpool", "tile_name": "whirlpool", "tile": "whirlpool", "x": 50, "y": 13},
+        {"name": "Whirlpool", "tile_name": "whirlpool", "tile": "whirlpool", "x": 17, "y": 48},
+        {"name": "Orc", "tile_name": "orc", "tile": "orc", "x": 49, "y": 36, "hp": 12},
+    ]
+    ow = overworld(20, 20, clear=False)
+    ow._restore_world_state({"monsters": block})
+    wps = _whirlpools(ow)
+    assert [(c["x"], c["y"]) for c in wps] == [(50, 13)]
+    assert tuple(wps[0]["dir"]) == (1, 1)
+    orc = next(c for c in ow.creatures if c["tile_name"] == "orc")
+    assert not orc.get("wander") and orc["hp"] == 12
+    # A block with no whirlpool gets LairWare's start one.
+    ow._restore_world_state({"monsters": block[2:]})
+    assert [(c["x"], c["y"]) for c in _whirlpools(ow)] == [(47, 17)]

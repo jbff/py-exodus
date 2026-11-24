@@ -1011,10 +1011,10 @@ def test_overworld_save_carries_dynamic_world_state(pygame_setup, asset_mgr, mon
     assert {"tile": "chest", "x": 20, "y": 21} in payload["dynamic_objects"]
 
 
-def test_overworld_save_creature_cap_is_8_including_whirlpools(pygame_setup, asset_mgr, monkeypatch, tmp_path):
-    """The block holds the first 8 map creatures in list order regardless
-    of kind (up to 8, GameScreen.java:300-312 restore cap) — a whirlpool
-    among them takes its slot (user ruling 2026-11-10)."""
+def test_overworld_save_block_holds_creatures_including_whirlpool(pygame_setup, asset_mgr, monkeypatch, tmp_path):
+    """The block holds the map creatures in list order regardless of kind
+    — the whirlpool among them (user ruling 2026-11-10). Every creature
+    saves (LairWare PutSosaria, UltimaMisc.c:839-857; Java kept 8)."""
     monkeypatch.chdir(tmp_path)
 
     from py_exodus.screens.overworld import OverworldScreen
@@ -1085,10 +1085,11 @@ def test_journey_onward_restores_sea_monsters_and_objects(pygame_setup, asset_mg
     restored = {p: c for p, c in zip(positions, resumed.creatures)}
     assert restored[(30, 40)]["tile_name"] == "pirate" and restored[(30, 40)]["hp"] == 37
     assert restored[(8, 9)]["tile_name"] == "squid"
-    # Both whirlpool fixtures come back from the save — exactly 2, none
-    # re-seeded on the side.
+    # The saved whirlpool comes back, none re-seeded on the side. LairWare
+    # has one (UltimaMisc.c:913-917): of this old-style block's two Java
+    # fixtures the first is kept.
     whirls = [c for c in resumed.creatures if c.get("tile_name") == "whirlpool"]
-    assert sorted((c["x"], c["y"]) for c in whirls) == [(17, 48), (50, 13)]
+    assert sorted((c["x"], c["y"]) for c in whirls) == [(50, 13)]
     assert all(c.get("wontattack") for c in whirls)
 
     # Map objects: the stolen frigate is still on the map and boardable.
@@ -1124,7 +1125,8 @@ def test_journey_onward_does_not_spawn_extra_wanderers_over_saved_monsters(
     start._start_journey()
     resumed = start.next_screen
     assert isinstance(resumed, OverworldScreen)
-    assert len(resumed.creatures) == 4
+    # The saved four, less Java's second whirlpool (LairWare has one).
+    assert len(resumed.creatures) == 3
 
 
 def test_journey_onward_empty_saved_monsters_still_spawns_wanderers(

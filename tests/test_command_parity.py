@@ -195,8 +195,9 @@ class TestEnterAndWhirlpool:
         assert (6, 6) in [(c["x"], c["y"]) for c in ow.creatures]
 
     def test_whirlpool_fixtures_reseeded_after_ambrosia_round_trip(self, ow, sample_party):
-        """Fix round 3: the Sosaria whirlpool is re-seeded on every map
-        load — otherwise Ambrosia's only sea route dies after one return."""
+        """Fix round 3: the Sosaria whirlpool is still there after an
+        Ambrosia round trip — otherwise Ambrosia's only sea route dies after
+        one return."""
         # Round 1: the (47, 17) whirlpool engulfs the ship that sails onto it
         sample_party.transport = Transport.SHIP
         sample_party.x, sample_party.y = 46, 17
@@ -212,11 +213,13 @@ class TestEnterAndWhirlpool:
         key(ow, pygame.K_e)
         assert (sample_party.x, sample_party.y) == (1, 1)
         spots = {(c["x"], c["y"]) for c in ow.creatures if c.get("tile_name") == "whirlpool"}
-        assert spots == {(47, 17)}
+        # PushSosaria/PullSosaria: the whirlpool waits where GoWhirlPool
+        # put it, (2, 62) (UltimaMain.c:3047-3053).
+        assert spots == {(2, 62)}
 
-        # Round 2: the re-seeded whirlpool engulfs again
+        # Round 2: it engulfs again
         sample_party.transport = Transport.SHIP
-        sample_party.x, sample_party.y = 46, 17
+        sample_party.x, sample_party.y = 1, 62
         ow.heading = Direction.EAST  # already facing: the press sails
         move(ow, Direction.EAST)
         assert (sample_party.x, sample_party.y) == (32, 54)

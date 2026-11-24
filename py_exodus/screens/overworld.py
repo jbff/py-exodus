@@ -343,6 +343,9 @@ class OverworldScreen(BaseScreen):
         # LairWare zp[0xCD] (FinishAll, UltimaMisc.c:1115-1118): flips each
         # mounted turn; monsters act on the turns it reads 255.
         self._finish_all_flip = 0
+        # PushSosaria's copy of Sosaria's monsters and whirlpool while the
+        # party is on Ambrosia (UltimaMisc.c:923-968); None otherwise.
+        self._sosaria_creatures: list[dict[str, Any]] | None = None
         self._load_world_map()
         # Java GameScreen.java:280-330 restore-on-load: the Journey Onward
         # starter rebuilds the saved SOSARIA monsters onto the map before any
@@ -515,6 +518,13 @@ class OverworldScreen(BaseScreen):
         # (UltimaMisc.c:913-917); the Sosaria resource (MAPS 420) holds
         # 47, 17, 1, 1. (Java added two, at (50, 13) and (17, 48).)
         if str(self.map_id) == "0":
+            # PullSosaria (UltimaMisc.c:946-968): back from Ambrosia, the
+            # Sosaria monsters and whirlpool are as they were left.
+            stash = getattr(self, "_sosaria_creatures", None)
+            if stash is not None:
+                self.creatures = stash
+                self._sosaria_creatures = None
+                return
             self.creatures.append(self._lw_start_whirlpool())
         self._seed_wanderers()
 
@@ -1655,6 +1665,11 @@ class OverworldScreen(BaseScreen):
                 # LairWare GoWhirlPool saves the engulf spot (Party[4]/[5])
                 # and returns the party there (UltimaMain.c:3043-3046, 3093).
                 self.party.whirlpool_return = (self.party.x, self.party.y)
+                # GoWhirlPool then moves the whirlpool to (2, 62) and
+                # PushSosaria keeps the map with its monsters for the return
+                # (UltimaMain.c:3047-3053; UltimaMisc.c:923-945).
+                c["x"], c["y"] = 2, 62
+                self._sosaria_creatures = list(self.creatures)
                 self.party.x, self.party.y = 32, 54
                 self.map_id = 13
                 self._load_world_map()
@@ -2489,8 +2504,9 @@ class OverworldScreen(BaseScreen):
         """Rebuild the saved wandering/sea creatures onto the Sosaria map.
 
         Java truth: ``GameScreen.java:300-312`` — after loading the save game,
-        up to 8 monsters are re-created on the SOSARIA map from the saved
-        tile ids/positions. User ruling (2026-11-10 amendment): whirlpools
+        the saved monsters are re-created on the SOSARIA map from the saved
+        tile ids/positions (all of them, as LairWare's LoadUltimaMap reloads
+        the whole MONS table; Java took 8). User ruling (2026-11-10 amendment): whirlpools
         are NOT excluded, so a saved block owns the fixtures too — the free
         re-seed from ``_load_world_map`` is dropped here (exactly those
         entries are replaced by the saved ones, so there can never be
@@ -2522,10 +2538,19 @@ class OverworldScreen(BaseScreen):
         # The saved block also replaces the freshly seeded wanderers
         # (original-game seeding in _seed_wanderers).
         self.creatures = []
-        for m in saved_monsters[:8]:
+        # LairWare PutSosaria/LoadUltimaMap keep the whole 32-slot monster
+        # table and the one whirlpool (UltimaMisc.c:839-857, 893-917); Java
+        # restored only 8. A block from before batch M can hold Java's two
+        # whirlpools: the first one is kept.
+        has_whirlpool = False
+        for m in saved_monsters:
             tile_name = str(m.get("tile_name", "")).lower()
             if not tile_name:
                 continue
+            if tile_name == "whirlpool":
+                if has_whirlpool:
+                    continue
+                has_whirlpool = True
             creature = {
                 "name": str(m.get("name", "")),
                 "tile_name": tile_name,
@@ -2552,6 +2577,8 @@ class OverworldScreen(BaseScreen):
                 # without the flag hunt, as LairWare's monsters out before.
                 creature["wander"] = True
             self.creatures.append(creature)
+        if not has_whirlpool:
+            self.creatures.insert(0, self._lw_start_whirlpool())
 
     def _save_game(self) -> None:
         """Save party progress to JSON file.
@@ -2562,15 +2589,16 @@ class OverworldScreen(BaseScreen):
         keyUp tail and consume a turn.
 
         Java Context.saveGame (Context.java:138-193) additionally serializes
-        the SOSARIA map's dynamic state into the party record: the first 8
-        map creatures in list order with positions and tile ids, and the map
+        the SOSARIA map's dynamic state into the party record: the map
+        creatures in list order with positions and tile ids (every one, as
+        LairWare's PutSosaria; Java kept the first 8), and the map
         objects (embarked frigates/chests) — the objects already live in
         ``party.dynamic_objects`` here and ride along in the party dict.
         GameScreen.java:280-330 restores both on the next load.
         Documented deviation (user ruling 2026-11-10): whirlpool entries are
         NOT skipped the way Java's Context.saveGame does (Java `continue`s
-        whirlpools without freeing the slot); the first 8 creatures save
-        regardless of kind, so the fixtures ride in the block.
+        whirlpools without freeing the slot); every creature saves
+        regardless of kind, so the whirlpool rides in the block.
         Documented deviation (user ruling 2026-11-10, R2 rider): a
         creature's current ``hp`` persists in the block — Java's
         Context.saveGame records tile ids/positions only and discards hp,
@@ -2581,11 +2609,11 @@ class OverworldScreen(BaseScreen):
                 from py_exodus.save_system import SaveSystem
 
                 saved_monsters = []
-                # First 8 creatures in list order regardless of kind
-                # (user ruling 2026-11-10: whirlpools save like any other
-                # creature — Java's skip-without-freeing-slot quirk is
-                # deliberately NOT reproduced).
-                for c in self.creatures[:8]:
+                # Every creature, the whirlpool included (user ruling
+                # 2026-11-10: whirlpools save like any other creature).
+                # LairWare PutSosaria (UltimaMisc.c:839-857) writes the whole
+                # monster table and the whirlpool; Java kept the first 8.
+                for c in self.creatures:
                     entry = {
                         "name": c.get("name", ""),
                         "tile_name": c.get("tile_name", ""),
