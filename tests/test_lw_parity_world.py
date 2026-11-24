@@ -156,6 +156,20 @@ def test_moongate_old_save_keeps_its_phase():
     assert Party.from_dict(d).moon_phase == 0
 
 
+def test_routine6e35_moon_step_on_pass(overworld):
+    """UltimaMisc.c:1357-1377: every turn (a pass, a refused step, a letter
+    command) runs MoonGateUpdate, then ``temp = GetXYVal(xpos, ypos); if
+    (temp == 136) HandleMoonStep();`` -- a gate that appears under a party
+    standing still sends it on. The port checked only after a step."""
+    scr = overworld(x=15, y=29)
+    # Phase 12 -> 13 on this turn: Trammel 4 (gate at site 4, (15, 29)),
+    # Felucca 5 (destination site 5, (12, 55)).
+    scr.party.moon_phase, scr.party.moon_turns = 12, 3
+    scr._pass_turn()
+    assert (scr.trammel_phase, scr.felucca_phase) == (4, 5)
+    assert (scr.party.x, scr.party.y) == (12, 55)
+
+
 # --- SafeExodus, INSERT ---------------------------------------------------------
 
 

@@ -1448,10 +1448,8 @@ class OverworldScreen(BaseScreen):
             # LairWare ValidDir (UltimaMain.c:3194-3207) burns the party as it
             # steps ONTO lava; standing or passing there does nothing. So the
             # tile effect is the entered tile's, on a move only.
+            # (_finish_turn ends with the moongate check, LW Routine6E35.)
             self._finish_turn(self.game_map.get_tile(nx, ny))
-
-            # Check moongate teleports
-            self._check_moongates()
 
             # Check random encounters
             if self.random_encounters_enabled:
@@ -1571,6 +1569,11 @@ class OverworldScreen(BaseScreen):
         if self.check_party_death():
             return
         self._check_whirlpool_engulf()
+        # LairWare Routine6E35 (UltimaMisc.c:1357-1377): every turn, a pass,
+        # a refused step or a letter command as well as a step, ends with
+        # ``if (GetXYVal(xpos, ypos) == 136) HandleMoonStep();`` after
+        # MoonGateUpdate, so a gate that appears under the party sends it on.
+        self._check_moongates()
 
     ENGULF_LINES = (
         "A huge swirling Whirlpool engulfs you and your ship dragging both to a watery grave!",
