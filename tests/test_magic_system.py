@@ -1250,34 +1250,6 @@ def test_spell_projectiles_pass_walls(asset_mgr, conflict_map):
     assert m.hp == 200 - res.damage
 
 
-def test_dag_acron_blinks_on_the_world_map(monkeypatch):
-    """Java spellBlink (SpellUtil.java:267-350): a random valid direction,
-    the 0x10-grid distance walk, then a backward scan to the nearest walkable
-    tile; casting is surface-only."""
-    import py_exodus.combat.magic as magic
-    from py_exodus.assets import TileDef
-    from py_exodus.world.map import ConflictMap
-
-    world = ConflictMap(map_type=MapType.WORLD, width=64, height=64)
-    world.tiles = [TileDef(index=3, name="floor") for _ in range(64 * 64)]
-
-    party = Party()
-    wiz = Character("Wiz", "M", Race.FUZZY, Profession.WIZARD, intelligence=50, mp=50)
-    party.add_member(wiz)
-    party.x = 8
-    party.y = 1
-
-    monkeypatch.setattr(pyrandom, "choice", lambda seq: Direction.EAST)
-    monkeypatch.setattr(magic.random, "choice", lambda seq: Direction.EAST)
-    # Pin the 16-step extension roll low: rand.nextInt(diff*diff) <= distance
-    monkeypatch.setattr(magic.random, "randrange", lambda *a, **k: 0)
-
-    res = cast_spell(Spell.DAG_ACRON, caster=party.members[0], party=party, world_map=world)
-    assert res.success
-    # EAST from x=8: distance = x % 0x10 = 8 → 0x10 - 8 = 8 → walks to (16, 1)
-    assert (party.x, party.y) == (16, 1)
-
-
 def test_dag_acron_rejected_off_the_world_map():
     """DAG_ACRON's location mask is 0x01 (world only); town and dungeon casts
     are refused like any other off-mask spell."""

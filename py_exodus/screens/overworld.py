@@ -820,7 +820,16 @@ class OverworldScreen(BaseScreen):
             world_map=self.game_map,
             audio=self.audio,
             view_callback=self._show_vieda_view,
+            occupied=self._dag_acron_taken,
         )
+
+    def _dag_acron_taken(self, x: int, y: int) -> bool:
+        """DAG ACRON never lands on a monster or a parked ship/horse/chest
+        (LairWare keeps them in the map, so GetXYVal never matches there;
+        UltimaSpellCombat.c:216-218)."""
+        if any(c.get("x") == x and c.get("y") == y for c in self.creatures):
+            return True
+        return any(o.get("x") == x and o.get("y") == y for o in self.party.objects_on(self.game_map))
 
     def _show_vieda_view(self) -> None:
         """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): VIEDA renders the

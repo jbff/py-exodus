@@ -230,3 +230,108 @@ def test_victory_ends_stopped_time(asset_mgr):
     arena.monsters[0].hp = 0
     arena._handle_victory()
     assert not arena.party.aura.is_active()
+
+
+# --- P-11: Dag Acron ----------------------------------------------------------
+
+
+def _sosaria(asset_mgr):
+    return MapLoader(asset_mgr).load_map(0)
+
+
+def _first(gmap, name):
+    return next((x, y) for y in range(64) for x in range(64) if gmap.get_tile(x, y).name == name)
+
+
+def _surface_party(transport=Transport.FOOT, exodus_defeated=0):
+    party = Party(transport=transport, exodus_defeated=exodus_defeated)
+    party.add_member(_caster())
+    party.x, party.y = 10, 10
+    return party
+
+
+def _coords(monkeypatch, pairs):
+    seq = iter(v for p in pairs for v in p)
+    calls: list = []
+
+    def fake(a, b):
+        calls.append((a, b))
+        return next(seq)
+    monkeypatch.setattr(magic.random, "randint", fake)
+    return calls
+
+
+def test_spell_dag_acron_lands_on_random_grass(asset_mgr, monkeypatch):
+    """UltimaSpellCombat.c:209-222:
+
+        int matchValue = (Party[1] == 0x16) ? 0 : 4;
+        value = -1;
+        while (value != matchValue) {
+            xs = RandNum(0, gCurMapSize - 1);
+            ys = RandNum(0, gCurMapSize - 1);
+            value = GetXYVal(xs, ys);
+        }
+        xpos = xs; ypos = ys;
+
+    Random tiles anywhere on the 64x64 map until one is grass (value 4);
+    the party lands there (Java's 16-tile directional blink is gone).
+    """
+    gmap = _sosaria(asset_mgr)
+    party = _surface_party()
+    water, grass = _first(gmap, "water"), _first(gmap, "grass")
+    calls = _coords(monkeypatch, [water, grass])
+    res = cast_spell(Spell.DAG_ACRON, party.members[0], world_map=gmap, party=party)
+    assert res.executed
+    assert (party.x, party.y) == grass
+    assert calls == [(0, 63)] * 4
+
+
+def test_spell_dag_acron_skips_a_monsters_tile(asset_mgr, monkeypatch):
+    """UltimaSpellCombat.c:217: GetXYVal reads the map, where LW keeps its
+    monsters (a monster's grass is not value 4), so the party never lands on
+    one; the port passes its own monsters in as ``occupied``."""
+    gmap = _sosaria(asset_mgr)
+    party = _surface_party()
+    grass = [(x, y) for y in range(64) for x in range(64) if gmap.get_tile(x, y).name == "grass"][:2]
+    _coords(monkeypatch, grass)
+    cast_spell(Spell.DAG_ACRON, party.members[0], world_map=gmap, party=party,
+               occupied=lambda x, y: (x, y) == grass[0])
+    assert (party.x, party.y) == grass[1]
+
+
+def test_spell_dag_acron_aboard_ship_before_exodus_is_refused(asset_mgr):
+    """UltimaSpellCombat.c:210: `if ((Party[3] != 0) || (Party[1] == 0x16 &&
+    Party[16] == 0)) { Failed(); return; }` - no Dag Acron aboard ship while
+    Exodus stands. Refused at the attempt (user ruling 3): no MP spent."""
+    gmap = _sosaria(asset_mgr)
+    party = _surface_party(Transport.SHIP)
+    res = cast_spell(Spell.DAG_ACRON, party.members[0], world_map=gmap, party=party)
+    assert not res.executed and res.message == "Not Here!"
+    assert party.members[0].mp == 99 and (party.x, party.y) == (10, 10)
+
+
+def test_spell_dag_acron_aboard_ship_after_exodus_lands_on_water(asset_mgr, monkeypatch):
+    """UltimaSpellCombat.c:213: `matchValue = (Party[1] == 0x16) ? 0 : 4;` -
+    once Exodus has fallen the ship jumps to random open water (value 0)."""
+    gmap = _sosaria(asset_mgr)
+    party = _surface_party(Transport.SHIP, exodus_defeated=1)
+    water, grass = _first(gmap, "water"), _first(gmap, "grass")
+    _coords(monkeypatch, [grass, water])
+    cast_spell(Spell.DAG_ACRON, party.members[0], world_map=gmap, party=party)
+    assert (party.x, party.y) == water
+
+
+def test_spell_dag_acron_overworld_marks_monsters_and_objects(asset_mgr):
+    """UltimaSpellCombat.c:216-218 (GetXYVal sees LW's map-held monsters and
+    parked ships): the overworld hands DAG ACRON its creatures and parked
+    objects as taken tiles."""
+    from py_exodus.screens.overworld import OverworldScreen
+
+    party = _surface_party()
+    ow = OverworldScreen(party=party, map_id=0, asset_mgr=asset_mgr, start_x=4, start_y=2,
+                         random_encounters=False)
+    ow.creatures = [{"tile": "orc", "tile_name": "orc", "x": 20, "y": 21}]
+    party.objects_map_id = 0
+    party.dynamic_objects = [{"tile": "horse", "x": 30, "y": 31}]
+    assert ow._dag_acron_taken(20, 21) and ow._dag_acron_taken(30, 31)
+    assert not ow._dag_acron_taken(20, 22)

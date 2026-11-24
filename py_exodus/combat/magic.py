@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import random
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from py_exodus import debug
 from py_exodus.aura import AuraType
@@ -20,7 +20,7 @@ from py_exodus.constants import (
     Profession,
     Spell,
     Status,
-    TileAttrib,
+    Transport,
 )
 
 if TYPE_CHECKING:
@@ -277,12 +277,14 @@ def cast_spell(
     party: Party | None = None,
     spell_type: str | None = None,
     position: tuple[int, int] | None = None,
+    occupied: Callable[[int, int], bool] | None = None,
 ) -> SpellResult:
     """Cast a spell by caster, validating MP, profession, target, and location.
 
     ``position`` is the caster's tile on ``world_map`` when it is not the
     party's x/y (a town: the avatar walks the town map while party.x/y keep
-    the overworld tile it was entered from).
+    the overworld tile it was entered from). ``occupied(x, y)`` tells DAG
+    ACRON which surface tiles hold a monster or an object.
     """
     # 1. Resolve spell enum
     resolved_spell = resolve_spell(spell, spell_type=spell_type, caster=caster)
@@ -406,6 +408,16 @@ def cast_spell(
                 executed=False,
             )
 
+    # LairWare UltimaSpellCombat.c:210: `(Party[1] == 0x16 && Party[16] == 0)`
+    # fails Dag Acron aboard ship while Exodus stands; refused at the attempt
+    # (user ruling 3), no MP spent.
+    if (
+        resolved_spell == Spell.DAG_ACRON
+        and getattr(active_party, "transport", None) == Transport.SHIP
+        and not getattr(active_party, "exodus_defeated", 0)
+    ):
+        return SpellResult(success=False, message="Not Here!", spell=resolved_spell, executed=False)
+
     # 9. Pre-validate targeted restorative spells before consuming MP
     # REFUSED (Task 4) on each branch: the gate fires BEFORE the effect and
     # the MP deduct.
@@ -482,6 +494,7 @@ def cast_spell(
         party=active_party,
         world_map=world_map,
         position=position,
+        occupied=occupied,
     )
 
 
@@ -514,6 +527,7 @@ def _apply_spell_effect(
     party: Party | None,
     world_map: Any | None = None,
     position: tuple[int, int] | None = None,
+    occupied: Callable[[int, int], bool] | None = None,
 ) -> SpellResult:
     """Dispatch and execute specific spell mechanics."""
     # --- Clerical Prayer Spells ---
@@ -711,7 +725,7 @@ def _apply_spell_effect(
 
     # Blink (DAG_ACRON): world map only — Java spellBlink (SpellUtil.java:105-107)
     if spell == Spell.DAG_ACRON:
-        return _apply_spell_blink(world_map, caster_entity, party)
+        return _apply_spell_blink(world_map, party, occupied)
 
     # Dungeon elevation / teleport / exit: these run on the DungeonState the
     # screen passes as world_map (Java SpellUtil.spellYup/spellZdown/
@@ -1128,69 +1142,42 @@ def _apply_group_damage(
 
 def _apply_spell_blink(
     world_map: Any,
-    caster_entity: Any,
     party: Any,
+    occupied: Callable[[int, int], bool] | None = None,
 ) -> SpellResult:
-    """Java SpellUtil.spellBlink (SpellUtil.java:267-350) — DOR/DAG ACRON's
-    surface teleport: a random valid direction, the 0x10-grid distance walk,
-    and a backward scan to the closest walkable tile. Non-surface screens log
-    "Outdoors only!" instead."""
-    target = caster_entity if getattr(caster_entity, "x", None) is not None else party
-    if target is None:
-        target = party
+    """DAG ACRON, LairWare Spell case 6 (UltimaSpellCombat.c:209-222):
 
-    if (
-        world_map is None
-        or getattr(world_map, "map_type", None) not in (MapType.WORLD, MapType.WORLD.value)
+        int matchValue = (Party[1] == 0x16) ? 0 : 4;
+        while (value != matchValue) {
+            xs = RandNum(0, gCurMapSize - 1); ys = RandNum(0, gCurMapSize - 1);
+            value = GetXYVal(xs, ys);
+        }
+        xpos = xs; ypos = ys;
+
+    Random tiles anywhere on the map until one is grass (open water aboard
+    ship, allowed only once Exodus has fallen: the cast_spell gate). LW keeps
+    its monsters in the map, so their tiles never match; ``occupied`` stands
+    in for that. Off the Sosaria surface the location mask refuses the spell
+    before it gets here (Ambrosia is a CITY map)."""
+    if party is None or world_map is None or getattr(world_map, "map_type", None) not in (
+        MapType.WORLD, MapType.WORLD.value,
     ):
-        return SpellResult(success=True, message="Outdoors only!", spell=Spell.DAG_ACRON)
-
-    direction = random.choice(list(Direction))
-    x = getattr(target, "x", 0)
-    y = getattr(target, "y", 0)
-    orig_x, orig_y = x, y
-
-    var = x if direction.mask & (Direction.WEST.mask | Direction.EAST.mask) else y
-    distance = var % 0x10
-    if direction in (Direction.EAST, Direction.SOUTH):
-        distance = 0x10 - distance
-
-    # See if we move another 16 spaces over (Utils.rand.nextInt(diff * diff)).
-    diff = 0x10 - distance
-    if diff > 0 and random.randrange(diff * diff) > distance:
-        distance += 0x10
-
-    for _ in range(distance):
-        x += direction.dx
-        y += direction.dy
-
-    reverse_dir = direction.reverse()
-    remaining = distance
-    while remaining > 0:
+        return SpellResult(success=False, message="FAILED", spell=Spell.DAG_ACRON)
+    wanted = "water" if getattr(party, "transport", None) == Transport.SHIP else "grass"
+    size_x = getattr(world_map, "width", 64)
+    size_y = getattr(world_map, "height", 64)
+    if not any(getattr(t, "name", "") == wanted for t in getattr(world_map, "tiles", ())):
+        return SpellResult(success=False, message="FAILED", spell=Spell.DAG_ACRON)
+    while True:
+        x = random.randint(0, size_x - 1)
+        y = random.randint(0, size_y - 1)
         tile = world_map.get_tile(x, y)
-        if tile is None or not bool(getattr(tile, "attribs", TileAttrib.NONE) & TileAttrib.UNWALKABLE):
-            break
-        remaining -= 1
-        x += reverse_dir.dx
-        y += reverse_dir.dy
-
-    tile = world_map.get_tile(x, y)
-    if tile is not None and not bool(getattr(tile, "attribs", TileAttrib.NONE) & TileAttrib.UNWALKABLE):
-        width = getattr(world_map, "width", None)
-        height = getattr(world_map, "height", None)
-        if (
-            getattr(world_map, "border_behavior", None) == "wrap"
-            and width is not None and height is not None
-        ):
-            x %= width
-            y %= height
-        # Java logs "Failed to teleport!" when the walk never left the tile.
-        if (x, y) != (orig_x, orig_y):
-            target.x = x
-            target.y = y
-            return SpellResult(success=True, spell=Spell.DAG_ACRON)
-        return SpellResult(success=True, message="Failed to teleport!", spell=Spell.DAG_ACRON)
-    return SpellResult(success=True, message="Failed to teleport!", spell=Spell.DAG_ACRON)
+        if getattr(tile, "name", "") != wanted:
+            continue
+        if occupied is not None and occupied(x, y):
+            continue
+        party.x, party.y = x, y
+        return SpellResult(success=True, spell=Spell.DAG_ACRON)
 
 
 def _get_caster_coords(arena: CombatArena, caster_entity: Any) -> tuple[int, int]:
@@ -1229,6 +1216,7 @@ def prompt_cast_party(
     view_callback: Any | None = None,
     exit_callback: Any | None = None,
     position: tuple[int, int] | None = None,
+    occupied: Callable[[int, int], bool] | None = None,
 ) -> None:
     """Standard party spellcasting prompt flow (overworld, town, dungeon).
 
@@ -1365,6 +1353,7 @@ def prompt_cast_party(
                         target_member=target,
                         target_dir=direction,
                         position=position,
+                        occupied=occupied,
                     )
                     if res.message:
                         text_log.add_message(res.message)
