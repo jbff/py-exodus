@@ -891,27 +891,42 @@ def _apply_spell_effect(
     return SpellResult(success=True, message=f"{spell.name} cast successfully.", spell=spell)
 
 
-def _caster_damage(min_damage: int, max_damage: int) -> int:
-    """Java Utils.castAt:816-828 — rand(min..max) inclusive; when not
-    (0 <= min < max) the roll falls through to maxDamage."""
-    if 0 <= min_damage < max_damage:
-        return random.randint(min_damage, max_damage)
-    return max_damage
+def _lw_projectile_damage(spell: Spell, caster_char: Character) -> int:
+    """LairWare Spell (UltimaSpellCombat.c:203-344): the damage each bolt
+    hands to Projectile.
+
+        case 1: /* Mittar */ Projectile(chnum, RandNum(0, 40) | 0x10);
+        case 5: /* Fulgar */ Projectile(chnum, 75);
+        case 7: /* Mentar */ Projectile(chnum, Player[rosNum][20]);   (INT)
+        case 11: /* Decorp */ Projectile(chnum, 255);
+        case 28: /* Excuun */ Projectile(chnum, 255);
+    """
+    if spell == Spell.MITTAR:
+        return random.randint(0, 40) | 0x10
+    if spell == Spell.FULGAR:
+        return 75
+    if spell == Spell.MENTAR:
+        return caster_char.int
+    return 255  # DECORP, EXCUUN
 
 
-def _get_random_between(low: int, high: int) -> int:
-    """Java Utils.getRandomBetween:50-52 — rand.nextInt(high - low) + low,
-    i.e. low..high-1."""
-    if high > low:
-        return random.randrange(high - low) + low
-    return low
-
-
-def _monster_resists_fire(monster: Any) -> bool:
-    resists = getattr(getattr(monster, "definition", None), "resists", None)
-    if resists is None:
-        resists = getattr(monster, "resists", None)
-    return resists == "fire"
+def _lw_damage_monster(arena: CombatArena, monster: Any, damage: int, caster_char: Character) -> bool:
+    """LairWare DamageMonster (UltimaSpellCombat.c:734-756): nothing happens to
+    Lord British (`gMonType != 0x26`); otherwise the monster dies when
+    `MonsterHP - damage < 1` and the caster gets its experience (AddExp, capped
+    at 9899), else it loses `damage` HP. Returns True on a kill."""
+    if (getattr(monster, "tile", "") or "").lower() == "lord_british":
+        return False
+    monster.take_damage(damage)
+    if not monster.is_dead:
+        return False
+    arena.last_monster_death_pos = (monster.x, monster.y)
+    award = getattr(caster_char, "award_xp", None)
+    if callable(award):
+        award(getattr(monster, "exp", 0))
+    else:
+        caster_char.exp = min(EXP_CAP, caster_char.exp + getattr(monster, "exp", 0))
+    return True
 
 
 def _apply_projectile_attack(
@@ -923,23 +938,11 @@ def _apply_projectile_attack(
 ) -> SpellResult:
     """Execute directional projectile attacks against monsters in combat.
 
-    Java truth: SpellUtil.spellMagicAttack → Utils.animateMagicAttack traces
-    the ray with weaponCanAttackThroughObjects=true — spell bolts pass over
-    walls — and Utils.castAt rolls the damage (with the FULGAR fire-resist).
+    LairWare Projectile (UltimaSpellCombat.c:440-456): Shoot steps from the
+    caster to the board edge over walls and members and hits the first
+    monster; the damage comes from the spell (``_lw_projectile_damage``) and
+    is applied by DamageMonster (``_lw_damage_monster``).
     """
-    if spell == Spell.MITTAR:
-        min_dmg, max_dmg = 16, 24
-    elif spell == Spell.FULGAR:
-        min_dmg, max_dmg = 32, 64
-    elif spell == Spell.MENTAR:
-        min_dmg, max_dmg = 32, caster_char.int
-    elif spell == Spell.DECORP:
-        min_dmg, max_dmg = 128, 255
-    elif spell == Spell.EXCUUN:
-        min_dmg, max_dmg = 64, 255
-    else:
-        min_dmg, max_dmg = 10, 20
-
     if arena is not None and target_dir is not None:
         cx, cy = _get_caster_coords(arena, caster_entity)
         path = trace_projectile_path(
@@ -963,40 +966,11 @@ def _apply_projectile_attack(
                 break
 
         if target_m is not None:
-            # Java castAt:815-820 — FULGAR is shrugged off by fire resistors.
-            if spell == Spell.FULGAR and _monster_resists_fire(target_m):
-                return SpellResult(
-                    success=True,
-                    message="Resisted!",
-                    damage=0,
-                    targets_affected=0,
-                    spell=spell,
-                    target_pos=(target_m.x, target_m.y),
-                    projectile_path=path,
-                    hit=False,
-                )
-            dmg = _caster_damage(min_dmg, max_dmg)
-            # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): DECORP is a
-            # guaranteed kill on a hit regardless of hp (GBC battle.c:1285-1296
-            # sets kill=1; LW UltimaSpellCombat.c:237,456-472 ports it as
-            # damage=255). The 128-255 roll stays as the displayed lethal
-            # damage; the applied blow clamps hp to 0 whatever the roll says.
-            if spell == Spell.DECORP:
-                dmg = max(dmg, target_m.hp)
-            target_m.take_damage(dmg)
-            killed = target_m.is_dead
-            if killed:
-                arena.last_monster_death_pos = (target_m.x, target_m.y)
-                # Task 12 row (g): Java castAt → dealDamage(caster, creature,
-                # damage) (Utils.java:604-611) pays the creature's EXP to the
-                # caster on every kill, capped at 9899 (LairWare AddExp, UltimaMisc.c:475-477).
-                award = getattr(caster_char, "award_xp", None)
-                if callable(award):
-                    award(getattr(target_m, "exp", 0))
-                else:
-                    caster_char.exp = min(
-                        EXP_CAP, caster_char.exp + getattr(target_m, "exp", 0)
-                    )
+            # LairWare Spell (UltimaSpellCombat.c:203-344) + DamageMonster
+            # (734-756): Mittar RandNum(0, 40) | 0x10, Fulgar 75 (no fire
+            # resistance), Mentar the caster's INT, Decorp and Excuun 255.
+            dmg = _lw_projectile_damage(spell, caster_char)
+            _lw_damage_monster(arena, target_m, dmg, caster_char)
             # Message parity (item 3): Java's ``castAt`` logs nothing about
             # the spell or the raw damage — the only player-visible line is
             # the same wound-status line melee prints, through
@@ -1027,15 +1001,11 @@ def _apply_projectile_attack(
             hit=False,
         )
 
-    # Message parity (item 3): Java prints no per-cast damage narration
-    # (SpellUtil.java has no hud.add beside its 10 canonical strings) — the
-    # wound-status text below is the entire output the cast deserves. No
-    # arena + non-directional spell has no Java analog at all: silent.
-    dmg = _caster_damage(min_dmg, max_dmg)
+    # No arena: nothing to hit (LW Projectile fails outside combat).
     return SpellResult(
         success=True,
         message="",
-        damage=dmg,
+        damage=_lw_projectile_damage(spell, caster_char),
         spell=spell,
     )
 
@@ -1053,11 +1023,12 @@ def _apply_group_damage(
 ) -> SpellResult:
     """Deal area damage to all active monsters in combat.
 
-    Java truth: spellGroupDamage (SpellUtil.java:352-385) rolls
-    Utils.getRandomBetween(min, max) per creature; useMaskOfMinax (646-688)
-    and useRageOfGod (690-732) use their own per-creature rolls. USER-DIRECTED
-    RULING (2026-11-15): ZXKUQYB follows LW BigDeath's per-monster 75%
-    kill-roll instead; Java's hp*(3/4)==0 bug is not carried.
+    LairWare BigDeath (UltimaSpellCombat.c:475-495): each living monster is
+    hit on `(RandNum(0, 255) & 0x03) != 0` (three in four) and takes the
+    spell's damage through DamageMonster: Noxum 75, Dag Mentar twice the
+    caster's INT, ZXKUQYB and the nameless P 255 (233, 238, 247, 355). A
+    missed roll leaves the monster untouched. Necorp sets every living
+    monster's HP to 5 (498-520).
     """
     if arena is not None:
         total_dmg = 0
@@ -1078,43 +1049,21 @@ def _apply_group_damage(
                     m.weakened = True
                     affected_count += 1
                     continue
+                # LairWare BigDeath (UltimaSpellCombat.c:478-479): the 75%
+                # roll per monster. ZXKUQYB and the nameless P are
+                # BigDeath(255) (user rulings 2026-11-15, 2026-11-22; Java's
+                # hp*(3/4) quirk and 1/2-kill roll are gone).
+                if (random.randrange(256) & 0x03) == 0:
+                    continue  # missed: no damage at all
                 if spell == Spell.NOXUM:
-                    dmg = _get_random_between(24, caster_char.int)
+                    dmg = 75
                 elif spell == Spell.DAG_MENTAR:
-                    dmg = _get_random_between(32, caster_char.int)
-                elif spell in (Spell.ZXKUQYB, Spell.UNSPEAKABLE):
-                    # USER-DIRECTED RULING (2026-11-15): ZXKUQYB keeps no
-                    # BUG — Java's hp*(3/4)==0 quirk is not carried. LW
-                    # UltimaSpellCombat.c:355 BigDeath(255), :475-495 rolls
-                    # (RandNum(0,255)&0x03)!=0 per living monster (75%);
-                    # a failed roll leaves the monster untouched, a hit is
-                    # lethal via the established kill path below (255 is
-                    # beyond any rolled field HP, so take_damage(m.hp)
-                    # ≡ BigDeath's DamageMonster(255)). GBC clericspellsdat
-                    # agrees in spirit: "ZXKUQYB KILL ALL".
-                    if (random.randrange(256) & 0x03) == 0:
-                        continue  # failed kill roll — no damage at all
-                    # LairWare casts the Wizard's nameless P spell
-                    # (UNSPEAKABLE) as the same BigDeath(255)
-                    # (UltimaSpellCombat.c:247); Java's 1/2-kill roll is gone
-                    # (user ruling 2026-11-22).
-                    dmg = m.hp  # lethal kill, not a fixed damage value
+                    dmg = caster_char.int * 2
                 else:
-                    dmg = _get_random_between(20, 50)
-
-                m.take_damage(dmg)
-                if m.is_dead:
-                    arena.last_monster_death_pos = (m.x, m.y)
-                    # Task 12 row (g): Java spellGroupDamage → dealDamage
-                    # (SpellUtil.java:360) pays the creature's EXP on kill,
-                    # capped at 9899 (LairWare AddExp, UltimaMisc.c:475-477).
-                    award = getattr(caster_char, "award_xp", None)
-                    if callable(award):
-                        award(getattr(m, "exp", 0))
-                    else:
-                        caster_char.exp = min(
-                            EXP_CAP, caster_char.exp + getattr(m, "exp", 0)
-                        )
+                    dmg = 255
+                if (getattr(m, "tile", "") or "").lower() == "lord_british":
+                    continue  # DamageMonster spares Lord British (738)
+                if _lw_damage_monster(arena, m, dmg, caster_char):
                     kill_lines.append(_kill_line(m))
                 total_dmg += dmg
                 affected_count += 1

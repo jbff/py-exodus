@@ -1110,7 +1110,6 @@ def test_spell_hit_uses_wound_string(monkeypatch, asset_mgr, conflict_map):
     m.hp = 3
     caster = arena.party.members[0]
     caster.character.name = "Hero"
-    monkeypatch.setattr(magic, "_caster_damage", lambda low, high: low)
     res = _apply_projectile_attack(
         spell=Spell.FULGAR,
         caster_char=caster.character,
@@ -1179,7 +1178,9 @@ def test_group_damage_spells_emit_per_kill_lines(asset_mgr, conflict_map, monkey
     from py_exodus.entities.defs import CreatureDef
     from py_exodus.entities.party import Party
 
-    # 1. NOXUM: 2 monsters killed, 1 survives
+    # 1. NOXUM: 2 monsters killed, 1 survives (LW BigDeath(75): every
+    # BigDeath roll hits, 7 & 3 != 0)
+    monkeypatch.setattr(magic.random, "randrange", lambda *a, **k: 7)
     party = Party()
     wiz = Character("Wiz", "M", Race.FUZZY, Profession.WIZARD, intelligence=50, mp=99)
     party.add_member(wiz)
@@ -1209,7 +1210,6 @@ def test_group_damage_spells_emit_per_kill_lines(asset_mgr, conflict_map, monkey
     for idx, m in enumerate(arena_z.monsters):
         m.name = f"Orc{idx}"
         m.exp = 10 + idx
-    monkeypatch.setattr(magic.random, "randrange", lambda *a, **k: 7)
     res_zx = cast_spell(Spell.ZXKUQYB, caster=cleric, arena=arena_z)
     assert res_zx.success
     assert "Orc0 Killed! Exp. 10" in res_zx.message.split("\n")

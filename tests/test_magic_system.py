@@ -144,7 +144,7 @@ def test_cleric_recall_ashes():
 
 
 def test_wizard_magic_missile_in_combat(asset_mgr, conflict_map):
-    """MITTAR deals 16-24 damage along direction to monster."""
+    """MITTAR deals RandNum(0, 40) | 0x10 (LW UltimaSpellCombat.c:203)."""
     party = Party()
     wiz = Character("Wiz", "M", Race.FUZZY, Profession.WIZARD, intelligence=50, mp=50)
     party.add_member(wiz)
@@ -165,12 +165,12 @@ def test_wizard_magic_missile_in_combat(asset_mgr, conflict_map):
 
     res = cast_spell(Spell.MITTAR, caster=party.members[0], target_dir=Direction.NORTH, arena=arena)
     assert res.success
-    assert 16 <= res.damage <= 24
-    assert m.hp == initial_hp - res.damage
+    assert res.damage in {v | 0x10 for v in range(41)}
+    assert m.hp == max(0, initial_hp - res.damage)
 
 
 def test_wizard_fireball_in_combat(asset_mgr, conflict_map):
-    """FULGAR deals 32-64 damage along direction to monster."""
+    """FULGAR deals a fixed 75 (LW UltimaSpellCombat.c:208)."""
     party = Party()
     wiz = Character("Wiz", "M", Race.FUZZY, Profession.WIZARD, intelligence=50, mp=50)
     party.add_member(wiz)
@@ -184,7 +184,7 @@ def test_wizard_fireball_in_combat(asset_mgr, conflict_map):
 
     res = cast_spell(Spell.FULGAR, caster=party.members[0], target_dir=Direction.NORTH, arena=arena)
     assert res.success
-    assert 32 <= res.damage <= 64
+    assert res.damage == 75
     assert m.hp == max(0, initial_hp - res.damage)
 
 
@@ -471,7 +471,10 @@ def test_repond_spares_non_orc_goblinoids(asset_mgr, conflict_map, monkeypatch):
 
 
 def test_area_mass_blast_spells(asset_mgr, conflict_map):
-    """NOXUM and UNSPEAKABLE damage all monsters in arena."""
+    """NOXUM and UNSPEAKABLE damage all monsters in arena (LW BigDeath,
+    every 75% roll hit here)."""
+    import random as _random
+    from unittest import mock
     party = Party()
     wiz = Character("Wiz", "M", Race.FUZZY, Profession.WIZARD, intelligence=75, mp=90)
     party.add_member(wiz)
@@ -481,7 +484,8 @@ def test_area_mass_blast_spells(asset_mgr, conflict_map):
         m.hp = 100
         m.max_hp = 100
 
-    res = cast_spell(Spell.NOXUM, caster=party.members[0], arena=arena)
+    with mock.patch.object(_random, "randrange", lambda *a, **k: 1):
+        res = cast_spell(Spell.NOXUM, caster=party.members[0], arena=arena)
     assert res.success
     assert res.targets_affected == 4
     for m in arena.monsters:
@@ -1050,7 +1054,8 @@ def test_mentar_max_damage_floor_gone(asset_mgr, conflict_map):
     assert res.damage == 15  # maxDamage = intell, floor gone
 
 
-def test_mentar_rolls_32_to_intell_inclusive(asset_mgr, conflict_map, monkeypatch):
+def test_mentar_damage_is_intell(asset_mgr, conflict_map, monkeypatch):
+    """LW UltimaSpellCombat.c:224: Projectile(chnum, Player[rosNum][20])."""
     import py_exodus.combat.magic as magic
 
     party = Party()
@@ -1067,36 +1072,7 @@ def test_mentar_rolls_32_to_intell_inclusive(asset_mgr, conflict_map, monkeypatc
     monkeypatch.setattr(magic.random, "randint", lambda a, b, hi=None: 34)
     res = cast_spell(Spell.MENTAR, caster=party.members[0], target_dir=Direction.NORTH, arena=arena)
     assert res.success
-    assert res.damage == 34
-
-
-def test_noxum_group_uses_get_random_between(asset_mgr, conflict_map, monkeypatch):
-    """spellGroupDamage rolls Utils.getRandomBetween(min, max) — exclusive of
-    max (Utils.java:50-52); the max(24, int) floor is gone (NOXUM 24/int)."""
-    import py_exodus.combat.magic as magic
-
-    party = Party()
-    wiz = Character("Wiz", "M", Race.FUZZY, Profession.WIZARD, intelligence=75, mp=75)
-    party.add_member(wiz)
-    arena = CombatArena(party, conflict_map, creature_tile="orc", asset_mgr=asset_mgr, monster_count=2)
-    for m in arena.monsters:
-        m.hp = 100
-        m.max_hp = 100
-
-    calls = {"n": 0}
-
-    def fake_randrange(*a, **k):
-        if a and a[0] == 51:  # getRandomBetween(24, 75) → randrange(51)
-            calls["n"] += 1
-            return 50  # → damage 24 + 50 = 74
-        return 0
-
-    monkeypatch.setattr(magic.random, "randrange", fake_randrange)
-    res = cast_spell(Spell.NOXUM, caster=party.members[0], arena=arena)
-    assert res.success
-    assert calls["n"] == 2  # one roll per creature
-    for m in arena.monsters:
-        assert m.hp == 100 - 74
+    assert res.damage == 40
 
 
 def test_zxkuqyb_kill_roll_per_monster(asset_mgr, conflict_map, monkeypatch):
@@ -1219,9 +1195,9 @@ def test_pabulum_food_deterministic(monkeypatch):
     assert c2.food == 9
 
 
-def test_fulgar_resisted_by_fire_resists(asset_mgr, conflict_map):
-    """castAt (Utils.java:815-820): FULGAR against a creature with
-    resists == "fire" logs "Resisted!" and deals no damage."""
+def test_fulgar_ignores_fire_resists(asset_mgr, conflict_map):
+    """LW Projectile(chnum, 75) (UltimaSpellCombat.c:208) has no resistance:
+    Java's castAt fire-resist (Utils.java:815-820) is gone."""
     from py_exodus.entities.defs import CreatureDef
 
     party = Party()
@@ -1240,9 +1216,8 @@ def test_fulgar_resisted_by_fire_resists(asset_mgr, conflict_map):
 
     res = cast_spell(Spell.FULGAR, caster=party.members[0], target_dir=Direction.NORTH, arena=arena)
     assert res.success
-    assert res.damage == 0
-    assert "Resisted!" in res.message
-    assert arena.monsters[0].hp == 100
+    assert res.damage == 75
+    assert arena.monsters[0].hp == 25
 
 
 def test_spell_projectiles_pass_walls(asset_mgr, conflict_map):
