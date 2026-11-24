@@ -28,6 +28,7 @@ from py_exodus.screens.member_prompts import (
 from py_exodus.screens.final import (
     apply_exodus_card_tiles,
     prompt_insert_card,
+    safe_exodus,
 )
 from py_exodus.screens.vendor_dialog import start_vendor_dialog
 from py_exodus import special_commands
@@ -139,6 +140,10 @@ class TownScreen(BaseScreen):
         apply_exodus_card_tiles(
             self.game_map, self.asset_mgr, getattr(self.party, "exodus_cards_status", 0)
         )
+        # LairWare Enter (UltimaMain.c:1515-1517): Castle Exodus after the
+        # fall is SafeExodus'd on every entry.
+        if getattr(self.party, "exodus_defeated", 0):
+            safe_exodus(self.game_map, self.asset_mgr)
 
     def _play_town_music(self) -> None:
         if self.audio is None:

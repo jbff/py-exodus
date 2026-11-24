@@ -105,6 +105,23 @@ def apply_exodus_card_tiles(
             game_map.set_tile(x, 11, floor)
 
 
+def safe_exodus(game_map: GameMap | None, asset_mgr: AssetManager | None) -> None:
+    """LairWare SafeExodus (UltimaMisc.c:2512-2527): once Exodus has fallen,
+    every monster in Castle Exodus is removed and x 0x1E..0x21, y 1..11
+    become floor (0x20), the machine and the water north of it included.
+    Runs on entering the castle with ``Party[16] == 1`` (UltimaMain.c:
+    1515-1517) and right after the last card (UltimaMisc.c:2424)."""
+    if game_map is None or asset_mgr is None or not is_exodus_map(None, game_map):
+        return
+    floor = asset_mgr.get_tile_by_name("floor")
+    if floor is None:
+        return
+    game_map.npcs.clear()
+    for y in range(1, 12):
+        for x in range(0x1E, 0x22):
+            game_map.set_tile(x, y, floor)
+
+
 def prompt_insert_card(screen: BaseScreen, x: int, y: int) -> None:
     """Typed INSERT flow: gate, member prompt, card-letter prompt, insertion.
 
@@ -149,6 +166,7 @@ def prompt_insert_card(screen: BaseScreen, x: int, y: int) -> None:
             status = screen.party.exodus_cards_status
             apply_exodus_card_tiles(screen.game_map, screen.asset_mgr, status)
             if all_cards_inserted(status):
+                safe_exodus(screen.game_map, screen.asset_mgr)
                 if screen.manager is not None:
                     screen.manager.push_screen(final_scr)
                 else:

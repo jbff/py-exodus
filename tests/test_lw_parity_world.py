@@ -208,6 +208,48 @@ def _exodus_party() -> tuple[Party, PartyMember]:
     return _party(m), m
 
 
+def test_safeexodus_on_entry_after_exodus_falls(town):
+    """UltimaMain.c:1515-1517: entering Castle Exodus with ``Party[16] ==
+    1`` runs SafeExodus (UltimaMisc.c:2512-2527): every monster there is
+    removed and x 0x1E..0x21, y 1..11 become floor (0x20), opening the way
+    north past the machine. The port kept the castle's people and walls."""
+    p, _ = _exodus_party()
+    p.exodus_defeated = 1
+    p.exodus_cards_status = 0xF
+    scr = town(map_id=2, x=32, y=62, party=p)
+    scr.on_enter()
+    assert scr.game_map.npcs == []
+    for x in range(30, 34):
+        for y in range(1, 12):
+            assert scr.game_map.get_tile(x, y).name == "floor", (x, y)
+    assert scr.game_map.get_tile(29, 9).name == "moongate"
+
+
+def test_safeexodus_not_before_exodus_falls(town):
+    """UltimaMain.c:1515: SafeExodus only once ``Party[16] == 1``."""
+    p, _ = _exodus_party()
+    scr = town(map_id=2, x=32, y=62, party=p)
+    scr.on_enter()
+    assert scr.game_map.npcs
+    assert scr.game_map.get_tile(31, 3).name == "water"
+
+
+def test_insert_last_card_runs_safeexodus(town):
+    """UltimaMisc.c:2357-2359, 2424: the fourth card sets ``Party[16] = 1``
+    and, after the ending, ``SafeExodus();`` clears the castle at once."""
+    from py_exodus.screens import final
+
+    p, _ = _exodus_party()
+    p.exodus_cards_status = 0x7  # Love, Sol, Moons in
+    scr = town(map_id=2, x=33, y=12, party=p)
+    final.prompt_insert_card(scr, 33, 12)
+    _key(scr, pygame.K_1, "1")
+    _key(scr, pygame.K_d, "d")
+    assert p.exodus_defeated == 1
+    assert scr.game_map.npcs == []
+    assert scr.game_map.get_tile(31, 3).name == "floor"
+
+
 # --- Saves ------------------------------------------------------------------------
 
 
