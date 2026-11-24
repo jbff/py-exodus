@@ -521,7 +521,7 @@ def test_victory_chest_blocked_by_unwalkable_creature_tile(asset_mgr, conflict_m
 
 
 def test_defeated_pirate_leaves_frigate_at_creature_tile(asset_mgr, conflict_map):
-    party = build_party(transport=Transport.SHIP)
+    party = build_party(transport=Transport.FOOT)
     party.x, party.y = 44, 20
     party.dynamic_objects.clear()
     arena = CombatArena(

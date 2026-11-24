@@ -1463,7 +1463,11 @@ class CombatArena:
                 self.party.dynamic_objects.append({"tile": "chest", "x": chest_x, "y": chest_y})
         elif is_pirate:
             self.chest_spawned = False
-            if hasattr(self.party, "dynamic_objects"):
+            # LairWare AttackCode (UltimaMain.c:1354-1357): the pirate's tile
+            # gets a frigate (0x2C) only `if (Party[1] != 0x16)`, i.e. when the
+            # party is NOT aboard its ship; at sea the tile stays open water
+            # (a frigate there would seal a one-tile channel).
+            if self.party.transport != Transport.SHIP and hasattr(self.party, "dynamic_objects"):
                 already_has_frigate = any(
                     str(obj.get("tile", "")).lower() == "frigate"
                     and obj.get("x") == chest_x

@@ -21,6 +21,7 @@ A Python 3 / Pygame-CE reimplementation of *Ultima III: Exodus*, with **Auto-Com
   - **Chest traps** are dodged by DEX, with a big bonus for Thieves; nobody is trap-proof.
   - **Chest contents**: 30-100 gold, and one chest in four may also hold a weapon (Dagger to 2-Handed Sword, about one chest in fourteen) or armour (Cloth to Chain, about one in twenty-five); stacks cap at 99. An acid trap burns the opener for 0-55 HP, Mark of Fire or not, and only a living member can open a chest.
   - **Other commands**: Steal needs a shop counter next to the thief and the chest three tiles out (it becomes floor; the take is a chest's), a failed steal brings the guards down on you one time in four; a bribe costs 100 gold whoever takes it, and only a guard leaves; Dig sets your Exotic count to one; Pray works only at (48, 48) in Yew; every Other word needs a living member.
+  - **A beaten pirate** leaves a frigate on its tile only when you fought it from land; beat one from your own ship and the water stays open (it used to seal the Ambrosia channel).
   - **Unlock** opens only a door east or west of you, and the door turns into the ground beside it (in towns too: no second step to open it).
   - **X-it** leaves a ship anywhere at sea (no shoreline needed) and a horse only on grass.
   - **Entering**: every town starts you at its west gate (1, 32), every castle at its south gate (32, 62).

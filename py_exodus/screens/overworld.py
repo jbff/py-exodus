@@ -2409,7 +2409,8 @@ class OverworldScreen(BaseScreen):
 
         # Java GameScreen.endCombat (GameScreen.java:416-431) re-reads the
         # encounter CREATURE's overworld tile at combat end: the chest lands
-        # there when the tile is walkable, a pirate otherwise leaves a frigate.
+        # there when the tile is walkable, a pirate otherwise leaves a frigate (only when the party is not
+        # aboard a ship: LairWare AttackCode, UltimaMain.c:1354-1357).
         encounter_tile = self.game_map.get_tile(creature_x, creature_y) if self.game_map else None
         encounter_unwalkable = bool(
             getattr(encounter_tile, "attribs", 0) & TileAttrib.UNWALKABLE

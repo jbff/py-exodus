@@ -325,7 +325,7 @@ def test_chest_spawning_rules(asset_mgr, conflict_map):
 
     # 2. Pirate defeated on unwalkable water -> No chest, boardable frigate
     #    at the creature's tile (Java GameScreen.java:425-431)
-    party2 = Party(transport=Transport.SHIP)
+    party2 = Party(transport=Transport.FOOT)  # LW: only a pirate fought from land leaves a frigate
     party2.add_member(Character("Hero", "M", Race.HUMAN, Profession.FIGHTER, dexterity=50, strength=50))
     arena2 = CombatArena(party2, conflict_map, creature_tile="pirate", asset_mgr=asset_mgr, monster_count=1,
                          encounter_x=21, encounter_y=7, encounter_tile_walkable=False)
