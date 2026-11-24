@@ -516,14 +516,23 @@ class TownScreen(BaseScreen):
             self.is_finished = True
 
     def end_combat(self, is_won: bool) -> None:
-        """Remove the defeated town person when returning from CombatScreen."""
+        """Remove the defeated town person when returning from CombatScreen.
+
+        LairWare AttackCode (UltimaMain.c:1342-1352) turns the person's tile
+        into a chest (0x24) unless it stood on water; the chest stays in the
+        town until the visit ends (towns reset on entry)."""
+        npc = self._combat_npc
         if (
             is_won
-            and self._combat_npc is not None
+            and npc is not None
             and self.game_map is not None
-            and self._combat_npc in self.game_map.npcs
+            and npc in self.game_map.npcs
         ):
-            self.game_map.npcs.remove(self._combat_npc)
+            self.game_map.npcs.remove(npc)
+            under = self.game_map.get_tile(npc.x, npc.y)
+            chest = self.asset_mgr.tile_defs_by_name.get("chest") if self.asset_mgr else None
+            if chest is not None and str(getattr(under, "name", "")).lower() != "water":
+                self.game_map.set_tile(npc.x, npc.y, chest)
         self._combat_npc = None
 
     def _finish_turn(self, effect_tile=None) -> None:

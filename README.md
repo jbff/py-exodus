@@ -37,7 +37,7 @@ A Python 3 / Pygame-CE reimplementation of *Ultima III: Exodus*, with **Auto-Com
   - **X-it** leaves a ship anywhere at sea (no shoreline needed) and a horse only on grass.
   - **Entering**: every town starts you at its west gate (1, 32), every castle at its south gate (32, 62).
   - **Lord British** raises one level (100 max HP) per visit, with no healing or cure, up to 25 while Exodus stands (past it, up to 9,950 max HP, once Exodus falls); past level 5 he wants the Mark of Kings. Talking to anyone (him, shopkeepers, townsfolk) needs a living member.
-  - **Attack in towns**: `A` fights whoever stands in that direction, guards, merchants or townsfolk alike.
+  - **Attack in towns**: `A` fights whoever stands in that direction, guards, merchants or townsfolk alike; beat one and a chest is left where it stood (unless on water), until you leave.
   - **Yell**: `EVOCARE` (with the Mark of Snake) carries the party three rows past the Great Earth Serpent, which stays; any other word works as an Other command.
   - **INSERT**: the Cards go in Love, Sol, Moons, Death order, each at its own panel; a card out of order, at the wrong panel or a second time kills the member who inserts it. A card is never used up: the member keeps it. Once the last card goes in, Castle Exodus empties: every defender is gone and the machine and the water north of it become floor, then and on every later visit.
   - **Hand** (`H`): from, to, then **F**ood or **G**old with an amount (the taker holds at most 9,999), **E**quipment (gems, keys, powder, torches; at most 99), or one **W**eapon or **A**rmour by letter; the readied weapon or worn armour stays unless the giver has another.

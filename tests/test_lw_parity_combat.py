@@ -294,3 +294,31 @@ def test_background_town_fight_uses_the_partys_tile(asset_mgr):
     guard = CreatureDef(id=6, name="Guard", tile="guard")
     assert town_combat_map_id(guard, (5, 5), _TileMap({(5, 5): "grass"})) == 37
     assert town_combat_map_id(guard, (5, 5), _TileMap({(5, 5): "floor"})) == 35
+
+
+# --- B-02: a town fight leaves a chest on the person's tile -----------------
+
+def test_attackcode_town_person_leaves_a_chest(asset_mgr):
+    """UltimaMain.c:1342-1352 (AttackCode), the same code for town people:
+
+        tileon = Monsters[whichMon + TILEON];
+        if (tileon != 0) {
+            tileon = ((tileon / 4) & 0x03) + 0x24;
+        }
+        PutXYVal(tileon, xs, ys);
+
+    The person's tile becomes a chest (0x24) unless it stood on water (0).
+    The chest stays in that town until the visit ends (towns reset)."""
+    from py_exodus.screens.town import TownScreen
+
+    party = _party(Transport.FOOT)
+    town = TownScreen(party=party, map_id=1, asset_mgr=asset_mgr, start_x=10, start_y=10)
+    npc = next(n for n in town.game_map.npcs
+               if town.game_map.get_tile(n.x, n.y).name != "water")
+    town._combat_npc = npc
+    town.end_combat(True)
+    assert npc not in town.game_map.npcs
+    assert town.game_map.get_tile(npc.x, npc.y).rule == "chest"
+    # A fresh visit has no chest there (the town resets on entry).
+    again = TownScreen(party=party, map_id=1, asset_mgr=asset_mgr, start_x=10, start_y=10)
+    assert again.game_map.get_tile(npc.x, npc.y).rule != "chest"
