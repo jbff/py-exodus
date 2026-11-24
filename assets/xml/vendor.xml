@@ -176,10 +176,19 @@
         <vendor id="LCB" name="The Market" owner="Max" type="FOOD" startX="48" startY="51">
             <item type="FOOD" price="1" quant="1" />
         </vendor>
-        <vendor id="BRITISH" name="Not Sea Food" owner="Arfandil" type="FOOD" startX="16" startY="21">
+        <vendor id="FAWN" name="Food For Thought" owner="Mintol" type="FOOD" startX="25" startY="51">
             <item type="FOOD" price="1" quant="1" />
         </vendor>
-        <vendor id="FAWN" name="Food For Thought" owner="Mintol" type="FOOD" startX="25" startY="51">
+        <!-- LairWare Transact (UltimaMain.c:2313-2324): these merchants stand behind
+             a counter on a row with (y & 7) == 1, so they are grocers too. The
+             Castle British cook at (16, 21) has no counter: he only talks. -->
+        <vendor id="DEATH" name="Ye Local Grocer" owner="The Grocer" type="FOOD" startX="52" startY="35">
+            <item type="FOOD" price="1" quant="1" />
+        </vendor>
+        <vendor id="MONTOR_W" name="Ye Local Grocer" owner="The Grocer" type="FOOD" startX="32" startY="51">
+            <item type="FOOD" price="1" quant="1" />
+        </vendor>
+        <vendor id="MOON" name="Ye Local Grocer" owner="The Grocer" type="FOOD" startX="18" startY="51">
             <item type="FOOD" price="1" quant="1" />
         </vendor>
     </vendorClass>
@@ -433,7 +442,9 @@
         <vendor id="DAWN" name="the Equine Emporium" type="HORSE" owner="Brawn" startX="42" startY="21">
             <item type="HORSE" name="horse" choice="y" price="100" />
         </vendor>
-        <vendor id="GREY" name="the Stables" type="HORSE" owner="Fitz" startX="11" startY="13">
+        <!-- LairWare: the stable at (11, 13) is Devil Guard's (stand row 15, 15 & 7 == 7);
+             Grey has no merchant there. -->
+        <vendor id="DEVIL" name="the Stables" type="HORSE" owner="Fitz" startX="11" startY="13">
             <item type="HORSE" name="horse" choice="y" price="100" />
         </vendor>
     </vendorClass>

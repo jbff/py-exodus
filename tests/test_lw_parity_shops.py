@@ -59,6 +59,59 @@ def _shop(vendor, party: Party, member: int = 0) -> TownScreen:
     return town
 
 
+# --- Transact: which shop is where -------------------------------------------
+
+_LW_SHOP = {0: "TAVERNINFO", 1: "FOOD", 2: "HEALER", 3: "WEAPON", 4: "ARMOR",
+            5: "GUILDITEM", 6: "ORACLEINFO", 7: "HORSE"}
+
+
+def _counter_stands(town: str, x: int, y: int) -> list[tuple[int, int]]:
+    """Where a party can stand to Transact with the merchant at (x, y): a
+    counter tile (0x94..0xE7, port tiles 37..57) between them, and floor or
+    grass (not wall, water or another shopkeeper) to stand on."""
+    d = json.loads((ROOT / "assets" / "maps" / f"{town.lower()}.json").read_text())
+    keepers = {(n["x"], n["y"]) for n in d["npcs"] if n["tile"] == 16}
+    under = {(n["x"], n["y"]): n["underlying"] for n in d["npcs"]}
+    stands = []
+    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+        px, py = x - 2 * dx, y - 2 * dy
+        if not (0 <= px < 64 and 0 <= py < 64) or (px, py) in keepers:
+            continue
+        if 37 <= d["tiles"][y - dy][x - dx] <= 57 and under.get((px, py), d["tiles"][py][px]) in (1, 2, 8):
+            stands.append((px, py))
+    return stands
+
+
+def test_transact_every_shop_type_is_its_counter_row(assets):
+    """UltimaMain.c:2313-2324: Transact needs a counter tile (0x94..0xE7)
+    with the merchant (0x40) behind it, and the shop is ``shopNum = (ypos &
+    0x07)``, the party's row. Every vendor in vendor.xml is such a merchant
+    and each spot a party can Transact with it from selects its own shop
+    type. (LCB's Alfred, boxed in behind Ethelred, has no spot until he
+    walks.)"""
+    for vtype, vc in assets.vendor_classes.items():
+        for v in vc.vendors:
+            stands = _counter_stands(v.id, v.start_x, v.start_y)
+            assert stands or v.owner == "Alfred", (v.id, v.owner)
+            assert all(_LW_SHOP[py & 7] == vtype for _px, py in stands), (v.id, v.owner, vtype)
+
+
+def test_transact_lairware_shop_list(assets):
+    """UltimaMain.c:2313-2324 on the town maps: Devil Guard has the horse
+    shop at (11, 13) (stand row 15 -> 7), Grey has none; Death Gulch
+    (52, 35), Montor West (32, 51) and Moon (18, 51) have grocers (row & 7
+    == 1); the Castle British cook at (16, 21) has no counter, so he talks
+    ("Like the food?") and sells nothing."""
+    def at(town, x, y):
+        return assets.get_vendor(town, x, y)
+
+    assert at("DEVIL", 11, 13).vendor_type == "HORSE"
+    assert all(v.id.upper() != "GREY" for v in assets.vendor_classes["HORSE"].vendors)
+    for town, x, y in (("DEATH", 52, 35), ("MONTOR_W", 32, 51), ("MOON", 18, 51)):
+        assert at(town, x, y).vendor_type == "FOOD", town
+    assert at("BRITISH", 16, 21) is None
+
+
 # --- Grocer --------------------------------------------------------------------
 
 

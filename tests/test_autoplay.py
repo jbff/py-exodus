@@ -974,11 +974,12 @@ def test_bulk_food_buying_strategy(pygame_setup):
     assert party.food >= 700
     assert evaluate_goal(party) != Goal.BUY_FOOD
 
-    # Castle British Food vendor has no counter, so stand (16, 20) is adjacent
+    # Yew's grocer, across its counter from (31, 17). (Castle British has
+    # none: its cook has no counter and only talks, LairWare Transact.)
     party2 = _make_party(level=1, exp=0, gold=200, food=200)
     for m in party2.members:
         m.food = 50
-    ts2 = TownScreen(party=party2, asset_mgr=am, map_id=1, start_x=16, start_y=20)
+    ts2 = TownScreen(party=party2, asset_mgr=am, map_id=4, start_x=31, start_y=17)
     sm.set_screen(ts2)
     for _ in range(50):
         ctrl.step(sm)

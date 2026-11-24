@@ -17,7 +17,8 @@ A Python 3 / Pygame-CE reimplementation of *Ultima III: Exodus*, with **Auto-Com
   - **Monsters move and attack diagonally** on Sosaria (the party still can't).
   - **Monster ground**: land monsters start on grass and walk only on grass, brush, forest and floor (never lava, nor a parked ship, a horse or a dropped chest); serpents, Man-O-Wars and pirates start and sail only on open water.
   - **Selling weapons and armour** pays the shop's full price, only for what that shop stocks (Dawn's magic gear sells only at Dawn), never past 9999 gold (the sale is cancelled), a failed sale ("You don't own one of those!") ends the visit, and the readied weapon or worn armour can go too (back to hands or skin).
-  - **Grocers** sell rations at 1 gold each, as many as you like, never past 9,999 food ("Not enough room!").
+  - **Grocers** sell rations at 1 gold each, as many as you like, never past 9,999 food ("Not enough room!"). Death Gulch, Montor West and Moon have one too; the cook in Castle British has no counter and only talks.
+  - **Horses** are sold in Devil Guard (and Dawn), not Grey.
   - **Join Gold** tops the receiver up to 9999 and leaves the rest with the givers (it used to destroy anything past 9999).
   - **Chest traps** are dodged by DEX, with a big bonus for Thieves; nobody is trap-proof.
   - **Chest contents**: 30-100 gold, and one chest in four may also hold a weapon (Dagger to 2-Handed Sword, about one chest in fourteen) or armour (Cloth to Chain, about one in twenty-five); stacks cap at 99. An acid trap burns the opener for 0-55 HP, Mark of Fire or not, and only a living member can open a chest.
