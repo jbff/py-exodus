@@ -15,8 +15,9 @@ input the dialog calls ``set_response(input)`` **then** ``next_dialog()``;
 the conversation ends when ``next_dialog()`` returns False (Java's terminal
 states) or on empty input (Java ``ConversationDialog.java:74-80`` hides the
 dialog). Java message strings are preserved verbatim, including quirks
-(dead-code branches, the oracle's end-after-purchase return, the horse's
-hard-coded "200g.p" line while the item price is 100 from vendor.xml).
+(dead-code branches, the oracle's end-after-purchase return). Prices,
+amounts and caps follow LairWare (``UltimaMisc.c`` Shop), the rules
+authority.
 """
 from __future__ import annotations
 
@@ -579,12 +580,15 @@ class HorseVendorDialog(BaseVendorDialog):
             self.display("Welcome friend!")
             self.ask("Can I interest thee in horses?")
         elif self.state == ConvState.WAIT_BUY_ONE:
-            # Java HorseService.java:30-32: "200g.p" is hard-coded by Java.
-            self.display("For only 200g.p thou can have the best.")
+            # LairWare messages 225-227: "4-Horses cost, 800gp."
+            item = self.vendor.get_item("y")
+            n = self._party_size()
+            price = self._price(item) if item is not None else 0
+            self.display(f"{n}-Horses cost {price}g.p. Thou can have the best.")
             self.ask("Wilt thou buy?")
         elif self.state == ConvState.BUY_ITEM:
             # Java HorseService.java:33-44
-            self._player().adjust_gold(-self.current_selected_item.price)
+            self._player().adjust_gold(-self._price(self.current_selected_item))
             self.display("Here, a better breed thou shalt not find ever!")
             if self.screen is not None:
                 x, y = self.screen.get_current_map_coords()
@@ -618,12 +622,21 @@ class HorseVendorDialog(BaseVendorDialog):
             else:
                 self.state = ConvState.FAREWELL
 
+    def _party_size(self) -> int:
+        party = getattr(self.member, "party", None)
+        return len(party.members) if party is not None else 1
+
+    def _price(self, item: VendorItemDef) -> int:
+        """LairWare UltimaMisc.c:2112: ``opnum = Party[2] * 200;`` -- a horse
+        for each member (vendor.xml prices one horse)."""
+        return item.price * self._party_size()
+
     # --- Java HorseService.java:87-103 --------------------------------------
     def _check_can_pay(self, item: VendorItemDef | None) -> bool:
         if item is None:
             self.display("I cannot help thee with that.")
             return False
-        if item.price > self._player().gold:
+        if self._price(item) > self._player().gold:
             self.display("It seems thou hast not gold enough to pay!")
             return False
         return True

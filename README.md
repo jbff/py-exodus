@@ -23,7 +23,7 @@ A Python 3 / Pygame-CE reimplementation of *Ultima III: Exodus*, with **Auto-Com
   - **The oracle** takes one key, an offering of 0-9 hundred gold, each with its line of the rhyme (a typed "15" no longer costs 1,500 gold for nothing).
   - **Healers**: curing 100, healing 200, resurrection 500, recalling 900 gold. A healing restores full HP to anyone, the dead and ashes too; resurrection and recalling only bring the member back, with the HP they had (0, unless healed first).
   - **The guild** sells torches (5 for 30 gold), keys (50), powders (90) and gems (75), never past 99 of a kind (95 torches can't take another five: "Not enough room!").
-  - **Horses** are sold in Devil Guard (and Dawn), not Grey.
+  - **Horses** are sold in Devil Guard (and Dawn), not Grey, at 200 gold for each member (800 for four).
   - **Join Gold** tops the receiver up to 9999 and leaves the rest with the givers (it used to destroy anything past 9999).
   - **Chest traps** are dodged by DEX, with a big bonus for Thieves; nobody is trap-proof.
   - **Chest contents**: 30-100 gold, and one chest in four may also hold a weapon (Dagger to 2-Handed Sword, about one chest in fourteen) or armour (Cloth to Chain, about one in twenty-five); stacks cap at 99. An acid trap burns the opener for 0-55 HP, Mark of Fire or not, and only a living member can open a chest.

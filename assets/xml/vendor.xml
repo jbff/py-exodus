@@ -471,16 +471,17 @@
     </vendorClass>
 
     <vendorClass type="HORSE" music="SHOPPING">
+        <!-- LairWare Shop case 7 (UltimaMisc.c:2112): 200 gold per party member. -->
         <vendor id="DAWN" name="the Equine Emporium" type="HORSE" owner="Burrich" startX="40" startY="21">
-            <item type="HORSE" name="horse" choice="y" price="100" />
+            <item type="HORSE" name="horse" choice="y" price="200" />
         </vendor>
         <vendor id="DAWN" name="the Equine Emporium" type="HORSE" owner="Brawn" startX="42" startY="21">
-            <item type="HORSE" name="horse" choice="y" price="100" />
+            <item type="HORSE" name="horse" choice="y" price="200" />
         </vendor>
         <!-- LairWare: the stable at (11, 13) is Devil Guard's (stand row 15, 15 & 7 == 7);
              Grey has no merchant there. -->
         <vendor id="DEVIL" name="the Stables" type="HORSE" owner="Fitz" startX="11" startY="13">
-            <item type="HORSE" name="horse" choice="y" price="100" />
+            <item type="HORSE" name="horse" choice="y" price="200" />
         </vendor>
     </vendorClass>
 

@@ -389,7 +389,8 @@ def test_oracle_insufficient_offering():
 
 
 def test_horse_purchase_spawns_and_boards_creature():
-    """HorseService.java:33-44 — 100gp (per vendor.xml), gold debited, an
+    """HorseService.java:33-44 — 100gp a horse here (one member; LairWare
+    charges per member, UltimaMisc.c:2112), gold debited, an
     actual horse creature is spawned at the party's position and boarded
     via board(); the transport flag is set through boarding, not directly."""
     vendor = make_horse_vendor(price=100)
@@ -400,7 +401,7 @@ def test_horse_purchase_spawns_and_boards_creature():
     town._start_vendor_shopping(vendor, buyer=member)
     assert "Can I interest thee in horses?" in logtext(town)
     town.text_log.submit_input("y")
-    assert "For only 200g.p thou can have the best. Wilt thou buy?" in logtext(town)
+    assert "1-Horses cost 100g.p. Thou can have the best. Wilt thou buy?" in logtext(town)
     town.text_log.submit_input("y")
 
     assert member.gold == 200
