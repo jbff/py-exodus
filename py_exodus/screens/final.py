@@ -168,9 +168,10 @@ class FinalScreen(BaseScreen):
     ``insert_card`` is the shared entry point for the INSERT flow (overworld
     and town OtherCommand) — Java keeps insertion on the EXODUS map
     (``SecondaryInputProcessor.java:664-701``) and shows this screen only once
-    all four cards are registered. Each of the four panels is independent:
-    a card at its own panel sets the ``exodusCardsStatus`` bit, a card at a
-    wrong panel costs the inserting member ``health + 1`` (lethal).
+    all four cards are registered. A card at its own panel, in LairWare's
+    order Love, Sol, Moons, Death (UltimaMisc.c:2333-2343), sets the
+    ``exodusCardsStatus`` bit; anything else costs the inserting member
+    ``health + 1`` (lethal).
     """
 
     def __init__(
@@ -281,7 +282,11 @@ class FinalScreen(BaseScreen):
 
         panel_x, mask = CARD_PANELS[name]
         x, y = pos if pos is not None else (self.party.x, self.party.y)
-        if x == panel_x and y == PANEL_Y:
+        # LairWare (UltimaMisc.c:2333-2343): the card must match its panel
+        # AND be the next of Love, Sol, Moons, Death (lastCard); anything
+        # else, a repeated card included, kills the member.
+        in_order = self.card_status == mask - 1
+        if x == panel_x and y == PANEL_Y and in_order:
             # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): card survives a wrong-panel insert (GBC menucmd3.c:959; LW UltimaMisc.c:2305-2350 card never consumed on wrong panel)
             char.cards[card_idx] -= 1
             self.party.exodus_cards_status = self.card_status | mask
@@ -294,7 +299,7 @@ class FinalScreen(BaseScreen):
 
         if self.audio is not None:
             self.audio.play_sfx("AncientSpirits")
-        self._log(f"The wrong panel screams! Spirits strike {member.name}!")
+        self._log(f"The machine screams! Spirits strike {member.name}!")
         member.apply_damage(char.hp + 1, False)
         return False
 

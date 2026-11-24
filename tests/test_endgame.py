@@ -98,26 +98,28 @@ def test_insert_love_consumes_cards3_and_sets_bit1():
 
 
 def test_insert_sol_moons_death_bits():
-    """Sol->0x2 at x31, Moons->0x4 at x32, Death->0x8 at x33 (SPP.java:665-667)."""
+    """Sol->0x2 at x31, Moons->0x4 at x32, Death->0x8 at x33 (SPP.java:665-667),
+    after Love (LW order, UltimaMisc.c:2333-2343)."""
     party = card_party()
     scr = FinalScreen(party=party)
+    assert scr.insert_card("love", member_idx=0, pos=(30, 12)) is True
     assert scr.insert_card("sol", member_idx=0, pos=(31, 12)) is True
     assert scr.insert_card("moons", member_idx=0, pos=(32, 12)) is True
     assert scr.insert_card("death", member_idx=0, pos=(33, 12)) is True
-    assert party.exodus_cards_status == 0x2 | 0x4 | 0x8
+    assert party.exodus_cards_status == 0xF
     assert party.members[0].cards[1] == 0
     assert party.members[0].cards[2] == 0
     assert party.members[0].cards[0] == 0
 
 
-def test_insert_wildcard_no_forced_order():
-    """Each panel is independent: any card order reaches victory (no Love->Sol->...)."""
-    party = card_party()
+def test_insert_order_is_forced():
+    """LW lastCard (UltimaMisc.c:2333-2343): Love, Sol, Moons, Death only;
+    a card out of order kills the inserter even at its own panel."""
+    party = card_party(members=2)
     scr = FinalScreen(party=party)
-    for card, px in (("death", 33), ("moons", 32), ("love", 30), ("sol", 31)):
-        assert scr.insert_card(card, member_idx=0, pos=(px, 12)) is True
-    assert all_cards_inserted(party.exodus_cards_status) is True
-    assert scr.victory is True
+    assert scr.insert_card("death", member_idx=0, pos=(33, 12)) is False
+    assert party.exodus_cards_status == 0
+    assert party.members[0].is_dead()
 
 
 # --- Wrong panel: health + 1 damage (lethal), no bit (SPP.java:687-690) ---
@@ -321,6 +323,7 @@ def test_overworld_lethal_insert_routes_game_over(pygame_setup, asset_mgr):
 def test_town_insert_flow(pygame_setup, asset_mgr):
     """TownScreen on the EXODUS map: INSERT at a panel inserts the card."""
     party = card_party()
+    party.exodus_cards_status = 0x3  # Love and Sol in: Moons is next (LW lastCard)
     town = TownScreen(party=party, map_id=2, start_x=32, start_y=12, asset_mgr=asset_mgr)
 
     town.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_o))
@@ -328,7 +331,7 @@ def test_town_insert_flow(pygame_setup, asset_mgr):
     single_char(town.text_log, "1")
     single_char(town.text_log, "M")
 
-    assert party.exodus_cards_status == 0x4
+    assert party.exodus_cards_status == 0x7
     assert party.members[0].cards[2] == 0
     assert town.game_map.get_tile(32, 11).name == "floor"
 

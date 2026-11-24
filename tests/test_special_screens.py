@@ -65,7 +65,7 @@ def test_final_screen_card_insertion_sequence():
     scr = FinalScreen(party=p, return_screen=None)
     assert not scr.victory
 
-    # Each panel is independent: Love at x30, Sol x31, Moons x32, Death x33
+    # Love at x30, Sol x31, Moons x32, Death x33, in that order (LW lastCard)
     for card, px in (("love", 30), ("sol", 31), ("moons", 32), ("death", 33)):
         p.x = px
         p.y = 12
@@ -109,8 +109,8 @@ def test_final_screen_epilogue_and_effects():
     p.add_member(c)
 
     scr = FinalScreen(party=p, return_screen=None)
-    # Insert each card onto its own panel (order-free)
-    for card, px in (("love", 30), ("moons", 32), ("death", 33), ("sol", 31)):
+    # Insert each card onto its own panel, in LW order (UltimaMisc.c:2333)
+    for card, px in (("love", 30), ("sol", 31), ("moons", 32), ("death", 33)):
         assert scr.insert_card(card, member_idx=0, pos=(px, 12)) is True
 
     assert scr.victory is True

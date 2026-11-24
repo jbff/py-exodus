@@ -597,3 +597,41 @@ def test_yell_takes_the_other_words(town):
     _type(scr, "BRIBE\n")
     assert scr.text_log.is_waiting_for_input
     assert "BRIBE" in scr.text_log.current_prompt
+
+
+# --- INSERT ---------------------------------------------------------------------
+
+
+def _card_party():
+    p = Party()
+    c = Character("Hero", "M", Race.HUMAN, Profession.FIGHTER)
+    c.cards = [1, 1, 1, 1]
+    p.add_member(c)
+    p.add_member(Character("Spare", "M", Race.HUMAN, Profession.FIGHTER))
+    return p, c
+
+
+def test_insert_cards_in_order_love_sol_moons_death():
+    """UltimaMisc.c:2333-2343: ``if (xs != object || object != lastCard)``
+    the member dies (HP 0, dead); ``lastCard++`` -- so Love, Sol, Moons,
+    Death in that order (lastCard starts at 0x1E, Love, UltimaMain.c:1019).
+    The port took the cards in any order."""
+    from py_exodus.screens.final import FinalScreen
+
+    p, c = _card_party()
+    scr = FinalScreen(party=p)
+    assert scr.insert_card("sol", member_idx=0, pos=(31, 12)) is False
+    assert p.exodus_cards_status == 0
+    assert c.status == Status.DEAD
+
+
+def test_insert_same_card_twice_kills():
+    """UltimaMisc.c:2333: a second Love finds lastCard at Sol -> death."""
+    from py_exodus.screens.final import FinalScreen
+
+    p, c = _card_party()
+    c.cards[3] = 2
+    scr = FinalScreen(party=p)
+    assert scr.insert_card("love", member_idx=0, pos=(30, 12)) is True
+    assert scr.insert_card("love", member_idx=0, pos=(30, 12)) is False
+    assert c.status == Status.DEAD
