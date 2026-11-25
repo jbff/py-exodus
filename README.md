@@ -173,7 +173,7 @@ Each seed prints `WON@<steps>`, `WIPED@<steps>` or `STEP_CAP@<steps>`. A trace r
 uv run python -m pytest
 ```
 
-**2,031 tests** covering mechanics, LairWare/Java/GBC parity, vendors, dungeons, combat, rendering and autoplay regressions (most autoplay fixes come with a test that fails on the old code).
+**2,036 tests** covering mechanics, LairWare/Java/GBC parity, vendors, dungeons, combat, rendering and autoplay regressions (most autoplay fixes come with a test that fails on the old code).
 
 ---
 
@@ -185,6 +185,7 @@ uv run python -m pytest
 4. **Quality of life**: no quick-start party; `Q` saves only on the Sosaria overworld (the automatic saves above follow LairWare); `APPAR UNEM` opens the chest underfoot without a direction prompt; saves and rosters are JSON only; a shopkeeper's question is asked once, as the input prompt, with the answer on the same line (Java printed it and then prompted it again).
 5. **LairWare oddities not ported**: a dungeon trap is avoided by a good DEX roll (LairWare's code springs it on a good roll and spares the party on a bad one); a force field lets the party through only when every living member has the Mark of Force (LairWare lets everyone through once a marked member comes before the one it strikes); cancelling Fal Divi's cleric prompt, or picking a cleric spell that can't be cast here, charges nothing more (LairWare could charge for a cancelled choice).
 6. **Wind display**: reads `Wind NORTH` etc. in words, without arrow glyphs (`Wind NORTH` blows from the north, as LairWare's NORTH WIND does).
+7. **The dead take no mark** (ledger D-26): at the red-hot rod, picking a dead member does nothing, like a key outside 1-4. LairWare's brand case (UltimaDngn.c:300-318) has no alive check, so it marks and burns the dead too.
 
 ## Known Open Items
 

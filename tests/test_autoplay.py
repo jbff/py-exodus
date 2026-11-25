@@ -1035,7 +1035,7 @@ def test_dungeon_never_peers_gems_and_touches_mark(pygame_setup):
     party.members[0].gems = 2
     dmap = load_map(15, am)
     sm = StateMachine(asset_mgr=am, audio=None)
-    ds = DungeonScreen(party=party, dungeon_map=dmap, asset_mgr=am)
+    ds = DungeonScreen(party=party, dungeon_map=dmap, asset_mgr=am, map_id=15)
     ds.state.random_encounters_enabled = False
     ds.state.rng.seed(42)  # the dungeon's own RNG, which random.seed misses
     sm.set_screen(ds)
@@ -1072,7 +1072,7 @@ def test_dungeon_buys_torches_and_lights_darkness(pygame_setup):
 
     dmap = load_map(15, am)
     sm = StateMachine(asset_mgr=am, audio=None)
-    ds = DungeonScreen(party=party, dungeon_map=dmap, asset_mgr=am)
+    ds = DungeonScreen(party=party, dungeon_map=dmap, asset_mgr=am, map_id=15)
     ds.state.random_encounters_enabled = False
     sm.set_screen(ds)
 
