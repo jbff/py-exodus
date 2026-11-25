@@ -78,9 +78,12 @@ def test_negate_blocks_casting_without_spending_mana(asset_mgr, conflict_map):
     assert caster.mp == mp  # Java: adjustMagic runs after the NEGATE check
 
 
-def test_negated_free_spell_flag_is_consumed_java_order(asset_mgr, conflict_map):
-    """Java sets usedFreeSpellInCombat BEFORE the NEGATE check — a negated
-    PONTORI burns the free spell but spends no mana (SpellUtil.java:62-76)."""
+def test_negated_free_spell_keeps_the_battle_latch(asset_mgr, conflict_map, monkeypatch):
+    """A negated PONTORI never reaches the spell, so it spends no mana and
+    leaves the battle latch clear (LairWare sets g56E7 inside the spell,
+    UltimaSpellCombat.c:262; the Java per-caster flag is gone, A-02)."""
+    import py_exodus.combat.magic as magic
+
     party, caster = _negated_cast_setup(asset_mgr, conflict_map)
     arena = CombatArena(party=party, combat_map=conflict_map, creature_tile="skeleton",
                         asset_mgr=asset_mgr, monster_count=1)
@@ -91,42 +94,43 @@ def test_negated_free_spell_flag_is_consumed_java_order(asset_mgr, conflict_map)
     assert not res.success
     assert res.message == "Spell is negated!"
     assert caster.mp == mp
-    assert caster.used_free_spell_in_combat is True
+    assert arena.pontori_latch is False
 
-    # Aura expiry restores casting, but the free spell is gone
-    party.aura.set_duration(0)
+    # Aura expiry restores casting: the battle's one try is still there
+    party.aura.set(AuraType.NONE, 0)
+    monkeypatch.setattr(magic.random, "randrange", lambda n: 255)
     res2 = cast_spell(Spell.PONTORI, caster=caster, party=party, arena=arena)
-    assert not res2.success
-    assert res2.message == "Can't!"
-    assert caster.mp == mp
+    assert res2.success
+    assert arena.pontori_latch is True
 
 
-def test_spell_not_negated_with_plain_aura(asset_mgr, conflict_map):
+def test_spell_not_negated_with_plain_aura(asset_mgr, conflict_map, monkeypatch):
+    import py_exodus.combat.magic as magic
+
     party, caster = _negated_cast_setup(asset_mgr, conflict_map)
     arena = CombatArena(party=party, combat_map=conflict_map, creature_tile="skeleton",
                         asset_mgr=asset_mgr, monster_count=1)
-    # Force the latch: this test pins the aura check, not the masskill gate
-    arena.masskill = True
+    # Pass the 50% roll: this test pins the aura check, not the roll
+    monkeypatch.setattr(magic.random, "randrange", lambda n: 255)
     party.aura.set(AuraType.QUICKNESS, 3)
     res = cast_spell(Spell.PONTORI, caster=caster, party=party, arena=arena)
     assert res.success
 
 
-def test_free_spell_check_order(asset_mgr, conflict_map):
-    """Java's cast order for the free spells (REPOND/PONTORI, both cost 0):
-    mana first, then the free flag, then NEGATE — so the flag-burning-before-NEGATE
-    ordering of test_negated_free_spell_flag_is_consumed_java_order is the
-    observable slice of that ordering."""
+def test_free_spell_check_order(asset_mgr, conflict_map, monkeypatch):
+    """The free spells (REPOND/PONTORI) cost 0: the mana check passes even
+    at 0 MP, and the cast sets the battle latch (LW g5521, A-02)."""
+    import py_exodus.combat.magic as magic
+
     party = Party()
     caster = Character("Wiz", "M", Race.FUZZY, Profession.WIZARD, intelligence=75, mp=0)
     party.add_member(caster)
     arena = CombatArena(party=party, combat_map=conflict_map, creature_tile="orc",
                         asset_mgr=asset_mgr, monster_count=1)
-    # Force the latch: this test pins cast ordering, not the masskill gate
-    arena.masskill = True
+    monkeypatch.setattr(magic.random, "randrange", lambda n: 255)
     res = cast_spell(Spell.REPOND, caster=caster, party=party, arena=arena)
     assert res.success  # cost 0 — the mana check passes even at 0 MP
-    assert caster.used_free_spell_in_combat is True
+    assert arena.repond_latch is True
 
 
 # --- QUICKNESS skips monster turns (Java CombatScreen.finishTurn:481-496) ---

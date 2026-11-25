@@ -482,14 +482,18 @@ def test_player_projectile_passes_through_party_members(asset_mgr, conflict_map)
     assert monster.hp < 100
 
 
-def test_casting_with_zero_mp_for_zero_cost_spells(asset_mgr, conflict_map):
+def test_casting_with_zero_mp_for_zero_cost_spells(asset_mgr, conflict_map, monkeypatch):
     """Verify spells costing 0 MP (Spell A: Repond / Pontori) can be cast even with 0 MP."""
+    from py_exodus.combat import magic as magic_mod
+
     party = Party()
     wiz = Character("Mage", "M", Race.FUZZY, Profession.WIZARD, intelligence=50, mp=0)
     party.add_member(wiz)
 
     arena = CombatArena(party, conflict_map, creature_tile="orc", asset_mgr=asset_mgr, monster_count=3)
-    arena.masskill = True  # force the latch: this test pins MP gating only
+    # Pass LW's 50% cast roll: this test pins MP gating only
+    # 128 passes the roll; 128 & 3 == 0 then spares every orc (the fight goes on)
+    monkeypatch.setattr(magic_mod.random, "randrange", lambda n: 128)
     from py_exodus.constants import Spell
     # Wizard Spell A (REPOND) costs 0 MP and should succeed even with 0 MP
     res = arena.execute_player_action(0, Action.cast(Spell.REPOND))
@@ -728,10 +732,10 @@ def test_failed_spell_cast_leaves_caster_active(asset_mgr, conflict_map):
     assert not arena.is_party_round_done
     arena.party.members[0].mp = 50
 
-    # "Can't!" used-free-spell gate (SpellUtil.java:65-67) on the next caster
-    # — pre-execution refusal: executed=False
+    # "Can't!" spent-latch gate (LW g56E7, A-02; refused at the attempt,
+    # P-14) — pre-execution refusal: executed=False
     arena.active_party_member_idx = 1
-    arena.party.members[1].used_free_spell_in_combat = True
+    arena.pontori_latch = True
     res = arena.execute_turn(Action.cast(Spell.PONTORI))
     assert not res.success
     assert res.message == "Can't!"
@@ -739,7 +743,7 @@ def test_failed_spell_cast_leaves_caster_active(asset_mgr, conflict_map):
     assert res.consume_turn is False
     assert arena.active_party_member_idx == 1
     assert not arena.is_party_round_done
-    arena.party.members[1].used_free_spell_in_combat = False
+    arena.pontori_latch = False
 
     # NEGATE gate (SpellUtil.java:73-76): mana stays unspent AND turn unspent
     # — pre-execution refusal: executed=False
@@ -754,18 +758,17 @@ def test_failed_spell_cast_leaves_caster_active(asset_mgr, conflict_map):
     assert arena.party.members[1].mp == 50
 
 
-def test_masskill_gate_failed_cast_consumes_the_turn(asset_mgr, conflict_map):
-    """Task 4 (GBC truth, battle.c:1052-1060): a PONTORI cast whose
-    per-battle masskill latch mismatches runs FAILED through the EFFECT
-    branch (mana already spent, the roll happened) and RETURNS 1 — the turn
-    is consumed even though success is false. Corrects P6's over-breadth:
-    the old success-based consume rule also granted a retry on this
-    executed-but-failed cast."""
+def test_masskill_gate_failed_cast_consumes_the_turn(asset_mgr, conflict_map, monkeypatch):
+    """A PONTORI cast whose 50% roll misses (LW UltimaSpellCombat.c:262-266
+    ``if (RandNum(0, 255) < 128) { Failed(); return; }``) runs FAILED through
+    the EFFECT branch and the turn is consumed even though success is
+    false (no retry on an executed-but-failed cast)."""
+    from py_exodus.combat import magic as magic_mod
     from py_exodus.constants import Spell
 
     random.seed(2026)
     arena = _two_caster_arena(asset_mgr, conflict_map)
-    arena.masskill = False  # pin the latch: PONTORI hits faildat
+    monkeypatch.setattr(magic_mod.random, "randrange", lambda n: 0)  # the roll misses
     arena.active_party_member_idx = 1  # PONTORI is a cleric spell
     before_round = arena.round_count
     assert arena.active_party_member_idx == 1

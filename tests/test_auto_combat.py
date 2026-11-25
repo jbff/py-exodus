@@ -272,13 +272,13 @@ def test_wizard_casts_repond_against_orcs_and_respects_free_flag_and_negate():
     assert action.type == ActionType.CAST
     assert action.spell == Spell.REPOND
 
-    # Already used free spell in combat -> does not cast REPOND
-    arena.party.members[0].used_free_spell_in_combat = True
+    # The battle's Repond latch is set (LW g5521) -> does not cast REPOND
+    arena.repond_latch = True
     action = choose_auto_combat_action(arena, 0)
     assert action.spell != Spell.REPOND
 
-    # Reset free flag, activate NEGATE aura -> does not cast any spell
-    arena.party.members[0].used_free_spell_in_combat = False
+    # Latch clear, activate NEGATE aura -> does not cast any spell
+    arena.repond_latch = False
     arena.party.aura.set(AuraType.NEGATE, 5)
     action = choose_auto_combat_action(arena, 0)
     assert action.type != ActionType.CAST
@@ -293,7 +293,7 @@ def test_cleric_casts_pontori_against_skeletons():
     assert action.type == ActionType.CAST
     assert action.spell == Spell.PONTORI
 
-    arena.party.members[0].used_free_spell_in_combat = True
+    arena.pontori_latch = True
     action = choose_auto_combat_action(arena, 0)
     assert action.spell != Spell.PONTORI
 
@@ -343,7 +343,7 @@ def test_wizard_casts_mittar_when_lined_up_and_skips_with_strong_weapons(asset_m
         monster_count=1,
         asset_mgr=asset_mgr,
     )
-    arena.party.members[0].used_free_spell_in_combat = True
+    arena.repond_latch = True
     arena.monsters[0].x = 5
     arena.monsters[0].y = 1  # Distance 4 (within range 5)
 
@@ -363,7 +363,7 @@ def test_wizard_advances_to_cardinal_alignment_when_can_cast_mittar():
     arena = _caster_arena(
         Profession.WIZARD, mp=10, weapon=WeaponType.DAGGER, creature_tile="orc", monster_count=1
     )
-    arena.party.members[0].used_free_spell_in_combat = True
+    arena.repond_latch = True
     arena.player_positions[0] = (5, 8)
     arena.monsters[0].x = 3
     arena.monsters[0].y = 5
@@ -378,7 +378,7 @@ def test_high_threat_masskill_unspeakable_and_zxkuqyb():
     wiz_arena = _caster_arena(
         Profession.WIZARD, mp=80, creature_tile="orc", monster_count=2
     )
-    wiz_arena.party.members[0].used_free_spell_in_combat = True
+    wiz_arena.repond_latch = True
     wiz_arena.monsters[0].x = 1
     wiz_arena.monsters[0].y = 1
     wiz_arena.monsters[0].exp = 35
@@ -421,7 +421,7 @@ def test_auto_combat_never_throws_last_dagger():
 
     arena = _caster_arena(Profession.WIZARD, mp=0, creature_tile="orc", monster_count=1)
     wiz = arena.party.members[0]
-    wiz.used_free_spell_in_combat = True
+    arena.repond_latch = True
     wiz.weapon = WeaponType.DAGGER
     wiz.weapons = {}
     arena.player_positions[0] = (5, 5)
@@ -569,7 +569,7 @@ def test_lagging_caster_trains_with_area_spells_once_a_fighter_is_25():
     fighter.level = 25
     fighter.hp = fighter.max_hp = 2550
     arena.party.add_member(fighter)
-    arena.party.members[0].used_free_spell_in_combat = True
+    arena.repond_latch = True
     for m, (x, y) in zip(arena.monsters, ((1, 1), (9, 9))):
         m.x, m.y = x, y
         m.exp = 5  # threat 10: far below the 80 bar

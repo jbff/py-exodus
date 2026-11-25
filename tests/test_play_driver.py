@@ -372,7 +372,7 @@ class TestCombatCastFlow:
         session = PlaySession(asset_mgr).start(party=_cleric_party())
         session.enter_combat(creature_tile="orc", context_map_id=2, monster_count=1)
         arena = session.screen.arena
-        arena.masskill = False  # pin the 50% latch
+        # Pontori at orcs: LW's type test fails it (UltimaSpellCombat.c:253).
         before_round = arena.round_count
 
         session.press_seq("C A")
@@ -639,7 +639,7 @@ class TestClericCombatCastLoopRegression:
         assert any("[msg] A - PONTORI (0)" in line for line in session.transcript)
 
     def test_masskill_failed_consumes_turn_no_member_prompt_no_tracer(
-        self, asset_mgr
+        self, asset_mgr, monkeypatch
     ):
         """Play report (3)+(4)+(5): casting the masskill-gated PONTORI with
         the latch OFF prints FAILED and CONSUMES the turn (an executed
@@ -652,7 +652,13 @@ class TestClericCombatCastLoopRegression:
             creature_tile="skeleton", context_map_id=2, monster_count=1
         )
         arena = session.screen.arena
-        arena.masskill = False  # the report's disabled masskill latch
+        # The 50% roll misses (LW UltimaSpellCombat.c:262-266 RandNum < 128).
+        import py_exodus.combat.magic as magic
+
+        real = magic.random.randrange
+        monkeypatch.setattr(
+            magic.random, "randrange", lambda n, *a: 0 if n == 256 else real(n, *a)
+        )
         before_round = arena.round_count
 
         # Mirror Task 5's FX hook: a tracer is a spell fx carrying a path.

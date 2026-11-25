@@ -355,26 +355,25 @@ def cast_spell(
             executed=False,
         )
 
-    # 6. Free combat spell flag: Java sets usedFreeSpellInCombat BEFORE the
-    #    NEGATE check, so a negated PONTORI/REPOND still burns the free spell
-    #    (SpellUtil.java:62-76).
-    # LairWare (UltimaSpellCombat.c:191, 253) tests the monster type
-    # before the latch: a cast against the wrong type fails without spending
-    # it, so it sets no flag here either.
+    # 6. Repond / Pontori battle latch (LairWare UltimaSpellCombat.c:191,
+    #    253-261): the monster type is tested first, so a wrong-type cast
+    #    reaches the effect and fails there, latch untouched. With the right
+    #    type and the battle's latch already set (any caster's earlier try),
+    #    LW fails the cast; the port refuses it at the attempt ("Can't!",
+    #    user ruling 3, ledger P-14). The latch is set in the effect.
     is_free_combat_spell = resolved_spell in (Spell.REPOND, Spell.PONTORI)
-    if arena is not None and is_free_combat_spell and _masskill_targets(resolved_spell, arena):
-        if getattr(caster, "used_free_spell_in_combat", False):
-            # REFUSED (Task 4): "Can't!" used-free-spell gate
-            # (SpellUtil.java:65-67) — pre-execution.
-            return SpellResult(
-                success=False,
-                message="Can't!",
-                spell=resolved_spell,
-                executed=False,
-            )
-        setattr(caster, "used_free_spell_in_combat", True)
-        if hasattr(caster_char, "used_free_spell_in_combat"):
-            setattr(caster_char, "used_free_spell_in_combat", True)
+    if (
+        arena is not None
+        and is_free_combat_spell
+        and _masskill_targets(resolved_spell, arena)
+        and getattr(arena, _latch_name(resolved_spell), False)
+    ):
+        return SpellResult(
+            success=False,
+            message="Can't!",
+            spell=resolved_spell,
+            executed=False,
+        )
 
     # 7. NEGATE aura blocks all casting with mana unspent
     #    (Java SpellUtil.java:73-76 — the deductive adjustMagic comes after).
@@ -560,6 +559,18 @@ def _fal_divi(
     return res
 
 
+def _latch_name(spell: Spell) -> str:
+    """The arena's battle latch for Repond (g5521) or Pontori (g56E7)."""
+    return "repond_latch" if spell == Spell.REPOND else "pontori_latch"
+
+
+def _free_spell_roll_fails(spell: Spell, arena: Any) -> bool:
+    """LairWare UltimaSpellCombat.c:195-199 / 262-266: set the battle latch,
+    then ``if (RandNum(0, 255) < 128) { Failed(); return; }``."""
+    setattr(arena, _latch_name(spell), True)
+    return random.randrange(256) < 128
+
+
 def _masskill_targets(spell: Spell, arena: Any) -> list[Any]:
     """The living monsters REPOND (orcs, LW gMonType 0x30) or PONTORI (undead,
     the skeleton, LW 0x32) can strike in this fight."""
@@ -676,14 +687,9 @@ def _apply_spell_effect(
             # fails (the turn is spent) and leaves the latch alone.
             if not _masskill_targets(spell, arena):
                 return SpellResult(success=False, message="FAILED", spell=spell, executed=True)
-            # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): per-battle 50% masskill flag gates PONTORI/REPOND (GBC funcs5.c:1354-1358; LW latch + cast-time roll is functionally equivalent)
-            if not arena.masskill:
-                # GBC faildat path: the gate fails the cast outright and the
-                # latch stays unconsumed; mana was spent before the effect.
-                # (GBC battle.c:1052; LW UltimaSpellCombat.c:192-268,475-495)
-                # EXECUTED (Task 4): the cast ran its effect branch and GBC's
-                # FAILED path returns 1 — the turn counts as spent even
-                # though success is false.
+            # LairWare UltimaSpellCombat.c:262-266: the latch is set, then
+            # the 50% roll; a miss is Failed() (the turn is spent).
+            if _free_spell_roll_fails(spell, arena):
                 return SpellResult(success=False, message="FAILED", spell=spell, executed=True)
             # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): the Java
             # 50/65/80/100% turn ladder is deleted — the kill is level-
@@ -711,8 +717,6 @@ def _apply_spell_effect(
                         )
                         killed_count += 1
                         kill_lines.append(_kill_line(m))
-            # GBC consumes the latch after a gated-in cast (battle.c:1050,1232)
-            arena.masskill = False
             summary = f"Holy power turns {killed_count} undead creatures!"
             return SpellResult(
                 success=True,
@@ -730,13 +734,11 @@ def _apply_spell_effect(
             # before the g5521 latch is touched.
             if not _masskill_targets(spell, arena):
                 return SpellResult(success=False, message="FAILED", spell=spell, executed=True)
-            # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): per-battle 50% masskill flag gates PONTORI/REPOND (GBC funcs5.c:1354-1358; LW latch + cast-time roll is functionally equivalent)
-            if not arena.masskill:
-                # GBC faildat path (battle.c:1235); mana was already spent.
-                # EXECUTED (Task 4): reached the effect branch — consumes.
+            # LairWare UltimaSpellCombat.c:195-199: latch, then the 50% roll.
+            if _free_spell_roll_fails(spell, arena):
                 return SpellResult(success=False, message="FAILED", spell=spell, executed=True)
-            # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): same masskill
-            # latch, same 75%-per-monster kill roll, level-independent — but
+            # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): the
+            # 75%-per-monster kill roll (LW BigDeath), level-independent, but
             # only the single tile "orc" is eligible (the port's goblinoid set
             # is kept). (GBC battle.c:821-844,1225-1239; LW
             # UltimaSpellCombat.c:192-268,475-495)
@@ -754,8 +756,6 @@ def _apply_spell_effect(
                         )
                         killed_count += 1
                         kill_lines.append(_kill_line(m))
-            # GBC consumes the latch after a gated-in cast (battle.c:1232)
-            arena.masskill = False
             summary = f"Repond destroys {killed_count} goblinoid creatures!"
             return SpellResult(
                 success=True,

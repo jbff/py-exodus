@@ -179,14 +179,95 @@ def test_spell_repond_wrong_type_keeps_the_latch(asset_mgr, monkeypatch):
     same Druid (LW has no per-caster free-spell flag).
     """
     arena = _board(asset_mgr, creature="skeleton", count=2, caster=_caster(Profession.DRUID))
-    arena.masskill = True
     res = _cast(arena, Spell.REPOND)
     assert not res.success and res.executed
-    assert arena.masskill is True
-    _randrange(monkeypatch, [1, 1])
+    assert arena.repond_latch is False
+    _randrange(monkeypatch, [128, 1, 1])  # the 50% roll passes, both die
     res = _cast(arena, Spell.PONTORI)
     assert res.success
     assert all(m.hp == 0 for m in arena.monsters[:2])
+
+
+# --- A-02 (user ruling 2026-11-25): one Repond / Pontori try per battle -------
+
+
+def test_spell_repond_latch_set_before_the_roll(asset_mgr, monkeypatch):
+    """UltimaSpellCombat.c:195-200:
+
+        g5521 = 0xFF;
+        if (RandNum(0, 255) < 128) { Failed(); return; }
+        BigDeath(255, chnum);
+
+    The latch is set by the cast, before its 50% roll: a failed roll
+    spends the battle's one try. No roll at battle start (the GBC masskill
+    flag is gone)."""
+    arena = _board(asset_mgr, creature="orc", count=2)
+    assert arena.repond_latch is False and arena.pontori_latch is False
+    _randrange(monkeypatch, [127, 1, 1])
+    res = _cast(arena, Spell.REPOND)
+    assert not res.success and res.executed and res.message == "FAILED"
+    assert arena.repond_latch is True
+    assert all(m.hp > 0 for m in arena.monsters)
+
+
+def test_spell_repond_roll_128_runs_bigdeath(asset_mgr, monkeypatch):
+    """UltimaSpellCombat.c:196: ``RandNum(0, 255) < 128`` fails, so 128
+    passes and BigDeath(255) strikes (each monster on its 75% roll)."""
+    arena = _board(asset_mgr, creature="orc", count=2)
+    _randrange(monkeypatch, [128, 1, 1])
+    res = _cast(arena, Spell.REPOND)
+    assert res.success
+    assert arena.repond_latch is True
+    assert all(m.is_dead for m in arena.monsters[:2])
+
+
+def test_spell_repond_one_try_per_battle_not_per_caster(asset_mgr, monkeypatch):
+    """UltimaSpellCombat.c:191 ``|| (g5521 != 0)) { Failed(); return; }``:
+    one latch for the battle (cleared only at combat start, :871), so a
+    second caster after a failed try gets nothing, even on a winning roll.
+    The port refuses it at the attempt ("Can't!", P-14's keep)."""
+    arena = _board(asset_mgr, creature="orc", count=2)
+    arena.party.add_member(_caster())
+    second = arena.party.members[1]
+    _randrange(monkeypatch, [0])
+    assert not _cast(arena, Spell.REPOND).success
+    _randrange(monkeypatch, [255, 1, 1])
+    res = cast_spell(Spell.REPOND, second, arena=arena, party=arena.party)
+    assert not res.success
+    assert res.message == "Can't!"
+    assert all(m.hp > 0 for m in arena.monsters)
+
+
+def test_spell_pontori_latch_is_its_own(asset_mgr, monkeypatch):
+    """UltimaSpellCombat.c:257-266: Pontori's g56E7 is separate from
+    Repond's g5521; a spent Pontori try refuses a second Pontori."""
+    arena = _board(asset_mgr, creature="skeleton", count=2, caster=_caster(Profession.CLERIC))
+    arena.repond_latch = True
+    _randrange(monkeypatch, [0])
+    res = _cast(arena, Spell.PONTORI)
+    assert res.message == "FAILED"
+    assert arena.pontori_latch is True
+    res = _cast(arena, Spell.PONTORI)
+    assert res.message == "Can't!"
+
+
+def test_combat_start_clears_both_latches(asset_mgr):
+    """UltimaSpellCombat.c:871 ``g5521 = g56E7 = 0;`` at every combat
+    start, and no per-member flag (the port's used_free_spell_in_combat)."""
+    arena = _board(asset_mgr)
+    assert (arena.repond_latch, arena.pontori_latch) == (False, False)
+    assert not hasattr(arena, "masskill")
+    assert "used_free_spell_in_combat" not in arena.party.members[0].to_dict()
+
+
+def test_old_save_with_free_spell_flag_loads():
+    """An old save carrying the dropped per-member flag still loads."""
+    p = Party()
+    p.add_member(_caster())
+    d = p.to_dict()
+    d["members"][0]["used_free_spell_in_combat"] = True
+    loaded = Party.from_dict(d)
+    assert loaded.members[0].name == "Mage"
 
 
 # --- P-09, P-10: Altair -------------------------------------------------------

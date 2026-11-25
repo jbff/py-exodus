@@ -1187,7 +1187,7 @@ def test_group_damage_spells_emit_per_kill_lines(asset_mgr, conflict_map, monkey
 
     # 1. NOXUM: 2 monsters killed, 1 survives (LW BigDeath(75): every
     # BigDeath roll hits, 7 & 3 != 0)
-    monkeypatch.setattr(magic.random, "randrange", lambda *a, **k: 7)
+    monkeypatch.setattr(magic.random, "randrange", lambda *a, **k: 255)  # passes the 50% roll and every 75% kill roll
     party = Party()
     wiz = Character("Wiz", "M", Race.FUZZY, Profession.WIZARD, intelligence=50, mp=99)
     party.add_member(wiz)
@@ -1223,11 +1223,10 @@ def test_group_damage_spells_emit_per_kill_lines(asset_mgr, conflict_map, monkey
     assert "Orc1 Killed! Exp. 11" in res_zx.message.split("\n")
     assert "destroys 2" in res_zx.message
 
-    # 3. REPOND: masskill latched, kills orcs
+    # 3. REPOND: the 50% roll passes, kills orcs
     arena_r = CombatArena(
         party, conflict_map, creature_tile="orc", asset_mgr=asset_mgr, monster_count=2
     )
-    arena_r.masskill = True
     for idx, m in enumerate(arena_r.monsters):
         m.name = f"Goblin{idx}"
         m.exp = 5 + idx
@@ -1237,11 +1236,10 @@ def test_group_damage_spells_emit_per_kill_lines(asset_mgr, conflict_map, monkey
     assert "Goblin1 Killed! Exp. 6" in res_repond.message.split("\n")
     assert "Repond destroys 2 goblinoid creatures!" in res_repond.message.split("\n")
 
-    # 4. PONTORI: masskill latched, kills undead
+    # 4. PONTORI: the 50% roll passes, kills undead
     arena_p = CombatArena(
         party_z, conflict_map, creature_tile="skeleton", asset_mgr=asset_mgr, monster_count=2
     )
-    arena_p.masskill = True
     for idx, m in enumerate(arena_p.monsters):
         m.name = f"Skeleton{idx}"
         m.exp = 12 + idx
@@ -1275,11 +1273,10 @@ def test_combat_screen_splits_multiline_spell_kill_lines(asset_mgr, conflict_map
         asset_mgr=asset_mgr,
         monster_count=2,
     )
-    combat.arena.masskill = True
     for idx, m in enumerate(combat.arena.monsters):
         m.name = f"Orc{idx}"
         m.exp = 7 + idx
-    monkeypatch.setattr(magic.random, "randrange", lambda *a, **k: 7)
+    monkeypatch.setattr(magic.random, "randrange", lambda *a, **k: 255)  # passes the 50% roll and every 75% kill roll
     combat._execute_action(Action.cast(Spell.REPOND))
     combat.flush_animations()
     assert "Orc0 Killed! Exp. 7" in combat.text_log.history

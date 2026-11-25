@@ -243,15 +243,17 @@ def test_appar_unem_dungeon_opens_nothing_at_a_neighbouring_chest(cleric_party):
     assert dmap.get_tile(2, 1, 0) == DungeonTile.CHEST
 
 
-# --- Free combat spell limits (unchanged rule, re-verified) ---
+# --- Free combat spell limits (LairWare latch, A-02) ---
 
 def test_free_combat_spell_limits(asset_mgr, cleric_party, monkeypatch):
-    """PONTORI and REPOND are limited to 1 free cast per caster per combat engagement."""
+    """PONTORI and REPOND get one try per battle, whoever casts it: the
+    g56E7 latch (UltimaSpellCombat.c:257-262), cleared at each combat start
+    (:871). A second caster, or the same one, is refused ("Can't!")."""
     import random as _random
 
-    # Every BigDeath roll misses (0 & 3 == 0): the skeletons live on, so each
-    # later cast still meets its own type (LW tests the type first, 252-253).
-    monkeypatch.setattr(_random, "randrange", lambda *a, **k: 0)
+    # 128 passes the 50% roll; 128 & 3 == 0 then spares every skeleton, so
+    # each later cast still meets its own type (LW tests the type first).
+    monkeypatch.setattr(_random, "randrange", lambda *a, **k: 128)
     loader = MapLoader(asset_mgr)
     cmap = loader.load_conflict_map(41)
 
@@ -262,39 +264,17 @@ def test_free_combat_spell_limits(asset_mgr, cleric_party, monkeypatch):
         asset_mgr=asset_mgr,
         monster_count=2,
     )
-    # Force the latch: this test pins the free-spell accounting, not the
-    # masskill gate; the successful res1 cast consumes the latch, so re-arm
-    # for caster2 (GBC battle.c:1050 — masskill=0 after a gated-in cast).
-    arena.masskill = True
 
     caster1 = cleric_party.members[0]
     caster2 = cleric_party.members[1]
 
-    res1 = cast_spell(
-        spell=Spell.PONTORI,
-        caster=caster1,
-        arena=arena,
-        party=cleric_party,
-    )
+    res1 = cast_spell(spell=Spell.PONTORI, caster=caster1, arena=arena, party=cleric_party)
     assert res1.success
 
-    res2 = cast_spell(
-        spell=Spell.PONTORI,
-        caster=caster1,
-        arena=arena,
-        party=cleric_party,
-    )
-    assert not res2.success
-    assert "Can't!" in res2.message
-
-    arena.masskill = True  # re-arm: res1's successful cast consumed the latch
-    res3 = cast_spell(
-        spell=Spell.PONTORI,
-        caster=caster2,
-        arena=arena,
-        party=cleric_party,
-    )
-    assert res3.success
+    for caster in (caster1, caster2):
+        res = cast_spell(spell=Spell.PONTORI, caster=caster, arena=arena, party=cleric_party)
+        assert not res.success
+        assert "Can't!" in res.message
 
     arena2 = CombatArena(
         party=cleric_party,
@@ -303,13 +283,7 @@ def test_free_combat_spell_limits(asset_mgr, cleric_party, monkeypatch):
         asset_mgr=asset_mgr,
         monster_count=1,
     )
-    arena2.masskill = True  # force the latch again for res4
-    res4 = cast_spell(
-        spell=Spell.PONTORI,
-        caster=caster1,
-        arena=arena2,
-        party=cleric_party,
-    )
+    res4 = cast_spell(spell=Spell.PONTORI, caster=caster1, arena=arena2, party=cleric_party)
     assert res4.success
 
 

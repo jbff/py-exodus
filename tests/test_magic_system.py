@@ -253,88 +253,78 @@ def test_wizard_stop_time_in_combat(asset_mgr, conflict_map):
     assert [(m.x, m.y) for m in arena.monsters] == initial_positions
 
 
-# --- USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): mass-kill first-strike
-# flag. PONTORI/REPOND are gated on the per-battle 50% masskill flag
-# (GBC funcs5.c:1354-1358; LW latch + cast-time roll is functionally
-# equivalent). The Java 50/65/80/100% turn ladder and its level dependence are
-# deleted: each eligible creature dies on its own 75% roll ((rnd)&0x03 != 0,
-# GBC battle.c smegall) via lethal damage against its CURRENT hp — the rolled
-# per-battle HP can exceed basehp, so basehp damage is no longer the kill.
-# (GBC battle.c:821-844,1043-1053,1225-1239; LW UltimaSpellCombat.c:192-268,
-# 475-495)
+# --- Repond / Pontori (LairWare UltimaSpellCombat.c:190-200, 248-266, 871;
+# A-02, user ruling 2026-11-25): one latch per spell per battle, clear at
+# combat start, set by the cast after the monster-type test and before its
+# 50% roll (RandNum(0, 255) < 128 fails). Past the roll, BigDeath(255):
+# each eligible creature dies on its own 75% roll ((rnd)&0x03 != 0) via
+# lethal damage against its CURRENT hp; level plays no part.
 
 
-def _spawn_arena(asset_mgr, conflict_map, creature_tile, monster_count, masskill):
+def _spawn_arena(asset_mgr, conflict_map, creature_tile, monster_count):
     party = Party()
     arena = CombatArena(
         party, conflict_map, creature_tile=creature_tile, asset_mgr=asset_mgr,
         monster_count=monster_count,
     )
-    arena.masskill = masskill
     return party, arena
 
 
-def test_masskill_flag_rolls_50pct_at_battle_init(asset_mgr, conflict_map, monkeypatch):
-    """The flag is a per-battle latch rolled once at arena construction."""
+def test_free_spell_latches_clear_at_battle_init(asset_mgr, conflict_map, monkeypatch):
+    """No roll at battle start (UltimaSpellCombat.c:871 ``g5521 = g56E7 = 0``)."""
     import py_exodus.combat.arena as arena_mod
 
     party = Party()
     cleric = Character("Cleric", "F", Race.BOBBIT, Profession.CLERIC, wisdom=50, mp=50)
     party.add_member(cleric)
-
-    seen = []
-    monkeypatch.setattr(arena_mod.random, "randrange", lambda n: (seen.append(n), 0)[1])
-    arena = CombatArena(party, conflict_map, creature_tile="skeleton", asset_mgr=asset_mgr, monster_count=1)
-    assert arena.masskill is True
-    assert 2 in seen  # the latch consumed exactly a randrange(2) draw
-
-    monkeypatch.setattr(arena_mod.random, "randrange", lambda n: 1)
-    arena2 = CombatArena(party, conflict_map, creature_tile="skeleton", asset_mgr=asset_mgr, monster_count=1)
-    assert arena2.masskill is False
+    for value in (0, 1):
+        monkeypatch.setattr(arena_mod.random, "randrange", lambda n, v=value: v)
+        arena = CombatArena(party, conflict_map, creature_tile="skeleton", asset_mgr=asset_mgr, monster_count=1)
+        assert arena.repond_latch is False and arena.pontori_latch is False
 
 
-def test_pontori_kills_nothing_without_masskill_flag(asset_mgr, conflict_map, monkeypatch):
-    """masskill False → PONTORI kills nothing (GBC battle.c:1052 faildat),
-    mana still spent, no EXP."""
+def test_pontori_kills_nothing_on_a_missed_roll(asset_mgr, conflict_map, monkeypatch):
+    """Roll < 128 -> PONTORI fails (UltimaSpellCombat.c:263), executed, no
+    EXP, latch spent."""
     import py_exodus.combat.magic as magic
 
-    party, arena = _spawn_arena(asset_mgr, conflict_map, "skeleton", 2, masskill=False)
+    party, arena = _spawn_arena(asset_mgr, conflict_map, "skeleton", 2)
     cleric = Character("Cleric", "F", Race.BOBBIT, Profession.CLERIC, wisdom=50, mp=50)
     party.add_member(cleric)
 
-    # If the spell still rolled (old ladder / new kill roll), 7 passes the kill
-    monkeypatch.setattr(magic.random, "randrange", lambda n: 7)
+    monkeypatch.setattr(magic.random, "randrange", lambda n: 127)
     res = cast_spell(Spell.PONTORI, caster=cleric, arena=arena)
     assert not res.success
     assert res.message == "FAILED"
-    # Task 4: FAILED reached the effect branch (mana spent) — an EXECUTED
-    # failure, not a pre-execution refusal (GBC battle.c:1052 returns 1).
     assert res.executed is True
     assert all(not m.is_dead for m in arena.monsters)
     assert cleric.exp == 0
+    assert arena.pontori_latch is True
 
 
-def test_repond_kills_nothing_without_masskill_flag(asset_mgr, conflict_map, monkeypatch):
-    """masskill False → REPOND kills nothing (GBC battle.c:1235 faildat)."""
+def test_repond_kills_nothing_on_a_missed_roll(asset_mgr, conflict_map, monkeypatch):
+    """Roll < 128 -> REPOND fails (UltimaSpellCombat.c:196)."""
     import py_exodus.combat.magic as magic
 
-    party, arena = _spawn_arena(asset_mgr, conflict_map, "orc", 2, masskill=False)
+    party, arena = _spawn_arena(asset_mgr, conflict_map, "orc", 2)
     wiz = Character("Wiz", "M", Race.FUZZY, Profession.WIZARD, intelligence=50, mp=50)
     party.add_member(wiz)
 
-    monkeypatch.setattr(magic.random, "randrange", lambda n: 7)
+    monkeypatch.setattr(magic.random, "randrange", lambda n: 127)
     res = cast_spell(Spell.REPOND, caster=wiz, arena=arena)
     assert not res.success
     assert res.message == "FAILED"
-    assert res.executed is True  # Task 4: executed-but-failed (battle.c:1235)
+    assert res.executed is True
     assert all(not m.is_dead for m in arena.monsters)
     assert wiz.exp == 0
+    assert arena.repond_latch is True
 
 
-def test_spell_result_executed_classification(asset_mgr, conflict_map):
+def test_spell_result_executed_classification(asset_mgr, conflict_map, monkeypatch):
     """Task 4: the executed flag on SpellResult — default True (effect
-    branches ran); the cast_spell pre-execution gates return executed=False;
-    the masskill-gate FAILED paths are executed failures."""
+    branches ran); the cast_spell pre-execution gates return executed=False."""
+    import py_exodus.combat.magic as magic
+
     # Direct-API mana refusal (SpellUtil.java:57): pre-execution, executed=False
     poor = Character("Broke", "M", Race.FUZZY, Profession.WIZARD, intelligence=50, mp=0)
     res = cast_spell(Spell.MITTAR, caster=poor, target_dir=Direction.NORTH)
@@ -350,31 +340,29 @@ def test_spell_result_executed_classification(asset_mgr, conflict_map):
     arena2 = CombatArena(
         party, conflict_map, creature_tile="skeleton", asset_mgr=asset_mgr, monster_count=1
     )
-    arena2.masskill = True  # pin the latch: the effect branch runs
+    monkeypatch.setattr(magic.random, "randrange", lambda n: 255)  # the roll passes
     res = cast_spell(Spell.PONTORI, caster=rich, arena=arena2, party=party)
     assert res.success
     assert res.executed is True
 
 
 def test_pontori_against_undead(asset_mgr, conflict_map, monkeypatch):
-    """masskill True: every eligible undead dies on its passing 75% roll via
-    lethal damage against CURRENT hp; only the undead — not orc tiles — are
-    eligible (SpellUtil.spellUndead:409 set kept)."""
+    """Past the roll every eligible undead dies on its passing 75% roll via
+    lethal damage against CURRENT hp; the latch stays set."""
     import py_exodus.combat.magic as magic
 
-    party, arena = _spawn_arena(asset_mgr, conflict_map, "skeleton", 2, masskill=True)
+    party, arena = _spawn_arena(asset_mgr, conflict_map, "skeleton", 2)
     cleric = Character("Cleric", "F", Race.BOBBIT, Profession.CLERIC, wisdom=50, mp=50, level=20)
     party.add_member(cleric)
     # Rolled HP above basehp: the kill must not depend on take_damage(basehp)
     for monster in arena.monsters:
         monster.hp = monster.max_hp = monster.basehp + 9
-    monkeypatch.setattr(magic.random, "randrange", lambda n: 7)
+    monkeypatch.setattr(magic.random, "randrange", lambda n: 255)
     res = cast_spell(Spell.PONTORI, caster=cleric, arena=arena)
     assert res.success
     assert all(m.is_dead for m in arena.monsters)
     assert cleric.exp == sum(m.exp for m in arena.monsters)  # XP via the kill path
-    # GBC consumes the latch after a gated-in cast (battle.c:1050,1232)
-    assert arena.masskill is False
+    assert arena.pontori_latch is True
 
 
 def test_masskill_kill_roll_is_75pct_per_monster(asset_mgr, conflict_map, monkeypatch):
@@ -382,20 +370,20 @@ def test_masskill_kill_roll_is_75pct_per_monster(asset_mgr, conflict_map, monkey
     != 0 kills."""
     import py_exodus.combat.magic as magic
 
-    party, arena = _spawn_arena(asset_mgr, conflict_map, "skeleton", 2, masskill=True)
+    party, arena = _spawn_arena(asset_mgr, conflict_map, "skeleton", 2)
     cleric = Character("Cleric", "F", Race.BOBBIT, Profession.CLERIC, wisdom=50, mp=50)
     party.add_member(cleric)
 
-    monkeypatch.setattr(magic.random, "randrange", lambda n: 0)
+    monkeypatch.setattr(magic.random, "randrange", lambda n: 128)  # passes; 128 & 3 == 0
     res = cast_spell(Spell.PONTORI, caster=cleric, arena=arena)
     assert res.success
     assert all(not m.is_dead for m in arena.monsters)
 
-    # Fresh battle: same flag, but every roll passes (5 & 0x03 != 0)
-    party2, arena2 = _spawn_arena(asset_mgr, conflict_map, "skeleton", 2, masskill=True)
+    # Fresh battle: every roll passes (253 >= 128, 253 & 0x03 != 0)
+    party2, arena2 = _spawn_arena(asset_mgr, conflict_map, "skeleton", 2)
     cleric2 = Character("Cleric2", "F", Race.BOBBIT, Profession.CLERIC, wisdom=50, mp=50)
     party2.add_member(cleric2)
-    monkeypatch.setattr(magic.random, "randrange", lambda n: 5)
+    monkeypatch.setattr(magic.random, "randrange", lambda n: 253)
     res2 = cast_spell(Spell.PONTORI, caster=cleric2, arena=arena2)
     assert res2.success
     assert all(m.is_dead for m in arena2.monsters)
@@ -404,7 +392,8 @@ def test_masskill_kill_roll_is_75pct_per_monster(asset_mgr, conflict_map, monkey
 
 def test_masskill_75pct_level_independent_seeded(asset_mgr, conflict_map):
     """25 seeded trials: each level casts over 2 undead; level 1 and level 20
-    produce identical kill counts and ~75% of the creatures die overall."""
+    produce identical outcomes; overall about half the casts pass the
+    roll, and about 75% of their creatures die."""
     trials = 25
     killed_total = 0
     for i in range(trials):
@@ -419,31 +408,27 @@ def test_masskill_75pct_level_independent_seeded(asset_mgr, conflict_map):
                 party, conflict_map, creature_tile="skeleton", asset_mgr=asset_mgr,
                 monster_count=2,
             )
-            arena.masskill = True
             with seeded_random_state(4000 + i):
-                res = cast_spell(Spell.PONTORI, caster=cleric, arena=arena)
-            assert res.success
+                cast_spell(Spell.PONTORI, caster=cleric, arena=arena)
             counts.append(sum(1 for m in arena.monsters if m.is_dead))
         assert counts[0] == counts[1]  # level has no effect
         killed_total += counts[0]
-    # 25 trials x 2 undead = 50 creatures at 75% each → expect 37.5 dead
-    assert 28 <= killed_total <= 46
+    # 25 trials x 2 undead x 50% x 75% -> expect 18.75 dead
+    assert 8 <= killed_total <= 30
 
 
 def test_repond_against_orcs_free_spell(asset_mgr, conflict_map, monkeypatch):
-    """REPOND (masskill latched) destroys only tile=="orc" creatures and is
-    limited to once per combat (Java SpellUtil.spellRepond:462 —
-    "orc".equals(cr.getTile()))."""
+    """REPOND past its roll destroys only tile=="orc" creatures and is
+    limited to one try per combat (LW g5521 latch)."""
     import py_exodus.combat.magic as magic
 
-    party, arena = _spawn_arena(asset_mgr, conflict_map, "orc", 3, masskill=True)
+    party, arena = _spawn_arena(asset_mgr, conflict_map, "orc", 3)
     wiz = Character("Wiz", "M", Race.FUZZY, Profession.WIZARD, intelligence=50, mp=50)
     party.add_member(wiz)
     for monster in arena.monsters:
         monster.hp = monster.max_hp = monster.basehp + 9
 
-    # Roll & 0x03 != 0 — every eligible creature's kill roll passes
-    monkeypatch.setattr(magic.random, "randrange", lambda n: 7)
+    monkeypatch.setattr(magic.random, "randrange", lambda n: 255)
     res = cast_spell(Spell.REPOND, caster=party.members[0], arena=arena)
     assert res.success
     assert all(m.is_dead for m in arena.monsters)
@@ -459,18 +444,18 @@ def test_repond_spares_non_orc_goblinoids(asset_mgr, conflict_map, monkeypatch):
     import py_exodus.combat.magic as magic
     from py_exodus.entities.defs import CreatureDef
 
-    party, arena = _spawn_arena(asset_mgr, conflict_map, "orc", 2, masskill=True)
+    party, arena = _spawn_arena(asset_mgr, conflict_map, "orc", 2)
     wiz = Character("Wiz", "M", Race.FUZZY, Profession.WIZARD, intelligence=50, mp=50)
     party.add_member(wiz)
     for m in arena.monsters:
         m.tile = "troll"
         m.definition = CreatureDef(id=2, name="Troll", tile="troll", basehp=48, hp=48, exp=5, undead=False)
-    monkeypatch.setattr(magic.random, "randrange", lambda n: 7)
+    monkeypatch.setattr(magic.random, "randrange", lambda n: 255)
     res = cast_spell(Spell.REPOND, caster=party.members[0], arena=arena)
     # LW UltimaSpellCombat.c:191: no orc, the cast fails (turn spent) and
     # the latch is kept.
     assert not res.success and res.executed
-    assert arena.masskill is True
+    assert arena.repond_latch is False
     assert all(not m.is_dead for m in arena.monsters)
 
 
@@ -697,9 +682,12 @@ def test_unknown_spell_handling():
     assert "unknown spell" in res.message.lower()
 
 
-def test_spell_letter_code_resolution_by_discipline(asset_mgr, conflict_map):
+def test_spell_letter_code_resolution_by_discipline(asset_mgr, conflict_map, monkeypatch):
     """Cleric casting 'A' resolves to PONTORI, Wizard to REPOND, Druid by chosen discipline."""
+    import py_exodus.combat.magic as magic
     from py_exodus.combat.magic import get_castable_spell_types, resolve_spell
+
+    monkeypatch.setattr(magic.random, "randrange", lambda n: 255)  # Pontori's 50% roll passes
 
     # Disciplines
     assert get_castable_spell_types(Profession.CLERIC) == ["cleric"]
@@ -722,7 +710,6 @@ def test_spell_letter_code_resolution_by_discipline(asset_mgr, conflict_map):
     party = Party()
     party.add_member(cleric_char)
     arena = CombatArena(party, conflict_map, creature_tile="skeleton", asset_mgr=asset_mgr, monster_count=1)
-    arena.masskill = True  # Force the latch: this test pins spell-letter resolution only
     res = cast_spell("A", caster=party.members[0], arena=arena)
     assert res.success
     assert res.spell == Spell.PONTORI

@@ -173,14 +173,12 @@ def _is_magic_negated(arena: CombatArena) -> bool:
     return aura is not None and aura.get_type() == AuraType.NEGATE
 
 
-def _can_cast_spell(member: Any, spell: Spell, *, check_free: bool = False) -> bool:
-    """Return True if ``member`` can cast ``spell`` with current MP and free-cast state."""
+def _can_cast_spell(member: Any, spell: Spell) -> bool:
+    """Return True if ``member`` can cast ``spell`` with current MP."""
     prof = getattr(member, "profession", None)
     if prof is None or not spell.can_cast(prof):
         return False
     if getattr(member, "mp", 0) < spell.cost:
-        return False
-    if check_free and getattr(member, "used_free_spell_in_combat", False):
         return False
     return True
 
@@ -236,11 +234,14 @@ def _try_pre_attack_spell(
     visible_monsters: list[CombatMonster],
 ) -> Action | None:
     """Evaluate Lairware-style priority spellcasting before melee/ranged attacks."""
-    if _can_cast_spell(member, Spell.REPOND, check_free=True):
+    # LairWare UltimaAutocombat.c:98-113: Repond and Pontori are asked only
+    # while the battle's latch (g5521 / g56E7) is still 0: one try per
+    # battle, whichever member makes it (A-02).
+    if not getattr(arena, "repond_latch", False) and _can_cast_spell(member, Spell.REPOND):
         if any(getattr(m, "tile", None) == "orc" for m in visible_monsters):
             return Action.cast(Spell.REPOND)
 
-    if _can_cast_spell(member, Spell.PONTORI, check_free=True):
+    if not getattr(arena, "pontori_latch", False) and _can_cast_spell(member, Spell.PONTORI):
         if any(_is_undead(m) for m in visible_monsters):
             return Action.cast(Spell.PONTORI)
 

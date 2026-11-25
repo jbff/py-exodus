@@ -43,7 +43,6 @@ class PartyMember:
         party: Party | None = None,
         fled: bool = False,
         combat_map_exit_direction: Direction | None = None,
-        used_free_spell_in_combat: bool = False,
         **kwargs: Any,
     ) -> None:
         if args and (isinstance(args[0], PartyMember) or isinstance(args[0], Character)):
@@ -55,7 +54,6 @@ class PartyMember:
         object.__setattr__(self, "party", party)
         object.__setattr__(self, "fled", fled)
         object.__setattr__(self, "combat_map_exit_direction", combat_map_exit_direction)
-        object.__setattr__(self, "used_free_spell_in_combat", used_free_spell_in_combat)
 
     @property
     def player(self) -> Character:
@@ -71,7 +69,6 @@ class PartyMember:
             "party",
             "fled",
             "combat_map_exit_direction",
-            "used_free_spell_in_combat",
         ):
             object.__setattr__(self, name, value)
         else:
@@ -194,7 +191,6 @@ class PartyMember:
         """Serialize party member state."""
         d = self.character.to_dict()
         d["fled"] = self.fled
-        d["used_free_spell_in_combat"] = self.used_free_spell_in_combat
         return d
 
     def __repr__(self) -> str:
@@ -883,7 +879,8 @@ class Party:
             pm = PartyMember(
                 char,
                 fled=mr.get("fled", False),
-                used_free_spell_in_combat=mr.get("used_free_spell_in_combat", False),
+                # An old save's used_free_spell_in_combat is ignored: the
+                # Repond/Pontori try is a per-battle latch (A-02).
             )
             members.append(pm)
 

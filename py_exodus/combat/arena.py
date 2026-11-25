@@ -235,21 +235,18 @@ class CombatArena:
         # condition is the party's transport at battle start — on a SHIP the
         # monster ranged branch becomes cannonfire (GBC battle3.c:507-536)
         self.ship_battle = getattr(party, "transport", None) == Transport.SHIP
-        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): per-battle 50% masskill flag gates PONTORI/REPOND (GBC funcs5.c:1354-1358; LW latch + cast-time roll is functionally equivalent)
-        self.masskill: bool = random.randrange(2) == 0
+        # LairWare UltimaSpellCombat.c:871 ``g5521 = g56E7 = 0;``: the
+        # Repond and Pontori battle latches start clear; a cast sets its own
+        # before its 50% roll (190-200, 248-266), one try per battle (A-02,
+        # user ruling 2026-11-25; replaces the GBC masskill flag).
+        self.repond_latch: bool = False
+        self.pontori_latch: bool = False
         # The encounter's overworld creature tile (Java GameScreen.endCombat's
         # currentEncounter.currentX/currentY): where the victory chest/frigate
         # lands (GameScreen.java:421-431).
         self.encounter_x = encounter_x
         self.encounter_y = encounter_y
         self.encounter_tile_walkable = encounter_tile_walkable
-
-        # Reset free combat spell per encounter
-        for m in self.party.members:
-            m.used_free_spell_in_combat = False
-            char = getattr(m, "character", m)
-            if hasattr(char, "used_free_spell_in_combat"):
-                char.used_free_spell_in_combat = False
 
         # State tracking
         self.is_finished = False
@@ -379,9 +376,6 @@ class CombatArena:
         for i, member in enumerate(self.party.members):
             member.fled = False
             member.combat_map_exit_direction = None
-            member.used_free_spell_in_combat = False
-            if hasattr(member, "character") and hasattr(member.character, "used_free_spell_in_combat"):
-                member.character.used_free_spell_in_combat = False
             sx, sy = starts[i % len(starts)]
             if not self._on_board(member):
                 continue
