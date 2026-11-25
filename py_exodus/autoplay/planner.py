@@ -59,6 +59,13 @@ def needs_cure(party: Party) -> bool:
 # moves (Party.consume_food, decr_interval 40 vs 400 submorsels); a visit
 # runs ~1500-2500 moves, and finding a pirate and sailing out ~500-800.
 AMBROSIA_ENTRY_FOOD = 200
+# Once every living member holds this much, the Ambrosia trips need no more
+# food: the gates stop counting it and the party sails (review 2026-11-25:
+# meals on the way out raised the food part of the gate over the gold, and
+# the trip fell back to grinding after every purchase). The 50 rations
+# under the entry food are the sail to the whirlpool and the first steps
+# ashore (a ration per member every 8 moves, ledger T-03: 400 moves).
+AMBROSIA_FOOD_FLOOR = 150
 AMBROSIA_SHRINE_BUDGET = 4500
 AMBROSIA_ABORT_FOOD = 80
 # A return trip for stats needs keys too. Doors relock between visits, and
@@ -114,7 +121,10 @@ def entry_food_gold(living) -> int:
     """Gold to top every living member up to AMBROSIA_ENTRY_FOOD. The grocer
     sells in 25s (controller food packs), so each shortfall rounds up to a
     pack, plus a fifth for meals eaten on the way: buying the food never
-    drops the party under a gate that counts it (review 2026-11-25)."""
+    drops the party under a gate that counts it (review 2026-11-25). 0 once
+    everyone holds AMBROSIA_FOOD_FLOOR: the grocer is not visited again."""
+    if all(m.food >= AMBROSIA_FOOD_FLOOR for m in living):
+        return 0  # fed for the trip: meals on the way don't move the gate
     return sum(
         -(-max(0, AMBROSIA_ENTRY_FOOD - m.food) // 25) * 25 for m in living
     ) * 6 // 5
@@ -787,7 +797,7 @@ def _ambrosia_trip_goal(party: Party, living: list) -> Goal | None:
     keys = sum(m.keys for m in living)
     if keys < AMBROSIA_CARD_KEYS:
         return Goal.BUY_KEYS
-    if any(m.food < AMBROSIA_ENTRY_FOOD for m in living):
+    if any(m.food < AMBROSIA_FOOD_FLOOR for m in living):
         return Goal.BUY_FOOD
     return Goal.SAIL_WHIRLPOOL
 
@@ -973,7 +983,7 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
             if party.gold >= 50:
                 return Goal.BUY_KEYS
             return Goal.GRIND_AND_LEVEL
-        if any(m.food < AMBROSIA_ENTRY_FOOD for m in living):
+        if any(m.food < AMBROSIA_FOOD_FLOOR for m in living):
             if party.gold >= 100:
                 return Goal.BUY_FOOD
             return Goal.GRIND_AND_LEVEL  # earn it; never sail in hungry
@@ -995,7 +1005,7 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
     ):
         if sum(m.keys for m in living) < AMBROSIA_RETURN_KEYS:
             return Goal.BUY_KEYS
-        if any(m.food < AMBROSIA_ENTRY_FOOD for m in living):
+        if any(m.food < AMBROSIA_FOOD_FLOOR for m in living):
             return Goal.BUY_FOOD
         return Goal.SAIL_WHIRLPOOL
 

@@ -609,6 +609,33 @@ def test_food_bought_at_the_ambrosia_gate_keeps_the_trip_on(am):
     assert evaluate_goal(party, 4) == Goal.SAIL_WHIRLPOOL
 
 
+def test_meals_after_the_ambrosia_food_stop_keep_the_trip_on(am):
+    """Review 2026-11-25: buy at exactly the gate, then eat on the way out
+    (30 rations each): the food part of the gate used to grow with every
+    meal, past the gold, and the goal fell back to grinding. Fed past
+    AMBROSIA_FOOD_FLOOR, the trip holds."""
+    from py_exodus.autoplay.planner import Goal, ambrosia_trip_gold, evaluate_goal
+    from py_exodus.screens.town import TownScreen
+
+    party = _trip_party()
+    party.map_id = 4
+    for m in party.members:
+        m.food = 120
+    party.gold = ambrosia_trip_gold(party)
+    sm = StateMachine(asset_mgr=am, audio=None)
+    ts = TownScreen(party=party, asset_mgr=am, map_id=4, start_x=31, start_y=17)
+    sm.set_screen(ts)
+    ctrl = AutoPlayController(enabled=True)
+    for _ in range(80):
+        ctrl.step(sm)
+        if all(m.food >= 200 for m in party.members):
+            break
+    for meal in range(30):
+        for m in party.members:
+            m.food -= 1
+        assert evaluate_goal(party, 0) == Goal.SAIL_WHIRLPOOL, meal
+
+
 def test_a_turning_back_poisoned_party_never_goes_down_for_a_cure(am):
     """Review #2: Fires of Hell z 4, every member poisoned and under the bar
     for z 5 (turning back), the Cleric dry, z 4's heal fountains gone: the

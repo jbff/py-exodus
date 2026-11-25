@@ -1197,7 +1197,7 @@ def test_return_trip_food_run_stays_over_the_trip_gold(pygame_setup):
     am.load_all()
     party = batch.build_party()
     for m in party.members:
-        m.level, m.food, m.keys, m.gold = 25, 150, 2, 0
+        m.level, m.food, m.keys, m.gold = 25, 120, 2, 0  # under AMBROSIA_FOOD_FLOOR
         m.marks, m.cards = [1, 1, 1, 1], [1, 1, 1, 1]
         m.weapon, m.armor = WeaponType.EXOTIC, ArmorType.EXOTIC
         for attr, cap in (("strength", "max_str"), ("dexterity", "max_dex"),
