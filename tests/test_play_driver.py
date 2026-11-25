@@ -766,6 +766,9 @@ class TestMonsterHitAffordance:
         # AI: the ranged-only choice (randrange(100) -> 0 <= 33); damage 27,
         # one roll per landed bolt (LairWare; Java's double roll is gone).
         monkeypatch.setattr(random, "randrange", lambda n: 0)
+        # The dragon fires on RandNum(0, 255) < 128 (arena, UltimaSpellCombat.c:
+        # 1119-1124); pin it, or the test passes only half the time.
+        monkeypatch.setattr(random, "randint", lambda a, b: a)
         monkeypatch.setattr(resolver, "lw_monster_hits", lambda *a, **k: True)
         monkeypatch.setattr(resolver, "lw_monster_damage_roll", lambda *a, **k: 27)
         monkeypatch.setattr(resolver, "monster_damage_bonus", lambda cmap: 0)

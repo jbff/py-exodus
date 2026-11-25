@@ -529,7 +529,11 @@ class OverworldScreen(BaseScreen):
                 self._sosaria_creatures = None
                 return
             self.creatures.append(self._lw_start_whirlpool())
-        self._seed_wanderers()
+        # A fresh Sosaria has no wanderers (user ruling Q28): LairWare's new
+        # game copies the all-zero MONS 420 table (ResetSosaria,
+        # UltimaMisc.c:779-786), and monsters arrive only by SpawnMonster's
+        # 7-in-135 a turn. Its 500 SpawnMonster calls (UltimaMain.c:
+        # 2051-2058) follow only CreateNewMap, the "Kreate" random world.
 
     @staticmethod
     def _lw_start_whirlpool() -> dict[str, Any]:
@@ -585,22 +589,6 @@ class OverworldScreen(BaseScreen):
                 "y": npc.y,
             })
         self.game_map.npcs = keep
-
-    def _seed_wanderers(self) -> None:
-        """Populate a freshly prepared outdoor map with wanderers.
-
-        USER-DIRECTED DEVIATION FROM JAVA (2026-11-21, original-game
-        spawning): the LairWare new-game path runs ``SpawnMonster()`` 500
-        times (refs/ultima3/Sources/UltimaMain.c:2055-2058). Each call keeps
-        its 7/135 rate gate, so a fresh map starts with ~26 of the 32 slots
-        filled, scattered over the whole map.
-        """
-        if not self.random_encounters_enabled or self.game_map is None:
-            return
-        if str(self.map_id) != "0":
-            return  # SpawnMonster runs on Sosaria only (UltimaMisc.c:1144)
-        for _ in range(500):
-            self._spawn_wandering_creature()
 
     def on_enter(self) -> None:
         super().on_enter()
@@ -2524,8 +2512,7 @@ class OverworldScreen(BaseScreen):
         # The block owns the whirlpool fixtures at load: drop the free
         # re-seed before restoring, so the saved fixtures replace them
         # (no duplicates).
-        # The saved block also replaces the freshly seeded wanderers
-        # (original-game seeding in _seed_wanderers).
+        # The saved block also replaces anything a fresh map started with.
         self.creatures = []
         # LairWare PutSosaria/LoadUltimaMap keep the whole 32-slot monster
         # table and the one whirlpool (UltimaMisc.c:839-857, 893-917); Java

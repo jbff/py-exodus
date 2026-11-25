@@ -1133,7 +1133,10 @@ def test_journey_onward_does_not_spawn_extra_wanderers_over_saved_monsters(
 def test_journey_onward_empty_saved_monsters_still_spawns_wanderers(
     pygame_setup, asset_mgr, monkeypatch, tmp_path
 ):
-    """Item 47: when world_state has empty monsters (or is absent), normal wandering spawns still run."""
+    """Item 47: when world_state has empty monsters (or is absent), normal
+    wandering spawns still run. The map starts with only its whirlpool (no
+    seeded wanderers, LairWare ResetSosaria, user ruling Q28); the per-turn
+    7-in-135 spawn then brings them in."""
     import random
 
     monkeypatch.chdir(tmp_path)
@@ -1155,9 +1158,14 @@ def test_journey_onward_empty_saved_monsters_still_spawns_wanderers(
     finally:
         random.setstate(state)
 
-    # LairWare's one whirlpool (UltimaMisc.c:913-917) + spawned wanderers
+    # LairWare's one whirlpool (UltimaMisc.c:913-917), nothing else yet
     whirls = [c for c in ow.creatures if c.get("tile_name") == "whirlpool"]
     assert sorted((c["x"], c["y"]) for c in whirls) == [(47, 17)]
+    assert len(ow.creatures) == 1
+    # ...then wanderers arrive turn by turn (SpawnMonster, UltimaMisc.c:1146)
+    random.seed(42)
+    for _ in range(200):
+        ow._spawn_wandering_creature()
     assert len(ow.creatures) > 2
 
 

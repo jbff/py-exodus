@@ -500,11 +500,15 @@ def test_overworld_b_x_e_f_fall_through_ticks(pygame_setup, asset_mgr):
     assert party.moves == moves + 4
     party.transport = Transport.FOOT
 
-    # E with a portal: early return, no turn consumed (GameScreen.java:538-556)
+    # E with a portal: early return, no turn consumed (GameScreen.java:538-556);
+    # a command that leads into a new map is given no turn on the old one.
+    # (Until Q28 the 500 seeded wanderers made this pass by a chance fight
+    # with a same-map portal; a town portal pins it.)
     from py_exodus.entities.defs import PortalDef
-    ow.game_map.portals.append(PortalDef(x=party.x, y=party.y, dest_map_id=0, start_x=party.x, start_y=party.y))
+    ow.game_map.portals.append(PortalDef(x=party.x, y=party.y, dest_map_id=1, start_x=1, start_y=32))
     ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_e))
     assert party.moves == moves + 4
+    assert ow.next_screen is not None
 
     # E with no portal: silent tail turn
     ow.game_map.portals.clear()

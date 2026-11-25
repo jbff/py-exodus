@@ -521,3 +521,29 @@ def test_restore_old_save_block_with_two_java_whirlpools(overworld):
     # A block with no whirlpool gets LairWare's start one.
     ow._restore_world_state({"monsters": block[2:]})
     assert [(c["x"], c["y"]) for c in _whirlpools(ow)] == [(47, 17)]
+
+
+# --- M-18 (user ruling Q28): a new game starts with no monsters ---------------
+
+
+def test_resetsosaria_new_game_starts_with_no_monsters(pygame_setup, asset_mgr):
+    """UltimaMisc.c:779-786 (ResetSosaria) copies the original monster table
+    (MONS 420, all zero) over the current one:
+
+        OrgSos = GetResource('MONS', BASERES + 20);
+        CurSos = GetResource('MONS', BASERES + 19);
+        for (byte = 0; byte < 256; byte++) {
+            *(*CurSos + byte) = *(*OrgSos + byte);
+
+    so a new standard game has no monsters on Sosaria; they arrive by
+    SpawnMonster's 7-in-135 chance a turn. The 500 SpawnMonster calls
+    (UltimaMain.c:2051-2058) run only after CreateNewMap, LairWare's "Kreate"
+    random world, which the port doesn't have. User ruling Q28: follow
+    LairWare. Only the map's one whirlpool is there at the start.
+    """
+    from py_exodus.screens.overworld import OverworldScreen
+
+    for seed in range(5):
+        random.seed(seed)
+        ow = OverworldScreen(party=_party(), map_id=0, asset_mgr=asset_mgr, random_encounters=True)
+        assert [c["tile_name"] for c in ow.creatures] == ["whirlpool"], seed

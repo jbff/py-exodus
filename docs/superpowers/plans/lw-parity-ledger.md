@@ -35,7 +35,7 @@ Class a row `keep` (and cite the number) where one of these covers it; never "fi
 7. Healer: hp < 400 declining help, or declining blood, ends the visit (2026-11-16 item 44).
 8. Towns, castles and Death Gulch fully reset on every entry.
 9. Tavern/guild/oracle Java conversation flow stays unless a rule (price, amount, condition) differs.
-10. Wanderer spawning is faithful to the original U3 (not the Java bug); see `05caeae`, `b8c2648`.
+10. Wanderer spawning is faithful to the original U3 (not the Java bug); see `05caeae`, `b8c2648`. A new game starts with no monsters (LairWare ResetSosaria copies the all-zero MONS 420; user ruling Q28, 2026-11-25), which replaced the 500-call seeding of a fresh map (that was LairWare's "Kreate" random-world path). Per-turn spawning (7 in 135) is unchanged.
 11. Wind shown in words without arrows (README deviation 5).
 12. Casters start with full MP (`compute_max_mp`), an original-rules ruling; LairWare starts at 0.
 

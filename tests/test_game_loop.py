@@ -1207,13 +1207,18 @@ def test_original_spawn_cap_is_32_slots(pygame_setup, asset_mgr):
     assert sum(1 for c in ow.creatures if c.get("tile_name") == "whirlpool") == 1
 
 
-def test_original_spawn_seeds_population_on_map_prepare(pygame_setup, asset_mgr):
-    """New-game seeding (UltimaMain.c:2055-2058): 500 SpawnMonster calls, each
-    rate-gated, so a fresh Sosaria starts with roughly 26 wanderers."""
+def test_original_spawn_fresh_map_starts_empty_then_spawns(pygame_setup, asset_mgr):
+    """A new game starts with no wanderers (LairWare ResetSosaria copies the
+    all-zero MONS 420, UltimaMisc.c:779-786; user ruling Q28). The 500
+    SpawnMonster calls (UltimaMain.c:2051-2058) belong to the "Kreate"
+    random world only. Per-turn spawning still fills the map from there."""
     random.seed(21)
     ow = OverworldScreen(party=_spawn_party(), map_id=0, asset_mgr=asset_mgr)
     wanderers = [c for c in ow.creatures if c.get("tile_name") != "whirlpool"]
-    assert 14 <= len(wanderers) <= 32
+    assert wanderers == []
+    with patch("py_exodus.screens.overworld.random.randint", side_effect=_rate_roll(134)):
+        ow._spawn_wandering_creature()
+    assert [c for c in ow.creatures if c.get("tile_name") != "whirlpool"]
 
 
 def test_original_spawn_no_forced_spawn_when_empty(pygame_setup, asset_mgr):
