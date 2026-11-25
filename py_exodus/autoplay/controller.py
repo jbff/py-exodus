@@ -547,8 +547,15 @@ class AutoPlayController:
             prompt = (getattr(screen.text_log, "current_prompt", "") or "").lower()
             if "touch" in prompt and need_idx is not None:
                 return self._emit_key(state_machine, pygame.K_0 + need_idx)
-            # Anything else, the fountain's "who will drink?" included
-            # (asked again until a key that is not 1-4), is left with Esc.
+            # A fountain asks who drinks after every command on it, and again
+            # after each drink (UltimaDngn.c:228-279): a heal or cure
+            # fountain gets the members who need it, one per ask; acid,
+            # poison and plain ones never (autoplay round 1, item 1).
+            if "drink" in prompt:
+                drinker = self._fountain_drinker(party, cur_tile)
+                if drinker is not None:
+                    return self._emit_key(state_machine, pygame.K_0 + drinker)
+            # Anything else, a fountain nobody needs included, is left with Esc.
             return self._emit_key(state_machine, pygame.K_ESCAPE)
 
         dmap = getattr(screen, "dungeon_map", None) or getattr(screen, "dmap", None) or screen.state.dmap
@@ -600,6 +607,25 @@ class AutoPlayController:
             if cleric is not None:
                 self._queue_text(f"{cleric[0]}d", enter=False)
                 return self._emit_key(state_machine, pygame.K_c)
+
+        # A heal or cure fountain on this level or the next one up or down
+        # comes before leaving: free, and no MP spent (autoplay round 1,
+        # item 1). Not while anyone starves (that leaves at once, below).
+        if not any(not m.is_dead() and m.food <= 0 for m in party.members):
+            fountains = self._fountain_goals(party, dmap, screen.state.z)
+            here = (screen.state.x, screen.state.y, screen.state.z)
+            if here in fountains and self._fountain_drinker(party, cur_tile) is not None:
+                # On it with someone to drink: a pass, and the fixture asks.
+                return self._emit_key(state_machine, pygame.K_SPACE)
+            fountains.discard(here)
+            if fountains:
+                key = find_dungeon_step(
+                    dmap, screen.state.x, screen.state.y, screen.state.z, screen.state.dir,
+                    fountains,
+                    penalty_tiles=self._find_dungeon_tiles(dmap, {DungeonTile.GREMLINS}),
+                )
+                if key is not None:
+                    return self._emit_key(state_machine, key)
 
         # A mark nobody can touch safely, no heal can fix and no wait on the
         # rod will help ("off": no Cleric, Druid or Paladin with a 10-MP
@@ -3524,6 +3550,47 @@ class AutoPlayController:
             if not m.is_dead() and m.profession in professions and m.mp >= min_mp:
                 return (i + 1, m.profession)
         return None
+
+    # Fountains this many levels up or down count as near (item 1).
+    _FOUNTAIN_LEVELS = 1
+
+    @staticmethod
+    def _fountain_drinker(party, tile) -> int | None:
+        """Who drinks (1-based) from the fountain ``tile``, or None.
+
+        Heal fountain (full HP): the living member with the lowest share of
+        max HP still below max. Cure fountain: the first poisoned living
+        member. Acid, poison and plain fountains: nobody, ever."""
+        living = [(i + 1, m) for i, m in enumerate(party.members) if not m.is_dead()]
+        if tile == DungeonTile.FOUNTAIN_HEAL:
+            hurt = [(n, m) for n, m in living if m.hp < m.max_hp]
+            if hurt:
+                return min(hurt, key=lambda nm: (nm[1].hp / max(1, nm[1].max_hp), nm[0]))[0]
+        elif tile == DungeonTile.FOUNTAIN_CURE:
+            return next((n for n, m in living if m.status == Status.POISONED), None)
+        return None
+
+    def _wants_heal_fountain(self, party) -> bool:
+        """The party would drink from a heal fountain on its way."""
+        return needs_heal(party)
+
+    def _fountain_goals(self, party, dmap, z: int) -> set[tuple[int, int, int]]:
+        """Heal fountains (when the party wants healing) and cure fountains
+        (when someone is poisoned) on level ``z`` or one level from it. The
+        loader types each fountain by x & 3, so autoplay knows them all."""
+        living = [m for m in party.members if not m.is_dead()]
+        kinds: set[DungeonTile] = set()
+        if any(m.status == Status.POISONED for m in living):
+            kinds.add(DungeonTile.FOUNTAIN_CURE)
+        if self._wants_heal_fountain(party):
+            kinds.add(DungeonTile.FOUNTAIN_HEAL)
+        if not kinds:
+            return set()
+        return {
+            (x, y, fz)
+            for x, y, fz in self._find_dungeon_tiles(dmap, kinds)
+            if abs(fz - z) <= self._FOUNTAIN_LEVELS
+        }
 
     @staticmethod
     def _find_dungeon_tiles(dmap, tiles: set[DungeonTile]) -> set[tuple[int, int, int]]:
