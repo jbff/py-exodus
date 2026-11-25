@@ -467,3 +467,105 @@ def test_dungeon_y_yells_an_other_word(asset_mgr):
     screen.text_log.submit_input("SCORE")
     assert screen.state.torchtime == 49
     assert not any(line.strip() == "Pass" for line in screen.text_log.history)
+
+
+# --- Fix round 1: dungeonmech runs exactly once per command ---------------
+
+
+def _count_ticks(state) -> list:
+    calls = []
+    real = state._tick_turn
+
+    def counted(*args, **kwargs):
+        calls.append(1)
+        return real(*args, **kwargs)
+
+    state._tick_turn = counted
+    return calls
+
+
+@pytest.mark.parametrize("method", ["klimb_up", "klimb_down"])
+def test_dkl_failed_ladder_still_ends_in_dungeonmech(method):
+    """UltimaDngn.c:410-438: a D or K with no ladder is InvalCmd(), and the
+    command still falls through to dungeonmech (UltimaDngn.c:137, 144, 161,
+    183-209): one turn tick."""
+    state = DungeonState(_dmap(), start_x=4, start_y=4, start_z=0, party=_party(),
+                         random_encounters=False)
+    calls = _count_ticks(state)
+    evt = getattr(state, method)()
+    assert evt.type == DungeonEventType.BLOCKED
+    assert len(calls) == 1
+
+
+def test_dkl_descend_on_the_deepest_level_still_ticks():
+    """The level-8 guard on D (D-02) ends in dungeonmech like InvalCmd."""
+    dmap = _dmap()
+    dmap.set_tile(4, 4, 7, DungeonTile.LADDER_DOWN)
+    state = DungeonState(dmap, start_x=4, start_y=4, start_z=7, party=_party(),
+                         random_encounters=False)
+    calls = _count_ticks(state)
+    state.klimb_down()
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize(
+    "key, answers",
+    [
+        ("r", ["1", "A"]),
+        ("w", ["1", "A"]),
+        ("s", ["1"]),
+        ("g", ["1"]),
+        ("g", ["9"]),
+        ("h", ["1", "2", "E", "T", "1"]),
+        ("j", ["1"]),
+        ("n", ["1"]),
+        ("y", ["1", "SCORE"]),
+        ("i", ["1"]),
+        ("c", []),
+        ("o", ["SCORE"]),
+        ("m", ["1", "2"]),
+        ("z", []),
+        ("p", []),
+        ("space", []),
+    ],
+)
+def test_dungeonmech_once_per_command(asset_mgr, key, answers):
+    """UltimaDngn.c:132-193: every command, valid or not, is followed by
+    exactly one dungeonmech pass (one torch unit, one AgeChars, one fight
+    roll). The port ticked R, W, S and G twice (at the press and again
+    after the prompt)."""
+    import pygame
+
+    from py_exodus.screens.dungeon_screen import DungeonScreen
+
+    pygame.init()
+    party = _party()
+    dmap = _dmap()
+    dmap.set_tile(1, 1, 0, DungeonTile.CHEST)
+    screen = DungeonScreen(party=party, dungeon_map=dmap, asset_mgr=asset_mgr)
+    screen.state.random_encounters_enabled = False
+    calls = _count_ticks(screen.state)
+    screen.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.key.key_code(key)))
+    for answer in answers:
+        if screen.text_log.is_waiting_for_input:
+            screen.text_log.submit_input(answer)
+    while screen.text_log.is_waiting_for_input:
+        screen.text_log.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_ESCAPE, unicode=""))
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("key", ["s", "g"])
+def test_dungeonmech_once_when_the_prompt_is_cancelled(asset_mgr, key):
+    """A cancelled S or G still ends in one dungeonmech pass."""
+    import pygame
+
+    from py_exodus.screens.dungeon_screen import DungeonScreen
+
+    pygame.init()
+    screen = DungeonScreen(party=_party(), dungeon_map=_dmap(), asset_mgr=asset_mgr)
+    screen.state.random_encounters_enabled = False
+    calls = _count_ticks(screen.state)
+    screen.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.key.key_code(key)))
+    screen.text_log.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_ESCAPE, unicode=""))
+    assert not screen.text_log.is_waiting_for_input
+    assert len(calls) == 1

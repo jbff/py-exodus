@@ -1696,14 +1696,19 @@ class DungeonState:
         """
         tile = self.current_tile
         if tile not in (DungeonTile.LADDER_UP, DungeonTile.LADDER_UP_DOWN):
-            return DungeonEvent(
-                type=DungeonEventType.BLOCKED,
-                message="No ladder up here!",
-                x=self.x,
-                y=self.y,
-                z=self.z,
-                tile=tile,
-                success=False,
+            # LW InvalCmd still ends in dungeonmech (UltimaDngn.c:410-438,
+            # 183-209): one turn tick.
+            return self._with_combat(
+                DungeonEvent(
+                    type=DungeonEventType.BLOCKED,
+                    message="No ladder up here!",
+                    x=self.x,
+                    y=self.y,
+                    z=self.z,
+                    tile=tile,
+                    success=False,
+                ),
+                self._tick_turn(),
             )
 
         if self.z == 0:
@@ -1745,27 +1750,37 @@ class DungeonState:
         """
         tile = self.current_tile
         if tile not in (DungeonTile.LADDER_DOWN, DungeonTile.LADDER_UP_DOWN):
-            return DungeonEvent(
-                type=DungeonEventType.BLOCKED,
-                message="No ladder down here!",
-                x=self.x,
-                y=self.y,
-                z=self.z,
-                tile=tile,
-                success=False,
+            # LW InvalCmd still ends in dungeonmech (UltimaDngn.c:410-438,
+            # 183-209): one turn tick.
+            return self._with_combat(
+                DungeonEvent(
+                    type=DungeonEventType.BLOCKED,
+                    message="No ladder down here!",
+                    x=self.x,
+                    y=self.y,
+                    z=self.z,
+                    tile=tile,
+                    success=False,
+                ),
+                self._tick_turn(),
             )
 
         # LairWare dDescend (UltimaDngn.c:410-422) has no bound: no shipped
         # level 8 holds a down ladder. Guard it anyway: there is no ninth level.
         if self.z >= self.dmap.levels - 1:
-            return DungeonEvent(
-                type=DungeonEventType.BLOCKED,
-                message="No ladder down here!",
-                x=self.x,
-                y=self.y,
-                z=self.z,
-                tile=tile,
-                success=False,
+            # LW InvalCmd still ends in dungeonmech (UltimaDngn.c:410-438,
+            # 183-209): one turn tick.
+            return self._with_combat(
+                DungeonEvent(
+                    type=DungeonEventType.BLOCKED,
+                    message="No ladder down here!",
+                    x=self.x,
+                    y=self.y,
+                    z=self.z,
+                    tile=tile,
+                    success=False,
+                ),
+                self._tick_turn(),
             )
         self.z += 1
         if self.party:

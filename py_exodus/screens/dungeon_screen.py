@@ -227,17 +227,14 @@ class DungeonScreen(BaseScreen):
                 turn_callback=self._consume_turn,
             )
         elif event.key == pygame.K_r:
-            # Java DungeonScreen.java:1011-1013 — G/R/W/C/S fall through to
-            # finishTurn at the press, then route to the member selection flow.
+            # R/W/C/O take their one dungeonmech pass (UltimaDngn.c:183) at
+            # the press, so a cancelled prompt still takes it; the prompt
+            # flow adds none.
             self._consume_turn()
-            prompt_ready_weapon(
-                self.text_log, self.party, self.asset_mgr, turn_callback=self._consume_turn
-            )
+            prompt_ready_weapon(self.text_log, self.party, self.asset_mgr)
         elif event.key == pygame.K_w:
             self._consume_turn()
-            prompt_wear_armor(
-                self.text_log, self.party, self.asset_mgr, turn_callback=self._consume_turn
-            )
+            prompt_wear_armor(self.text_log, self.party, self.asset_mgr)
         elif event.key == pygame.K_c:
             self._consume_turn()
             self._cast_spell()
@@ -252,10 +249,10 @@ class DungeonScreen(BaseScreen):
             self._consume_turn()
             self._prompt_other()
         elif event.key == pygame.K_s:
-            self._consume_turn()
+            # S and G take their one turn once the prompt is answered or
+            # cancelled (inside _search / _get_chest).
             self._search()
         elif event.key == pygame.K_g:
-            self._consume_turn()
             self._get_chest()
         elif event.key == pygame.K_z:
             # LairWare Stats ends in dungeonmech (UltimaDngn.c:159, 161,
@@ -498,23 +495,19 @@ class DungeonScreen(BaseScreen):
             else:
                 self.text_log.add_message("Search: Thou searchest the damp corridor... Nothing here!")
 
-            # Java: dungeon S is routed through the G/R/W/C/S fall-through
-            # branch (DungeonScreen.java:1011-1013) and every sip keypress
-            # ends in the sip tail finishTurn — valid or not. The encounter
-            # roll in that tail can raise a fight.
-            tick_evt = self.state._tick_turn()
-            if tick_evt is not None:
-                self._process_event(tick_evt)
-            self.check_party_death()
+            # One turn tick per command, answered or not (dungeonmech,
+            # UltimaDngn.c:183-209); its encounter roll can raise a fight.
+            self._consume_turn()
 
-        self.text_log.prompt(prompt_msg, callback=_on_who, single_char=True)
+        self.text_log.prompt(
+            prompt_msg, callback=_on_who, single_char=True, on_cancel=self._consume_turn
+        )
 
     def _get_chest(self) -> None:
         """Open a treasure chest on the party's own tile."""
         from py_exodus.world.map import DungeonTile
 
         def _on_who(who_str: str) -> None:
-            tick_evt = self.state._tick_turn()  # Java routes G through finishTurn
             try:
                 idx = int(who_str.strip()) - 1
             except ValueError:
@@ -528,11 +521,15 @@ class DungeonScreen(BaseScreen):
                 self.text_log.add_message("Incapacitated!")
             else:
                 self._finish_dungeon_chest(member)
-            if tick_evt is not None:
-                self._process_event(tick_evt)
             self.check_party_death()
+            # GetChest then dungeonmech (UltimaDngn.c:140, 161, 183-209): one
+            # turn tick after the chest, answered or not.
+            self._consume_turn()
 
-        self.text_log.prompt("Who gets the chest? (1-4): ", callback=_on_who, single_char=True)
+        self.text_log.prompt(
+            "Who gets the chest? (1-4): ", callback=_on_who, single_char=True,
+            on_cancel=self._consume_turn,
+        )
 
     def _finish_dungeon_chest(self, member) -> None:
         """Open the chest on the party's own tile through the Task 1 pipeline."""

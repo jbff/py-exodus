@@ -434,14 +434,21 @@ def test_ladder_consume_turn_moon_tick(empty_dmap, test_party):
 
 
 def test_ladder_no_turn_blocked_and_exit(empty_dmap, test_party):
-    """Refusals and level-0 exits are unchanged: only an actual level
-    change consumes the turn. A blocked K/D is not a move, and the K-exit
-    to the overworld is a map transition, not a dungeon move."""
-    # No ladder here: BLOCKED, no tick.
-    state = DungeonState(empty_dmap, start_x=5, start_y=5, start_z=0, party=test_party)
+    """A blocked K/D is InvalCmd and still ends in one dungeonmech pass
+    (LairWare UltimaDngn.c:410-438, 183-209); the K-exit to the overworld
+    is a map transition, not a dungeon move."""
+    # No ladder here: BLOCKED, one tick.
+    state = DungeonState(
+        empty_dmap, start_x=5, start_y=5, start_z=0, party=test_party,
+        random_encounters=False,
+    )
+    calls = []
+    real_tick = state._tick_turn
+    state._tick_turn = lambda *a, **k: (calls.append(1), real_tick(*a, **k))[1]
     ev_blocked = state.klimb_up()
     assert ev_blocked.type == DungeonEventType.BLOCKED
-    assert test_party.moon_turns == 0
+    assert len(calls) == 1
+    test_party.moon_turns = 0
 
     # K at level 0 on a ladder up: exits to the surface, no tick.
     empty_dmap.set_tile(5, 5, 0, DungeonTile.LADDER_UP)

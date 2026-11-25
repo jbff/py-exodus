@@ -96,8 +96,8 @@ def test_dungeon_r_ready_weapon(pygame_setup):
     moves_before = party.moves
     ticks = turn_meter(party)
     press(scr, pygame.K_r)
-    # Java DungeonScreen.java:1011-1013: the G/R/W/C/S branch falls through
-    # to finishTurn, so pressing R itself consumes a turn.
+    # LairWare: one dungeonmech pass per command (UltimaDngn.c:151, 183),
+    # taken at the R press.
     assert party.moves == moves_before
     assert ticks() == 98
     assert scr.text_log.is_waiting_for_input
@@ -106,9 +106,8 @@ def test_dungeon_r_ready_weapon(pygame_setup):
     scr.text_log.submit_input("B")  # B = DAGGER (2nd WeaponType entry)
     assert party.members[0].weapon == WeaponType.DAGGER
     assert any("Success!" in m for m in scr.text_log.history)  # SIP:479-483
-    # Java SecondaryInputProcessor: R press falls through (1 tick), then
-    # ReadyWearInputAdapter.keyUp runs finishTurn after the letter (tick 2).
-    assert ticks() == 97
+    # No second tick after the letter (batch D fix round 1).
+    assert ticks() == 98
 
 
 def test_dungeon_w_wear_armor(pygame_setup):
@@ -534,8 +533,10 @@ def test_dungeon_g_c_s_press_consumes_turn(pygame_setup):
     scr = make_screen()
     ticks = turn_meter(scr.party)
     press(scr, pygame.K_s)
-    assert ticks() == 98
+    # S takes its one turn when the prompt is answered or cancelled.
+    assert ticks() == 99
     scr.text_log.handle_escape()
+    assert ticks() == 98
     ticks = turn_meter(scr.party)
     press(scr, pygame.K_c)
     assert ticks() == 98
