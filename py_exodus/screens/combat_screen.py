@@ -840,6 +840,8 @@ class CombatScreen(BaseScreen):
         elif self._anim_stage == "projectile" and not self.combat_fx:
             self._complete_pending_action()
 
+        self._combat_idle(dt)
+
         if (
             self.auto_combat
             and self._anim_stage is None

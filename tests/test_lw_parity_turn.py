@@ -1239,8 +1239,8 @@ def test_main_loop_idle_pass_never_in_a_prompt_or_ztats(overworld):
 def test_main_loop_idle_pass_in_towns_not_in_combat(pygame_setup, asset_mgr, town):
     """Towns run the same main loop (Enter returns to it with Party[3] = 2,
     UltimaMain.c:1503-1506), so they pass after 60 idle polls too. Combat
-    has its own wait (UltimaSpellCombat.c:938-970); by user ruling the port
-    never passes a combat turn by itself."""
+    has its own wait (UltimaSpellCombat.c:938-970), 46 polls (B-22, tested
+    below); 40 polls there pass nothing."""
     from py_exodus.screens.combat_screen import CombatScreen
     from py_exodus.world.loader import MapLoader
 
@@ -1484,3 +1484,64 @@ def test_combat_z_shows_the_active_member_and_ends_its_turn(pygame_setup, asset_
     _key(cs, pygame.K_z)  # any key closes it, swallowed
     assert cs.stats_panel.inspect_index is None
     assert cs.arena.active_party_member_idx != first or cs.arena.is_finished
+
+
+# --- B-22 combat idle pass (user ruling 2026-11-25) --------------------------------
+#
+# UltimaSpellCombat.c:938-970: ``count = 0x2F; ... keyloop: ... count--;
+# if (count == 0) { gKeyPress = ' '; } else { if (GetKeyMouse(0) == FALSE)
+# goto keyloop; }`` -- 46 polls of 5/60 s (about 3.8 s) with no key and the
+# active member passes.
+
+
+def _combat_passes(cs) -> int:
+    return sum(1 for m in cs.text_log.history if m == "Pass")
+
+
+def test_combat_idle_pass_after_46_polls(pygame_setup, asset_mgr):
+    cs = _combat(asset_mgr)
+    first = cs.arena.active_party_member_idx
+    for _ in range(45):
+        cs.update(_POLL)
+    assert _combat_passes(cs) == 0
+    cs.update(_POLL)
+    assert _combat_passes(cs) == 1
+    assert cs.arena.active_party_member_idx != first or cs.arena.is_finished
+
+
+def test_combat_idle_count_restarts_on_a_key(pygame_setup, asset_mgr):
+    cs = _combat(asset_mgr)
+    for _ in range(40):
+        cs.update(_POLL)
+    _key(cs, pygame.K_F3)  # any key ends the wait
+    for _ in range(45):
+        cs.update(_POLL)
+    assert _combat_passes(cs) == 0
+    cs.update(_POLL)
+    assert _combat_passes(cs) == 1
+
+
+def test_combat_idle_pass_never_in_a_prompt_ztats_or_autoplay(pygame_setup, asset_mgr):
+    cs = _combat(asset_mgr)
+    _key(cs, pygame.K_a)  # attack direction prompt
+    assert cs.text_log.is_waiting_for_input
+    for _ in range(200):
+        cs.update(_POLL)
+    assert _combat_passes(cs) == 0
+
+    cs = _combat(asset_mgr)
+    cs.stats_panel.inspect_index = 0
+    for _ in range(200):
+        cs.update(_POLL)
+    assert _combat_passes(cs) == 0
+
+    cs = _combat(asset_mgr)
+
+    class _Mgr:
+        autoplay_enabled = True
+        auto_combat_enabled = False
+
+    cs.manager = _Mgr()
+    for _ in range(200):
+        cs.update(_POLL)
+    assert _combat_passes(cs) == 0
