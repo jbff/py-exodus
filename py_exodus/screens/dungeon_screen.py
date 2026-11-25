@@ -62,7 +62,9 @@ class DungeonScreen(BaseScreen):
         start_x: int = 1,
         start_y: int = 1,
         start_z: int = 0,
-        start_dir: Direction = Direction.NORTH,
+        # LairWare Enter (UltimaMain.c:1430-1433): level 1, (1, 1), heading
+        # 1 (east).
+        start_dir: Direction = Direction.EAST,
         **kwargs: Any,
     ) -> None:
         super().__init__(return_screen=return_screen, **kwargs)
@@ -166,8 +168,8 @@ class DungeonScreen(BaseScreen):
             return
 
         # Movement and navigation keys: Arrow keys and Keypad ONLY (no WASD)
-        # Java DungeonScreen.java:859-957 — LEFT/RIGHT rotate the camera in
-        # place (no turn consumed); UP steps forward; DOWN steps one square
+        # LEFT/RIGHT turn in place and take the turn (LairWare Left/Right,
+        # UltimaDngn.c:172-177, 183); UP steps forward; DOWN steps one square
         # *backward* in the current facing (with wrap) — it is not a 180
         # degree turn.
         if event.key in (pygame.K_UP, pygame.K_KP8):
@@ -183,17 +185,13 @@ class DungeonScreen(BaseScreen):
             evt = self.state.turn_right()
             self._process_event(evt)
         elif event.key == pygame.K_k:
-            # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): ladders consume
-            # a turn (GBC ult3.c:1388-1429; LW free-action ladders disagree,
-            # no LW+NES agreement — GBC retained). Java DungeonScreen.java:
-            # 959-971 returned before finishTurn.
+            # Ladders consume a turn (GBC ult3.c:1388-1429; LairWare dKlimb
+            # ends in dungeonmech too, UltimaDngn.c:144, 183).
             evt = self.state.klimb_up()
             self._process_event(evt)
         elif event.key == pygame.K_d:
-            # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): ladders consume
-            # a turn (GBC ult3.c:1388-1429; LW free-action ladders disagree,
-            # no LW+NES agreement — GBC retained). Java DungeonScreen.java:
-            # 973-981 returned before finishTurn.
+            # Ladders consume a turn (GBC ult3.c:1388-1429; LairWare dDescend
+            # ends in dungeonmech too, UltimaDngn.c:137, 183).
             evt = self.state.klimb_down()
             self._process_event(evt)
         elif event.key == pygame.K_i:
@@ -208,10 +206,13 @@ class DungeonScreen(BaseScreen):
             # through the keyUp tail (turn consumed).
             self._toggle_music()
         elif event.key == pygame.K_m:
-            # Java DungeonScreen.java:1024-1031 — M routes to
-            # NewOrderInputAdapter, which does not finishTurn from a dungeon.
-            # Java's log keeps the typo "exhange #:" (DungeonScreen.java:1028).
-            prompt_modify_order(self.text_log, self.party, exchange_label="exhange #:")
+            # LairWare ModifyOrder ends in dungeonmech (UltimaDngn.c:146,
+            # 161, 183): the turn passes when the exchange is done.
+            # Java's typo "exhange #:" (DungeonScreen.java:1028) stays.
+            prompt_modify_order(
+                self.text_log, self.party, exchange_label="exhange #:",
+                turn_callback=self._consume_turn,
+            )
         elif event.key == pygame.K_r:
             # Java DungeonScreen.java:1011-1013 — G/R/W/C/S fall through to
             # finishTurn at the press, then route to the member selection flow.
@@ -244,10 +245,10 @@ class DungeonScreen(BaseScreen):
             self._consume_turn()
             self._get_chest()
         elif event.key == pygame.K_z:
-            # Java DungeonScreen.java:1033-1044 — Z cycles the zstats view and
-            # returns before finishTurn (no turn consumed, unlike the
-            # overworld's Z).
+            # LairWare Stats ends in dungeonmech (UltimaDngn.c:159, 161,
+            # 183): Z takes the turn, as on the overworld.
             self._toggle_zstats()
+            self._consume_turn()
         else:
             # Java DungeonScreen.java:1045-1049 + 1049-1050 — any key without
             # a handler logs "Pass" and falls through to finishTurn.

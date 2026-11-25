@@ -79,6 +79,10 @@ class DungeonEvent:
 #: LairWare dungeon monsters (UltimaDngn.c:201-205): gMonType
 #: ``(min(RandNum(0, level + 2), 6) + 0x18) * 2``, tiles 0x30-0x3C
 #: (Tiles.plist 24-30).
+#: Tiles of value >= 0xA0 (secret door 0xA0, door 0xC0): no turning on them
+#: (LairWare Right/Left, UltimaDngn.c:386, 400).
+_DOORWAY_TILES = frozenset({DungeonTile.SECRET_DOOR, DungeonTile.DOOR, DungeonTile.LOCKED_DOOR})
+
 DUNGEON_MONSTERS = ("orc", "skeleton", "giant", "daemon", "pincher", "dragon", "balron")
 
 
@@ -1308,28 +1312,40 @@ class DungeonState:
     # --- Navigation commands ---
 
     def turn_left(self) -> DungeonEvent:
-        """Turn 90 degrees counter-clockwise."""
-        self.dir = turn_left_dir(self.dir)
-        return DungeonEvent(
-            type=DungeonEventType.TURNED,
-            message=f"Turned left, now facing {self.dir.name}.",
-            x=self.x,
-            y=self.y,
-            z=self.z,
-            tile=self.current_tile,
-        )
+        """Turn 90 degrees counter-clockwise (LairWare Left, UltimaDngn.c:396-408)."""
+        return self._turn(turn_left_dir, "left")
 
     def turn_right(self) -> DungeonEvent:
-        """Turn 90 degrees clockwise."""
-        self.dir = turn_right_dir(self.dir)
-        return DungeonEvent(
-            type=DungeonEventType.TURNED,
-            message=f"Turned right, now facing {self.dir.name}.",
-            x=self.x,
-            y=self.y,
-            z=self.z,
-            tile=self.current_tile,
-        )
+        """Turn 90 degrees clockwise (LairWare Right, UltimaDngn.c:382-394)."""
+        return self._turn(turn_right_dir, "right")
+
+    def _turn(self, rotate, side: str) -> DungeonEvent:
+        """LairWare Right/Left (UltimaDngn.c:382-408): no turning while
+        standing on a door or secret door (``GetXYDng >= 0xA0`` -> NoGo).
+        Either way the command ends in dungeonmech (UltimaDngn.c:172-177,
+        183-209): the turn tick and the encounter roll follow."""
+        tile = self.current_tile
+        if tile in _DOORWAY_TILES:
+            evt = DungeonEvent(
+                type=DungeonEventType.BLOCKED,
+                message="Not here!",
+                x=self.x,
+                y=self.y,
+                z=self.z,
+                tile=tile,
+                success=False,
+            )
+        else:
+            self.dir = rotate(self.dir)
+            evt = DungeonEvent(
+                type=DungeonEventType.TURNED,
+                message=f"Turned {side}, now facing {self.dir.name}.",
+                x=self.x,
+                y=self.y,
+                z=self.z,
+                tile=tile,
+            )
+        return self._with_combat(evt, self._tick_turn())
 
     def move_forward(self) -> DungeonEvent:
         """Step one tile forward in the current viewing direction."""
@@ -1670,9 +1686,8 @@ class DungeonState:
     def klimb_up(self) -> DungeonEvent:
         """Ascend via ladder towards surface (z decrements towards 0).
 
-        USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): ladders consume a
-        turn (GBC ult3.c:1388-1429; LW free-action ladders disagree, no
-        LW+NES agreement — GBC retained). Unlike Java's K branch
+        Ladders consume a turn (GBC ult3.c:1388-1429; LairWare agrees:
+        dKlimb/dDescend fall through to dungeonmech, UltimaDngn.c:144, 183). Unlike Java's K branch
         (DungeonScreen.java:959-971), which returns false before
         finishTurn, a real climb runs the same turn tick a normal move
         runs (mademove stays 1, so the encounter roll can fire while
@@ -1721,9 +1736,8 @@ class DungeonState:
     def klimb_down(self) -> DungeonEvent:
         """Descend via ladder deeper into the dungeon (z increments).
 
-        USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): ladders consume a
-        turn (GBC ult3.c:1388-1429; LW free-action ladders disagree, no
-        LW+NES agreement — GBC retained). Unlike Java's D branch
+        Ladders consume a turn (GBC ult3.c:1388-1429; LairWare agrees:
+        dKlimb/dDescend fall through to dungeonmech, UltimaDngn.c:144, 183). Unlike Java's D branch
         (DungeonScreen.java:973-981), which returns false before
         finishTurn, a real descent runs the same turn tick a normal move
         runs (mademove stays 1, so the encounter roll can fire while

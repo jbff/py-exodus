@@ -852,6 +852,7 @@ def test_walkover_trap_sounds_play(empty_dmap, test_party, tile, expected_sfx):
         start_x=5,
         start_y=5,
         start_z=0,
+        start_dir=Direction.NORTH,
     )
     screen.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_UP))
     assert expected_sfx in audio.played

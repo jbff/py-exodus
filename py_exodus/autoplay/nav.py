@@ -22,6 +22,9 @@ _CARDINALS = (Direction.NORTH, Direction.EAST, Direction.SOUTH, Direction.WEST)
 _BLOCKED_DUNGEON_TILES = frozenset({DungeonTile.WALL, DungeonTile.FIELD_ENERGY})
 _LADDER_DOWN_TILES = frozenset({DungeonTile.LADDER_DOWN, DungeonTile.LADDER_UP_DOWN})
 _LADDER_UP_TILES = frozenset({DungeonTile.LADDER_UP, DungeonTile.LADDER_UP_DOWN})
+# No turning on a door or secret door (LairWare Right/Left, UltimaDngn.c:386,
+# 400): there the route may only step on, or back out with DOWN.
+_DOORWAY_TILES = frozenset({DungeonTile.DOOR, DungeonTile.SECRET_DOOR, DungeonTile.LOCKED_DOOR})
 
 
 def locked_door_passable(game_map, x: int, y: int, transport: Transport, party=None) -> bool:
@@ -285,6 +288,20 @@ def find_2d_step(
     )[0]
 
 
+def _dungeon_turns(dmap, cx, cy, cz, cfacing, cur_tile) -> list:
+    """Turn candidates, or in a doorway (no turning there) the backward step."""
+    if cur_tile in _DOORWAY_TILES:
+        bx = (cx - cfacing.dx) % dmap.width
+        by = (cy - cfacing.dy) % dmap.height
+        if dmap.get_tile(bx, by, cz) in _BLOCKED_DUNGEON_TILES:
+            return []
+        return [(bx, by, cz, cfacing, pygame.K_DOWN)]
+    return [
+        (cx, cy, cz, turn_left_dir(cfacing), pygame.K_LEFT),
+        (cx, cy, cz, turn_right_dir(cfacing), pygame.K_RIGHT),
+    ]
+
+
 def find_dungeon_step(
     dmap: DungeonMap,
     x: int,
@@ -329,9 +346,8 @@ def find_dungeon_step(
         if cur_tile in _LADDER_UP_TILES and cz - 1 >= 0:
             candidates.append((cx, cy, cz - 1, cfacing, pygame.K_k))
 
-        # 4. Turn left / right
-        candidates.append((cx, cy, cz, turn_left_dir(cfacing), pygame.K_LEFT))
-        candidates.append((cx, cy, cz, turn_right_dir(cfacing), pygame.K_RIGHT))
+        # 4. Turn left / right (never in a doorway: step back out instead)
+        candidates.extend(_dungeon_turns(dmap, cx, cy, cz, cfacing, cur_tile))
 
         for nx, ny, nz, nfacing, key in candidates:
             step_key = first_key if first_key is not None else key
@@ -378,8 +394,7 @@ def _find_dungeon_step_weighted(
             candidates.append((cx, cy, cz + 1, cfacing, pygame.K_d))
         if cur_tile in _LADDER_UP_TILES and cz - 1 >= 0:
             candidates.append((cx, cy, cz - 1, cfacing, pygame.K_k))
-        candidates.append((cx, cy, cz, turn_left_dir(cfacing), pygame.K_LEFT))
-        candidates.append((cx, cy, cz, turn_right_dir(cfacing), pygame.K_RIGHT))
+        candidates.extend(_dungeon_turns(dmap, cx, cy, cz, cfacing, cur_tile))
         for nx, ny, nz, nfacing, key in candidates:
             moved = (nx, ny, nz) != (cx, cy, cz)
             ncost = cost + 1 + (big if moved and (nx, ny, nz) in penalty_tiles else 0)

@@ -144,8 +144,8 @@ def test_dungeon_m_modify_order(pygame_setup):
     scr.text_log.submit_input("2")
     assert party.members[0].name == "Mage"
     assert party.members[1].name == "Hero"
-    # Java DungeonScreen.java:1024-1031 — M returns false; NewOrderInputAdapter
-    # only finishes the turn from GameScreen, never from DungeonScreen.
+    # LairWare M ends in dungeonmech (the turn tick runs), but the dungeon
+    # never counts moves.
     assert party.moves == moves_before
 
 

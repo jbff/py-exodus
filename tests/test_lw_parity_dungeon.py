@@ -149,3 +149,88 @@ def test_dungeonmech_pit_tile_does_not_roll_a_fight_the_same_turn():
     evt = state.move_forward()
     assert evt.type == DungeonEventType.PIT_TRAP
     assert (0, 0x82) not in rng.calls
+
+
+# --- D-03 every dungeon command ends in dungeonmech --------------------------
+
+
+@pytest.mark.parametrize("turn", ["turn_left", "turn_right"])
+def test_dungeonmech_turning_takes_the_turn(turn):
+    """UltimaDngn.c:172-177, 183-193: Left()/Right() fall through to
+    dungeonmech like every command: AgeChars, the torch burns one, and the
+    encounter roll comes. The port turned for free (Java)."""
+    rng = SeqRNG([200, 0])
+    party = _party()
+    party.members[0].submorsels = 400
+    state = DungeonState(_dmap(), start_x=4, start_y=4, start_z=0, party=party, rng=rng)
+    state.torchtime = 50
+    evt = getattr(state, turn)()
+    assert state.torchtime == 49
+    assert party.members[0].submorsels == 390
+    assert evt.type == DungeonEventType.COMBAT
+
+
+@pytest.mark.parametrize("tile", [DungeonTile.DOOR, DungeonTile.SECRET_DOOR])
+@pytest.mark.parametrize("turn", ["turn_left", "turn_right"])
+def test_right_left_no_turning_in_a_doorway(tile, turn):
+    """UltimaDngn.c:382-408: `if (GetXYDng(xs, ys) >= 0xA0) { NoGo(); return; }`
+    a party standing on a door (0xC0) or secret door (0xA0) cannot turn."""
+    dmap = _dmap()
+    dmap.set_tile(4, 4, 0, tile)
+    state = DungeonState(dmap, start_x=4, start_y=4, start_z=0, party=_party(),
+                         start_dir=Direction.NORTH, random_encounters=False)
+    evt = getattr(state, turn)()
+    assert state.dir == Direction.NORTH
+    assert evt.type == DungeonEventType.BLOCKED
+
+
+def test_dungeon_screen_z_and_m_take_the_turn(asset_mgr):
+    """UltimaDngn.c:146, 159, 161: M (ModifyOrder) and Z (Stats) go to
+    dungeonmech too. The port's dungeon Z and M were free (Java)."""
+    import pygame
+
+    from py_exodus.screens.dungeon_screen import DungeonScreen
+
+    pygame.init()
+    party = _party()
+    screen = DungeonScreen(party=party, dungeon_map=_dmap(), asset_mgr=asset_mgr)
+    screen.state.random_encounters_enabled = False
+    screen.state.torchtime = 50
+    screen.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_z))
+    assert screen.state.torchtime == 49
+    screen.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_m))
+    screen.text_log.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_1, unicode="1"))
+    screen.text_log.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_2, unicode="2"))
+    assert screen.state.torchtime == 48
+
+
+# --- D-06 entering --------------------------------------------------------------
+
+
+def test_enter_dungeon_faces_east(asset_mgr):
+    """UltimaMain.c:1430-1433: `dungeonLevel = 0; xpos = 1; ypos = 1;
+    heading = 1;` (HeadX/HeadY 72: heading 1 is east). The port faced north."""
+    import pygame
+
+    from py_exodus.screens.dungeon_screen import DungeonScreen
+
+    pygame.init()
+    screen = DungeonScreen(party=_party(), dungeon_map=_dmap(), asset_mgr=asset_mgr)
+    assert (screen.state.x, screen.state.y, screen.state.z) == (1, 1, 0)
+    assert screen.state.dir == Direction.EAST
+
+
+def test_autoplay_route_does_not_turn_in_a_doorway():
+    """Autoplay follows D-04 (UltimaDngn.c:386, 400): standing on a door it
+    steps back out with DOWN rather than pressing a turn that is refused."""
+    import pygame
+
+    from py_exodus.autoplay.nav import find_dungeon_step
+
+    dmap = _dmap(DungeonTile.WALL)
+    for y in range(3, 7):
+        dmap.set_tile(4, y, 0, DungeonTile.NOTHING)
+    dmap.set_tile(4, 4, 0, DungeonTile.DOOR)
+    dmap.set_tile(4, 3, 0, DungeonTile.WALL)
+    key = find_dungeon_step(dmap, 4, 4, 0, Direction.NORTH, {(4, 6, 0)})
+    assert key == pygame.K_DOWN
