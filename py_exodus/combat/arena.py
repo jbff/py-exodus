@@ -171,11 +171,6 @@ class CombatMonster:
         self.steals = definition.steals
         self.no_chest = definition.no_chest
         self.fled = False
-        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): set True by the
-        # NECORP branch in magic.py — the GBC weakens-clamp (hp=5 +
-        # monsterpower=10); the resolver halves a weakened creature's melee
-        # damage.
-        self.weakened = False
 
     @property
     def negates(self) -> bool:

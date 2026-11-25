@@ -569,3 +569,30 @@ def test_ignite_never_shortens_the_light():
     state.party = party
     assert state.ignite()
     assert state.torchtime == 255
+
+
+# --- P-19: Necorp is 5 HP and nothing else (user ruling 2026-11-25) ---------
+
+
+def test_necorp_sets_five_hp_and_nothing_more(asset_mgr, monkeypatch):
+    """UltimaSpellCombat.c:500-521 (Necorp):
+
+        for (mon = 7; mon >= 0; mon--) {
+            if (MonsterHP[mon] > 0) {
+                MonsterHP[mon] = 5;
+
+    Every living monster drops to 5 HP, and that is all: no halved melee
+    afterwards (the GBC `weakened` debuff is gone).
+    """
+    from py_exodus.combat import resolver
+
+    arena = _board(asset_mgr, count=2)
+    res = cast_spell(Spell.NECORP, caster=arena.party.members[0], party=arena.party,
+                     arena=arena)
+    assert res.success
+    assert [m.hp for m in arena.monsters] == [5, 5]
+    monkeypatch.setattr(resolver, "lw_monster_hits", lambda *a, **k: True)
+    monkeypatch.setattr(resolver, "lw_monster_damage", lambda *a, **k: 11)
+    target = Character("Hero", "M", hp=999, max_hp=999)
+    hit = resolver.resolve_monster_melee_attack(arena.monsters[0], target)
+    assert hit.damage == 11 and target.hp == 999 - 11

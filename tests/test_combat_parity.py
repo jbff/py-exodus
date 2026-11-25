@@ -408,7 +408,7 @@ def test_necorp_weakens_without_killing_or_xp(asset_mgr, conflict_map):
     assert res.spell_res.targets_affected == 1
     assert monster.hp == 5  # raised from 1 — the exact-set rule
     assert not monster.is_dead
-    assert monster.weakened
+    assert not hasattr(monster, "weakened")  # no debuff (ledger P-19)
     assert wiz.exp == 0
 
 

@@ -1390,12 +1390,10 @@ def test_ashes_member_save_round_trip(tmp_path):
 
 
 def test_necorp_sets_every_living_monster_to_five_hp(asset_mgr, conflict_map):
-    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): NECORP sets every LIVING
-    monster's hp to exactly 5 — it deals no damage and kills nothing, so a
-    40-hp orc and a 2-hp ghoul both end at 5 (GBC battle.c:1361-1373 sets the
-    monster hp=5 + monsterpower=10; LW UltimaSpellCombat.c:498-520 sets
-    MonsterHP[mon]=5). The monsterpower debuff maps to the py-side
-    CombatMonster.weakened flag, which halves melee damage in the resolver."""
+    """LairWare Necorp (UltimaSpellCombat.c:500-521): every LIVING monster's
+    HP becomes exactly 5 and nothing else changes (ledger P-19): it deals no
+    damage and kills nothing, so a 40-hp orc and a 2-hp ghoul both end at 5,
+    and no debuff is left behind."""
     party = Party()
     wiz = Character("Wiz", "M", Race.FUZZY, Profession.WIZARD, intelligence=75, mp=999)
     party.add_member(wiz)
@@ -1413,7 +1411,7 @@ def test_necorp_sets_every_living_monster_to_five_hp(asset_mgr, conflict_map):
     for monster, hp in zip(arena.monsters, hps):
         assert monster.hp == 5  # exactly 5 — up from 2, down from 40
         assert not monster.is_dead
-        assert monster.weakened is True
+        assert not hasattr(monster, "weakened")
     assert wiz.exp == 0  # nothing died, no EXP
 
 

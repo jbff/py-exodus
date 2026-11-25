@@ -1090,16 +1090,11 @@ def _apply_group_damage(
         for m in list(arena.monsters):
             if not m.is_dead:
                 if spell == Spell.NECORP:
-                    # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): NECORP
-                    # sets every LIVING monster's hp to exactly 5 — it deals no
-                    # damage and kills nothing, so a 40-hp orc and a 2-hp ghoul
-                    # both end at 5 (GBC battle.c:1361-1373 sets the monster
-                    # hp=5 + monsterpower=10; LW UltimaSpellCombat.c:498-520
-                    # sets MonsterHP[mon]=5). The monsterpower=10 debuff maps
-                    # to CombatMonster.weakened, which the resolver reads to
-                    # halve the creature's melee damage.
+                    # LairWare Necorp (UltimaSpellCombat.c:500-521): every
+                    # LIVING monster's HP becomes exactly 5, and that is all
+                    # (no damage, no kill; user ruling 2026-11-25, ledger
+                    # P-19, dropped the GBC monsterpower debuff).
                     m.hp = 5
-                    m.weakened = True
                     affected_count += 1
                     continue
                 # LairWare BigDeath (UltimaSpellCombat.c:482-483): the 75%
