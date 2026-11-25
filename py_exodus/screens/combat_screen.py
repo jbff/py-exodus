@@ -132,6 +132,8 @@ class CombatScreen(BaseScreen):
         self._idle_clock = PollClock()
         self._idle_polls = 0
         self._idle_member: int | None = None
+        # Combat Z shown; the member passes when Ztats is closed.
+        self._ztats_pass_pending = False
 
     def on_enter(self) -> None:
         """Sync auto-combat flag from manager when entering combat."""
@@ -190,6 +192,14 @@ class CombatScreen(BaseScreen):
         # key that ends it, any key, is swallowed.
         if self.stats_panel.inspect_index is not None:
             self.stats_panel.inspect_index = None
+            if self._ztats_pass_pending:
+                # Combat Z reaches ``goto plrdone`` only now
+                # (UltimaSpellCombat.c:1066-1069).
+                self._ztats_pass_pending = False
+                try:
+                    self._execute_action(Action.pass_turn())
+                except PartyDeathException:
+                    self.check_party_death()
             return
 
         if self._anim_stage is not None:
@@ -253,17 +263,15 @@ class CombatScreen(BaseScreen):
         if event.key == pygame.K_z:
             # LairWare combat Z (UltimaSpellCombat.c:1066-1069): ``Stats(1,
             # chnum + 1)`` shows the active member (no question), then
-            # ``goto plrdone``: that member's turn is over.
+            # ``goto plrdone``: that member's turn is over once the modal
+            # stats are closed (the pass runs in the close branch above).
             idx = self.arena.active_party_member_idx
             if self.party.get_member(idx) is None:
                 return
             from py_exodus.screens.member_prompts import show_ztats
 
-            try:
-                self._execute_action(Action.pass_turn())
-            except PartyDeathException:
-                self.check_party_death()
             show_ztats(self.text_log, self.stats_panel, self.party, idx)
+            self._ztats_pass_pending = True
             return
 
         # Standard combat keys
@@ -816,7 +824,10 @@ class CombatScreen(BaseScreen):
         # its real-time clock through every fight, a dungeon's included.
         from py_exodus.world import realtime
 
-        realtime.advance_wind(self.party, dt)
+        # Ztats (DoStats, gUpdateWhere 9, UltimaMacIF.c:1384-1386) stops
+        # FullUpdate, and so DoWind, while it is up.
+        if self.stats_panel.inspect_index is None:
+            realtime.advance_wind(self.party, dt)
         fx_dt = dt
         if self.auto_combat and self.auto_combat_interval < 0.12:
             fx_dt = dt * (0.12 / max(0.01, self.auto_combat_interval))

@@ -1572,3 +1572,31 @@ def test_stats_turn_comes_after_the_answer_in_towns(town):
     assert tw.party.moves == moves
     _ch(tw, "1")
     assert tw.party.moves == moves + 1
+
+
+# Combat Z (UltimaSpellCombat.c:1066-1069): ``Stats(1, chnum + 1); break;``
+# then ``goto plrdone``. Stats (DoStats, UltimaMacIF.c:1385-1395) is modal:
+# the member's turn ends only after the closing key, and with gUpdateWhere 9
+# FullUpdate (DoWind) does not run while it is up.
+
+
+def test_combat_z_shows_first_and_passes_on_the_closing_key(pygame_setup, asset_mgr):
+    cs = _combat(asset_mgr)
+    first = cs.arena.active_party_member_idx
+    _key(cs, pygame.K_z)
+    assert cs.stats_panel.inspect_index == first
+    assert cs.arena.active_party_member_idx == first  # not passed yet
+    assert not any(m == "Pass" for m in cs.text_log.history)
+    _key(cs, pygame.K_SPACE)  # closes Ztats, swallowed; plrdone
+    assert cs.stats_panel.inspect_index is None
+    assert cs.arena.active_party_member_idx != first or cs.arena.is_finished
+
+
+def test_combat_ztats_holds_the_wind(pygame_setup, asset_mgr):
+    cs = _combat(asset_mgr)
+    cs.party.wind_direction = Direction.NORTH
+    cs.party.wind_ctr = 5
+    _key(cs, pygame.K_z)
+    for _ in range(200):
+        cs.update(_POLL)
+    assert cs.party.wind_ctr == 5 and cs.party.wind_direction == Direction.NORTH
