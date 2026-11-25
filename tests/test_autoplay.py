@@ -2198,9 +2198,9 @@ def test_planner_never_buys_gems():
     conceit; it's gone. A party headed for the Marks buys torches only."""
     assert not hasattr(Goal, "BUY_GEMS")
     p = _make_party(
-        level=9, exp=2000, gold=2000, food=500, marks=[1, 0, 0, 0],
+        level=9, exp=2000, gold=300, food=500, marks=[1, 0, 0, 0],
         weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC,
-    )
+    )  # gold under an Ambrosia trip's (item 7)
     for m in p.members:
         m.gems, m.torches = 0, 4
     assert evaluate_goal(p, 0) == Goal.GET_REMAINING_MARKS

@@ -648,6 +648,130 @@ def every_living_has_mark(party: Party, mark_idx: int) -> bool:
     return all(m.marks[mark_idx] > 0 for m in party.members if not m.is_dead())
 
 
+# Ambrosia (autoplay round 1, item 7). LairWare SpawnMonster returns when
+# Party[3] != 0, so Ambrosia spawns nothing: it loads the same monster
+# table at the same tiles on every visit (OverworldScreen.
+# _load_ambrosia_monsters; tests pin this copy against the map), all
+# hunting. A pirate fought from land comes as a thief.
+AMBROSIA_MONSTERS: tuple[tuple[str, int, int], ...] = (
+    ("dragon", 31, 6), ("dragon", 32, 6), ("pincher", 45, 11), ("jester", 46, 9),
+    ("daemon", 6, 61), ("pirate", 43, 60), ("pirate", 35, 10), ("horse", 12, 27),
+    ("horse", 12, 28), ("pirate", 18, 56), ("pincher", 38, 58), ("daemon", 5, 37),
+    ("skeleton", 5, 44), ("skeleton", 9, 44), ("balron", 10, 10), ("balron", 51, 35),
+)
+AMBROSIA_ARRIVAL = (32, 54)
+AMBROSIA_EXIT = (32, 58)
+# Card sites and shrines share the four tiles (controller._AMBROSIA_CARD_
+# SITES, _SHRINE_SITES): card index / shrine stat -> tile.
+AMBROSIA_CARD_TILES = {0: (55, 27), 1: (45, 52), 2: (6, 6), 3: (4, 36)}
+AMBROSIA_SHRINE_TILES = {"wisdom": (55, 27), "intelligence": (6, 6),
+                         "strength": (4, 36), "dexterity": (45, 52)}
+# A hunter this close to the route meets the party: the same 8 tiles the
+# surface counts as chasing (controller._CHASE_RADIUS). A hunter closes one
+# tile a turn and the party lingers at each site (joining gold, entering,
+# offering, searching), so one within 8 of a leg or a site gets there.
+AMBROSIA_REACH = 8
+# The front member's share of one fight (as the deep-mark gate, item 3):
+# 8 average hits of the hardest monster met, plus the 50 HP flee line.
+AMBROSIA_HITS = 8
+# Ambrosia's location bonus on every monster hit (resolver.
+# monster_damage_bonus: Party[3] 255 -> +48).
+AMBROSIA_HIT_BONUS = 48
+
+
+def _segment_distance(p, a, b) -> int:
+    """Chebyshev distance from p to the straight segment a-b (sampled per
+    tile; the walk bends round walls, the reach covers that)."""
+    steps = max(abs(b[0] - a[0]), abs(b[1] - a[1]), 1)
+    best = 10_000
+    for k in range(steps + 1):
+        x = a[0] + (b[0] - a[0]) * k // steps
+        y = a[1] + (b[1] - a[1]) * k // steps
+        best = min(best, max(abs(p[0] - x), abs(p[1] - y)))
+    return best
+
+
+def ambrosia_route(party: Party) -> list[tuple[int, int]]:
+    """The trip's waypoints: arrival, each card site a living member still
+    lacks and each shrine a return-trip SHRINE_PLAN step needs (nearest
+    next), then the exit."""
+    living = [m for m in party.members if not m.is_dead()]
+    sites = {
+        tile for idx, tile in AMBROSIA_CARD_TILES.items()
+        if not any(m.cards[idx] > 0 for m in living)
+    }
+    for profs, stat, cap_attr, target in SHRINE_PLAN[:RETURN_TRIP_STEPS]:
+        if any(
+            m.profession in profs and getattr(m, stat, 0) < min(target, stat_cap(m, cap_attr))
+            for m in living
+        ):
+            sites.add(AMBROSIA_SHRINE_TILES[stat])
+    route = [AMBROSIA_ARRIVAL]
+    while sites:
+        here = route[-1]
+        nxt = min(sites, key=lambda t: (abs(t[0] - here[0]) + abs(t[1] - here[1]), t))
+        sites.discard(nxt)
+        route.append(nxt)
+    route.append(AMBROSIA_EXIT)
+    return route
+
+
+def ambrosia_threats(route: list[tuple[int, int]]) -> list[str]:
+    """Monster types (pirates as thieves) whose start tile lies within
+    AMBROSIA_REACH of the route. A pirate always counts: the way out is a
+    pirate's ship, taken in a fight."""
+    found = {"thief"}
+    legs = list(zip(route, route[1:])) or [(route[0], route[0])]
+    for kind, x, y in AMBROSIA_MONSTERS:
+        if any(_segment_distance((x, y), a, b) <= AMBROSIA_REACH for a, b in legs):
+            found.add("thief" if kind == "pirate" else kind)
+    return sorted(found)
+
+
+def ambrosia_hp_need(kind: str, max_hp: int) -> int:
+    """Max HP a member needs against ``kind`` on Ambrosia: AMBROSIA_HITS
+    average hits (RandNum(0, (monhpstart / 8 + max HP / 100) | 1) + 1 + 48)
+    plus the flee line."""
+    from py_exodus.combat.resolver import LW_MONHPSTART, LW_TILE_INDEX
+
+    ceiling = (LW_MONHPSTART[LW_TILE_INDEX[kind] & 0x0F] // 8 + max_hp // 100) | 1
+    avg = -(-ceiling // 2) + 1 + AMBROSIA_HIT_BONUS
+    return AMBROSIA_HITS * avg + DEEP_GATE_FLOOR
+
+
+def ambrosia_ready(party: Party) -> bool:
+    """The weakest living member's max HP holds the hardest fight the
+    trip's route meets."""
+    threats = ambrosia_threats(ambrosia_route(party))
+    return all(
+        m.max_hp >= ambrosia_hp_need(kind, m.max_hp)
+        for m in party.members if not m.is_dead()
+        for kind in threats
+    )
+
+
+def _ambrosia_trip_goal(party: Party, living: list) -> Goal | None:
+    """Item 7 (user 2026-11-25): with Kings, the gold for a full trip
+    (ambrosia_trip_gold: the shrine budget plus the food and keys still to
+    buy) and a reason (a card missing, or a return-trip SHRINE_PLAN step
+    left), go to Ambrosia now, before or between the marks, and again on
+    every later fill: gold left unspent is eaten by food on long grinds.
+    Everyone alive and strong enough for the route's fights."""
+    has_all_cards = all(any(m.cards[i] > 0 for m in living) for i in range(4))
+    if has_all_cards and next_shrine_goal(party, RETURN_TRIP_STEPS) is None:
+        return None
+    if len(living) < len(party.members) or party.gold < ambrosia_trip_gold(party):
+        return None
+    if not ambrosia_ready(party):
+        return None
+    keys = sum(m.keys for m in living)
+    if keys < AMBROSIA_CARD_KEYS:
+        return Goal.BUY_KEYS
+    if any(m.food < AMBROSIA_ENTRY_FOOD for m in living):
+        return Goal.BUY_FOOD
+    return Goal.SAIL_WHIRLPOOL
+
+
 def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
     """Inspect live Party state and return the active progression milestone."""
     if getattr(party, "exodus_defeated", 0) > 0 or getattr(party, "exodus_cards_status", 0) == 0xF:
@@ -784,6 +908,13 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
     # dead members and no gold for a healer must not loop at the dig site.
     if not living_has_exotics:
         return Goal.DIG_EXOTICS
+
+    # Ambrosia as soon as the gold is there (item 7), not inside a dungeon
+    # (a mark trip is seen through) or Castle Exodus.
+    if cur_map_id not in (2, 14, 15, 16, 17, 18, 19, 20):
+        trip_goal = _ambrosia_trip_goal(party, living)
+        if trip_goal is not None:
+            return trip_goal
 
     if not has_remaining_marks:
         if cur_map_id not in (13, 15, 16, 17, 18, 19, 20):

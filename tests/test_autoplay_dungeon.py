@@ -416,3 +416,106 @@ def test_surface_rests_before_entering_a_mark_dungeon_under_the_bar(am, monkeypa
     monkeypatch.setattr(ctrl, "_evade_or_rest", lambda *_a, **_k: None)
     ctrl._step_overworld(sm, ow, party, 44, 20, Goal.GET_REMAINING_MARKS)
     assert rested
+
+
+# --- Item 7: Ambrosia as soon as the gold is there ----------------------------------
+
+
+def test_ambrosia_monster_table_matches_the_map(am):
+    """planner.AMBROSIA_MONSTERS is the table Ambrosia loads every visit."""
+    from py_exodus.autoplay.planner import AMBROSIA_MONSTERS
+    from py_exodus.screens.overworld import OverworldScreen
+
+    dmap = load_map(13, am)
+    loaded = sorted(
+        (OverworldScreen._AMBROSIA_MONSTER_TILES[n.tile_index], n.x, n.y)
+        for n in dmap.npcs
+        if getattr(n, "tile_index", -1) in OverworldScreen._AMBROSIA_MONSTER_TILES
+    )
+    assert loaded == sorted(AMBROSIA_MONSTERS)
+
+
+def _trip_party(level: int = 6, gold: int = 6000):
+    """Kings and exotics, no other mark, no card, fed, 8 keys."""
+    party = _party(level=level, marks=(1, 0, 0, 0))
+    party.map_id = 0
+    for m in party.members:
+        m.keys = 2
+        m.food = 300
+    party.gold = gold
+    return party
+
+
+def test_ambrosia_threats_follow_the_route():
+    from py_exodus.autoplay.planner import ambrosia_route, ambrosia_threats
+
+    party = _trip_party()
+    route = ambrosia_route(party)
+    assert route[0] == (32, 54) and route[-1] == (32, 58)
+    assert {(55, 27), (45, 52), (6, 6), (4, 36)} <= set(route)
+    assert {"balron", "daemon", "thief"} <= set(ambrosia_threats(route))
+    # Only the Dexterity shrine (45, 52): the pincher at (38, 58) and a
+    # pirate, nothing from the far side of the island.
+    short = [(32, 54), (45, 52), (32, 58)]
+    assert ambrosia_threats(short) == ["pincher", "thief"]
+
+
+def test_ambrosia_strength_gate():
+    """8 average hits on Ambrosia (+48 a hit) plus the flee line: a Balron
+    on the route needs 594 max HP at level 6 (ceiling (30 + 6) | 1 = 37:
+    19 + 1 + 48 = 68 a hit), so level 5 (550) waits and 6 (650) goes."""
+    from py_exodus.autoplay.planner import ambrosia_hp_need, ambrosia_ready
+
+    assert ambrosia_hp_need("balron", 650) == 594
+    assert not ambrosia_ready(_trip_party(level=5))
+    assert ambrosia_ready(_trip_party(level=6))
+
+
+def test_ambrosia_before_the_marks_once_the_gold_is_there():
+    from py_exodus.autoplay.planner import Goal, ambrosia_trip_gold, evaluate_goal
+
+    party = _trip_party()
+    assert party.gold >= ambrosia_trip_gold(party)
+    assert evaluate_goal(party, 0) == Goal.SAIL_WHIRLPOOL
+    # Short of the gold: the mark plan (here the level-9 grind) as before.
+    party.gold = ambrosia_trip_gold(party) - 1
+    assert evaluate_goal(party, 0) == Goal.GRIND_AND_LEVEL
+    # Keys and food first, as the card trip always did.
+    party = _trip_party()
+    party.members[0].keys = 0
+    assert evaluate_goal(party, 0) == Goal.BUY_KEYS
+    # Never out of a mark dungeon for it, and never before Kings.
+    party = _trip_party()
+    assert evaluate_goal(party, 17) != Goal.SAIL_WHIRLPOOL
+    party.members[2].marks[0] = 0
+    assert evaluate_goal(party, 0) != Goal.SAIL_WHIRLPOOL
+
+
+def test_ambrosia_waits_for_the_weakest_member():
+    from py_exodus.autoplay.planner import Goal, evaluate_goal
+
+    party = _trip_party()
+    cleric = party.members[2]
+    cleric.level, cleric.max_hp = 4, 450
+    cleric.hp = 450
+    assert evaluate_goal(party, 0) == Goal.GRIND_AND_LEVEL
+
+
+def test_a_second_ambrosia_trip_after_the_first():
+    """Back from a first trip (all cards, part of the stats bought, gold
+    spent): the mark plan resumes; with the gold again, a second trip."""
+    from py_exodus.autoplay.planner import Goal, ambrosia_trip_gold, evaluate_goal
+
+    party = _trip_party(gold=400)
+    for m in party.members:
+        m.cards = [1, 1, 1, 1]
+    party.members[2].wisdom = 60  # the plan's first steps are not all done
+    assert evaluate_goal(party, 0) == Goal.GRIND_AND_LEVEL
+    party.gold = ambrosia_trip_gold(party)
+    assert evaluate_goal(party, 0) == Goal.SAIL_WHIRLPOOL
+    # The plan done (every return-trip step met): no trip, whatever the gold.
+    from tests.test_autoplay import _max_shrine_stats
+
+    _max_shrine_stats(party)
+    party.gold = 9000
+    assert evaluate_goal(party, 0) != Goal.SAIL_WHIRLPOOL
