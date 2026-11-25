@@ -283,8 +283,10 @@ class CombatArena:
         self.active_party_member_idx: int = self._find_first_eligible_member_idx()
 
         # LairWare combatstart (UltimaSpellCombat.c:920-921): the first
-        # round opens with AgeChars too.
+        # round opens with AgeChars too; a member it kills does not take the
+        # first turn, so the first eligible member is found again.
         self._age_round()
+        self.active_party_member_idx = self._find_first_eligible_member_idx()
 
         # Check immediate end conditions (e.g. empty party)
         if not self._get_living_party_members():

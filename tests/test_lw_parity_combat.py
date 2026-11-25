@@ -969,3 +969,24 @@ def test_monmagic_random_slot_good_only(monkeypatch):
     monkeypatch.setattr(resolver.random, "randint", _Script(4, 0))  # slot 0, then Poison
     res = resolver.try_monster_magic_poke(mon, [good, sick])
     assert res is not None and good.status == _S.POISONED
+
+
+def test_combat_start_tick_death_does_not_take_the_first_turn(asset_mgr):
+    """combatstart (UltimaSpellCombat.c:920-923) runs AgeChars before the
+    party's moves; a member the opening tick kills (poison or starving) is
+    out before the first turn is handed out (fix round 1)."""
+    from py_exodus.constants import Status
+
+    party = Party(transport=Transport.FOOT)
+    weak = Character("Weak", "M", hp=1, max_hp=300, food=0, status=Status.POISONED)
+    weak.submorsels = 0
+    strong = Character("Strong", "M", hp=300, max_hp=300)
+    party.add_member(weak)
+    party.add_member(strong)
+    party.x, party.y = 44, 20
+    arena = CombatArena(
+        party, MapLoader(asset_mgr).load_conflict_map("CNFLCT_A.ULT"),
+        creature_tile="orc", asset_mgr=asset_mgr, monster_count=1,
+    )
+    assert party.members[0].is_dead()
+    assert arena.active_party_member_idx == 1

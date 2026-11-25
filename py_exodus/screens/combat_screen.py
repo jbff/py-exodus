@@ -270,7 +270,7 @@ class CombatScreen(BaseScreen):
             self._prompt_attack()
         elif event.key == pygame.K_c:  # Cast command
             self._prompt_cast()
-        elif event.key == pygame.K_n:  # Negate time: burn a powder for QUICKNESS 6
+        elif event.key == pygame.K_n:  # Negate time: burn a powder for QUICKNESS 10
             self._negate_time()
         elif event.key == pygame.K_r:  # Ready weapon
             self._prompt_ready_weapon()
