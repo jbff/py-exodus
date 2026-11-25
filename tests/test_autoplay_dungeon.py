@@ -139,11 +139,11 @@ def test_cure_fountain_cures_the_poisoned_only(am, monkeypatch):
 
 
 def test_hurt_party_heals_at_a_fountain_before_leaving(am):
-    """Hurt on level 2 (z 1), on the way out: the heal fountain at
-    (13, 5, 1) comes before the exit."""
+    """Hurt on level 2 (z 1) under the level's bar (276 of 950), on the way
+    out: the heal fountain at (13, 5, 1) comes before the exit."""
     party = _party(marks=(1, 1, 0, 1))  # nothing wanted here: heading out
     for m in party.members:
-        m.hp = m.max_hp // 2
+        m.hp = 250
     sm, ds = _dungeon(am, party, FIRE, (11, 5, 1))
     ctrl = AutoPlayController(enabled=True)
     for _ in range(80):
@@ -519,3 +519,60 @@ def test_a_second_ambrosia_trip_after_the_first():
     _max_shrine_stats(party)
     party.gold = 9000
     assert evaluate_goal(party, 0) != Goal.SAIL_WHIRLPOOL
+
+
+def test_a_slightly_hurt_party_does_not_detour_to_a_heal_fountain(am):
+    """A few HP short (90%) is no real need: no detour to (13, 5, 1)."""
+    party = _party(marks=(1, 1, 0, 1))
+    for m in party.members:
+        m.hp = m.max_hp * 9 // 10
+    sm, ds = _dungeon(am, party, FIRE, (11, 5, 1))
+    ds.state.torchtime = 255
+    ctrl = AutoPlayController(enabled=True)
+    for _ in range(30):
+        ctrl.step(sm)
+        assert (ds.state.x, ds.state.y, ds.state.z) != (13, 5, 1)
+
+
+def test_poisoned_party_cures_instead_of_pacing_to_a_heal_fountain(am):
+    """Live trace 2026-11-25 (trace_20261125-173226, ~5,000 steps): Fires of
+    Hell z 4, the whole party poisoned at ~97% HP, the Cleric at 4 MP, Fire
+    held and Force wanted. It walked to the heal fountain (1, 1, 4), drank,
+    walked toward the mark, lost a few HP to poison and went back. Now it
+    goes to the nearest cure fountain (any level) and never paces."""
+    party = _party(marks=(1, 1, 0, 0))
+    for m in party.members:
+        m.status = Status.POISONED
+        m.hp = m.max_hp - 34  # 916 of 950, as in the trace
+        m.mp = 0
+    party.members[2].mp = 4
+    sm, ds = _dungeon(am, party, FIRE, (1, 4, 4))
+    ds.state.torchtime = 255
+    ctrl = AutoPlayController(enabled=True)
+    visits, was_on = 0, False
+    for _ in range(600):
+        ctrl.step(sm)
+        for m in party.members:  # poison and the fights on the way (trace)
+            if m.status == Status.POISONED:
+                m.hp -= 2
+        on = (ds.state.x, ds.state.y, ds.state.z) == (1, 1, 4)
+        visits += on and not was_on
+        was_on = on
+        if all(m.status == Status.GOOD for m in party.members):
+            break
+    assert visits <= 1
+    assert all(m.status == Status.GOOD for m in party.members)
+
+
+def test_poison_cured_by_alcort_when_the_cleric_has_35_mp(am):
+    party = _party(marks=(1, 1, 0, 0))
+    party.members[0].status = Status.POISONED
+    party.members[2].mp = 35
+    sm, ds = _dungeon(am, party, FIRE, (1, 4, 4))
+    ds.state.torchtime = 255
+    ctrl = AutoPlayController(enabled=True)
+    for _ in range(6):
+        ctrl.step(sm)
+        if party.members[0].status == Status.GOOD:
+            break
+    assert party.members[0].status == Status.GOOD

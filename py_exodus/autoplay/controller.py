@@ -675,9 +675,21 @@ class AutoPlayController:
         else:
             self._retreating = False
 
-        # A heal or cure fountain on this level or the next one up or down
-        # comes before leaving: free, and no MP spent (autoplay round 1,
-        # item 1). Not while anyone starves (that leaves at once, below).
+        # Poison: ALCORT on the spot when a Cleric or Druid has the 35 MP.
+        poisoned = next(
+            (i + 1 for i, m in enumerate(party.members) if not m.is_dead() and m.status == Status.POISONED),
+            None,
+        )
+        if poisoned is not None:
+            alcort = self._find_caster(party, (Profession.CLERIC, Profession.DRUID), min_mp=35)
+            if alcort is not None:
+                self._queue_text(self._cleric_cast(party, alcort[0], f"h{poisoned}"), enter=False)
+                return self._emit_key(state_machine, pygame.K_c)
+
+        # A cure fountain (poison, any level, nearest by steps) or a heal
+        # fountain (a real HP need, this level or one up or down) comes
+        # before leaving: free, and no MP spent (autoplay round 1, item 1).
+        # Not while anyone starves (that leaves at once, below).
         if not any(not m.is_dead() and m.food <= 0 for m in party.members):
             fountains = self._fountain_goals(party, dmap, screen.state.z)
             here = (screen.state.x, screen.state.y, screen.state.z)
@@ -3622,11 +3634,15 @@ class AutoPlayController:
             return next((n for n, m in living if m.status == Status.POISONED), None)
         return None
 
-    def _wants_heal_fountain(self, party) -> bool:
-        """The party would drink from a heal fountain on its way: hurt, a
-        member who lacks a wanted mark is not safe for its rod (item 2), or
-        turning back (item 5)."""
-        return needs_heal(party) or self._rod_heal_wanted or self._retreating
+    def _wants_heal_fountain(self, party, z: int) -> bool:
+        """A real HP need: a living member under item 5's bar for this
+        level (dungeon_hp_need), a member who lacks a wanted mark is not
+        safe for its rod (item 2), or turning back (item 5)."""
+        return (
+            self._rod_heal_wanted
+            or self._retreating
+            or any(not m.is_dead() and m.hp < dungeon_hp_need(m, z) for m in party.members)
+        )
 
     def _dungeon_heal_cast(self, party, mark_z: int) -> str | None:
         """Keys after C to heal the living member furthest under the mark
@@ -3648,22 +3664,28 @@ class AutoPlayController:
         return None
 
     def _fountain_goals(self, party, dmap, z: int) -> set[tuple[int, int, int]]:
-        """Heal fountains (when the party wants healing) and cure fountains
-        (when someone is poisoned) on level ``z`` or one level from it. The
-        loader types each fountain by x & 3, so autoplay knows them all."""
+        """Fountains worth walking to (the loader types each by x & 3, so
+        autoplay knows them all).
+
+        Poison wants a CURE fountain, on any level: the route search takes
+        the nearest by steps, ladders counted. A heal fountain never cures,
+        so poison alone never sends the party to one (live trace
+        2026-11-25, trace_20261125-173226: a poisoned party at 97% walked
+        back and forth to a heal fountain for ~5,000 steps). A HEAL fountain
+        on this level or the next one up or down only for a real HP need
+        (_wants_heal_fountain); drinking fills HP far over that bar, so the
+        fountain and the mark never take turns."""
         living = [m for m in party.members if not m.is_dead()]
-        kinds: set[DungeonTile] = set()
+        goals: set[tuple[int, int, int]] = set()
         if any(m.status == Status.POISONED for m in living):
-            kinds.add(DungeonTile.FOUNTAIN_CURE)
-        if self._wants_heal_fountain(party):
-            kinds.add(DungeonTile.FOUNTAIN_HEAL)
-        if not kinds:
-            return set()
-        return {
-            (x, y, fz)
-            for x, y, fz in self._find_dungeon_tiles(dmap, kinds)
-            if abs(fz - z) <= self._FOUNTAIN_LEVELS
-        }
+            goals |= self._find_dungeon_tiles(dmap, {DungeonTile.FOUNTAIN_CURE})
+        if self._wants_heal_fountain(party, z):
+            goals |= {
+                (x, y, fz)
+                for x, y, fz in self._find_dungeon_tiles(dmap, {DungeonTile.FOUNTAIN_HEAL})
+                if abs(fz - z) <= self._FOUNTAIN_LEVELS
+            }
+        return goals
 
     @staticmethod
     def _find_dungeon_tiles(dmap, tiles: set[DungeonTile]) -> set[tuple[int, int, int]]:
