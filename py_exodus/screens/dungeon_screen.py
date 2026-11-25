@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 import pygame
 
 from py_exodus import debug
-from py_exodus.assets import MAP_ID_TO_LABEL, MAP_NAME_TO_ID
+from py_exodus.assets import MAP_NAME_TO_ID
 from py_exodus.constants import (
     BASE_HEIGHT,
     BASE_WIDTH,
@@ -83,7 +83,6 @@ class DungeonScreen(BaseScreen):
         self.map_id = map_id
 
         # Load map if not provided
-        was_injected = dungeon_map is not None
         self.dungeon_map = dungeon_map
         if self.dungeon_map is None and self.asset_mgr is not None:
             self._load_map()
@@ -118,22 +117,9 @@ class DungeonScreen(BaseScreen):
         # toggles it.
         self.show_minimap = True
 
-        raw_id = getattr(self.dungeon_map, "id", None)
-        if not was_injected and raw_id is None:
-            raw_id = self.map_id
-        lookup_id: int | None = None
-        if raw_id is not None:
-            try:
-                lookup_id = int(raw_id)
-            except (TypeError, ValueError):
-                lookup_id = MAP_NAME_TO_ID.get(str(raw_id).upper())
-        label = (
-            MAP_ID_TO_LABEL.get(lookup_id)
-            if lookup_id is not None and lookup_id != 0
-            else None
-        ) or getattr(self.dungeon_map, "name", "Dungeon")
-        self.text_log.add_message(f"Entering {label}!")
-        self.text_log.add_message("Level 1. Darkness surrounds thee.")
+        # LairWare Enter (UltimaMain.c:1424-1434): "Enter " (Messages 32)
+        # then "dungeon!" (33), nothing more (user ruling 2026-11-25).
+        self.text_log.add_message("Enter dungeon!")
 
     def _load_map(self) -> None:
         try:

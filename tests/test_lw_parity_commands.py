@@ -1157,3 +1157,46 @@ def test_walking_into_a_door_does_not_open_it(which, town, overworld, asset_mgr)
     assert after == before
     tx, ty = (33, 32) if which == "town" else (41, 40)
     assert scr.game_map.get_tile(tx, ty).name == "locked_door"
+
+
+# --- Enter wording (user ruling 2026-11-25: LW's exact message) -------------------
+
+
+def _log_text(scr) -> str:
+    return " ".join(" ".join(scr.text_log.history).split())
+
+
+@pytest.mark.parametrize("map_id, word", [
+    (1, "castle"), (2, "castle"),  # Sosaria tile 0x0E (castle) at (45, 18), (10, 53)
+    (3, "town"), (4, "town"), (5, "town"), (6, "town"), (7, "town"), (8, "town"),
+    (9, "town"), (10, "town"), (11, "town"), (12, "town"),  # tile 0x0C (town)
+])
+def test_enter_town_or_castle_wording(town, map_id, word):
+    """UltimaMain.c:1435-1456: ``Enter `` (Messages 32) then ``town!`` (34)
+    on a town tile (0x0C) or ``castle!`` (35) on a castle tile (0x0E).
+    Death Gulch and Dawn stand on town tiles. The port printed
+    "Entering <label>!" and "Guards and citizens walk the streets." (its
+    first scaffolding, 70acfbe; neither LW nor Java)."""
+    text = _log_text(town(map_id=map_id))
+    assert f"Enter {word}!" in text
+    assert "Entering" not in text and "Guards and citizens" not in text
+
+
+def test_enter_dungeon_wording(pygame_setup, asset_mgr):
+    """UltimaMain.c:1424-1434: ``Enter `` (32) then ``dungeon!`` (33), and
+    nothing else; the port's "Entering <label>!" and "Level 1. Darkness
+    surrounds thee." came from its scaffolding (70acfbe)."""
+    from py_exodus.screens.dungeon_screen import DungeonScreen
+
+    p, _ = _card_party()
+    for map_id in (14, 15, 20):
+        text = _log_text(DungeonScreen(party=p, map_id=map_id, asset_mgr=asset_mgr))
+        assert text == "Enter dungeon!"
+
+
+def test_enter_shrine_wording(overworld):
+    """UltimaMain.c:1466-1470: ``Enter `` (32) then ``shrine!\\nWho
+    enters?-`` (36) on an Ambrosia shrine."""
+    from py_exodus.world import shrine
+
+    assert (shrine.MSG_WHO, shrine.PROMPT_WHO) == ("Enter shrine!", "Who enters?-")

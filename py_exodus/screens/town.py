@@ -9,7 +9,6 @@ import pygame
 
 from py_exodus import debug
 from py_exodus.aura import AuraType
-from py_exodus.assets import MAP_ID_TO_LABEL
 from py_exodus.combat.magic import prompt_cast_party
 from py_exodus.constants import (
     Direction,
@@ -69,6 +68,10 @@ def town_combat_map_id(creature: Any, party_pos: tuple[int, int], game_map: Any)
     px, py = party_pos
     return get_combat_map_id(creature, px, py, px, py, Transport.FOOT, game_map)
 
+#: Maps entered from a Sosaria castle tile (0x0E): LW prints "Enter castle!".
+CASTLE_MAP_IDS = frozenset({"1", "2"})
+
+
 class TownScreen(BaseScreen):
     """Town and castle navigation screen supporting NPC dialogues and vendor shopping."""
 
@@ -119,23 +122,13 @@ class TownScreen(BaseScreen):
         self.creatures: list[dict[str, Any]] = []
         self._combat_npc: Any = None
 
-        # Playtest-1 fix (item 3): Java logs "Entering " + Maps.getLabel()
-        # + "!" (GameScreen.java:334) from the enum label table
-        # (exodus/Constants.java:47-71); the maps.xml name attribute plays
-        # no part (neither the Java nor the port XML has one). Map 3's enum
-        # key is LCB, so the old .title() of GameMap.name printed
-        # "Entering Lcb..." — the player-facing label is "Britain".
-        game_map_id = getattr(self.game_map, "id", None)
-        lookup_id: int | None = (
-            int(game_map_id) if game_map_id is not None else None
-        )
-        label = (
-            MAP_ID_TO_LABEL.get(lookup_id)
-            if lookup_id is not None
-            else None
-        ) or str(getattr(self.game_map, "name", map_id)).title()
-        self.text_log.add_message(f"Entering {label}!")
-        self.text_log.add_message("Guards and citizens walk the streets.")
+        # LairWare Enter (UltimaMain.c:1435-1456): "Enter " (Messages 32)
+        # then "town!" (34) on a town tile (0x0C) or "castle!" (35) on a
+        # castle tile (0x0E). On Sosaria only Castle British (45, 18) and
+        # Castle Exodus (10, 53) stand on castle tiles; Death Gulch and Dawn
+        # are towns (user ruling 2026-11-25: LW's exact wording).
+        word = "castle" if str(self.map_id) in CASTLE_MAP_IDS else "town"
+        self.text_log.add_message(f"Enter {word}!")
 
     def _load_town_map(self) -> None:
         if self.asset_mgr is None:

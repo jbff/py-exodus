@@ -1263,43 +1263,17 @@ class TestDungeonMealCadence:
         assert via_meals.moves == 0
 
 
-def test_dungeon_entry_uses_java_map_label(pygame_setup, asset_mgr, test_party, empty_dmap):
-    """Item 38: DungeonScreen logs Java MAP_ID_TO_LABEL ('Entering Dardin's Pit!'),
-    and falls back to dungeon_map.name when an injected map has no label entry."""
-    dardin = DungeonScreen(party=test_party, map_id=15, asset_mgr=asset_mgr)
-    joined_dardin = " ".join(" ".join(dardin.text_log.history).split())
-    assert "Entering Dardin's Pit!" in joined_dardin
-    assert "Entering DARDIN" not in joined_dardin
-
-    # Injected dungeon_map with id=99 and default map_id=14 must NOT leak Perinian Depths.
-    injected = DungeonScreen(party=test_party, dungeon_map=empty_dmap, asset_mgr=asset_mgr)
-    joined_injected = " ".join(" ".join(injected.text_log.history).split())
-    assert "Entering TestDungeon!" in joined_injected
-    assert "Perinian Depths" not in joined_injected
-
-    # Fallback map when asset_mgr is None still uses map_id's Java label (not Sosaria).
-    fallback_dardin = DungeonScreen(party=test_party, map_id=15, asset_mgr=None)
-    joined_fallback = " ".join(" ".join(fallback_dardin.text_log.history).split())
-    assert "Entering Dardin's Pit!" in joined_fallback
-    assert "Sosaria" not in joined_fallback
-
-    # Injected DungeonMap with default id=0 or id=None uses its own name.
-    custom_default = DungeonScreen(
-        party=test_party,
-        dungeon_map=DungeonMap(name="CustomDefaultId"),
-        asset_mgr=asset_mgr,
-    )
-    assert "Entering CustomDefaultId!" in " ".join(
-        " ".join(custom_default.text_log.history).split()
-    )
-    custom_none = DungeonScreen(
-        party=test_party,
-        dungeon_map=DungeonMap(id=None, name="CustomNoneId"),
-        asset_mgr=asset_mgr,
-    )
-    assert "Entering CustomNoneId!" in " ".join(
-        " ".join(custom_none.text_log.history).split()
-    )
+def test_dungeon_entry_prints_lairware_enter_dungeon(pygame_setup, asset_mgr, test_party, empty_dmap):
+    """LairWare Enter (UltimaMain.c:1424-1434): "Enter dungeon!" for every
+    dungeon, loaded, injected or without assets (user ruling 2026-11-25;
+    replaces the port's "Entering <label>!")."""
+    for scr in (
+        DungeonScreen(party=test_party, map_id=15, asset_mgr=asset_mgr),
+        DungeonScreen(party=test_party, dungeon_map=empty_dmap, asset_mgr=asset_mgr),
+        DungeonScreen(party=test_party, map_id=15, asset_mgr=None),
+        DungeonScreen(party=test_party, dungeon_map=DungeonMap(id=None, name="X"), asset_mgr=asset_mgr),
+    ):
+        assert scr.text_log.history == ["Enter dungeon!"]
 
 
 def test_dungeon_climb_out_logs_exit_message_once(pygame_setup, asset_mgr, test_party, empty_dmap):

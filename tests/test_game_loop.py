@@ -1464,21 +1464,13 @@ def test_overworld_wandering_creatures(pygame_setup, asset_mgr, sample_party):
     assert overworld.is_finished or overworld.next_screen is not None
 
 
-def test_town_entry_uses_java_map_label(pygame_setup, asset_mgr, sample_party):
-    """Playtest-1 item 3: Java prints "Entering " + Maps.getLabel() + "!"
-    (GameScreen.java:334) from the hard-coded enum table
-    (exodus/Constants.java:47-71) — the maps.xml has NO name attribute in
-    Java either. Entering Britain (map 3, fname lcb.json) must log
-    "Entering Britain!", never "Entering Lcb...". Every city/castle gets the
-    Java label: British -> "Castle of Lord British", LCB -> "Britain",
-    Exodus -> "Castle of Death"."""
-    for map_id, expected in ((3, "Entering Britain!"), (1, "Entering Castle of Lord British!")):
+def test_town_entry_prints_lairware_enter_wording(pygame_setup, asset_mgr, sample_party):
+    """LairWare Enter (UltimaMain.c:1435-1456): "Enter town!" for Britain
+    (map 3, fname lcb.json), "Enter castle!" for Castle British (user ruling
+    2026-11-25; replaces the port's "Entering <label>!" pair)."""
+    for map_id, expected in ((3, "Enter town!"), (1, "Enter castle!")):
         town = TownScreen(party=sample_party, map_id=map_id, asset_mgr=asset_mgr)
-        # the TextLog wraps long lines; compare on whitespace-normalized text
-        joined = " ".join(" ".join(town.text_log.history).split())
-        assert expected in joined
-        if map_id == 3:
-            assert "Entering Lcb" not in joined
+        assert town.text_log.history[-1] == expected
 
 
 def test_town_pass_and_ztats(pygame_setup, asset_mgr, sample_party):
