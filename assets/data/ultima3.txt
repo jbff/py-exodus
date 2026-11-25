@@ -11,16 +11,16 @@ H) Hand Equipment: Trades equipment between two players. Followed by prompts to 
 I) Ignite a Torch: Lights a given player's torch.
 J) Join gold: Gives all gold in party to player indicated.
 K) Klimb: Climb up a ladder in a dungeon.
-L) Open a door.
+L) Look: Must be followed by a direction. Names what lies there: the creature standing there (a whole band of them outside towns and castles) or the lay of the land.
 M) Modify Order: Exchanges the positions of any two players within the party.
 N) Negate Time: Stops time for all outside of the party. Requires a special item.
 O) Other Command: Enter any command desired during game play.
 P) Peer at a Gem: Shows players a bird's eye view of a town, castle, dungeon level, or the outside world. One viewing per gem.
 Q) Quit (and save to disk): Use command to stop playing (from the outside world only) and save your progress to disk. You can resume the game from this point.
 R) Ready Weapon: Equip yourself with a specific weapon for use in combat.
-S) Search: search and look in the area for anything.
+S) Steal: Must be followed by the number of the player who will try and the direction of a shop counter. A deft thief may take the chest that lies beyond the counter; a clumsy one may bring the guards. Not a dungeon command: below ground, fountains, the red-hot rod and other wonders call upon the party whenever it stands upon them.
 T) Transact: Use to talk to townspeople or trade with merchants.
-U) Unlock: Open doors if you have the key. Must be followed by direction to door and the player whose key is to be used. One use per key.
+U) Unlock: Every door is locked, and this is the only way through one. Must be followed by the player whose key is to be used and the direction to the door (east or west only). The key is used up and the door is gone.
 V) Volume: Toggles sound effects on and off.
 W) Wear Armor: Outfits player with specified armor if owned.
 X) X-it: Leave behind or dismount your current transport and travel on foot.
@@ -30,7 +30,7 @@ Spacebar) Pass one game turn without taking any action. Food is consumed.
 
 PY-EXODUS NAVIGATION & HOTKEYS
 
-Arrow Keys / Numpad) Move party (ships must first turn to face the heading; in dungeons DOWN steps backward).
+Arrow Keys / Numpad) Move party (ships sail off in any direction the wind allows; in dungeons DOWN steps backward).
 Enter / Space) Confirm menu choices or advance pages.
 Esc) Cancel a prompt or exit the Book of Lore / subscreen.
 F1) Open or close this Book of Lore, Spell Books, and Command Reference from any screen.

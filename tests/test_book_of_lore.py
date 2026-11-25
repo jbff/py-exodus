@@ -363,3 +363,17 @@ class TestReachability:
 
         scr.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_F1))
         assert scr.is_finished is True
+
+
+def test_command_list_follows_lairware_letters():
+    """LairWare LetterCommand (UltimaMain.c:1160-1195): ``case 'L': Look();``
+    and ``case 'S': Steal();``; there is no Search or Open letter (user
+    ruling 2026-11-25: the Java-sourced list was wrong on S and L)."""
+    from pathlib import Path
+
+    lines = Path("assets/data/ultima3.txt").read_text(encoding="utf-8").splitlines()
+    commands = {ln[0]: ln for ln in lines[:30] if len(ln) > 2 and ln[1] == ")" and ln[0].isalpha()}
+    assert commands["L"].startswith("L) Look")
+    assert commands["S"].startswith("S) Steal")
+    assert not any("Search:" in ln or "Open a door" in ln for ln in commands.values())
+    assert "Unlock" in commands["U"]
