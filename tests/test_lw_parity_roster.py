@@ -236,3 +236,112 @@ def test_old_party_members_link_to_their_records_by_name_once(pygame_setup):
     scr = RosterScreen(party=party, roster=[rec, twin_a, twin_b], asset_mgr=None)
     assert same_record(saved_bors, rec)
     assert saved_aria.roster_slot == 0  # ambiguous: left unlinked
+
+
+# --- R-11 (user ruling Q2): forming a party starts a new game -----------------
+
+
+def _key(scr, k):
+    scr.handle_event(pygame.event.Event(pygame.KEYDOWN, key=k, unicode=""))
+
+
+def _formed(tmp_path, monkeypatch):
+    """A roster of three and a saved party of two (Ariel, Bors) mid-game."""
+    from py_exodus.entities.party import Party
+
+    monkeypatch.chdir(tmp_path)
+    ariel = Character(name="Ariel", profession=Profession.FIGHTER, roster_slot=1)
+    bors = Character(name="Bors", profession=Profession.CLERIC, roster_slot=2)
+    cass = Character(name="Cass", profession=Profession.WIZARD, roster_slot=3)
+    (tmp_path / "saves").mkdir()
+    SaveSystem.save_roster([ariel, bors, cass], tmp_path / "saves" / "roster.json")
+    party = Party()
+    party.add_member(Character.from_dict(ariel.to_dict()))
+    party.add_member(Character.from_dict(bors.to_dict()))
+    party.members[0].character.level = 7
+    party.members[0].character.exp = 650
+    party.x, party.y, party.moves = 10, 11, 5000
+    SaveSystem.save_game(party, tmp_path / "saves" / "party.json")
+    return party
+
+
+def test_formpartydialog_refused_while_a_party_exists(pygame_setup, tmp_path, monkeypatch):
+    """UltimaNew.c:128-134 (FormPartyDialog):
+
+        if (Party[7] != 0) {
+            ...
+            CenterMessage(5, 16);        // "(Party in use)"
+            ...
+            return FALSE;
+
+    While a party exists no other can be formed: the party on the roster
+    screen can't take or lose members, and can't be embarked anew. It has to
+    be dispersed first (user ruling Q2)."""
+    from py_exodus.screens.start import StartScreen
+
+    _formed(tmp_path, monkeypatch)
+    start = StartScreen(asset_mgr=None)
+    start._new_game()
+    scr = start.next_screen
+    assert isinstance(scr, RosterScreen)
+    assert [m.name for m in scr.party.members] == ["Ariel", "Bors"]
+
+    scr.selected_roster_idx = 2  # Cass
+    _key(scr, pygame.K_a)
+    _key(scr, pygame.K_r)
+    _key(scr, pygame.K_e)
+    assert [m.name for m in scr.party.members] == ["Ariel", "Bors"]
+    assert scr.next_screen is None
+    assert any("disperse" in h.lower() for h in scr.text_log.history)
+
+
+def test_disperseparty_returns_the_members_to_their_slots(pygame_setup, tmp_path, monkeypatch):
+    """UltimaMain.c:724-745 (DisperseParty) clears every in-party mark and
+    the party record (``Party[byte] = 0``), "(Dispersed!)". In LairWare the
+    members are the roster records themselves, so what they gained stays on
+    the roster: the port writes each member back into its own slot, removes
+    the saved party, and then a new party can be formed."""
+    from py_exodus.screens.start import StartScreen
+
+    _formed(tmp_path, monkeypatch)
+    start = StartScreen(asset_mgr=None)
+    start._new_game()
+    scr = start.next_screen
+    _key(scr, pygame.K_x)
+    assert scr.party.members == []
+    assert not (tmp_path / "saves" / "party.json").exists()
+    roster = SaveSystem.load_roster(tmp_path / "saves" / "roster.json")
+    assert [(c.name, c.level, c.roster_slot) for c in roster] == [
+        ("Ariel", 7, 1), ("Bors", 1, 2), ("Cass", 1, 3)]
+    assert [c.level for c in scr.roster] == [7, 1, 1]
+
+    scr.selected_roster_idx = 2
+    _key(scr, pygame.K_a)
+    assert [m.name for m in scr.party.members] == ["Cass"]
+
+
+def test_formpartydialog_forming_starts_fresh_on_sosaria(pygame_setup, asset_mgr, tmp_path, monkeypatch):
+    """UltimaNew.c:201-229 (FormPartyDialog, Form): the new party record is
+    cleared, on foot (``Party[1] = 0x7E``), at the start square, with the
+    moves at 0, and ResetSosaria() / GetMiscStuff(0) reset the world. The
+    old game's place, moves and monsters are gone."""
+    from py_exodus.screens.overworld import OverworldScreen
+    from py_exodus.screens.start import StartScreen
+    from py_exodus.state_machine import StateMachine
+
+    _formed(tmp_path, monkeypatch)
+    sm = StateMachine(asset_mgr=asset_mgr, audio=None)
+    start = StartScreen(asset_mgr=asset_mgr, manager=sm)
+    sm.set_screen(start)
+    start._new_game()
+    scr = sm.current_screen
+    _key(scr, pygame.K_x)
+    scr.selected_roster_idx = 0
+    _key(scr, pygame.K_a)
+    _key(scr, pygame.K_RETURN)
+    ow = sm.current_screen
+    assert isinstance(ow, OverworldScreen)
+    p = ow.party
+    assert (p.x, p.y, p.moves) == (44, 20, 0)
+    assert p.members[0].name == "Ariel" and p.members[0].level == 7
+    assert [c["tile_name"] for c in ow.creatures] == ["whirlpool"]

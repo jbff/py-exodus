@@ -310,58 +310,68 @@ class TestLordBritish:
 
 
 # --------------------------------------------------------------------------- #
-# (c) Remove-from-party returns the member to a roster slot
+# (c) A party in use can't lose members; dispersing it returns each member to
+#     its roster slot (LairWare FormPartyDialog UltimaNew.c:128-134,
+#     DisperseParty UltimaMain.c:724-745; user ruling Q2)
 # --------------------------------------------------------------------------- #
 class TestRosterRemoval:
-    def _screen(self, roster, party):
+    def _screen(self, roster, party, monkeypatch, tmp_path):
+        monkeypatch.chdir(tmp_path)
         return RosterScreen(party=party, roster=list(roster), asset_mgr=None)
 
-    def test_removed_member_returns_to_roster(self, pygame_setup):
+    def test_remove_from_a_party_in_use_is_refused(self, pygame_setup, monkeypatch, tmp_path):
         aria = Character(name="Aria", profession=Profession.FIGHTER)
-        roster = [Character(name=f"R{i}", profession=Profession.THIEF) for i in range(3)]
         party = _make_party(aria)
-        scr = self._screen(roster, party)
+        scr = self._screen([], party, monkeypatch, tmp_path)
         scr.focus_panel = "party"
         scr.selected_party_idx = 0
 
         scr._remove_from_party()
 
-        assert len(party.members) == 0
+        assert len(party.members) == 1
+        assert any("disperse" in h.lower() for h in scr.text_log.history)
+
+    def test_dispersed_member_returns_to_roster(self, pygame_setup, monkeypatch, tmp_path):
+        aria = Character(name="Aria", profession=Profession.FIGHTER)
+        roster = [Character(name=f"R{i}", profession=Profession.THIEF) for i in range(3)]
+        party = _make_party(aria)
+        scr = self._screen(roster, party, monkeypatch, tmp_path)
+
+        scr._disperse_party()
+
+        assert len(scr.party.members) == 0
         names = [c.name for c in scr.roster]
         assert "Aria" in names
         assert len(scr.roster) == 4  # appended as a new slot
 
-    def test_removed_member_overwrites_matching_roster_slot(self, pygame_setup):
-        """Java: same-name roster slot is replaced with the party state
-        (ManagePartyScreen.java:355-367), not duplicated."""
+    def test_dispersed_member_overwrites_its_roster_slot(self, pygame_setup, monkeypatch, tmp_path):
+        """The member's own record (matched by slot; a party saved before
+        slots by its one same-named record) takes the party state, not
+        duplicated."""
         roster_aria = Character(name="Aria", profession=Profession.FIGHTER, level=1)
         roster = [roster_aria, Character(name="Bob", profession=Profession.THIEF)]
         party_aria = Character(name="Aria", profession=Profession.FIGHTER, level=3)
         party = _make_party(party_aria)
-        scr = self._screen(roster, party)
-        scr.focus_panel = "party"
-        scr.selected_party_idx = 0
+        scr = self._screen(roster, party, monkeypatch, tmp_path)
 
-        scr._remove_from_party()
+        scr._disperse_party()
 
-        assert len(party.members) == 0
+        assert len(scr.party.members) == 0
         arias = [c for c in scr.roster if c.name == "Aria"]
         assert len(arias) == 1
         assert arias[0].level == 3  # party version carried back
 
-    def test_remove_fails_when_roster_full(self, pygame_setup):
-        """Roster.java holds 20 slots; with no free slot the removal fails and
-        the member stays in the party."""
+    def test_disperse_fails_when_roster_full(self, pygame_setup, monkeypatch, tmp_path):
+        """20 slots; with no free slot for a member without a record nothing
+        is dispersed and the party stays."""
         roster = [Character(name=f"R{i}", profession=Profession.THIEF) for i in range(20)]
         otto = Character(name="Otto", profession=Profession.FIGHTER)
         party = _make_party(otto)
-        scr = self._screen(roster, party)
-        scr.focus_panel = "party"
-        scr.selected_party_idx = 0
+        scr = self._screen(roster, party, monkeypatch, tmp_path)
 
-        scr._remove_from_party()
+        scr._disperse_party()
 
-        assert len(party.members) == 1  # still in the party
+        assert len(scr.party.members) == 1  # still in the party
         assert otto.name not in [c.name for c in scr.roster]
         assert any("roster" in h.lower() for h in scr.text_log.history)
 

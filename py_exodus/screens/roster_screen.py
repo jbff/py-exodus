@@ -86,6 +86,12 @@ class RosterScreen(BaseScreen):
         if party is not None and party.members and party.is_party_dead():
             party = None
         self.party = party or Party(members=[])
+        # LairWare FormPartyDialog (UltimaNew.c:128-134): while a party
+        # exists ("(Party in use)") no other can be formed, and its members
+        # can't be swapped; it must be dispersed first (user ruling Q2). A
+        # party handed to this screen is that existing party; one built here
+        # is a new one being chosen.
+        self.party_formed: bool = bool(self.party.members)
 
         # Load or initialize roster
         if roster is not None:
@@ -101,7 +107,12 @@ class RosterScreen(BaseScreen):
         self.focus_panel: str = "roster"  # "roster" or "party"
 
         self.text_log = TextLog(max_lines=3, wrap_width=45)
-        self.text_log.add_message("Form a party of up to four, then Enter to embark.")
+        if self.party_formed:
+            self.text_log.add_message(
+                "A party is in use: Journey Onward resumes it, [X] disperses it."
+            )
+        else:
+            self.text_log.add_message("Form a party of up to four, then Enter to embark.")
 
         # Creation wizard state
         self._creating_char: bool = False
@@ -216,13 +227,65 @@ class RosterScreen(BaseScreen):
             self._start_create_character()
         elif event.key == pygame.K_d:  # Delete selected character from roster
             self._delete_selected_roster()
+        elif event.key == pygame.K_x:  # Disperse the party (LairWare D)
+            self._disperse_party()
         elif event.key in (pygame.K_e, pygame.K_RETURN, pygame.K_KP_ENTER):  # Embark
             self._embark()
         elif event.key == pygame.K_ESCAPE:  # Exit to start screen
             self.exit_screen()
 
+    def _refuse_party_in_use(self) -> bool:
+        """LairWare's "(Party in use)" (UltimaNew.c:128-134): True, with the
+        message, when a party exists and so none can be formed or changed."""
+        if not self.party_formed:
+            return False
+        self.text_log.add_message("Party in use! Disperse it first with [X].")
+        if self.audio is not None:
+            self.audio.play_sfx("negative")
+        return True
+
+    def _disperse_party(self) -> None:
+        """LairWare DisperseParty (UltimaMain.c:724-745): the party is broken
+        up and its record cleared, "(Dispersed!)"; with none, "(No one
+        there)". LairWare's members are the roster records themselves, so
+        what they gained stays on the roster: each member is written back
+        into its own slot (a member with no record takes a free slot; with
+        none free nothing is dispersed). The saved party is removed, so
+        Journey Onward has nothing to resume (user ruling Q2)."""
+        if not self.party_formed:
+            self.text_log.add_message("No party to disperse.")
+            return
+        members = [m.character for m in self.party.members]
+        homeless = [c for c in members if not any(same_record(r, c) for r in self.roster)]
+        if len(self.roster) + len(homeless) > ROSTER_SLOTS:
+            self.text_log.add_message("No room in the roster for that adventurer!")
+            return
+        for char in members:
+            idx = next((i for i, r in enumerate(self.roster) if same_record(r, char)), None)
+            if idx is None:
+                char.roster_slot = self._free_slot()
+                self.roster.append(char)
+            else:
+                self.roster[idx] = char
+        self.party = Party(members=[])
+        self.party_formed = False
+        self.selected_party_idx = 0
+        try:
+            from py_exodus.save_system import SaveSystem
+
+            Path("saves").mkdir(parents=True, exist_ok=True)
+            SaveSystem.save_roster(self.roster, "saves/roster.json")
+            Path("saves/party.json").unlink(missing_ok=True)
+        except Exception:
+            pass
+        if self.audio is not None:
+            self.audio.play_sfx("trigger")
+        self.text_log.add_message("Party dispersed!")
+
     def _add_selected_to_party(self) -> None:
         """Add highlighted roster member to first available party slot."""
+        if self._refuse_party_in_use():
+            return
         if not self.roster:
             self.text_log.add_message("Roster is empty! Press [C] to create a character.")
             return
@@ -254,6 +317,8 @@ class RosterScreen(BaseScreen):
         (``objects/Roster.java`` holds 20 slots) the removal is refused and
         the member stays in the party.
         """
+        if self._refuse_party_in_use():
+            return
         if not self.party.members:
             self.text_log.add_message("Party has no members to remove.")
             return
@@ -301,7 +366,10 @@ class RosterScreen(BaseScreen):
         from py_exodus.save_system import SaveSystem
 
         Path("saves").mkdir(parents=True, exist_ok=True)
-        SaveSystem.save_game(self.party, "saves/party.json")
+        # A party in use is already saved, with its world; writing it again
+        # from here would drop the world (user ruling Q2).
+        if not self.party_formed:
+            SaveSystem.save_game(self.party, "saves/party.json")
         SaveSystem.save_roster(self.roster, "saves/roster.json")
 
     def _save_party_formations(self) -> None:
@@ -538,7 +606,15 @@ class RosterScreen(BaseScreen):
         self.text_log.prompt(f"Character Name (up to {CREATION_MAX_NAME} chars):", _step_name)
 
     def _embark(self) -> None:
-        """Validate party and launch overworld adventure."""
+        """Form the chosen party and launch a new game on Sosaria.
+
+        LairWare Form (UltimaNew.c:201-229) starts fresh: a cleared party
+        record, on foot at the start square, no moves, and ResetSosaria()
+        for the world. The party built here is a new ``Party`` with those
+        defaults, and the overworld opens with no saved world. A party that
+        already exists can't be formed again (user ruling Q2)."""
+        if self._refuse_party_in_use():
+            return
         if not self.party.members:
             self.text_log.add_message("Cannot embark! Form a party with at least 1 member.")
             return
@@ -664,7 +740,7 @@ class RosterScreen(BaseScreen):
         y += 10 * (row_h + px(2)) + px(6)
 
         # Keys
-        keys = ("[A] Add to party   [R] Remove   [C] Create   [D] Delete   "
+        keys = ("[A] Add   [R] Remove   [X] Disperse   [C] Create   [D] Delete   "
                 "[P] Save   [Tab] Party/roster   [Enter] Embark   [Esc] Back")
         img = f_small.render(keys, True, EGA_BRIGHT_CYAN)
         surface.blit(img, ((w - img.get_width()) // 2, y))

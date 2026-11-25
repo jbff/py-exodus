@@ -252,6 +252,11 @@ class StartScreen(BaseScreen):
             )
             else self.party
         )
+        if active_party is None and not self.game_over:
+            # LairWare FormPartyDialog (UltimaNew.c:128-134): a saved party
+            # in play is the existing party; the roster screen shows it and
+            # won't form another until it is dispersed (user ruling Q2).
+            active_party = self._load_saved_party()
         roster_scr = RosterScreen(
             party=active_party,
             asset_mgr=self.asset_mgr,
@@ -264,6 +269,22 @@ class StartScreen(BaseScreen):
         else:
             self.next_screen = roster_scr
             self.is_finished = True
+
+    @staticmethod
+    def _load_saved_party() -> Party | None:
+        """The living party in saves/party.json, if there is one."""
+        try:
+            from py_exodus.save_system import SaveSystem
+
+            path = Path("saves/party.json")
+            if not path.exists():
+                return None
+            party = Party.from_dict(SaveSystem.load_game_data(path))
+        except Exception:
+            return None
+        if not party.members or party.is_party_dead():
+            return None
+        return party
 
     def _open_view(self) -> None:
         """LairWare's 'R': the View (Demo()) until a key."""
