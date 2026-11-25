@@ -18,6 +18,7 @@ from py_exodus.entities.party import PartyDeathException
 from py_exodus import special_commands
 from py_exodus.screens.base import BaseScreen
 from py_exodus.screens.member_prompts import (
+    prompt_hand,
     prompt_modify_order,
     prompt_whose_item,
     prompt_ready_weapon,
@@ -197,6 +198,17 @@ class DungeonScreen(BaseScreen):
             self._process_event(evt)
         elif event.key == pygame.K_i:
             self._use_torch()
+        elif event.key == pygame.K_h:
+            # LairWare HandEquip (UltimaDngn.c:141); the turn is taken at the
+            # press (dungeonmech follows the command).
+            self._consume_turn()
+            prompt_hand(self.text_log, self.party)
+        elif event.key == pygame.K_j:
+            self._join_gold()
+        elif event.key == pygame.K_n:
+            self._negate_time()
+        elif event.key == pygame.K_y:
+            self._prompt_yell()
         elif event.key == pygame.K_p:
             # Java DungeonScreen.java:79-80 + 1012-1015 — P toggles the
             # minimap and falls through the keyUp tail (turn consumed).
@@ -272,35 +284,98 @@ class DungeonScreen(BaseScreen):
         noeffectdat message; pray/search/score delegate to the shared
         py_exodus.special_commands flows.
         """
-        def _on_other(cmd: str) -> None:
-            c = cmd.strip().upper()
-            if not c:
-                return
-            if c in ("BRIBE", "STEAL", "DIG"):
-                self.text_log.add_message(special_commands.NO_EFFECT)
-            elif c == "PRAY":
-                self.text_log.add_message(
-                    special_commands.do_pray(
-                        self.state.x,
-                        self.state.y,
-                        self.map_id,
-                        str(getattr(self.dungeon_map, "name", "") or ""),
-                    )
-                )
-            elif c == "SEARCH":
-                special_commands.search_flow(
-                    self.text_log,
-                    self.party,
+        self.text_log.prompt("Other Command? ", callback=self._run_other)
+
+    def _run_other(self, cmd: str) -> None:
+        """One Other word in the dungeon (O, or a yelled word)."""
+        c = cmd.strip().upper()
+        if not c:
+            return
+        if c in ("BRIBE", "STEAL", "DIG"):
+            self.text_log.add_message(special_commands.NO_EFFECT)
+        elif c == "PRAY":
+            self.text_log.add_message(
+                special_commands.do_pray(
                     self.state.x,
                     self.state.y,
-                    self.dungeon_map,
+                    self.map_id,
+                    str(getattr(self.dungeon_map, "name", "") or ""),
                 )
-            elif c == "SCORE":
-                self.text_log.add_message(special_commands.do_score(self.party))
-            else:
-                self.text_log.add_message(f"'{c}': Nothing happened.")
+            )
+        elif c == "SEARCH":
+            special_commands.search_flow(
+                self.text_log,
+                self.party,
+                self.state.x,
+                self.state.y,
+                self.dungeon_map,
+            )
+        elif c == "SCORE":
+            self.text_log.add_message(special_commands.do_score(self.party))
+        else:
+            self.text_log.add_message(f"'{c}': Nothing happened.")
 
-        self.text_log.prompt("Other Command? ", callback=_on_other)
+    def _join_gold(self) -> None:
+        """LairWare JoinGold (UltimaDngn.c:143; UltimaMain.c:1976-2006):
+        to whom, then every purse pours in up to 9999. The command ends in
+        dungeonmech (the turn passes)."""
+
+        def _on_member(who: str) -> None:
+            try:
+                idx = int(who.strip()) - 1
+            except ValueError:
+                idx = -1
+            if 0 <= idx < len(self.party.members):
+                self.party.pool_gold(idx)
+            self._consume_turn()
+
+        self.text_log.prompt(
+            "JOIN GOLD> To party member? (1-4):", callback=_on_member,
+            single_char=True, on_cancel=self._consume_turn,
+        )
+
+    def _negate_time(self) -> None:
+        """LairWare NegateTime (UltimaDngn.c:147; UltimaMain.c:2122-2139):
+        whose powder; that member spends one and time stops for 10 turns.
+        Nothing in a dungeon waits on stopped time."""
+        from py_exodus.aura import AuraType
+
+        def _spent(_member) -> None:
+            self.text_log.add_message("Stop time with a powder!")
+            self.party.aura.set(AuraType.QUICKNESS, 10)
+
+        prompt_whose_item(
+            self.text_log, self.party, "NEGATE TIME> Whose powder? (1-4):", "powder",
+            _spent, turn_callback=self._consume_turn,
+        )
+
+    def _prompt_yell(self) -> None:
+        """LairWare Yell(0) (UltimaDngn.c:158; UltimaMain.c:2544-2550): a
+        yelled word is an Other command; EVOCARE finds no serpent here."""
+
+        def _on_member(who: str) -> None:
+            try:
+                idx = int(who.strip()) - 1
+            except ValueError:
+                idx = -1
+            if not 0 <= idx < len(self.party.members):
+                self.text_log.add_message("Nobody selected!")
+                self._consume_turn()
+                return
+
+            def _on_word(word: str) -> None:
+                if word.strip().upper() == "EVOCARE":
+                    self.text_log.add_message("No effect.")
+                else:
+                    self._run_other(word)
+                self._consume_turn()
+
+            self.text_log.prompt("Yell what? ", callback=_on_word, on_cancel=self._consume_turn)
+
+        self.text_log.prompt(
+            "YELL> Which party member? (1-4):", callback=_on_member,
+            single_char=True, on_cancel=self._consume_turn,
+        )
 
     def _consume_turn(self) -> None:
         """Java DungeonScreen.finishTurn (DungeonScreen.java:1124) — the

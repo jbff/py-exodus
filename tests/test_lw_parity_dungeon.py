@@ -391,3 +391,79 @@ def test_ignite_while_lit_lights_a_fresh_torch(asset_mgr):
     _press_i(screen, "1")
     assert screen.state.torchtime == 254
     assert party.members[0].torches == 2
+
+
+# --- D-18 the dungeon's letter commands ----------------------------------------
+
+
+def _letter_screen(asset_mgr):
+    import pygame
+
+    from py_exodus.screens.dungeon_screen import DungeonScreen
+
+    pygame.init()
+    party = _party()
+    screen = DungeonScreen(party=party, dungeon_map=_dmap(), asset_mgr=asset_mgr)
+    screen.state.random_encounters_enabled = False
+    screen.state.torchtime = 50
+    return screen, party
+
+
+def _key(screen, key):
+    import pygame
+
+    screen.handle_event(pygame.event.Event(pygame.KEYDOWN, key=key))
+
+
+def test_dungeon_h_hands_equipment(asset_mgr):
+    """UltimaDngn.c:141: `case 'H': HandEquip(0, 0, 0, 0, 0); break;` the
+    port's dungeon had no H (it passed)."""
+    import pygame
+
+    screen, party = _letter_screen(asset_mgr)
+    party.members[0].torches = 5
+    party.members[1].torches = 0
+    _key(screen, pygame.K_h)
+    for answer in ("1", "2", "E", "T", "3"):
+        screen.text_log.submit_input(answer)
+    assert (party.members[0].torches, party.members[1].torches) == (2, 3)
+    assert screen.state.torchtime == 49
+
+
+def test_dungeon_j_joins_gold(asset_mgr):
+    """UltimaDngn.c:143: `case 'J': JoinGold(0); break;` (UltimaMain.c:1976-2006)."""
+    import pygame
+
+    screen, party = _letter_screen(asset_mgr)
+    party.members[0].gold, party.members[1].gold = 100, 50
+    _key(screen, pygame.K_j)
+    screen.text_log.submit_input("2")
+    assert (party.members[0].gold, party.members[1].gold) == (0, 150)
+    assert screen.state.torchtime == 49
+
+
+def test_dungeon_n_negates_time_with_a_powder(asset_mgr):
+    """UltimaDngn.c:147: `case 'N': NegateTime(0, 0); break;`
+    (UltimaMain.c:2122-2139): whose powder, one is spent."""
+    import pygame
+
+    screen, party = _letter_screen(asset_mgr)
+    party.members[1].powder = 2
+    _key(screen, pygame.K_n)
+    screen.text_log.submit_input("2")
+    assert party.members[1].powder == 1
+    assert screen.state.torchtime == 49
+
+
+def test_dungeon_y_yells_an_other_word(asset_mgr):
+    """UltimaDngn.c:158: `case 'Y': Yell(0); break;` and Yell(0) is
+    OtherCommand(1) (UltimaMain.c:2544-2550): a yelled word works as an
+    Other command. The port's dungeon had no Y."""
+    import pygame
+
+    screen, party = _letter_screen(asset_mgr)
+    _key(screen, pygame.K_y)
+    screen.text_log.submit_input("1")
+    screen.text_log.submit_input("SCORE")
+    assert screen.state.torchtime == 49
+    assert not any(line.strip() == "Pass" for line in screen.text_log.history)
