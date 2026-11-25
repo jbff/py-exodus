@@ -597,3 +597,106 @@ def test_dungeonmech_agechars_every_fourth_command():
         state._tick_turn(roll_encounter=False)
     assert sick.hp == 298
     assert party.moves == 0 and party.moon_phase == phase
+
+
+# --- D-13: the trap (user ruling 2026-11-25) --------------------------------
+
+
+def _trap_party():
+    lead = Character("Lead", "M", Race.HUMAN, Profession.FIGHTER, hp=0, max_hp=500,
+                     dexterity=20, status=Status.DEAD)
+    a = Character("A", "M", Race.HUMAN, Profession.FIGHTER, hp=500, max_hp=500)
+    b = Character("B", "M", Race.HUMAN, Profession.FIGHTER, hp=0, max_hp=500,
+                  status=Status.ASHES)
+    return _party(lead, a, b)
+
+
+def test_trap_first_members_roll_decides_then_bombtrap():
+    """UltimaDngn.c:285-294 (trap) and UltimaMain.c:1728-1740 (BombTrap):
+
+        PutXYDng(0, xs, ys);
+        ...
+        if (StealDisarmFail(Party[7])) { ... }
+        BombTrap();
+        ...
+            HPSubtract(Party[7 + chnum], RandNum(0, 255) & 0x77);
+            HPSubtract(Party[7 + chnum], (zp[0x13] + 1) * 8);
+
+    The tile clears; the FIRST member's StealDisarmFail (RandNum(0, 255) >
+    DEX + class bonus) decides for everyone, dead or not; a failure is
+    BombTrap: each living member takes (RandNum(0, 255) & 0x77) + 8
+    (zp[0x13] is never written). User ruling 2026-11-25.
+    """
+    party = _trap_party()
+    rng = SeqRNG([21, 0xFF] + [0] * 20)  # 21 > DEX 20: fails; A rolls 255
+    dmap = _dmap()
+    dmap.set_tile(4, 3, 2, DungeonTile.PIT_TRAP)
+    state = DungeonState(dmap, start_x=4, start_y=4, start_z=2, party=party, rng=rng)
+    state.move_forward()
+    assert dmap.get_tile(4, 3, 2) == DungeonTile.NOTHING
+    assert rng.calls[:2] == [(0, 255), (0, 255)]
+    assert party.members[1].hp == 500 - (0xFF & 0x77) - 8
+    assert party.members[0].hp == 0 and party.members[2].hp == 0
+
+
+def test_trap_evaded_by_the_first_members_roll():
+    """StealDisarmFail (UltimaMisc.c:525-527): a roll at or under the factor
+    (DEX 20 here) passes, and nobody is hurt."""
+    party = _trap_party()
+    rng = SeqRNG([20] + [0] * 20)
+    dmap = _dmap()
+    dmap.set_tile(4, 3, 0, DungeonTile.PIT_TRAP)
+    state = DungeonState(dmap, start_x=4, start_y=4, start_z=0, party=party, rng=rng)
+    state.move_forward()
+    assert party.members[1].hp == 500
+
+
+# --- D-14: gremlins (user ruling 2026-11-25) --------------------------------
+
+
+def _gremlin_state(food: int, slot: int, status: Status = Status.GOOD):
+    members = [Character(f"M{i}", "M", Race.HUMAN, Profession.FIGHTER, hp=300, max_hp=300)
+               for i in range(3)]
+    for m in members:
+        m.food = food
+    members[slot].status = status
+    party = _party(*members)
+    rng = SeqRNG([slot] + [0] * 20)
+    dmap = _dmap()
+    dmap.set_tile(4, 3, 0, DungeonTile.GREMLINS)
+    state = DungeonState(dmap, start_x=4, start_y=4, start_z=0, party=party, rng=rng)
+    return state, party, rng, dmap
+
+
+def test_gremlins_take_a_hundreds_of_food_from_a_random_slot():
+    """UltimaDngn.c:319-333 (gremlins):
+
+        PutXYDng(0, xs, ys);
+        chnum = RandNum(0, Party[2] - 1);
+        if (CheckAlive(chnum) == FALSE)
+            goto dungstart;
+        ...
+        if (Player[rosNum][32] < 1) {
+            Player[rosNum][32] = 0;
+        } else {
+            Player[rosNum][32]--;
+
+    The hundreds byte drops by one: 150 becomes 50, under 100 loses nothing.
+    """
+    state, party, rng, dmap = _gremlin_state(150, 2)
+    state.move_forward()
+    assert rng.calls[0] == (0, 2)
+    assert [m.food for m in party.members] == [150, 150, 50]
+    assert dmap.get_tile(4, 3, 0) == DungeonTile.NOTHING
+
+    state, party, _, _ = _gremlin_state(99, 1)
+    state.move_forward()
+    assert [m.food for m in party.members] == [99, 99, 99]
+
+
+def test_gremlins_at_a_dead_slot_do_nothing():
+    """CheckAlive false (dead or ashes): `goto dungstart`, nobody loses food."""
+    state, party, _, dmap = _gremlin_state(500, 1, Status.ASHES)
+    state.move_forward()
+    assert [m.food for m in party.members] == [500, 500, 500]
+    assert dmap.get_tile(4, 3, 0) == DungeonTile.NOTHING

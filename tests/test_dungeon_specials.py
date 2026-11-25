@@ -129,62 +129,50 @@ def test_dungeon_search_never_mentions_orbs(asset_mgr, open_dmap, test_party):
 # --- corroborates) — supersedes the Java -2-per-member fan-out.
 
 
-class _FirstIndexRng:
-    """randrange(n) always returns 0 — deterministic victim selection."""
+class _SlotRng:
+    """randint always returns ``slot``: a deterministic gremlin slot."""
+
+    def __init__(self, slot: int) -> None:
+        self.slot = slot
+
+    def randint(self, a: int, b: int) -> int:
+        return min(max(self.slot, a), b)
 
     def randrange(self, n: int) -> int:
         return 0
 
 
-def test_gremlins_gbc_drain_100_food_one_member(open_dmap, test_party):
-    """GBC gremlins: exactly one living member loses 100 food (floor 0)."""
+def _gremlin_state(open_dmap, test_party, slot):
+    open_dmap.set_tile(5, 4, 0, DungeonTile.GREMLINS)
+    return DungeonState(
+        open_dmap, start_x=5, start_y=5, start_z=0, start_dir=Direction.NORTH,
+        party=test_party, rng=_SlotRng(slot), random_encounters=False,
+    )
+
+
+def test_gremlins_take_a_hundreds_from_the_slot(open_dmap, test_party):
+    """LairWare gremlins (UltimaDngn.c:319-333, ledger D-14): the slot's
+    hundreds of food drop by one; under 100 nothing is lost."""
     test_party.members[0].food = 90
     test_party.members[1].food = 110
-    open_dmap.set_tile(5, 4, 0, DungeonTile.GREMLINS)
-    state = DungeonState(
-        open_dmap,
-        start_x=5,
-        start_y=5,
-        start_z=0,
-        start_dir=Direction.NORTH,
-        party=test_party,
-        rng=_FirstIndexRng(),
-        random_encounters=False,
-    )
-    ev = state.move_forward()
+    ev = _gremlin_state(open_dmap, test_party, 0).move_forward()
     assert ev.type == DungeonEventType.GREMLINS
-    assert test_party.members[0].food == 0  # 90 - 100 floored at 0
+    assert test_party.members[0].food == 90  # hundreds byte already 0
     assert test_party.members[1].food == 110  # untouched
     assert open_dmap.get_tile(5, 4, 0) == DungeonTile.NOTHING
 
 
-def test_gremlins_gbc_dead_member_immune_and_one_victim_only(open_dmap, test_party):
-    """GBC gremlins: only LIVING members can be the chosen victim.
-
-    members[0] is DEAD; the sole living member is members[1], so that is who
-    gets drained — a dead member's food is never touched.
-    """
+def test_gremlins_at_a_dead_slot_take_nothing(open_dmap, test_party):
+    """CheckAlive false (UltimaDngn.c:322-323): a dead member's slot ends the
+    gremlins' visit; the living member keeps its food too."""
     from py_exodus.constants import Status
 
-    test_party.members[0].food = 90
+    test_party.members[0].food = 190
     test_party.members[1].food = 110
     test_party.members[0].status = Status.DEAD
-    open_dmap.set_tile(5, 4, 0, DungeonTile.GREMLINS)
-    state = DungeonState(
-        open_dmap,
-        start_x=5,
-        start_y=5,
-        start_z=0,
-        start_dir=Direction.NORTH,
-        party=test_party,
-        rng=_FirstIndexRng(),
-        random_encounters=False,
-    )
-    state.move_forward()
-    # members[0] is DEAD so the only living member (index 0 of the living
-    # list, i.e. the Mage) is the drained victim: 110 - 100 = 10.
-    assert test_party.members[0].food == 90
-    assert test_party.members[1].food == 10
+    _gremlin_state(open_dmap, test_party, 0).move_forward()
+    assert test_party.members[0].food == 190
+    assert test_party.members[1].food == 110
 
 
 # --- Creature pool: level defaults 0, excluded from dungeon instances ---

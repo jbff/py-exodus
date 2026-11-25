@@ -477,35 +477,28 @@ class RemainingRng:
         return min(self.remainder, n - 1)
 
 
-class _GbcPitRng:
-    """Stub RNG for the GBC pit rolls.
+class _ScriptRng:
+    """randint answers from a script (LairWare RandNum is inclusive), then 0."""
 
-    randrange(100) always returns 99 so the dex + 25 >= randrange(100) evade
-    fails at dex 0 (25 < 99); randint(a, b) always returns its high bound so
-    the damage roll lands.
-    """
-
-    def randrange(self, n: int) -> int:
-        return min(99, n - 1)
+    def __init__(self, *values: int) -> None:
+        self.values = list(values)
 
     def randint(self, low: int, high: int) -> int:
-        return high
+        return self.values.pop(0) if self.values else low
+
+    def randrange(self, n: int) -> int:
+        return 0
 
 
 def test_pit_trap(empty_dmap, test_party):
-    """Pit! rolls a per-member dex evade, then rnd(dunglevel+1)<<3 damage.
-
-    USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): pit trap dex-evade +
-    per-member rnd(level+1)<<3 (GBC dungfunc.c:1190-1232) — supersedes the
-    Java LAVA fan-out this test asserted previously. No level change; the
-    tile still clears to NOTHING.
-    """
+    """LairWare trap (UltimaDngn.c:285-294) and BombTrap (UltimaMain.c:
+    1728-1740), ledger D-13: the first member's StealDisarmFail fails (255 >
+    DEX + bonus) and each living member takes (RandNum(0, 255) & 0x77) + 8.
+    No level change; the tile clears to NOTHING."""
     empty_dmap.set_tile(5, 4, 0, DungeonTile.PIT_TRAP)
-    for m in test_party.members:
-        m.dex = 0
     state = DungeonState(
         empty_dmap, start_x=5, start_y=5, start_z=0, start_dir=Direction.NORTH,
-        party=test_party, rng=_GbcPitRng(),
+        party=test_party, rng=_ScriptRng(255, 0x10, 0x01),
     )
 
     ev = state.move_forward()
@@ -514,9 +507,8 @@ def test_pit_trap(empty_dmap, test_party):
     assert ev.message == "Pit!"
     assert state.z == 0  # no level change
     assert test_party.dungeon_level == 0
-    # Evade failed for every member: randint(0, z+1) == 1 → (0+1)<<3 damage.
-    assert test_party.members[0].hp == test_party.members[0].max_hp - 8
-    assert test_party.members[1].hp == test_party.members[1].max_hp - 8
+    assert test_party.members[0].hp == test_party.members[0].max_hp - (0x10 + 8)
+    assert test_party.members[1].hp == test_party.members[1].max_hp - (0x01 + 8)
     # Trap tile consumed/replaced with NOTHING
     assert empty_dmap.get_tile(5, 4, 0) == DungeonTile.NOTHING
 
@@ -535,31 +527,26 @@ def test_wind_trap(empty_dmap, test_party):
 
 
 def test_gremlins_trap(empty_dmap, test_party):
-    """Gremlins drain 100 food from ONE random LIVING member (floor 0).
-
-    USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): gremlins drain 100 food
-    from one member (GBC dungfunc.c:1177-1189; LW corroborates) — supersedes
-    the Java -2-per-member fan-out this test asserted previously.
-    """
+    """LairWare gremlins (UltimaDngn.c:319-333), ledger D-14: a random slot
+    loses one hundreds of food (110 -> 10); under 100 keeps it all."""
     empty_dmap.set_tile(5, 4, 0, DungeonTile.GREMLINS)
-    state = DungeonState(empty_dmap, start_x=5, start_y=5, start_z=0, start_dir=Direction.NORTH, party=test_party)
+    state = DungeonState(empty_dmap, start_x=5, start_y=5, start_z=0,
+                         start_dir=Direction.NORTH, party=test_party,
+                         rng=_ScriptRng(1))
     test_party.members[0].food = 90
     test_party.members[1].food = 110
-    foods_before = [m.food for m in test_party.members]
 
     ev = state.move_forward()
 
     assert ev.type == DungeonEventType.GREMLINS
     assert ev.message == "Gremlins!"
-    drained = [
-        i
-        for i, m in enumerate(test_party.members)
-        if m.food != foods_before[i]
-    ]
-    assert len(drained) == 1
-    i = drained[0]
-    assert test_party.members[i].food == max(0, foods_before[i] - 100)
+    assert [m.food for m in test_party.members] == [90, 10]
     assert empty_dmap.get_tile(5, 4, 0) == DungeonTile.NOTHING
+
+    empty_dmap.set_tile(5, 3, 0, DungeonTile.GREMLINS)
+    state.rng = _ScriptRng(0)
+    state.move_forward()
+    assert [m.food for m in test_party.members] == [90, 10]  # under 100
 
 
 # --- Fountains Tests ---

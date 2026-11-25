@@ -1403,25 +1403,26 @@ class DungeonState:
         self.x = target_x
         self.y = target_y
 
-        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): pit trap dex-evade
-        # + per-member rnd(level+1)<<3 (GBC dungfunc.c:1190-1232) — each
-        # LIVING member rolls the port's chest-trap evade convention
-        # (dex + 25 >= randrange(100); GBC's testplayerdex maps onto that
-        # roll) and failures take randint(0, self.z + 1) << 3
-        # (rnd(dunglevel+1)<<3) through the apply_damage chokepoint;
-        # LairWare's extra party-wide rnd255&0x77 term is NOT adopted. Mark
-        # of Fire does NOT protect a pit — that is the lava rule, and GBC
-        # gives the pit no mark immunity. Tile still clears to NOTHING.
+        # LairWare trap (UltimaDngn.c:285-294) and BombTrap (UltimaMain.c:
+        # 1728-1740), user ruling 2026-11-25 (ledger D-13): the tile clears;
+        # the FIRST member's StealDisarmFail (RandNum(0, 255) > DEX + class
+        # bonus; dead or not) decides for everyone, and a failure is
+        # BombTrap: each living member takes (RandNum(0, 255) & 0x77) + 8
+        # (zp[0x13] is never written, so (0 + 1) * 8).
         if target_tile == DungeonTile.PIT_TRAP:
             self.dmap.set_tile(self.x, self.y, self.z, DungeonTile.NOTHING)
             try:
-                if self.party is not None:
-                    for member in list(self.party.members):
-                        if member.is_dead():
-                            continue
-                        if member.dex + 25 >= self.rng.randrange(100):
-                            continue  # evaded
-                        member.apply_damage(self.rng.randint(0, self.z + 1) << 3)
+                if self.party is not None and self.party.members:
+                    from py_exodus.world.chests import disarm_factor
+
+                    lead = self.party.members[0]
+                    if self.rng.randint(0, 255) > disarm_factor(lead):
+                        for member in list(self.party.members):
+                            if member.is_disabled():
+                                continue
+                            member.apply_damage(
+                                (self.rng.randint(0, 255) & 0x77) + 8
+                            )
             except PartyDeathException:
                 # Java catches PartyDeathException around the move; the
                 # owning DungeonScreen's post-check routes the wipe.
@@ -1466,21 +1467,19 @@ class DungeonState:
                 combat_evt,
             )
 
-        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): gremlins drain 100
-        # food from one member (GBC dungfunc.c:1177-1189; LW corroborates) —
-        # ONE random LIVING member, floored at 0. The Java -2-per-member
-        # fan-out stays in tile_effects for Java-parity callers; this branch
-        # applies the GBC rule in-dungeon. Tile still clears to NOTHING.
+        # LairWare gremlins (UltimaDngn.c:319-333), user ruling 2026-11-25
+        # (ledger D-14): the tile clears; a random slot RandNum(0, Party[2] -
+        # 1), nothing if that member is dead or ashes; else the hundreds of
+        # food (Player[32]) drop by one, floored: 150 -> 50, under 100 keeps
+        # it all.
         if target_tile == DungeonTile.GREMLINS:
             self.dmap.set_tile(self.x, self.y, self.z, DungeonTile.NOTHING)
-            living = (
-                [m for m in self.party.members if not m.is_dead()]
-                if self.party is not None
-                else []
-            )
-            if living:
-                victim = living[self.rng.randrange(len(living))]
-                victim.food = max(0, victim.food - 100)
+            if self.party is not None and self.party.members:
+                victim = self.party.members[
+                    self.rng.randint(0, len(self.party.members) - 1)
+                ]
+                if not victim.is_disabled() and victim.food >= 100:
+                    victim.food -= 100
             # LW: no fight roll on the gremlins' pass (UltimaDngn.c:319-333).
             combat_evt = self._tick_turn(roll_encounter=False)
             return self._with_combat(

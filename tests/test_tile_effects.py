@@ -68,12 +68,9 @@ class RemainderRng:
 
 
 class FixedRollRng:
-    """Stub for the GBC pit-trap rolls (Task 7 deviation).
-
-    ``randrange(100)`` always returns a fixed high remainder so a zero-dex
-    member fails the ``dex + 25 >= randrange(100)`` evade; ``randint(a, b)``
-    returns a fixed remainder inside the range for the damage roll.
-    """
+    """Stub for the trap rolls: ``randint(a, b)`` returns a fixed value
+    clamped into the range (the StealDisarmFail roll and the BombTrap
+    damage); ``randrange`` likewise."""
 
     def __init__(self, randrange_value: int = 99, randint_value: int = 1) -> None:
         self.randrange_value = randrange_value
@@ -731,33 +728,25 @@ def test_dungeon_field_fire_applies_lava():
     assert dmap.get_tile(5, 4, 0) is DungeonTile.FIELD_FIRE
 
 
-# USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): pit trap dex-evade +
-# per-member rnd(level+1)<<3 (GBC dungfunc.c:1190-1232) — supersedes the
-# Java unconditional LAVA fan-out below.
+# LairWare trap (UltimaDngn.c:285-294) and BombTrap (UltimaMain.c:1728-1740),
+# user ruling 2026-11-25 (ledger D-13): the first member's roll decides for
+# all; a failure costs each living member (RandNum(0, 255) & 0x77) + 8.
 
 
-def test_dungeon_pit_trap_gbc_high_dex_evades():
-    """GBC pit: a high-dex member evades every level; no damage, tile cleared.
-
-    The evade convention is the chest-trap roll (dex + 25 >= randrange(100)):
-    dex 99 succeeds against any roll, so damage never lands on any dungeon
-    level and the pit tile still clears to NOTHING.
-    """
+def test_dungeon_pit_trap_evaded_by_the_first_members_roll():
+    """LairWare trap (UltimaDngn.c:285-294, ledger D-13): the first member's
+    StealDisarmFail decides; a roll at or under its DEX passes for everyone,
+    on every level, and the tile still clears."""
     for z in range(8):
         dmap = make_dmap()
         dmap.set_tile(5, 4, z, DungeonTile.PIT_TRAP)
         party = make_party()
-        for m in party.members:
-            m.dex = 99
+        party.members[0].dex = 99
+        for m in party.members[1:]:
+            m.dex = 0
         state = DungeonState(
-            dmap,
-            start_x=5,
-            start_y=5,
-            start_z=z,
-            start_dir=Direction.NORTH,
-            party=party,
-            rng=FixedRollRng(99, 1),
-            random_encounters=False,
+            dmap, start_x=5, start_y=5, start_z=z, start_dir=Direction.NORTH,
+            party=party, rng=FixedRollRng(99, 99), random_encounters=False,
         )
         evt = state.move_forward()
         assert evt.type == DungeonEventType.PIT_TRAP
@@ -766,48 +755,34 @@ def test_dungeon_pit_trap_gbc_high_dex_evades():
         assert dmap.get_tile(5, 4, z) is DungeonTile.NOTHING
 
 
-def test_dungeon_pit_trap_gbc_zero_dex_damage_bounded():
-    """GBC pit: zero-dex fails the evade ~always; failures take <= (z+1)*8.
-
-    Each living member rolls its own evade; a failure deals
-    randint(0, z + 1) << 3 — zero damage is possible per roll, so the assert
-    is a bound (hp within [100 - (z+1)*8, 100]) across seeded runs, with some
-    run actually taking damage.
-    """
+def test_dungeon_pit_trap_bombtrap_damage_bounded():
+    """BombTrap (UltimaMain.c:1728-1740): each living member takes
+    (RandNum(0, 255) & 0x77) + 8, 8 to 127, on any level."""
     for z in (0, 3):
-        damage_seen = False
-        for seed in range(20):
+        damage_seen = set()
+        for seed in range(40):
             dmap = make_dmap()
             dmap.set_tile(5, 4, z, DungeonTile.PIT_TRAP)
-            party = make_party()
+            party = make_party(hp=200)
             for m in party.members:
                 m.dex = 0
             state = DungeonState(
-                dmap,
-                start_x=5,
-                start_y=5,
-                start_z=z,
-                start_dir=Direction.NORTH,
-                party=party,
-                rng=random.Random(seed),
-                random_encounters=False,
+                dmap, start_x=5, start_y=5, start_z=z, start_dir=Direction.NORTH,
+                party=party, rng=random.Random(seed), random_encounters=False,
             )
             evt = state.move_forward()
             assert evt.type == DungeonEventType.PIT_TRAP
             assert dmap.get_tile(5, 4, z) is DungeonTile.NOTHING
             for m in party.members:
-                assert 100 - (z + 1) * 8 <= m.hp <= 100
-                if m.hp < 100:
-                    damage_seen = True
+                assert m.hp == 200 or 200 - 127 <= m.hp <= 200 - 8
+                if m.hp < 200:
+                    damage_seen.add(200 - m.hp)
         assert damage_seen
 
 
-def test_dungeon_pit_trap_gbc_mark_of_fire_no_protection():
-    """Mark of Fire absorbs lava, not pits: a marked member takes the fall.
-
-    GBC dungfunc.c:1190-1232 gives the pit no mark immunity — the Java
-    LAVA-effect Mark-of-Fire branch does not apply here.
-    """
+def test_dungeon_pit_trap_mark_of_fire_no_protection():
+    """Mark of Fire absorbs lava, not traps: BombTrap (UltimaMain.c:
+    1728-1740) has no mark test."""
     dmap = make_dmap()
     dmap.set_tile(5, 4, 0, DungeonTile.PIT_TRAP)
     party = make_party()
@@ -821,11 +796,11 @@ def test_dungeon_pit_trap_gbc_mark_of_fire_no_protection():
         start_z=0,
         start_dir=Direction.NORTH,
         party=party,
-        rng=FixedRollRng(99, 1),  # evade fails for dex 0; damage 1<<3 = 8
+        rng=FixedRollRng(99, 1),  # 1 > DEX 0 fails; damage (1 & 0x77) + 8
         random_encounters=False,
     )
     evt = state.move_forward()
     assert evt.type == DungeonEventType.PIT_TRAP
-    assert party.members[0].hp == 100 - 8  # the mark does not protect a pit
-    assert party.members[1].hp == 100 - 8
+    assert party.members[0].hp == 100 - 9  # the mark does not protect
+    assert party.members[1].hp == 100 - 9
     assert dmap.get_tile(5, 4, 0) is DungeonTile.NOTHING
