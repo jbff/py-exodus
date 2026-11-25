@@ -162,17 +162,16 @@ def test_entity_colorkey_and_aliases():
 
 def test_every_placeable_tile_has_art():
     """User 2026-11-22 crash: a town's locked door had no art after the Java
-    atlas went. Every tile def the maps can hold, plus the doors the game
-    creates, must render with every tile set."""
+    atlas went. Every tile def the maps can hold, plus the grass an unlocked
+    door can become (doors.unlock_door), must render with every tile set."""
     from pathlib import Path
 
     from py_exodus.assets import LAIRWARE_TILESETS
-    from py_exodus.world import doors
 
     for sheet in LAIRWARE_TILESETS:
         am = AssetManager(assets_dir=Path("assets"), tileset=sheet)
         am.load_tiles()
         names = {t.name for i, t in am.tile_defs.items() if i < 64 or t.name == "locked_door"}
-        names |= {doors._door_tile().name, doors._floor_tile().name}
+        names |= {"grass"}
         for name in names:
             assert am.get_tile_surface(name, 1).get_size() == (16, 16), (sheet, name)

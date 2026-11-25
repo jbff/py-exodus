@@ -405,8 +405,8 @@ class TestUnlock:
 
 class TestUnlockConsumesKey:
     """A7 (GBC menucmd2.c:1595-1650): dounlock requires keys > 0 and
-    decrements; one key per successful unlock only (no refund). With
-    member=None the legacy Java path is unchanged (no key check)."""
+    decrements; one key per successful unlock only (no refund). LairWare
+    Unlock (UltimaMain.c:2398-2437) is the only way through a door."""
 
     def _locked_door(self, map_):
         map_.set_tile(
@@ -437,33 +437,6 @@ class TestUnlockConsumesKey:
         assert ok is False
         assert member.keys == 0
         assert ow.game_map.get_tile(11, 10).rule == "locked_door"
-
-    def test_unit_unlock_door_tile_does_not_spend(self, ow, sample_party):
-        """GBC menucmd2.c:1655-1657 — the spend+convert runs ONLY for the
-        0x45 locked door; an already-unlocked door tile is the else branch:
-        no conversion, no key spent, failure-class result."""
-        import py_exodus.world.doors as doors_module
-
-        ow.game_map.set_tile(
-            11, 10,
-            TileDef(index=35, name="door", rule="door", attribs=TileAttrib.DOOR),
-        )
-        member = sample_party.members[0]
-        member.keys = 2
-        ok = doors_module.unlock_door(ow.game_map, 11, 10, member=member)
-        assert ok is False
-        assert member.keys == 2
-        assert ow.game_map.get_tile(11, 10).rule == "door"
-
-    def test_unit_unlock_member_none_legacy(self, ow, sample_party):
-        import py_exodus.world.doors as doors_module
-
-        self._locked_door(ow.game_map)
-        sample_party.members[0].keys = 0
-        ok = doors_module.unlock_door(ow.game_map, 11, 10)
-        assert ok is True
-        assert sample_party.members[0].keys == 0
-        assert ow.game_map.get_tile(11, 10).rule == "door"
 
     def test_overworld_u_no_key_says_needs_key(self, ow, sample_party):
         self._locked_door(ow.game_map)

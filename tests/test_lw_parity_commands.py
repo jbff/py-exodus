@@ -950,3 +950,47 @@ def test_look_takes_the_turn(overworld):
     _key(scr, pygame.K_l, "l")
     _key(scr, pygame.K_UP)
     assert scr.party.moves == moves + 1
+
+
+# --- Doors open only by Unlock (user 2026-11-25, C-07 addendum) ------------
+
+
+def test_unlock_needs_a_members_key(town, asset_mgr):
+    """UltimaMain.c:2418-2433 (Unlock): ``UPrintMessage(96); chnum =
+    GetChar(); ... if (Player[rosNum][38] < 1) { UPrintMessage(67); } else
+    { Player[rosNum][38]--; ...`` -- a door opens only for a member's key.
+    The port kept Java's keyless unlock (``member=None``), which left a
+    closed "door" tile that Java's Open (old L) then removed."""
+    from py_exodus.world import doors
+
+    scr = town()
+    scr.game_map.set_tile(33, 32, asset_mgr.get_tile_by_name("locked_door"))
+    assert doors.unlock_door(scr.game_map, 33, 32) is False
+    assert scr.game_map.get_tile(33, 32).name == "locked_door"
+
+
+def test_there_is_no_open_command(town):
+    """UltimaMain.c:1160-1195: LetterCommand has no Open; only tile 184 is
+    a door and Unlock (2398-2437) is the one way through. Java's
+    BaseMap.openDoor (the old L) is gone."""
+    from py_exodus.world import doors
+
+    assert not hasattr(doors, "open_door")
+    scr = town()
+    assert not hasattr(scr, "_open")
+
+
+@pytest.mark.parametrize("which", ["town", "overworld"])
+def test_walking_into_a_door_does_not_open_it(which, town, overworld, asset_mgr):
+    """UltimaMain.c:3169-3212 (ValidDir): ``if ((value < 48) && (value !=
+    0) && (value != 16)) GoodPlace = TRUE;`` -- a door (184) is no place to
+    step, and nothing opens it on a bump."""
+    scr = town() if which == "town" else overworld()
+    scr.game_map.set_tile(33 if which == "town" else 41, 32 if which == "town" else 40,
+                          asset_mgr.get_tile_by_name("locked_door"))
+    before = (scr.avatar_x, scr.avatar_y) if which == "town" else (scr.party.x, scr.party.y)
+    _key(scr, pygame.K_RIGHT)
+    after = (scr.avatar_x, scr.avatar_y) if which == "town" else (scr.party.x, scr.party.y)
+    assert after == before
+    tx, ty = (33, 32) if which == "town" else (41, 40)
+    assert scr.game_map.get_tile(tx, ty).name == "locked_door"

@@ -519,7 +519,8 @@ class AssetManager:
         # LairWare draws a town's lone "I" (tile 46, no letter to its left,
         # right or above) as a door: the cell beside the I
         # (UltimaGraphics.c:585-597). Our map builder names those tiles
-        # locked_door; unlocking leaves a closed "door" with the same art.
+        # locked_door (the only door: Unlock turns it into the tile west of
+        # it, UltimaMain.c:2428-2433); "door" keeps the art for old data.
         door = raw(5, 14, False)
         self.tiles["locked_door"] = [door]
         self.tiles["door"] = [door]
