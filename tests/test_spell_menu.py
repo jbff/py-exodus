@@ -396,13 +396,13 @@ def test_unaffordable_letter_is_offered_and_refused_at_attempt():
     assert not log.is_waiting_for_input
 
     # the affordable + here-castable letter still dispatches normally:
-    # a fresh MP-45 mage's I (PABULUM, 40, 0xFF) — not directional/targeted
+    # a fresh MP-45 mage's I (DAG LORUM, 40, 0xFF) — not directional/targeted
     party2 = Party()
     party2.add_member(_wizard(45))
     log2 = TextLog()
     prompt_cast_party(log2, party2)
     log2.handle_char("1")
-    log2.handle_char("I")  # PABULUM (40), fixed I
+    log2.handle_char("I")  # DAG LORUM (40), fixed I
     assert not log2.is_waiting_for_input
     assert "magic points" not in "\n".join(str(line) for line in log2.history)
 
@@ -572,11 +572,13 @@ def test_spell_enum_masks_match_java_every_row():
     declaration order fixes each discipline's alphabetical A-P codes)."""
     # LairWare batch P (ledger P-12, P-13): a Ranger may cast wizard I/J and
     # cleric J (UltimaSpellCombat.c:42-118, MP only), and Surmandum and Anju
-    # Sermani fail in combat (349-353, 378-382).
+    # Sermani fail in combat (349-353, 378-382). Wizard I is LairWare's DAG
+    # LORUM (UltimaSpellCombat.c:227-230, user ruling Q21), in Java's slot.
     lw = {"PABULUM": (0x0AE, None), "FAL_DIVI": (0x0AE, None), "SOMINAE": (0x70A, None),
           "SURMANDUM": (None, 0xFD), "ANJU_SERMANI": (None, 0xFD)}
     want = [
-        (n, c, lw.get(n, (None, None))[0] or cm, lw.get(n, (None, None))[1] or lm)
+        ("DAG_LORUM" if n == "PABULUM" else n, c,
+         lw.get(n, (None, None))[0] or cm, lw.get(n, (None, None))[1] or lm)
         for n, c, cm, lm in _JAVA_SPELLS
     ]
     got = [(s.name, s.cost, s.castable_mask, s.location_mask) for s in Spell]
@@ -627,8 +629,9 @@ def test_gbc_cleric_battle_delta_surmandum_anju_refused_in_combat():
     assert out is None and refusal == "Not Here!"
 
 
-def test_gbc_wizard_battle_delta_pabulum_governed_by_java():
-    """Wizard combat: PABULUM (I, 0xFF location, Constants.java:701) CASTS in
+def test_gbc_wizard_battle_delta_dag_lorum_casts_anywhere():
+    """Wizard combat: I (Java's PABULUM slot, 0xFF location,
+    Constants.java:701; LairWare's DAG LORUM, user ruling Q21) CASTS in
     combat at its fixed letter; the GBC battle menu (wizardspellsdat,
     battle.c:191) offered only 11, omitting PABULUM (getmenuselection(
     11, wizardspellsdat, ...) at battle.c:1222 — its 'p)' slot is a XXXXXXX
@@ -636,7 +639,7 @@ def test_gbc_wizard_battle_delta_pabulum_governed_by_java():
     DAG_ACRON (G, world-only, Constants.java:699) is LISTED in combat yet
     refuses AT ATTEMPT — the old dynamic list never offered it."""
     out, refusal = letter_resolution(spell_menu_entries("wizard"), "I", "combat")
-    assert out is Spell.PABULUM and refusal is None
+    assert out is Spell.DAG_LORUM and refusal is None
     out, refusal = letter_resolution(spell_menu_entries("wizard"), "G", "combat")
     assert out is None and refusal == "Not Here!"
 

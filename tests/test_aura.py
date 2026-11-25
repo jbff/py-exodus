@@ -194,13 +194,13 @@ def test_combat_negate_time_none_message(asset_mgr, conflict_map, pygame_setup):
     assert any("None!" in line for line in screen.text_log.lines)
 
 
-# --- ALTAIR sets QUICKNESS 5, PABULUM/ALTAIR do not consume the caster's turn ---
+# --- ALTAIR sets QUICKNESS 5; ALTAIR and DAG LORUM consume the caster's turn ---
 
 def test_no_turn_spell_set_covers_java_finish_player_turn_gate():
-    """LORUM, PABULUM, ALTAIR, DAG_ACRON and the dungeon spells never call
-    finishPlayerTurn in Java; the FAL_DIVI/SOMINAE no-ops likewise. The
-    combat-castable members are PABULUM and ALTAIR."""
-    assert Spell.PABULUM in NO_TURN_SPELLS
+    """LORUM, DAG_ACRON and the dungeon spells never call finishPlayerTurn
+    in Java; the FAL_DIVI/SOMINAE no-ops likewise. Wizard I is LairWare's
+    DAG LORUM (user ruling Q21), an ordinary cast that spends the turn."""
+    assert Spell.DAG_LORUM not in NO_TURN_SPELLS
     # LW Altair (UltimaSpellCombat.c:238) spends the caster's turn.
     assert Spell.ALTAIR not in NO_TURN_SPELLS
     for s in (Spell.LORUM, Spell.DAG_ACRON, Spell.REC_SU, Spell.REC_DU,
@@ -210,17 +210,20 @@ def test_no_turn_spell_set_covers_java_finish_player_turn_gate():
         assert s in NO_TURN_SPELLS
 
 
-def test_pabulum_does_not_consume_combat_turn(asset_mgr, conflict_map):
+def test_dag_lorum_consumes_combat_turn(asset_mgr, conflict_map):
+    """LW UltimaSpellCombat.c:227-230: Dag Lorum casts anywhere, and in a
+    fight it is an ordinary cast that ends the caster's turn."""
     party = Party()
     wiz = Character("Wiz", "M", Race.FUZZY, Profession.WIZARD, intelligence=75, mp=75)
     party.add_member(wiz)
+    party.add_member(Character("Two", "M", Race.HUMAN, Profession.FIGHTER))
     arena = CombatArena(party=party, combat_map=conflict_map, creature_tile="orc",
                         asset_mgr=asset_mgr, monster_count=1)
-    res = arena.execute_turn(Action.cast(Spell.PABULUM))
+    res = arena.execute_turn(Action.cast(Spell.DAG_LORUM))
     assert res.success
-    assert not arena.is_party_round_done
-    # The same member acts again — the player round has not advanced
-    assert arena.active_party_member_idx == 0
+    assert wiz.mp == 35
+    # The turn passed to the next member
+    assert arena.active_party_member_idx != 0
 
 
 def test_altair_consumes_combat_turn_and_sets_aura(asset_mgr, conflict_map):

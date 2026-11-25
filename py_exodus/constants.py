@@ -289,7 +289,9 @@ class Spell(Enum):
     # list, only MP; a Ranger (MP up to 49) reaches I and J too, so the Java
     # 0x0A6 mask (no Ranger) is widened to every wizard-book class. K-P stay
     # Wizard-only: no other class's MP reaches 50.
-    PABULUM = ("I", 40, "Feeds the many", "wizard", 0x0AE, 0xFF)
+    # LairWare case 8 (UltimaSpellCombat.c:227-230): I is DAG LORUM, a long
+    # light (torch 250), castable anywhere (user ruling Q21; Java had PABULUM).
+    DAG_LORUM = ("I", 40, "Long-lasting light", "wizard", 0x0AE, 0xFF)
     FAL_DIVI = ("J", 45, "Cast a cleric spell", "wizard", 0x0AE, 0xFF)
     NOXUM = ("K", 50, "Multi-fireball", "wizard", 0x020, 0x02)
     DECORP = ("L", 55, "Death bolt", "wizard", 0x020, 0x02)

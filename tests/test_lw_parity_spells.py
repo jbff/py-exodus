@@ -340,7 +340,7 @@ def test_spell_dag_acron_overworld_marks_monsters_and_objects(asset_mgr):
 # --- P-12: who may cast what --------------------------------------------------
 
 
-@pytest.mark.parametrize("spell", [Spell.PABULUM, Spell.FAL_DIVI, Spell.SOMINAE])
+@pytest.mark.parametrize("spell", [Spell.DAG_LORUM, Spell.FAL_DIVI, Spell.SOMINAE])
 def test_cast_ranger_may_cast_up_to_its_mp(spell):
     """UltimaSpellCombat.c:55-86 and 89-118 (Cast, ProcessMagic): a Ranger
     (careerTable[10]) chooses from either book (EitherChoose) and the only
@@ -443,3 +443,44 @@ def pygame_key(ch: str) -> int:
     import pygame
 
     return getattr(pygame, f"K_{ch}")
+
+
+def test_spell_wizard_i_is_dag_lorum():
+    """UltimaSpellCombat.c:227-230 (Spell), user ruling Q21 (follow LairWare):
+
+        case 8: /* Dag Lorum */
+            gTorch = 250;
+            Flashriek();
+            break;
+
+    Wizard spell I (spellnum 8, 8 * 5 = 40 MP, ProcessMagic :92) is Dag
+    Lorum, a long light: the torch count becomes 250. ProcessMagic has no
+    place test, so it casts anywhere, and in a fight it spends the turn like
+    any cast. The port's I was Java's PABULUM (5-9 food a member).
+    """
+    from py_exodus.combat.magic import NO_TURN_SPELLS
+    from py_exodus.world.dungeon import DungeonState
+    from py_exodus.world.map import DungeonMap
+
+    spell = Spell["DAG_LORUM"]
+    assert spell.code == "I" and spell.spell_type == "wizard" and spell.cost == 40
+    assert "PABULUM" not in Spell.__members__
+    assert spell not in NO_TURN_SPELLS
+
+    dmap = DungeonMap(id=1, name="D", width=16, height=16, levels=8)
+    state = DungeonState(dmap, start_x=1, start_y=1, start_z=0)
+    state.torchtime = 0
+    caster = _caster(mp=99)
+    food = caster.food
+    res = cast_spell(spell, caster, world_map=state)
+    assert res.success
+    assert state.torchtime == 250
+    assert caster.mp == 59 and caster.food == food
+
+    # Anywhere: on the surface it casts too (no light to keep there).
+    from py_exodus.spell_menu import letter_resolution, spell_menu_entries
+
+    entries = spell_menu_entries("wizard")
+    for context in ("world", "city", "dungeon", "combat"):
+        found, refusal = letter_resolution(entries, "I", context)
+        assert found is spell and refusal is None, context

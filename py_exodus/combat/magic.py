@@ -112,7 +112,8 @@ SPELL_ALIASES: dict[str, Spell] = {
     "DAG_ACRON": Spell.DAG_ACRON,
     "DAGACRON": Spell.DAG_ACRON,
     "MENTAR": Spell.MENTAR,
-    "PABULUM": Spell.PABULUM,
+    "DAG_LORUM": Spell.DAG_LORUM,
+    "DAGLORUM": Spell.DAG_LORUM,
     "FAL_DIVI": Spell.FAL_DIVI,
     "FALDIVI": Spell.FAL_DIVI,
     "NOXUM": Spell.NOXUM,
@@ -165,13 +166,13 @@ PROJECTILE_SPELLS = {Spell.MITTAR, Spell.FULGAR, Spell.MENTAR, Spell.DECORP, Spe
 
 # Java spells whose effect branches never call finishPlayerTurn — the caster
 # acts again — plus the effect-less REPLACE ME / default cases (SpellUtil.java
-# 87-237). Only PABULUM and FAL_DIVI are actually castable in combat; the
-# rest are dungeon/surface/dungeon-screen spells carried here for parity.
+# 87-237). Only FAL_DIVI is actually castable in combat; the rest are
+# dungeon/surface/dungeon-screen spells carried here for parity. DAG_LORUM
+# is not here: LairWare's case 8 is an ordinary cast that spends the turn.
 # ALTAIR is not here: LairWare's Altair (UltimaSpellCombat.c:238) is an
 # ordinary cast and the combat loop goes on to plrdone, spending the turn.
 NO_TURN_SPELLS = {
     Spell.LORUM,
-    Spell.PABULUM,
     Spell.DAG_ACRON,
     Spell.REC_SU,
     Spell.REC_DU,
@@ -805,20 +806,16 @@ def _apply_spell_effect(
             world_map.torchtime = 235
         return SpellResult(success=True, spell=spell)
 
-    # Food (PABULUM)
-    if spell == Spell.PABULUM:
-        # Java SpellUtil.java:111-114 — getRandomBetween(5, 10) == 5..9 per member.
-        def _food_roll() -> int:
-            return random.randrange(10 - 5) + 5
-
-        if party is not None and hasattr(party, "members"):
-            for m in party.members:
-                m.food += _food_roll()
-        else:
-            caster_char.food += _food_roll()
+    # DAG LORUM: LairWare case 8 (UltimaSpellCombat.c:227-230) sets
+    # gTorch = 250 wherever it is cast; only a dungeon keeps a light count.
+    if spell == Spell.DAG_LORUM:
+        if world_map is not None and hasattr(world_map, "torchtime"):
+            world_map.torchtime = 250
+        elif world_map is not None and hasattr(world_map, "light_spell"):
+            world_map.light_spell = True
         return SpellResult(
             success=True,
-            message="Pabulum conjures nourishing rations for the journey!",
+            message="Dag Lorum illuminates the darkness.",
             spell=spell,
         )
 

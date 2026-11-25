@@ -320,7 +320,7 @@ class TestNoClass:
         prompt_cast_party(text_log, party)
         text_log.submit_input("1")  # member
         text_log.submit_input("W")  # Spell Type?
-        # PABULUM = I — its FIXED wizard code (USER-DIRECTED RULING
+        # DAG LORUM = I — its FIXED wizard code (USER-DIRECTED RULING
         # 2026-11-15: spell letters are fixed, never the dynamic walk).
         text_log.submit_input("I")
         blob = "\n".join(text_log.history)

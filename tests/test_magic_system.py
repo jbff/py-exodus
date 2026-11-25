@@ -516,7 +516,7 @@ def test_arena_action_cast_integration(asset_mgr, conflict_map):
 
 def test_exploration_spells_outside_combat():
     """LORUM/LUMINAE flip the boolean torch flag (SpellUtil.java:89-94, 161-163),
-    PABULUM feeds 5-9 per member (Utils.getRandomBetween(5,10) == 5..9), and
+    DAG LORUM (LW case 8, wizard I) feeds nobody, and
     the dungeon spells are Dungeon-state operations — party fields are never
     mutated outside a dungeon (old torch_duration / dungeon_level writes are
     gone)."""
@@ -531,11 +531,11 @@ def test_exploration_spells_outside_combat():
     assert res_light.success
     assert not hasattr(party, "torch_duration") or party.torch_duration == 0
 
-    # Food spell (Wizard PABULUM): 5-9 food per member
-    res_food = cast_spell(Spell.PABULUM, caster=party.members[1], party=party)
+    # Wizard I is LW's DAG LORUM, a light (no food spell any more)
+    res_food = cast_spell(Spell.DAG_LORUM, caster=party.members[1], party=party)
     assert res_food.success
-    assert 15 <= cleric.food <= 19
-    assert 15 <= wizard.food <= 19
+    assert cleric.food == 10
+    assert wizard.food == 10
 
     # Dungeon spells are no-ops outside a dungeon (Java's location masks
     # keep them off the surface — they are only reachable there)
@@ -840,13 +840,13 @@ def test_fal_divi_re_enters_member_cleric_spell_prompt_once():
     assert "Fal Divi" in "\n".join(str(line) for line in log.history)
     assert log.current_prompt == "Cast: Which member? (1-4):"
     # The re-entry is user-driven: answering it with a NON-fal-divi cast
-    # (PABULUM = its fixed I) completes the flow and re-opens NOTHING (no
+    # (DAG LORUM = its fixed I) completes the flow and re-opens NOTHING (no
     # third member prompt, no loop).
     log.handle_char("1")
     assert log.current_prompt == "Wizard Spell? (A-P):"
-    log.handle_char("I")  # PABULUM — its fixed I
+    log.handle_char("I")  # DAG LORUM — its fixed I
     assert not log.is_waiting_for_input
-    assert "Pabulum" in "\n".join(str(line) for line in log.history)
+    assert "Dag Lorum" in "\n".join(str(line) for line in log.history)
     # Exactly one re-entry: member, spell, then member again, spell — no more.
     assert prompts == [
         "Cast: Which member? (1-4):",
@@ -1172,29 +1172,21 @@ def test_unspeakable_is_lairware_bigdeath(asset_mgr, conflict_map, monkeypatch):
     assert arena.monsters[0].is_dead
     assert arena.monsters[1].hp == 100  # never the old hp-23 / hp/2 wound
 
-def test_pabulum_food_deterministic(monkeypatch):
-    """PABULUM feeds Utils.getRandomBetween(5,10) == 5..9 per member
-    (SpellUtil.java:111-114)."""
-    import py_exodus.combat.magic as magic
+def test_dag_lorum_sets_long_light_in_dungeon():
+    """LW UltimaSpellCombat.c:227-230: Dag Lorum sets gTorch = 250 (user
+    ruling Q21 replaced Java's PABULUM food spell)."""
+    from py_exodus.world.dungeon import DungeonState
+    from py_exodus.world.map import DungeonMap
 
+    state = DungeonState(DungeonMap(id=1, name="D", width=16, height=16, levels=8),
+                         start_x=1, start_y=1, start_z=0)
+    state.torchtime = 30
     party = Party()
-    c1 = Character("A", "F", Race.BOBBIT, Profession.WIZARD, mp=50, food=0)
-    c2 = Character("B", "M", Race.HUMAN, Profession.WIZARD, mp=50, food=0)
-    party.add_member(c1)
-    party.add_member(c2)
-
-    rolls = [0, 4]  # member 1 rolls 0 → 5 food, member 2 rolls 4 → 9 food
-
-    def fake_randrange(*a, **k):
-        if a and a[0] == 5:
-            return rolls.pop(0) if rolls else 0
-        return 0
-
-    monkeypatch.setattr(magic.random, "randrange", fake_randrange)
-    res = cast_spell(Spell.PABULUM, caster=party.members[0], party=party)
+    party.add_member(Character("A", "F", Race.BOBBIT, Profession.WIZARD, mp=50, food=0))
+    res = cast_spell(Spell.DAG_LORUM, caster=party.members[0], party=party, world_map=state)
     assert res.success
-    assert c1.food == 5
-    assert c2.food == 9
+    assert state.torchtime == 250
+    assert party.members[0].food == 0
 
 
 def test_fulgar_ignores_fire_resists(asset_mgr, conflict_map):

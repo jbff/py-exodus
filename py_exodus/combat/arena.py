@@ -110,7 +110,7 @@ class ActionResult:
     message: str = ""
     attack_res: AttackResolution | None = None
     spell_res: Any | None = None
-    # Java SpellUtil: LORUM, PABULUM, ALTAIR, DAG_ACRON and the dungeon spells
+    # Java SpellUtil: LORUM, DAG_ACRON and the dungeon spells
     # never call finishPlayerTurn — in combat the caster acts again. The turn
     # is consumed by every other successful combat spell; failed casts never
     # consume it (SpellUtil.java:24-76 gates return before finishPlayerTurn).
@@ -494,7 +494,7 @@ class CombatArena:
             return res
 
         # Java's finishPlayerTurn gate: failed casts leave the caster active
-        # (SpellUtil.java:24-76), as do LORUM/PABULUM/ALTAIR/DAG_ACRON and the
+        # (SpellUtil.java:24-76), as do LORUM/DAG_ACRON and the
         # dungeon spells (SpellUtil.java:87-237).
         if res.consume_turn:
             self._advance_player_turn(member_idx)
