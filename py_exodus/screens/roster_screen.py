@@ -42,6 +42,22 @@ CREATION_MAX_POINTS = 50
 CREATION_MAX_NAME = 12
 
 
+def same_record(a: Any, b: Any) -> bool:
+    """True when ``a`` and ``b`` are the same roster record.
+
+    LairWare names a record by its roster slot, never by its name: the party
+    stores slot numbers (UltimaNew.c:204-210) and Terminate clears the slot
+    picked (UltimaNew.c:60-79, 90-101), so two characters may share a name
+    (user ruling Q4). Party members wrap the roster's own objects; a member
+    loaded from a save is matched by its stored slot."""
+    a = getattr(a, "character", a)
+    b = getattr(b, "character", b)
+    if a is b:
+        return True
+    slot = getattr(a, "roster_slot", 0)
+    return bool(slot) and slot == getattr(b, "roster_slot", 0)
+
+
 class RosterScreen(BaseScreen):
     """Full-featured keyboard-driven Party and Roster management screen."""
 
@@ -76,6 +92,8 @@ class RosterScreen(BaseScreen):
             self.roster = roster
         else:
             self.roster = self._load_initial_roster()
+        self._number_roster()
+        self._link_unnumbered_members()
 
         self.selected_roster_idx: int = 0
         self.roster_scroll_offset: int = 0
@@ -116,6 +134,40 @@ class RosterScreen(BaseScreen):
                     pass
 
         return []
+
+    def _number_roster(self) -> None:
+        """Give every roster record its own slot 1..20 (LairWare Player[1..20]).
+        Records from saves made before slots existed, or that clash, take the
+        lowest free slot in roster order."""
+        used: set[int] = set()
+        for char in self.roster:
+            slot = getattr(char, "roster_slot", 0)
+            if not (1 <= slot <= ROSTER_SLOTS) or slot in used:
+                slot = next(s for s in range(1, ROSTER_SLOTS * 2 + 1) if s not in used)
+                char.roster_slot = slot
+            used.add(slot)
+
+    def _link_unnumbered_members(self) -> None:
+        """A party saved before roster slots existed names its members only:
+        each unnumbered member takes the slot of the one roster record of its
+        name not already linked (save compatibility for user ruling Q4)."""
+        taken = {m.character.roster_slot for m in self.party.members if m.character.roster_slot}
+        for m in self.party.members:
+            char = m.character
+            if char.roster_slot or any(c is char for c in self.roster):
+                continue
+            match = [
+                c for c in self.roster
+                if c.name.upper() == char.name.upper() and c.roster_slot not in taken
+            ]
+            if len(match) == 1:
+                char.roster_slot = match[0].roster_slot
+                taken.add(char.roster_slot)
+
+    def _free_slot(self) -> int:
+        """The lowest roster slot no record holds."""
+        used = {getattr(c, "roster_slot", 0) for c in self.roster}
+        return next(s for s in range(1, ROSTER_SLOTS * 2 + 1) if s not in used)
 
     def handle_event(self, event: pygame.event.Event) -> None:
         # Mouse wheel scrolls the shared text log back through history
@@ -180,8 +232,10 @@ class RosterScreen(BaseScreen):
             return
 
         char = self.roster[self.selected_roster_idx]
-        # Check if already in party
-        if any(m.name.upper() == char.name.upper() for m in self.party.members):
+        # The same record twice is refused (LairWare FormPartyDialog
+        # `sel[temp] == sel[i]`, UltimaNew.c:247-250); a same-named other
+        # record may join (user ruling Q4).
+        if any(same_record(m, char) for m in self.party.members):
             self.text_log.add_message(f"{char.name} is already in the party!")
             return
 
@@ -212,7 +266,7 @@ class RosterScreen(BaseScreen):
         member = self.party.members[target_idx].character
 
         existing_slot = next(
-            (i for i, c in enumerate(self.roster) if c.name.upper() == member.name.upper()),
+            (i for i, c in enumerate(self.roster) if same_record(c, member)),
             None,
         )
         if existing_slot is None and len(self.roster) >= ROSTER_SLOTS:
@@ -225,6 +279,7 @@ class RosterScreen(BaseScreen):
         if existing_slot is not None:
             self.roster[existing_slot] = member
         else:
+            member.roster_slot = self._free_slot()
             self.roster.append(member)
             self.selected_roster_idx = len(self.roster) - 1
 
@@ -275,27 +330,19 @@ class RosterScreen(BaseScreen):
             return
         char = self.roster[self.selected_roster_idx]
 
-        # GBC intro.c:1455-1490 terminatecharacter: a member of the active
-        # party (same object, or a same-named roster record) is never
-        # deletable.
-        if any(
-            m.character is char or m.name.upper() == char.name.upper()
-            for m in self.party.members
-        ):
+        # GBC intro.c:1455-1490 terminatecharacter / LairWare
+        # TerminateCharacterDialog (UltimaNew.c:74-75): a record in the party
+        # is never deletable; a same-named other record is (user ruling Q4).
+        if any(same_record(m, char) for m in self.party.members):
             self.text_log.add_message("That character is in a party!")
             return
 
         def _on_confirm(answer: str) -> None:
             if answer.strip().upper() != "Y":
                 return  # N or any other key: nothing is deleted
-            idx = next(
-                (
-                    i
-                    for i, c in enumerate(self.roster)
-                    if c is char or c.name.upper() == char.name.upper()
-                ),
-                None,
-            )
+            # The slot picked, never another of the same name (LairWare
+            # `Player[rosNum][0] = 0`, UltimaNew.c:92).
+            idx = next((i for i, c in enumerate(self.roster) if c is char), None)
             if idx is None:
                 return
             removed = self.roster.pop(idx)
@@ -404,6 +451,7 @@ class RosterScreen(BaseScreen):
                 gold=150,
                 weapon=WeaponType.DAGGER,
                 armor=ArmorType.CLOTH,
+                roster_slot=self._free_slot(),
                 # portrait_index keeps its default (43): the field survives for
                 # save compatibility but the creation wizard never asks for it
                 # and no UI renders it (user ruling, see _step_profession).
@@ -527,7 +575,7 @@ class RosterScreen(BaseScreen):
     _SEX_WORD = {"M": "Male", "F": "Female", "O": "Other"}
 
     def _in_party(self, char: Character) -> bool:
-        return any(m.name.upper() == char.name.upper() for m in self.party.members)
+        return any(same_record(m, char) for m in self.party.members)
 
     @classmethod
     def describe(cls, char: Character) -> str:

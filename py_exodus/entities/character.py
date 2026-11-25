@@ -55,6 +55,7 @@ class Character(metaclass=CharacterMeta):
         gold: _builtin_int = 150,
         submorsels: _builtin_int = 400,
         portrait_index: _builtin_int = 43,
+        roster_slot: _builtin_int = 0,
         **kwargs: Any,
     ) -> None:
         self.name = name
@@ -177,6 +178,10 @@ class Character(metaclass=CharacterMeta):
         # fractional-food accumulator, 400 submorsels per unit of food.
         self.submorsels = submorsels
         self.portrait_index = portrait_index
+        # LairWare names a record by its roster slot, Player[1..20]
+        # (UltimaNew.c:60-79, 157-185); 0 = not numbered yet (old saves,
+        # loose characters). The roster screen numbers records on load.
+        self.roster_slot = roster_slot
 
     # --- Stat properties & aliases ---
     @property
@@ -607,6 +612,7 @@ class Character(metaclass=CharacterMeta):
             "gold": self.gold,
             "submorsels": self.submorsels,
             "portrait_index": self.portrait_index,
+            "roster_slot": self.roster_slot,
         }
 
     @classmethod
@@ -643,6 +649,7 @@ class Character(metaclass=CharacterMeta):
             gold=data.get("gold", 150),
             submorsels=data.get("submorsels", 400),
             portrait_index=data.get("portrait_index", 43),
+            roster_slot=data.get("roster_slot", 0),
         )
         if "weapons" in data and isinstance(data["weapons"], dict):
             for k, count in data["weapons"].items():

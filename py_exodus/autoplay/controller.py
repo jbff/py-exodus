@@ -457,9 +457,7 @@ class AutoPlayController:
         if len(screen.party.members) < 4:
             if len(screen.roster) > len(screen.party.members):
                 char = screen.roster[screen.selected_roster_idx]
-                in_party = any(
-                    m.name.upper() == char.name.upper() for m in screen.party.members
-                )
+                in_party = any(m.character is char for m in screen.party.members)
                 if in_party:
                     return self._emit_key(state_machine, pygame.K_DOWN)
                 return self._emit_key(state_machine, pygame.K_a)

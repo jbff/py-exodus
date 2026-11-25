@@ -131,3 +131,108 @@ def test_createchar_kit_also_in_batch_and_reset_parties(tmp_path):
     for c in roster:
         assert c.weapon == WeaponType.DAGGER, c.name
         assert c.armor == ArmorType.CLOTH, c.name
+
+
+# --- R-14 (user ruling Q4): a record is its roster slot, not its name ---------
+
+
+def _two_same_named():
+    a = Character(name="ARIA", profession=Profession.FIGHTER)
+    b = Character(name="ARIA", profession=Profession.WIZARD)
+    return a, b
+
+
+def test_formpartydialog_two_same_named_characters_can_join(pygame_setup):
+    """UltimaNew.c:157-185, 204-210, 247-250 (FormPartyDialog): the menus list roster
+    slots ("1- ARIA", "2- ARIA") and the party stores slot numbers
+    (``Party[temp + 6] = sel[i]``); only the same slot twice is refused
+    (``sel[temp] == sel[i]``). Two characters with the same name can be in
+    one party (user ruling Q4); the port refused the second by name."""
+    a, b = _two_same_named()
+    scr = RosterScreen(roster=[a, b], asset_mgr=None)
+    scr.selected_roster_idx = 0
+    scr._add_selected_to_party()
+    scr.selected_roster_idx = 1
+    scr._add_selected_to_party()
+    assert [m.character for m in scr.party.members] == [a, b]
+    scr.selected_roster_idx = 1
+    scr._add_selected_to_party()  # the same record twice is still refused
+    assert len(scr.party.members) == 2
+
+
+def test_terminatecharacterdialog_removes_the_slot_picked(pygame_setup):
+    """UltimaNew.c:60-79, 90-101 (TerminateCharacterDialog): the menu entry
+    maps to its slot (``rosNum = menuEntry[i - 2]``) and Terminate clears
+    that slot (``Player[rosNum][0] = 0``). With two ARIAs, terminating the
+    second removes the second, never the first."""
+    a, b = _two_same_named()
+    scr = RosterScreen(roster=[a, b], asset_mgr=None)
+    scr.selected_roster_idx = 1
+    scr._delete_selected_roster()
+    scr.text_log.handle_char("Y")
+    assert scr.roster == [a]
+
+
+def test_terminatecharacterdialog_refuses_only_the_member_in_the_party(pygame_setup):
+    """UltimaNew.c:74-75: a slot marked in a party (``Player[i][16] != 0``)
+    can't be picked for Terminate. Another record with the same name can."""
+    a, b = _two_same_named()
+    scr = RosterScreen(roster=[a, b], asset_mgr=None)
+    scr.selected_roster_idx = 0
+    scr._add_selected_to_party()
+    scr.selected_roster_idx = 0
+    scr._delete_selected_roster()
+    assert not scr.text_log.is_waiting_for_input  # refused, no Y/N asked
+    assert scr.roster == [a, b]
+    scr.selected_roster_idx = 1
+    scr._delete_selected_roster()
+    scr.text_log.handle_char("Y")
+    assert scr.roster == [a]
+
+
+def test_roster_slots_persist_and_old_saves_get_them(pygame_setup, tmp_path):
+    """Save compatibility for Q4: every roster record keeps a slot number
+    (LairWare's Player[1..20] index). A roster saved before slots existed
+    loads, and the roster screen numbers its records 1, 2, ... in order; a
+    new character takes the lowest free slot."""
+    import json
+
+    a, b = _two_same_named()
+    legacy = []
+    for c in (a, b):
+        d = c.to_dict()
+        d.pop("roster_slot", None)
+        legacy.append(d)
+    path = tmp_path / "roster.json"
+    path.write_text(json.dumps(legacy))  # a bare pre-envelope roster list
+    old = SaveSystem.load_roster(path)
+    assert [c.roster_slot for c in old] == [0, 0]
+
+    scr = RosterScreen(roster=old, asset_mgr=None)
+    assert [c.roster_slot for c in scr.roster] == [1, 2]
+    again = Character.from_dict(scr.roster[1].to_dict())
+    assert again.roster_slot == 2
+
+    scr.roster.pop(0)
+    _create(scr, "NEW")
+    assert scr.roster[-1].roster_slot == 1
+
+
+def test_old_party_members_link_to_their_records_by_name_once(pygame_setup):
+    """Save compatibility for Q4: a party saved before roster slots has
+    members with no slot; each takes the slot of the one roster record of
+    its name, so it is still that record (and two same-named records are
+    never guessed between)."""
+    from py_exodus.entities.party import Party
+    from py_exodus.screens.roster_screen import same_record
+
+    rec = Character(name="BORS", profession=Profession.FIGHTER)
+    twin_a, twin_b = _two_same_named()
+    party = Party()
+    saved_bors = Character(name="BORS", profession=Profession.FIGHTER, level=3)
+    saved_aria = Character(name="ARIA", profession=Profession.FIGHTER)
+    party.add_member(saved_bors)
+    party.add_member(saved_aria)
+    scr = RosterScreen(party=party, roster=[rec, twin_a, twin_b], asset_mgr=None)
+    assert same_record(saved_bors, rec)
+    assert saved_aria.roster_slot == 0  # ambiguous: left unlinked
