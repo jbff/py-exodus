@@ -182,8 +182,9 @@ def test_dungeon_q_is_an_unhandled_pass_key(pygame_setup, monkeypatch, tmp_path)
     calls context.saveGame from any dungeon level and logs "Saved Game.".
     Removed per ruling (Q-save is allowed ONLY on the Sosaria overland), so
     dungeon Q has no handler and reaches the keyUp tail like every other
-    unhandled key (DungeonScreen.java:1045-1050): it logs "Pass" and
-    consumes a turn, and no save file is written."""
+    unhandled key (DungeonScreen.java:1045-1050). LairWare refuses it
+    (NotDngCmd, UltimaDngn.c:149, 492-495: "NOT A DNG CMD!") and consumes
+    a turn, and no save file is written."""
     monkeypatch.chdir(tmp_path)
     party = make_party()
     scr = make_screen(party)
@@ -198,7 +199,7 @@ def test_dungeon_q_is_an_unhandled_pass_key(pygame_setup, monkeypatch, tmp_path)
     moves_before = party.moves
     ticks = turn_meter(party)
     press(scr, pygame.K_q)
-    assert any("Pass" in m for m in scr.text_log.history)
+    assert scr.text_log.history[-1] == "NOT A DNG CMD!"
     # The unhandled-key tail falls through to finishTurn — a turn is
     # consumed, unlike Java's Q which returned before the tail.
     assert ticks() == 98
@@ -339,7 +340,7 @@ def test_dungeon_dark_view_after_last_round(pygame_setup):
     assert scr.state.is_torch_on is False
 
 
-# --- unhandled keys consume a turn ("Pass") ----------------------------
+# --- refused and unhandled keys consume a turn -------------------------
 
 
 def test_dungeon_unhandled_keys_pass_and_consume_turn(pygame_setup):
@@ -347,11 +348,12 @@ def test_dungeon_unhandled_keys_pass_and_consume_turn(pygame_setup):
     scr = make_screen(party)
     ticks = turn_meter(party)
 
-    press(scr, pygame.K_u)  # removed alias; Java dungeon has no U handler
-    assert any("Pass" in m for m in scr.text_log.history)
+    # U and T are NotDngCmd in LairWare (UltimaDngn.c:153-154, 492-495).
+    press(scr, pygame.K_u)
+    assert scr.text_log.history[-1] == "NOT A DNG CMD!"
     assert ticks() == 98
 
-    press(scr, pygame.K_t)  # torch is keyed I in Java; T is unhandled
+    press(scr, pygame.K_t)
     assert ticks() == 97
 
     press(scr, pygame.K_SPACE)

@@ -1785,14 +1785,7 @@ class DungeonState:
     def drink_fountain(self, member_index: int = 0) -> DungeonEvent:
         """Inspect and drink from a dungeon fountain."""
         tile = self.current_tile
-        fountains = (
-            DungeonTile.FOUNTAIN_PLAIN,
-            DungeonTile.FOUNTAIN_HEAL,
-            DungeonTile.FOUNTAIN_ACID,
-            DungeonTile.FOUNTAIN_CURE,
-            DungeonTile.FOUNTAIN_POISON,
-        )
-        if tile not in fountains:
+        if tile not in FOUNTAIN_TILES:
             return DungeonEvent(
                 type=DungeonEventType.BLOCKED,
                 message="No fountain here!",

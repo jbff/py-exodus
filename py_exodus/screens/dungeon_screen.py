@@ -50,6 +50,12 @@ if TYPE_CHECKING:
     from py_exodus.world.map import DungeonMap
 
 
+# LairWare DungeonStart (UltimaDngn.c:134-157): letters that are NotDngCmd.
+_NOT_DNG_CMD_KEYS = frozenset(
+    getattr(pygame, f"K_{c}") for c in "abefqlstux"
+)
+
+
 class DungeonScreen(BaseScreen):
     """First-person 3D wireframe dungeon navigation screen."""
 
@@ -281,12 +287,19 @@ class DungeonScreen(BaseScreen):
             # 183): Z takes the turn, as on the overworld.
             self._toggle_zstats()
             self._consume_turn()
+        elif event.key in _NOT_DNG_CMD_KEYS:
+            # LairWare NotDngCmd (UltimaDngn.c:134-157, 492-495): A, B, E,
+            # F, L, Q, S, T, U and X print message 172 and the error tone,
+            # then dungeonmech takes the turn (161; ledger D-22).
+            # USER RULING 2026-11-10: Q is no dungeon save (Q-save lives
+            # only on the Sosaria overland).
+            self.text_log.add_message("NOT A DNG CMD!")
+            if self.audio is not None:
+                self.audio.play_sfx("blocked")
+            self._consume_turn()
         else:
-            # Java DungeonScreen.java:1045-1049 + 1049-1050 — any key without
-            # a handler logs "Pass" and falls through to finishTurn. LairWare
-            # refuses A, B, E, F, L, Q, S, T, U and X here (NotDngCmd,
-            # UltimaDngn.c:134-157) and then runs dungeonmech (161): the
-            # turn passes the same way (ledger D-22; S since C-23/D-12).
+            # Java DungeonScreen.java:1045-1049 + 1049-1050 — any other key
+            # logs "Pass" and falls through to finishTurn.
             # USER RULING 2026-11-10: the dungeon Q-save (Java
             # DungeonScreen.java:976-986 — Keys.Q calls context.saveGame from
             # any dungeon level and logs "Saved Game." with the dungeon

@@ -944,3 +944,44 @@ def test_dungeon_s_and_l_are_not_dungeon_commands(asset_mgr):
         _press(screen, k, ch)
         assert not screen.text_log.is_waiting_for_input
     assert screen.state.torchtime == 48
+
+
+@pytest.mark.parametrize("letter", "ABEFLQSTUX")
+def test_notdngcmd_says_not_a_dungeon_command(asset_mgr, letter):
+    """UltimaDngn.c:134-157 and 492-495:
+
+        case 'A': NotDngCmd(); break; ...
+        void NotDngCmd(void) { UPrintMessage(172); ErrorTone(); }
+
+    Message 172 is "NOT A DNG CMD!"; then dungeonmech takes the turn (161).
+    The port logged Java's "Pass"."""
+    import pygame
+
+    screen = _fixture_screen(asset_mgr, DungeonTile.NOTHING)
+    screen.state.torchtime = 50
+    _press(screen, getattr(pygame, f"K_{letter.lower()}"), letter.lower())
+    assert screen.text_log.history[-1] == "NOT A DNG CMD!"
+    assert "Pass" not in screen.text_log.history
+    assert screen.state.torchtime == 49
+
+
+def test_space_still_passes_in_the_dungeon(asset_mgr):
+    """UltimaDngn.c:172 (``case ' ': dPass();``), 344-346: Space is "Pass"."""
+    import pygame
+
+    screen = _fixture_screen(asset_mgr, DungeonTile.NOTHING)
+    _press(screen, pygame.K_SPACE, " ")
+    assert screen.text_log.history[-1] == "Pass"
+
+
+def test_drink_fountain_accepts_every_fountain_tile():
+    """UltimaDngn.c:224 (``case 2: /* fountain */``): every fountain byte is a
+    fountain; the screen's fixture set (FOUNTAIN_TILES) and drink_fountain
+    must agree, the untyped one included."""
+    from py_exodus.world.dungeon import FOUNTAIN_TILES
+
+    for tile in FOUNTAIN_TILES:
+        dmap = _dmap()
+        dmap.set_tile(4, 4, 0, tile)
+        state = DungeonState(dmap, start_x=4, start_y=4, start_z=0, party=_party())
+        assert state.drink_fountain(0).type == DungeonEventType.FOUNTAIN, tile
