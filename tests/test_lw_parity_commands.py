@@ -839,6 +839,70 @@ def test_every_letter_takes_one_turn_town(town, ch):
     assert scr.party.moves == before + 1, ch
 
 
+# --- T-28 (user ruling 2026-11-25): every letter command lets monsters move ----
+
+
+def _count_calls(scr, name: str) -> list[int]:
+    calls = [0]
+    real = getattr(scr, name)
+
+    def wrapped(*a, **k):
+        calls[0] += 1
+        return real(*a, **k)
+
+    setattr(scr, name, wrapped)
+    return calls
+
+
+@pytest.mark.parametrize("ch", [c for c in _LETTERS if c not in "eq"])
+def test_every_letter_moves_monsters_once_overworld(overworld, ch):
+    """UltimaMisc.c:1357-1401: Routine6E35 ends in ``FinishAll();``
+    (1112-1130: SpawnMonster, MoveMonsters, gTimeNegate--) after every
+    letter command (UltimaMain.c:1057-1059) -- once, never twice."""
+    scr = overworld()
+    calls = _count_calls(scr, "_update_creatures")
+    _press_letter_and_escape(scr, ch)
+    assert calls[0] == 1, ch
+
+
+@pytest.mark.parametrize("ch", [c for c in _LETTERS if c not in "e"])
+def test_every_letter_moves_people_once_town(town, ch):
+    """UltimaMisc.c:1357-1401 in towns too: FinishAll once per letter."""
+    scr = town()
+    scr.game_map.npcs = []
+    calls = _count_calls(scr, "_move_people")
+    _press_letter_and_escape(scr, ch)
+    assert calls[0] == 1, ch
+
+
+def test_get_chest_lets_monsters_move(overworld):
+    """T-28: Get (screens/overworld.py _get_chest) took its turn through
+    ``_finish_turn`` alone, so monsters stood still and Negate Time did not
+    count down (FinishAll, UltimaMisc.c:1120-1125)."""
+    from py_exodus.aura import AuraType
+
+    m = _pm()
+    scr = overworld(party=_party(m))
+    scr.party.dynamic_objects.append({"tile": "chest", "x": 40, "y": 40})
+    scr.party.aura.set(AuraType.QUICKNESS, 5)
+    calls = _count_calls(scr, "_update_creatures")
+    _key(scr, pygame.K_g, "g")
+    _key(scr, pygame.K_1, "1")
+    assert calls[0] == 1
+    assert scr.party.aura.get_duration() == 4
+
+
+@pytest.mark.parametrize("keys", ["g1", "gx"])
+def test_get_variants_move_monsters_once(overworld, keys):
+    """Every Get outcome (opened, Not Here!, a bad member) moves monsters
+    once."""
+    scr = overworld()
+    calls = _count_calls(scr, "_update_creatures")
+    _key(scr, pygame.K_g, "g")
+    _key(scr, ord(keys[1]), keys[1])
+    assert calls[0] == 1
+
+
 @pytest.mark.parametrize(
     "level, exp, kings, exodus, reason, text",
     [

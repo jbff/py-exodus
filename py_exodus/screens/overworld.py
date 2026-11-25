@@ -354,6 +354,8 @@ class OverworldScreen(BaseScreen):
         self._poll_clock = realtime.PollClock()
         # The main loop's idle count (UltimaMain.c:1040-1056), in polls.
         self._idle_polls = 0
+        # FinishAll runs so far (_update_creatures), for the letter turn.
+        self._finish_all_count = 0
 
         self.world_renderer = (
             WorldRenderer(asset_mgr) if asset_mgr is not None else None
@@ -658,7 +660,7 @@ class OverworldScreen(BaseScreen):
         # Routine6E35();`` -- every letter ends the turn once, whatever the
         # command did; _settle_letter_turn adds it when the command didn't.
         if pygame.K_a <= event.key <= pygame.K_z:
-            self._letter_turn = (self.party.moves, self.map_id)
+            self._letter_turn = (self.party.moves, self.map_id, self._finish_all_count)
         if event.key in (pygame.K_UP, pygame.K_KP8):
             self._move_avatar(Direction.NORTH)
         elif event.key in (pygame.K_DOWN, pygame.K_KP2):
@@ -748,16 +750,24 @@ class OverworldScreen(BaseScreen):
         if mark is None or self.text_log.is_waiting_for_input:
             return
         self._letter_turn = None
-        moves, map_id = mark
+        moves, map_id, finish_alls = mark
         # A command that left the map (Enter, a whirlpool) already set the
         # new one up; its turn is not replayed there. A command that pushed
         # a screen (a fight, a town, the Final screen) is not given a turn
         # underneath it: LW runs Routine6E35 only once the fight is over,
         # and a turn here would move the next attacker into a second fight.
         pushed = self.manager is not None and self.manager.current_screen is not self
-        if self.is_finished or pushed or self.party.moves != moves or self.map_id != map_id:
+        if self.is_finished or pushed or self.map_id != map_id:
             return
-        self._consume_pass_turn()
+        if self.party.moves == moves:
+            self._consume_pass_turn()
+            return
+        # The command took its turn itself (Get) through _finish_turn alone:
+        # Routine6E35 still ends in FinishAll (UltimaMisc.c:1357-1401,
+        # 1112-1130), so the monsters move and stopped time counts down,
+        # once (T-28).
+        if self._finish_all_count == finish_alls and not self.party.is_party_dead():
+            self._update_creatures()
 
     def _consume_pass_turn(self) -> None:
         """Java GameScreen.keyUp tail (GameScreen.java:628): finishTurn on the
@@ -1874,6 +1884,8 @@ class OverworldScreen(BaseScreen):
            when the intended dir equals ``sail_dir``, else the turn consumes
            the tick.
         """
+        # Counted for the letter-command turn (T-28): FinishAll once a turn.
+        self._finish_all_count += 1
         # The whirlpool is not moved here: LairWare WhirlPool runs from the
         # key-wait loop on its own real-time clock (see _whirlpool_poll).
 
