@@ -1159,3 +1159,110 @@ def test_finishall_flip_is_one_counter_for_surface_and_town(pygame_setup, asset_
     assert follower.x == x0 - 1
     assert "finish_all_flip" not in party.to_dict()
     assert Party.from_dict(party.to_dict()).finish_all_flip == 0
+
+
+# --- T-25 (user ruling 2026-11-25): the idle pass on the map --------------------
+#
+# UltimaMain.c:1040-1056 (Game main loop):
+#
+#     count = 60; /* SUPPOSED TO BE 0x25! */
+#     while (count > 0) {
+#         WhirlPool();
+#         key = GetKeyMouse(0);
+#         if (key) count = 0;
+#         count--;
+#         if (count == 40) DoAutoHeal();
+#     }
+#     ...
+#     if (!key) gKeyPress = ' ';
+#     ...  case ' ': Pass(); break;
+#
+# 60 polls of 5/60 s: five seconds at the command prompt with no key pass the
+# turn as Space would. DoAutoHeal is not ported (user ruling).
+
+
+def _passes(screen) -> int:
+    return sum(1 for m in screen.text_log.history if m == "Pass")
+
+
+def test_main_loop_passes_after_60_idle_polls(overworld):
+    """UltimaMain.c:1040-1056: no key in 60 polls (5 s) passes the turn."""
+    ow = overworld(40, 40)
+    for _ in range(60 * 5 - 1):  # 1/60 s frames
+        ow.update(1 / 60)
+    assert _passes(ow) == 0
+    ow.update(1 / 60)
+    assert _passes(ow) == 1
+    for _ in range(60):
+        ow.update(_POLL)
+    assert _passes(ow) == 2
+
+
+def test_main_loop_idle_count_restarts_on_a_key(overworld):
+    """UltimaMain.c:1045-1047: ``if (key) count = 0;`` -- a key ends the
+    wait, and the next command wait starts its 60 polls afresh."""
+    ow = overworld(40, 40)
+    for _ in range(50):
+        ow.update(_POLL)
+    _key(ow, pygame.K_F2)  # any key ends the wait
+    for _ in range(59):
+        ow.update(_POLL)
+    assert _passes(ow) == 0
+    ow.update(_POLL)
+    assert _passes(ow) == 1
+
+
+def test_main_loop_idle_pass_never_in_a_prompt_or_ztats(overworld):
+    """The idle pass lives only in the main loop's command wait
+    (UltimaMain.c:1040-1056). A command's own prompt and the Ztats screen
+    (UltimaMacIF.c:1384-1386, gUpdateWhere 9) wait in GetKeyMouse alone,
+    so they never pass the turn."""
+    ow = overworld(40, 40)
+    _key(ow, pygame.K_a)
+    assert ow.text_log.is_waiting_for_input
+    for _ in range(200):
+        ow.update(_POLL)
+    assert _passes(ow) == 0
+
+    ow = overworld(40, 40)
+    ow.stats_panel.inspect_index = 0
+    for _ in range(200):
+        ow.update(_POLL)
+    assert _passes(ow) == 0
+
+
+def test_main_loop_idle_pass_in_towns_not_in_combat(pygame_setup, asset_mgr, town):
+    """Towns run the same main loop (Enter returns to it with Party[3] = 2,
+    UltimaMain.c:1503-1506), so they pass after 60 idle polls too. Combat
+    has its own wait (UltimaSpellCombat.c:938-970); by user ruling the port
+    never passes a combat turn by itself."""
+    from py_exodus.screens.combat_screen import CombatScreen
+    from py_exodus.world.loader import MapLoader
+
+    tw = town(1, 10, 10)
+    for _ in range(60):
+        tw.update(_POLL)
+    assert _passes(tw) == 1
+
+    party = _party()
+    cm = MapLoader(asset_mgr).load_conflict_map("CNFLCT_A.ULT")
+    cs = CombatScreen(party=party, combat_map=cm, creature_tile="orc", asset_mgr=asset_mgr)
+    before = list(cs.text_log.history)
+    for _ in range(200):
+        cs.update(_POLL)
+    assert not any(m == "Pass" for m in cs.text_log.history[len(before):])
+
+
+def test_main_loop_idle_pass_held_under_autoplay(overworld):
+    """Autoplay answers every wait itself (like LairWare's Macro keys,
+    GetKeyMouse :3449-3454), so its own pauses never pass a turn: headless
+    batches play exactly as before."""
+    ow = overworld(40, 40)
+
+    class _Mgr:
+        autoplay_enabled = True
+
+    ow.manager = _Mgr()
+    for _ in range(200):
+        ow.update(_POLL)
+    assert _passes(ow) == 0

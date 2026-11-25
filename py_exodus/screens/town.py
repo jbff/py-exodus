@@ -100,6 +100,10 @@ class TownScreen(BaseScreen):
         self.anim_timer = 0.0
         # Peer Gem (P) view state (Java PeerGemInputAdapter, see gem_view).
         self.gem_view_active = False
+        # The main loop's idle count (UltimaMain.c:1040-1056), in 5/60 s
+        # polls of game time.
+        self._poll_clock = realtime.PollClock()
+        self._idle_polls = 0
 
         self.world_renderer = (
             WorldRenderer(asset_mgr) if asset_mgr is not None else None
@@ -225,6 +229,8 @@ class TownScreen(BaseScreen):
 
         if event.type != pygame.KEYDOWN:
             return
+        # Any key ends the main loop's wait (UltimaMain.c:1045-1047).
+        self._idle_polls = 0
 
         # Java PeerGemInputAdapter.keyUp (GameScreen.java:1146-1152): the
         # gem view owns all input; any key closes it and restores the timer
@@ -1354,13 +1360,38 @@ class TownScreen(BaseScreen):
     def update(self, dt: float) -> None:
         # LairWare DoWind (UltimaMain.c:3284-3300) keeps time in towns too:
         # gUpdateWhere is 3 there, so every 5/60 s GetKeyMouse poll runs
-        # FullUpdate (:3469-3470). The Peer Gem picture stops it.
-        if not self.gem_view_active:
+        # FullUpdate (:3469-3470). The Peer Gem picture and Ztats stop it.
+        if not self.gem_view_active and self.stats_panel.inspect_index is None:
             realtime.advance_wind(self.party, dt)
+        self._main_loop_polls(dt)
         self.anim_timer += dt
         if self.anim_timer >= 0.2:
             self.anim_timer = 0.0
             self.anim_frame = (self.anim_frame + 1) % 16  # LW scrolls water in 16 steps
+
+    def _main_loop_polls(self, dt: float) -> None:
+        """LairWare main loop (UltimaMain.c:1040-1056), which towns and
+        castles share with the surface (Enter returns to it, :1503-1506):
+        60 polls (5 s) with no key at the command prompt pass the turn as
+        Space would. DoAutoHeal is not ported (user ruling). Prompts, Ztats
+        and the Peer Gem picture never pass, and the count starts afresh
+        after them; autoplay holds it (realtime.autoplay_on)."""
+        polls = self._poll_clock.polls(dt)
+        if not polls:
+            return
+        waiting = (
+            not self.gem_view_active
+            and self.stats_panel.inspect_index is None
+            and not self.text_log.is_waiting_for_input
+            and not self.is_finished
+            and self.party.is_anyone_alive()
+        )
+        if not waiting or realtime.autoplay_on(self):
+            self._idle_polls = 0
+            return
+        self._idle_polls += polls
+        if self._idle_polls >= realtime.IDLE_PASS_POLLS:
+            self.handle_event(realtime.space_event())
 
     def render(self, surface: pygame.Surface) -> None:
         surface.fill(EGA_BLACK)

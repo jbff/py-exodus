@@ -700,3 +700,47 @@ def test_gremlins_at_a_dead_slot_do_nothing():
     state.move_forward()
     assert [m.food for m in party.members] == [500, 500, 500]
     assert dmap.get_tile(4, 3, 0) == DungeonTile.NOTHING
+
+
+# --- D-23 (user ruling 2026-11-25): the dungeon's idle pass ----------------------
+
+
+def test_dungeonstart_passes_after_six_idle_seconds(pygame_setup, asset_mgr):
+    """UltimaDngn.c:55 and 110-121 (DungeonStart):
+
+        #define PASSTIME 360          // 6 seconds
+        nextPassTime = TickCount() + PASSTIME;
+        ...
+        if (TickCount() < nextPassTime) goto dungkey;
+        gKeyPress = ' ';
+
+    Six seconds at the dungeon's command prompt with no key pass the turn as
+    Space would; a key starts the wait afresh, and a prompt never passes.
+    DoAutoHeal (zp[0xD1] == -2000) is not ported (user ruling)."""
+    import pygame
+
+    from py_exodus.screens.dungeon_screen import DungeonScreen
+
+    def passes(s) -> int:
+        return sum(1 for m in s.text_log.history if m == "Pass")
+
+    screen = DungeonScreen(party=_party(), dungeon_map=_dmap(), asset_mgr=asset_mgr)
+    for _ in range(6 * 60 - 1):
+        screen.update(1 / 60)
+    assert passes(screen) == 0
+    screen.update(1 / 60)
+    assert passes(screen) == 1
+
+    for _ in range(5 * 60):
+        screen.update(1 / 60)
+    screen.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_F2, unicode=""))
+    n = passes(screen)
+    for _ in range(6 * 60 - 1):
+        screen.update(1 / 60)
+    assert passes(screen) == n
+
+    screen = DungeonScreen(party=_party(), dungeon_map=_dmap(), asset_mgr=asset_mgr)
+    screen.text_log.prompt("Other Command? ", callback=lambda s: None)
+    for _ in range(20 * 60):
+        screen.update(1 / 60)
+    assert passes(screen) == 0

@@ -105,6 +105,8 @@ class DungeonScreen(BaseScreen):
         self.camera = DungeonCamera(viewport_size=176)
         self.stats_panel = StatsPanel(asset_mgr=self.asset_mgr)
         self.text_log = TextLog(max_lines=5, wrap_width=64)
+        # DungeonStart's idle wait (UltimaDngn.c:110-121), in game seconds.
+        self._idle_time = 0.0
         # Java DungeonScreen.java:79-80 — the minimap shows by default and P
         # toggles it.
         self.show_minimap = True
@@ -151,6 +153,9 @@ class DungeonScreen(BaseScreen):
 
         if event.type != pygame.KEYDOWN:
             return
+        # Any key ends DungeonStart's wait; the next one sets nextPassTime
+        # afresh (UltimaDngn.c:110, 126-127).
+        self._idle_time = 0.0
 
         if self.text_log.is_waiting_for_input:
             self.text_log.handle_event(event)
@@ -629,7 +634,33 @@ class DungeonScreen(BaseScreen):
         )
 
     def update(self, dt: float) -> None:
-        pass
+        """LairWare DungeonStart (UltimaDngn.c:55, 110-121)::
+
+            #define PASSTIME 360          // 6 seconds
+            nextPassTime = TickCount() + PASSTIME;
+            ...
+            if (TickCount() < nextPassTime) goto dungkey;
+            gKeyPress = ' ';
+
+        Six seconds of game time at the dungeon's command prompt with no key
+        pass the turn as Space would. DoAutoHeal (zp[0xD1] == -2000) is not
+        ported (user ruling). Prompts and Ztats never pass; autoplay holds
+        it (realtime.autoplay_on)."""
+        from py_exodus.world import realtime
+
+        waiting = (
+            not self.text_log.is_waiting_for_input
+            and self.stats_panel.inspect_index is None
+            and not self.is_finished
+            and self.party.is_anyone_alive()
+            and not realtime.autoplay_on(self)
+        )
+        if not waiting:
+            self._idle_time = 0.0
+            return
+        self._idle_time += max(0.0, dt)
+        if self._idle_time + 1e-9 >= realtime.DUNGEON_PASS_SECONDS:
+            self.handle_event(realtime.space_event())
 
     def _render_minimap(self, target: pygame.Surface) -> None:
         """Draw the current dungeon level as a small top-down chart.

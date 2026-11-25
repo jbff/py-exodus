@@ -352,7 +352,9 @@ class OverworldScreen(BaseScreen):
         # on party.wind_clock) and the whirlpool (WhirlPool, gWhirlCtr:
         # a plain global, not saved, starting at 0).
         self._whirl_ctr = 0
-        self._whirl_clock = realtime.PollClock()
+        self._poll_clock = realtime.PollClock()
+        # The main loop's idle count (UltimaMain.c:1040-1056), in polls.
+        self._idle_polls = 0
 
         self.world_renderer = (
             WorldRenderer(asset_mgr) if asset_mgr is not None else None
@@ -616,6 +618,9 @@ class OverworldScreen(BaseScreen):
 
         if event.type != pygame.KEYDOWN:
             return
+        # Any key ends the main loop's wait (UltimaMain.c:1045-1047); the
+        # next wait counts its 60 idle polls afresh.
+        self._idle_polls = 0
 
         # Java PeerGemInputAdapter.keyUp (GameScreen.java:1146-1152): while
         # the gem view is up it owns ALL input; any key closes it and
@@ -2622,28 +2627,17 @@ class OverworldScreen(BaseScreen):
         # LairWare GetKeyMouse (UltimaMain.c:3456-3471) runs FullUpdate, and
         # so DoWind (:3284-3300), on every 5/60 s poll while gUpdateWhere is
         # 3, idle or not, prompts included. The Peer Gem picture
-        # (UltimaGraphics.c:1496-1497, gUpdateWhere 20) and the shrine
-        # picture (ImageDisplay, UltimaMacIF.c:1998-2001) stop it.
-        if not self.gem_view_active and self.shrine_member is None:
+        # (UltimaGraphics.c:1496-1497, gUpdateWhere 20), the shrine picture
+        # (ImageDisplay, UltimaMacIF.c:1998-2001) and Ztats
+        # (UltimaMacIF.c:1384-1386, gUpdateWhere 9) stop it.
+        if (
+            not self.gem_view_active
+            and self.shrine_member is None
+            and self.stats_panel.inspect_index is None
+        ):
             realtime.advance_wind(self.party, dt)
 
-        # LairWare main loop (UltimaMain.c:1040-1050): while the party waits
-        # for a command, each pass calls WhirlPool once and then waits one
-        # 5/60 s GetKeyMouse poll. A command's own prompt waits in
-        # GetKeyMouse alone, so the whirlpool stands still meanwhile.
-        polls = self._whirl_clock.polls(dt)
-        if (
-            polls
-            and not self.gem_view_active
-            and self.shrine_member is None
-            and not self.text_log.is_waiting_for_input
-            and not self.is_finished
-            and self.party.is_anyone_alive()
-        ):
-            for _ in range(polls):
-                self._whirlpool_poll()
-                if str(self.map_id) != "0":
-                    break
+        self._main_loop_polls(dt)
 
         if self.cannon_fx:
             remaining_fx: list[dict[str, Any]] = []
@@ -2652,6 +2646,57 @@ class OverworldScreen(BaseScreen):
                 if fx["timer"] > 0:
                     remaining_fx.append(fx)
             self.cannon_fx = remaining_fx
+
+    def _main_loop_polls(self, dt: float) -> None:
+        """LairWare main loop (UltimaMain.c:1040-1056)::
+
+            count = 60; /* SUPPOSED TO BE 0x25! */
+            while (count > 0) {
+                WhirlPool();
+                key = GetKeyMouse(0);
+                if (key) count = 0;
+                count--;
+                if (count == 40) DoAutoHeal();
+            }
+            ...
+            if (!key) gKeyPress = ' ';
+
+        While the party waits for a command, each 5/60 s poll calls
+        WhirlPool once; after 60 polls (5 s) with no key the turn passes as
+        Space would. DoAutoHeal is not ported (user ruling). A command's own
+        prompt, Ztats and the pictures wait in GetKeyMouse alone: no
+        whirlpool, no idle pass, and the count starts afresh after them."""
+        polls = self._poll_clock.polls(dt)
+        if not polls:
+            return
+        if not self._at_command_wait():
+            self._idle_polls = 0
+            return
+        map_before = self.map_id
+        for _ in range(polls):
+            self._whirlpool_poll()
+            if self.map_id != map_before or not self._at_command_wait():
+                self._idle_polls = 0
+                return
+            if realtime.autoplay_on(self):
+                self._idle_polls = 0
+                continue
+            self._idle_polls += 1
+            if self._idle_polls >= realtime.IDLE_PASS_POLLS:
+                self.handle_event(realtime.space_event())
+                return
+
+    def _at_command_wait(self) -> bool:
+        """The main loop's own key wait (UltimaMain.c:1040-1050): no prompt,
+        Ztats or picture up, and a live party on a screen still running."""
+        return (
+            not self.gem_view_active
+            and self.shrine_member is None
+            and self.stats_panel.inspect_index is None
+            and not self.text_log.is_waiting_for_input
+            and not self.is_finished
+            and self.party.is_anyone_alive()
+        )
 
     def _render_cannon_fx(self, surface: pygame.Surface) -> None:
         """Render active cannonball projectiles and hit/splash effects."""

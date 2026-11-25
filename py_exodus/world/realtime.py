@@ -20,6 +20,25 @@ LW_POLL_SECONDS = 5 / 60
 WIND_CTR_RESET = 32
 # WhirlPool: ``gWhirlCtr = 4;`` (UltimaMain.c:2967).
 WHIRL_CTR_RESET = 4
+# Main loop: ``count = 60; /* SUPPOSED TO BE 0x25! */`` (UltimaMain.c:1040):
+# 60 idle polls (5 s) at the command prompt pass the turn.
+IDLE_PASS_POLLS = 60
+# DungeonStart: ``#define PASSTIME 360 // 6 seconds`` (UltimaDngn.c:55, 110).
+DUNGEON_PASS_SECONDS = 6.0
+
+
+def space_event() -> Any:
+    """The Space key the idle pass presses (``gKeyPress = ' ';``)."""
+    import pygame
+
+    return pygame.event.Event(pygame.KEYDOWN, key=pygame.K_SPACE, unicode=" ")
+
+
+def autoplay_on(screen: Any) -> bool:
+    """Autoplay answers every wait itself, as LairWare's Macro keys answer
+    GetKeyMouse at once (UltimaMain.c:3449-3454): its pauses are never idle
+    time, so the idle pass holds while it runs."""
+    return bool(getattr(getattr(screen, "manager", None), "autoplay_enabled", False))
 
 # WindDir 0..4: calm, then MoreMessages 43-47 "NORTH/EAST/SOUTH/WEST WIND";
 # North() passes 1, East() 2, South() 3, West() 4 to ValidTrans.
