@@ -89,7 +89,7 @@ A Python 3 / Pygame-CE reimplementation of *Ultima III: Exodus*, with **Auto-Com
 
 ## Auto-Combat (`TAB`)
 
-Borrowed in concept from the LairWare port: **`TAB`** (or `F2`) during any battle toggles tactical Auto-Combat. Each living member picks healing and cures when needed, offensive magic, or ranged/melee attacks; you can take back control at any moment.
+Borrowed in concept from the LairWare port: **`TAB`** (or `F2`) during any battle toggles tactical Auto-Combat. Each living member picks healing and cures when needed, offensive magic, or ranged/melee attacks; you can take back control at any moment. As in LairWare, a Wizard, Lark, Alchemist, Druid or Ranger with 5+ MP and no Bow +2 or +4 never melees: it casts Mittar at the nearest monster on its row or column, at any range and next to it too, and otherwise moves to line one up.
 
 ## Full Autoplay / Watch Mode (`F9`)
 

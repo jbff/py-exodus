@@ -352,11 +352,15 @@ def test_wizard_casts_mittar_when_lined_up_and_skips_with_strong_weapons(asset_m
     assert action.spell == Spell.MITTAR
     assert action.direction == Direction.NORTH
 
-    # Wielding BOW_P2 or EXOTIC skips MITTAR
-    for w in (WeaponType.BOW_P2, WeaponType.EXOTIC):
+    # Wielding BOW_P2 or BOW_P4 skips MITTAR (LW UltimaAutocombat.c:153,
+    # weapons 9 and 13); an EXOTIC holder still casts it (A-07)
+    for w in (WeaponType.BOW_P2, WeaponType.BOW_P4):
         arena.party.members[0].weapon = w
         action = choose_auto_combat_action(arena, 0, asset_mgr=asset_mgr)
         assert action.spell != Spell.MITTAR
+    arena.party.members[0].weapon = WeaponType.EXOTIC
+    action = choose_auto_combat_action(arena, 0, asset_mgr=asset_mgr)
+    assert action.spell == Spell.MITTAR
 
 
 def test_wizard_advances_to_cardinal_alignment_when_can_cast_mittar():

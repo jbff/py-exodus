@@ -28,11 +28,12 @@ _RANGED_WEAPON_TYPES: frozenset[WeaponType] = frozenset(
     }
 )
 
+# LairWare UltimaAutocombat.c:153: only weapons 9 and 13 (Bow +2, Bow +4)
+# stop the Mittar habit; an Exotic holder casts it too (A-07).
 _NO_MITTAR_WEAPONS: frozenset[WeaponType] = frozenset(
     {
         WeaponType.BOW_P2,
         WeaponType.BOW_P4,
-        WeaponType.EXOTIC,
     }
 )
 
@@ -285,6 +286,28 @@ def _try_pre_attack_spell(
     return None
 
 
+def _monster_lined_up_dir(
+    px: int, py: int, monsters: list[CombatMonster]
+) -> Direction | None:
+    """LairWare MonsterLinedUp (UltimaAutocombat.c:457-506), classic mode
+    (no diagonals, user ruling): the nearest monster on the caster's row or
+    column by ``|dx| + |dy|``, first slot on ties, at any range. No wall
+    test: the port's Mittar flies over walls to the edge (P-23)."""
+    best: CombatMonster | None = None
+    best_dist = 128
+    for m in monsters:
+        if m.x != px and m.y != py:
+            continue
+        dist = abs(m.x - px) + abs(m.y - py)
+        if 0 < dist < best_dist:
+            best, best_dist = m, dist
+    if best is None:
+        return None
+    if best.x == px:
+        return Direction.NORTH if best.y < py else Direction.SOUTH
+    return Direction.WEST if best.x < px else Direction.EAST
+
+
 def _find_ranged_attack_dir(
     arena: CombatArena,
     px: int,
@@ -339,25 +362,26 @@ def choose_auto_combat_action(
     px, py = pos
     visible_positions = {(m.x, m.y) for m in visible_monsters}
 
-    # Adjacent cardinal melee attack
-    for d in _CARDINAL_DIRS:
-        if (px + d.dx, py + d.dy) in visible_positions:
-            return Action.attack(d)
-
+    # LairWare UltimaAutocombat.c:150-166 (A-07): a wizard-book caster with
+    # 5+ MP not holding a Bow +2 or +4 never melees; it casts Mittar at the
+    # nearest monster lined up with it, at any range, adjacent included.
     can_cast_mittar = (
         not negated
         and _can_cast_spell(member, Spell.MITTAR)
         and getattr(member, "weapon", WeaponType.NONE) not in _NO_MITTAR_WEAPONS
     )
-    if not negated and getattr(member, "weapon", WeaponType.NONE) not in _NO_MITTAR_WEAPONS:
-        spells = (Spell.FULGAR, Spell.MITTAR) if getattr(arena, "ship_battle", False) else (Spell.MITTAR,)
-        for spell in spells:
-            if _can_cast_spell(member, spell):
-                spell_dir = _find_ranged_attack_dir(
-                    arena, px, py, max_range=5, attack_through=False, visible_positions=visible_positions
-                )
-                if spell_dir is not None:
-                    return Action.cast(spell, direction=spell_dir)
+    if can_cast_mittar:
+        spell_dir = _monster_lined_up_dir(px, py, visible_monsters)
+        if spell_dir is not None:
+            # Port habit (A-08, deferred): Fulgar first in a ship battle.
+            if getattr(arena, "ship_battle", False) and _can_cast_spell(member, Spell.FULGAR):
+                return Action.cast(Spell.FULGAR, direction=spell_dir)
+            return Action.cast(Spell.MITTAR, direction=spell_dir)
+    else:
+        # Adjacent cardinal melee attack
+        for d in _CARDINAL_DIRS:
+            if (px + d.dx, py + d.dy) in visible_positions:
+                return Action.attack(d)
 
     effective_asset_mgr = asset_mgr if asset_mgr is not None else getattr(arena, "asset_mgr", None)
     weapon_range, attack_through = _get_weapon_info(member, effective_asset_mgr)
