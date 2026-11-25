@@ -1835,11 +1835,13 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
         if _m.profession == Profession.CLERIC:
             _m.mp = 10
     assert evaluate_goal(p_dg, map_id=0) == Goal.GRIND_AND_LEVEL
-    ts_dg = TownScreen(party=p_dg, asset_mgr=am, map_id=10, start_x=13, start_y=8)
+    # (23, 56) in the gold room: (13, 8) sits by the weapon merchant's
+    # counter, where a raid no longer opens chests (ledger B-15).
+    ts_dg = TownScreen(party=p_dg, asset_mgr=am, map_id=10, start_x=23, start_y=56)
     sm.set_screen(ts_dg)
     ctrl._key_queue.clear()
     k_dg = ctrl.step(sm)
-    assert k_dg in (pygame.K_c, pygame.K_g)  # opens chest on (13, 8)
+    assert k_dg in (pygame.K_c, pygame.K_g)  # opens chest on (23, 56)
 
     # Ambrosia with 4 cards and 2000g stays in AMBROSIA_CARDS_SHRINES to upgrade stats
     p_shr = _make_party(

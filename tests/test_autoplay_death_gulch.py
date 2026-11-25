@@ -112,3 +112,116 @@ def test_ship_parked_on_sosaria_does_not_open_the_pub_counter():
     town.avatar_x, town.avatar_y = 54, 32
     town._try_move(Direction.NORTH)
     assert (town.avatar_x, town.avatar_y) == (54, 32)
+
+
+# --- B-15: a town fight turns the guards and Lord British into hunters -----
+# (LairWare Combat, UltimaSpellCombat.c:873-876; user ruling 2026-11-25).
+# Guards take no melee damage (B-11) and 8 come to a fight (B-09), so a
+# hunting guard reaching the party is a wipe: autoplay keeps out of reach
+# of hostile people and, once the guards hunt, bribes or walks out.
+
+
+def _all_guards_hunt(town):
+    for n in town.game_map.npcs:
+        if n.tile_index in (18, 19):
+            n.movement = "ATTACK_AVATAR"
+
+
+def _in_death_gulch_with_guards(p):
+    am = batch._assets()
+    sm = StateMachine(asset_mgr=am, audio=None)
+    sm.set_screen(OverworldScreen(party=p, asset_mgr=am))
+    p.x, p.y = 56, 31
+    assert portal_entry.enter_portal(sm.current_screen, 56, 31)
+    sm.update(batch.FRAME_DT)
+    return sm, sm.current_screen
+
+
+def test_raid_keeps_out_of_the_gold_room_merchants_reach():
+    """The gold room's merchant (16,54, ctrl 0xC0) walks row 54 after the
+    party; a party on row 55 gets attacked (MoveMonsters, UltimaMisc.c:
+    1197-1203) and the fight turns all 15 guards. Its row-55 chests are
+    never raid targets and the party never stands next to its walk."""
+    pygame.init()
+    pygame.font.init()
+    rng = random.getstate()
+    try:
+        random.seed(3)
+        p = _raid_party()
+        for m in p.members:
+            m.gold = 1000
+            m.mp = 50
+        sm, town = _in_death_gulch(p)
+        gm = town.game_map
+        # Inside the merchant's room (the Mark of Force passes its field at
+        # (20,56)), on a chest, with row 55's chests one step north.
+        assert gm.get_tile(15, 55).name == "chest" and gm.get_tile(15, 56).name == "chest"
+        town.avatar_x, town.avatar_y = 15, 56
+        ctrl = AutoPlayController(enabled=True)
+        sm.autoplay_enabled = True
+        for _ in range(30):
+            ctrl.step(sm)
+            sm.update(0.1)
+            assert sm.current_screen is town, "the merchant attacked"
+            assert town.avatar_y != 55
+            assert all(gm.get_tile(x, 55).name == "chest" for x in range(13, 20))
+    finally:
+        random.setstate(rng)
+
+
+def test_hunting_guard_next_to_the_party_is_bribed():
+    """LairWare Bribe (UltimaMisc.c:2446-2464) sends any guard away for 100
+    gold, a hunting one too; a cardinal neighbour is bribed before its
+    MoveMonsters step starts a fight the party cannot win."""
+    pygame.init()
+    pygame.font.init()
+    p = _raid_party()
+    sm, town = _in_death_gulch_with_guards(p)
+    _all_guards_hunt(town)
+    guard = next(n for n in town.game_map.npcs if n.tile_index == 18)
+    town.avatar_x, town.avatar_y = 6, 30
+    guard.x, guard.y = 5, 30  # between the party and the west gate
+    town.game_map.npcs = [guard]
+    ctrl = AutoPlayController(enabled=True)
+    sm.autoplay_enabled = True
+    for _ in range(10):
+        if guard not in town.game_map.npcs:
+            break
+        ctrl.step(sm)
+        sm.update(0.1)
+        assert type(sm.current_screen).__name__ != "CombatScreen", "the guard attacked"
+    assert guard not in town.game_map.npcs
+
+
+def test_hunting_guards_send_the_raid_out_of_town():
+    """After a town fight the guards hunt for the rest of the visit; the
+    raid stops (no chest opening) and the party walks for the exit."""
+    from py_exodus.autoplay.nav import find_2d_step_and_cost
+
+    pygame.init()
+    pygame.font.init()
+    p = _raid_party()
+    for m in p.members:
+        m.gold = 1000
+        m.mp = 50
+    sm, town = _in_death_gulch_with_guards(p)
+    gm = town.game_map
+    _all_guards_hunt(town)
+    gm.npcs = [n for n in gm.npcs if (n.x, n.y) == (40, 29)]  # one far hunter
+    town.avatar_x, town.avatar_y = 23, 56
+    assert gm.get_tile(23, 56).name == "chest"
+    exits = {(0, y) for y in range(gm.height)}
+
+    def cost():
+        return find_2d_step_and_cost(gm, (town.avatar_x, town.avatar_y), exits,
+                                     Transport.FOOT, party=p, allow_locked_doors=True)[1]
+
+    start = cost()
+    ctrl = AutoPlayController(enabled=True)
+    sm.autoplay_enabled = True
+    for _ in range(4):
+        key = ctrl.step(sm)
+        assert key not in (pygame.K_c, pygame.K_g), "opened a chest"
+        sm.update(0.1)
+    assert gm.get_tile(23, 56).name == "chest"
+    assert cost() < start
