@@ -114,6 +114,17 @@ def _monster_can_attack(monsters: list[CombatMonster], x: int, y: int) -> bool:
     return any(max(abs(m.x - x), abs(m.y - y)) == 1 for m in monsters)
 
 
+def _someone_else_can_fight(arena: CombatArena, member_idx: int) -> bool:
+    """Another living member is at NEARLY_DEAD_HP or more. Without one, a
+    nearly dead member acts as the last one does (fights, closes in): with
+    every member under 50 HP and monsters that never close in, all of them
+    used to pass forever (review 2026-11-25)."""
+    return any(
+        i != member_idx and not _is_member_dead(m) and getattr(m, "hp", 0) >= NEARLY_DEAD_HP
+        for i, m in enumerate(arena.party.members)
+    )
+
+
 def _try_low_hp_retreat(
     arena: CombatArena,
     member_idx: int,
@@ -128,9 +139,7 @@ def _try_low_hp_retreat(
     # User ruling 2026-11-25: the last living member never flees (batch
     # 1c7525f seed 17: a lone Fighter stepped back and in from step 45,791
     # to the cap).
-    if not any(
-        i != member_idx and not _is_member_dead(m) for i, m in enumerate(arena.party.members)
-    ):
+    if not _someone_else_can_fight(arena, member_idx):
         return None
     if getattr(member, "hp", 0) >= NEARLY_DEAD_HP:
         return None
@@ -402,10 +411,9 @@ def choose_auto_combat_action(
     # member under 50 HP doesn't advance. Having fled (or found no square)
     # it attacks or shoots what it can from where it stands, and otherwise
     # passes, instead of stepping straight back in. The last living member
-    # still closes in (nobody else can end the fight).
-    if getattr(member, "hp", 0) < NEARLY_DEAD_HP and any(
-        i != member_idx and not _is_member_dead(m) for i, m in enumerate(arena.party.members)
-    ):
+    # still closes in (nobody else can end the fight), and so does everyone
+    # when no living member has 50 HP or more.
+    if getattr(member, "hp", 0) < NEARLY_DEAD_HP and _someone_else_can_fight(arena, member_idx):
         return Action.pass_turn()
 
     # Advance toward nearest visible living monster.

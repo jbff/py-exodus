@@ -334,3 +334,14 @@ def test_autocombat_nearly_dead_last_member_still_advances(asset_mgr):
     arena.party.members[1].hp = 0
     arena.party.members[1].status = Status.DEAD
     assert choose_auto_combat_action(arena, 0).type == ActionType.MOVE
+
+
+def test_autocombat_all_nearly_dead_close_in_instead_of_passing(asset_mgr):
+    """Review 2026-11-25: two living members, both under 50 HP, a monster
+    that never closes in (two squares off): each used to hold (pass) for
+    the other, forever. With nobody at 50 HP or more, a nearly dead member
+    acts as the last one does: it closes in."""
+    arena = _melee(asset_mgr, hp=20, monsters=((5, 2),))
+    arena.party.members[1].hp = 30
+    assert choose_auto_combat_action(arena, 0).type == ActionType.MOVE
+    assert choose_auto_combat_action(arena, 1).type == ActionType.MOVE
