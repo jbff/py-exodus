@@ -413,10 +413,10 @@ class TownScreen(BaseScreen):
 
     def _toggle_zstats(self) -> None:
         """Z: LairWare Stats (UltimaMain.c:2592-2602) asks whose Ztats and
-        shows that member only; the letter's turn follows (Routine6E35,
-        through _settle_letter_turn). User ruling 2026-11-25: no paging."""
+        shows that member only. The letter's turn (Routine6E35,
+        UltimaMain.c:1057-1059) comes once, after the answer or Esc, through
+        _settle_letter_turn. User ruling 2026-11-25: no paging."""
         prompt_ztats(self.text_log, self.stats_panel, self.party)
-        self._consume_pass_turn()
 
     def _try_move(self, direction: Direction) -> None:
         if self.game_map is None:

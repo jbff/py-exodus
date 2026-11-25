@@ -132,11 +132,17 @@ class TestOverworldSmoke:
         session = PlaySession(asset_mgr).start(party=party)
         assert isinstance(session.screen, OverworldScreen)
 
-        # Z asks whose Ztats (LairWare Stats, UltimaMain.c:2595); the wiped
-        # party leaves for the start screen on that press, and the prompt
-        # line is drained before the transition.
+        # Z asks whose Ztats (LairWare Stats, UltimaMain.c:2595); the turn
+        # (Routine6E35) comes after the answer, and on it the wiped party
+        # leaves for the start screen. The Ztats lines are drained before
+        # the transition.
         session.press("Z")
+        assert isinstance(session.screen, OverworldScreen)
         assert "[prompt] Ztats for #-" in session.transcript, session.transcript
+        session.press("1")
+        assert any(
+            line.startswith("[msg] Zstats:") for line in session.transcript
+        ), session.transcript
         assert isinstance(session.screen, StartScreen)
         assert session.screen.game_over is True
 

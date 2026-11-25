@@ -1545,3 +1545,30 @@ def test_combat_idle_pass_never_in_a_prompt_ztats_or_autoplay(pygame_setup, asse
     for _ in range(200):
         cs.update(_POLL)
     assert _combat_passes(cs) == 0
+
+
+# --- Fix round (review of 5d31f3f..6a80656): Stats asks first ------------------
+#
+# UltimaMain.c:1057-1059: ``LetterCommand(); Routine6E35();`` -- Stats asks
+# "Ztats for #-" inside LetterCommand; the turn (Routine6E35) comes only
+# after the answer, so nothing moves while the question is open.
+
+
+@pytest.mark.parametrize("answer", ["1", "\x1b"])
+def test_stats_turn_comes_after_the_answer(overworld, answer):
+    ow = overworld(40, 40)
+    moves = ow.party.moves
+    _key(ow, pygame.K_z)
+    assert ow.text_log.is_waiting_for_input
+    assert ow.party.moves == moves  # no turn while asking
+    _ch(ow, answer)
+    assert ow.party.moves == moves + 1
+
+
+def test_stats_turn_comes_after_the_answer_in_towns(town):
+    tw = town(1, 10, 10)
+    moves = tw.party.moves
+    _key(tw, pygame.K_z)
+    assert tw.party.moves == moves
+    _ch(tw, "1")
+    assert tw.party.moves == moves + 1
