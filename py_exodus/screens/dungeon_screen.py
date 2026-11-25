@@ -352,7 +352,8 @@ class DungeonScreen(BaseScreen):
     def _ask_rod(self) -> None:
         """UltimaDngn.c:300-318: ``UPrintMessage(161); chnum = GetChar();`` --
         one member touches the red-hot rod (the mark, then HPSubtract 50;
-        no CheckAlive), or any other key leaves. Either way the prompt is
+        LW has no CheckAlive, but a dead member is refused here: user
+        ruling 2026-11-25, ledger D-26), or any other key leaves. Either way the prompt is
         done until the next command."""
 
         def _on_who(who: str) -> None:
@@ -361,6 +362,12 @@ class DungeonScreen(BaseScreen):
             except ValueError:
                 return
             if not 1 <= n <= 4 or self.party.get_member(n - 1) is None:
+                return
+            # USER-DIRECTED DEVIATION (ruling 2026-11-25; ledger D-26): LW's
+            # brand case (UltimaDngn.c:300-318) has no CheckAlive, so a dead
+            # member took the mark. Here a dead member is like a key
+            # outside 1-4: no mark, no damage, the prompt closes.
+            if self.party.get_member(n - 1).is_dead():
                 return
             try:
                 evt = self.state.touch_mark(n - 1)

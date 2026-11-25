@@ -890,6 +890,24 @@ def test_dungeonmech_rod_invalid_key_marks_nobody(asset_mgr):
     assert all(m.marks[0] == 0 and m.hp == m.max_hp for m in screen.party.members)
 
 
+def test_dungeonmech_rod_dead_member_takes_no_mark(asset_mgr):
+    """USER-DIRECTED DEVIATION (ruling 2026-11-25; ledger D-26): LW's brand
+    case (UltimaDngn.c:300-318) has no CheckAlive, so a dead member took the
+    mark. Here picking a dead member does what a key outside 1-4 does: no
+    mark, no damage, the prompt closes and play goes on."""
+    import pygame
+
+    screen = _fixture_screen(asset_mgr, DungeonTile.MARK_KINGS, x=7)
+    dead = screen.party.members[0]
+    dead.status, dead.hp = Status.DEAD, 0
+    _press(screen, pygame.K_SPACE, " ")
+    _press(screen, pygame.K_1, "1")
+    assert dead.marks == [0, 0, 0, 0] and dead.hp == 0
+    assert not screen.text_log.is_waiting_for_input
+    assert screen.state.touch_mark(0).success is False
+    assert dead.marks == [0, 0, 0, 0] and dead.hp == 0
+
+
 def test_dungeonmech_strange_wind_every_command(asset_mgr):
     """UltimaDngn.c:280-283: ``case 3: /* strange wind */ UPrintMessage(158);
     gTorch = 0;`` -- on every command while the party stands there, not just

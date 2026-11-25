@@ -1933,6 +1933,19 @@ class DungeonState:
 
         damage = 50
         member = self.party.get_member(member_index) if self.party else None
+        if member is not None and member.is_dead():
+            # USER-DIRECTED DEVIATION (ruling 2026-11-25; ledger D-26): LW's
+            # brand case (UltimaDngn.c:300-318) has no CheckAlive; here the
+            # dead take no mark and no damage.
+            return DungeonEvent(
+                type=DungeonEventType.BLOCKED,
+                message="",
+                x=self.x,
+                y=self.y,
+                z=self.z,
+                tile=tile,
+                success=False,
+            )
         if member:
             member.marks[mark_idx] = 1
             member.apply_damage(damage)

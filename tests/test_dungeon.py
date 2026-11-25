@@ -652,6 +652,8 @@ def test_fountain_acid_kills_solo_drinker(empty_dmap):
 
 def test_marks_interaction(empty_dmap, test_party):
     m = test_party.members[0]
+    # Alive through four 50-HP burns: a dead member takes no mark (D-26).
+    m.max_hp = m.hp = 500
     state = DungeonState(empty_dmap, start_x=5, start_y=5, start_z=0, party=test_party)
 
     # Mark of Kings
