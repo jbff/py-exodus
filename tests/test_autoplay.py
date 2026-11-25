@@ -1014,7 +1014,7 @@ def test_bulk_food_buying_strategy(pygame_setup):
 
 def test_dungeon_never_peers_gems_and_touches_mark(pygame_setup):
     """Entering DungeonScreen doesn't crash, never peers a gem (the conceit
-    was removed, user 2026-11-23), and touches Marks with S."""
+    was removed, user 2026-11-23), and answers the red-hot rod for Marks."""
     from py_exodus.assets import AssetManager
     from py_exodus.screens.dungeon_screen import DungeonScreen
 

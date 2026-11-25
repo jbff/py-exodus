@@ -513,14 +513,8 @@ class AutoPlayController:
             return getattr(party, "map_id", 0)
 
     def _step_dungeon(self, state_machine: StateMachine, screen) -> int | None:
-        if screen.text_log.is_waiting_for_input:
-            return self._emit_key(state_machine, pygame.K_ESCAPE)
-
         party = screen.party
-        dmap = getattr(screen, "dungeon_map", None) or getattr(screen, "dmap", None) or screen.state.dmap
-        goal = evaluate_goal(party, map_id=self._screen_map_id(screen, party))
-
-        # Touch a Mark tile when standing on one that living members still need
+        # The mark a living member still needs here (the red-hot rod).
         mark_map = {
             DungeonTile.MARK_KINGS: 0,
             DungeonTile.MARK_FIRE: 1,
@@ -528,15 +522,31 @@ class AutoPlayController:
             DungeonTile.MARK_FORCE: 3,
         }
         cur_tile = getattr(screen.state, "current_tile", None)
+        need_idx = None
         if cur_tile in mark_map:
             mark_idx = mark_map[cur_tile]
             need_idx = next(
                 (i + 1 for i, m in enumerate(party.members) if not m.is_dead() and m.marks[mark_idx] == 0),
                 None,
             )
-            if need_idx is not None:
-                self._queue_text(str(need_idx), enter=False)
-                return self._emit_key(state_machine, pygame.K_s)
+
+        if screen.text_log.is_waiting_for_input:
+            # LairWare dungeonmech (UltimaDngn.c:300-318, ledger D-12): every
+            # command on a mark asks who touches the rod; one member per ask.
+            prompt = (getattr(screen.text_log, "current_prompt", "") or "").lower()
+            if "touch" in prompt and need_idx is not None:
+                return self._emit_key(state_machine, pygame.K_0 + need_idx)
+            # Anything else, the fountain's "who will drink?" included
+            # (asked again until a key that is not 1-4), is left with Esc.
+            return self._emit_key(state_machine, pygame.K_ESCAPE)
+
+        dmap = getattr(screen, "dungeon_map", None) or getattr(screen, "dmap", None) or screen.state.dmap
+        goal = evaluate_goal(party, map_id=self._screen_map_id(screen, party))
+
+        # On a mark that a living member still needs: pass a turn, and the
+        # rod asks again (S is not a dungeon command, UltimaDngn.c:152).
+        if need_idx is not None:
+            return self._emit_key(state_machine, pygame.K_SPACE)
 
         # A chest underfoot: open it the safe way (APPAR UNEM, or G with no
         # caster alive in a party strong enough for a trap). Never waits for
@@ -549,8 +559,10 @@ class AutoPlayController:
             if opener is not None and (opener[0] == "cast" or not weak):
                 return self._open_chest(state_machine, party)
 
-        # Ignite a torch or cast light spell whenever dungeon light is out
-        if not getattr(screen.state, "is_torch_on", False):
+        # Ignite a torch or cast light spell whenever dungeon light is out,
+        # but not on the strange wind: it puts the light out after every
+        # command there (LairWare UltimaDngn.c:280-283, ledger D-12).
+        if not getattr(screen.state, "is_torch_on", False) and cur_tile != DungeonTile.WIND_TRAP:
             holder = next(
                 (i + 1 for i, m in enumerate(party.members) if not m.is_dead() and m.torches > 0),
                 None,

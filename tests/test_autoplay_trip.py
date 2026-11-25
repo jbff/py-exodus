@@ -2042,3 +2042,87 @@ def test_autoplay_answers_the_lairware_hand_prompts(pygame_setup, asset_mgr):
             break
     taker = p.members[t[1] - 1]
     assert taker.armors.get(ArmorType.PLATE, 0) == 1 or taker.armor == ArmorType.PLATE
+
+
+def test_autoplay_answers_the_rod_for_each_member_without_s(pygame_setup, monkeypatch):
+    """LairWare dungeonmech (UltimaDngn.c:300-318; user ruling 2026-11-25,
+    ledger D-12): standing on a mark, every command asks "who will touch?"
+    and marks one member. S is not a dungeon command (UltimaDngn.c:152).
+    Autoplay answers the rod with each member still unmarked (passing a
+    turn to be asked again) and never presses S."""
+    from py_exodus.autoplay import batch
+    from py_exodus.autoplay import controller as ctl
+    from py_exodus.world.map import DungeonTile
+
+    party = batch.build_party()
+    for m in party.members:
+        m.food = 300
+        m.hp = m.max_hp = 400
+    ds, dmap = _room_dungeon(party, x=5, y=2)
+    dmap.set_tile(5, 2, 0, DungeonTile.MARK_FIRE)  # 5 & 3 == 1: Fire
+    ds.state.random_encounters_enabled = False
+    monkeypatch.setattr(ctl, "evaluate_goal", lambda *_a, **_k: Goal.GET_REMAINING_MARKS)
+    sm = StateMachine(asset_mgr=None, audio=None)
+    sm.set_screen(ds)
+    ctrl = AutoPlayController(enabled=True)
+    keys: list[int] = []
+    real_emit = ctrl._emit_key
+    ctrl._emit_key = lambda _sm, key, **kw: keys.append(key) or real_emit(_sm, key, **kw)
+    for _ in range(16):
+        if all(m.marks[1] for m in party.members):
+            break
+        ctrl.step(sm)
+    assert all(m.marks[1] for m in party.members)
+    assert pygame.K_s not in keys
+
+
+def test_autoplay_leaves_a_fountain_prompt(pygame_setup):
+    """UltimaDngn.c:228-234: the fountain asks again after each drink until
+    a key that is not 1-4. Autoplay drinks nothing: it answers with Esc, so
+    the walk goes on."""
+    from py_exodus.autoplay import batch
+    from py_exodus.world.map import DungeonTile
+
+    party = batch.build_party()
+    for m in party.members:
+        m.food = 300
+    ds, dmap = _room_dungeon(party, x=4, y=2)
+    dmap.set_tile(4, 2, 0, DungeonTile.FOUNTAIN_ACID)
+    ds.state.random_encounters_enabled = False
+    ds.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_SPACE, unicode=" "))
+    assert "drink" in ds.text_log.current_prompt.lower()
+    sm = StateMachine(asset_mgr=None, audio=None)
+    sm.set_screen(ds)
+    ctrl = AutoPlayController(enabled=True)
+    hp = [m.hp for m in party.members]
+    ctrl.step(sm)
+    assert not ds.text_log.is_waiting_for_input
+    assert [m.hp for m in party.members] == hp
+
+
+def test_autoplay_does_not_light_a_torch_on_the_strange_wind(pygame_setup, monkeypatch):
+    """UltimaDngn.c:280-283 (dungeonmech after every command, ledger D-12):
+    on the strange wind every command puts the torch out (``gTorch = 0``).
+    Lighting one there wastes it; autoplay steps off first."""
+    from py_exodus.autoplay import batch
+    from py_exodus.autoplay import controller as ctl
+    from py_exodus.world.map import DungeonTile
+
+    party = batch.build_party()
+    for m in party.members:
+        m.food = 300
+    party.members[0].torches = 5
+    ds, dmap = _room_dungeon(party, x=4, y=2)
+    dmap.set_tile(4, 2, 0, DungeonTile.WIND_TRAP)
+    ds.state.random_encounters_enabled = False
+    ds.state.torchtime = 0
+    monkeypatch.setattr(ctl, "evaluate_goal", lambda *_a, **_k: Goal.GET_REMAINING_MARKS)
+    sm = StateMachine(asset_mgr=None, audio=None)
+    sm.set_screen(ds)
+    ctrl = AutoPlayController(enabled=True)
+    torches = sum(m.torches for m in party.members)
+    keys: list[int] = []
+    ctrl._emit_key = lambda _sm, key, **_kw: keys.append(key) or 0
+    ctrl._step_dungeon(sm, ds)
+    assert keys and keys[-1] not in (pygame.K_i, pygame.K_c)
+    assert sum(m.torches for m in party.members) == torches
