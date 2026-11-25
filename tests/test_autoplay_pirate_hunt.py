@@ -345,21 +345,64 @@ def test_a_ship_never_sails_onto_a_parked_frigate_on_ambrosia():
     assert (34, 56) not in seen
 
 
-def test_a_trip_leg_that_never_moves_bars_its_end_and_replans():
-    """No-progress guard: 60 turns (twice the replan threshold) on one tile
-    with the leg's moves refused bars the leg's end for a while."""
-    from py_exodus.autoplay import controller as ctl
-    from py_exodus.autoplay.trip import Destination, Leg, TripPlan
-
-    c = AutoPlayController(enabled=True)
-    leg = Leg(Transport.SHIP, (34, 56), "X")
-    dest = Destination(frozenset({(55, 27)}), Transport.FOOT, "shrine55,27")
-    c._trip = TripPlan(dest, [leg, Leg(Transport.FOOT, (55, 27), "ARRIVE")], 0.0, 13)
-    c._trip_last_pos = (34, 57)
-    c._trip_stuck = 2 * ctl._TRIP_STUCK_TURNS - 1
-    c._replan = lambda *a, **k: None  # the outcome of the replan is not the point
+def _ambrosia_ship_party():
+    pygame.init()
+    am = batch._assets()
     p = batch.build_party()
-    p.transport = Transport.SHIP
-    screen = type("S", (), {"game_map": None})()
-    c._trip_drive(None, screen, None, p, 34, 57, 13, dest)
-    assert (34, 56) in c._active_blocks()
+    p.map_id = 13
+    for m, lv in zip(p.members, (14, 12, 6, 10)):
+        m.level, m.max_hp, m.hp = lv, lv * 100 + 50, lv * 100 + 50
+        m.cards = [1, 1, 1, 1]
+        m.marks = [1, 0, 0, 0]
+        m.food = 153
+        m.keys = 1
+    p.gold = 4402
+    ow = OverworldScreen(party=p, asset_mgr=am, random_encounters=False, map_id=13)
+    sm = StateMachine(asset_mgr=am, audio=None)
+    sm.set_screen(ow)
+    p.x, p.y, p.transport = 34, 57, Transport.SHIP
+    return p, ow, sm
+
+
+def test_a_trip_that_never_moves_bars_the_refused_tile_and_replans():
+    """No-progress guard, from a fresh controller with real replans: every
+    move refused (the screen drops the keys), the party on one tile. The
+    30-turn replan resets its own counter and gives the same plan; by 60
+    turns on the tile the path's next tile is barred and the new plan goes
+    around it (review 2026-11-25: the first guard never fired, 10 replans
+    in 300 ticks and nothing barred)."""
+    from py_exodus.constants import Direction
+
+    p, ow, sm = _ambrosia_ship_party()
+    sm.handle_event = lambda e: None  # every move refused
+    ctrl = AutoPlayController(enabled=True)
+    first_next = None
+    for i in range(120):
+        ow.creatures = []
+        p.wind_direction = Direction.SOUTH
+        ctrl.step(sm)
+        if first_next is None and ctrl._trip is not None:
+            first_next = ctrl._next_path_tile(ctrl._trip, (34, 57))
+        if ctrl._active_blocks():
+            break
+    assert first_next is not None
+    assert first_next in ctrl._active_blocks(), (i, first_next)
+    assert i <= 65
+    ctrl.step(sm)
+    assert ctrl._trip is not None
+    assert first_next not in [(x, y) for x, y, _m in ctrl._trip.path]
+
+
+def test_the_guard_never_bars_the_destination_itself():
+    """A refused step onto the destination tile is never barred (the goal
+    would become unreachable): the trip replans and keeps the goal."""
+    from py_exodus.autoplay.trip import Destination
+
+    p, ow, sm = _ambrosia_ship_party()
+    sm.handle_event = lambda e: None
+    ctrl = AutoPlayController(enabled=True)
+    dest = Destination(frozenset({(33, 57)}), Transport.SHIP, "next door")
+    for _ in range(130):
+        ctrl._trip_drive(sm, ow, ow.game_map, p, 34, 57, 13, dest)
+    assert (33, 57) not in ctrl._active_blocks()
+    assert ctrl._trip is not None and (33, 57) in ctrl._trip.dest.tiles

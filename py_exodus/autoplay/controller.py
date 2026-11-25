@@ -104,6 +104,10 @@ _GATE_WAIT_TURNS = 6  # be at the gate this many turns before it opens
 _GATE_ROAM_RADIUS = 5
 _CHASE_RADIUS = 8  # land monsters this close count as chasing
 _SHIP_CHEST_CLEAR = 6  # no sea monster this close to go ashore for a chest
+# Turns on one tile, whatever the replans, before the trip bars the next
+# tile of its path: two replan periods (_TRIP_STUCK_TURNS), past any headwind
+# wait or creature in the way that the first replan already covers.
+_TRIP_STILL_TURNS = 60
 _BLOCK_TURNS = 40  # a refused threatened tile stays barred this long
 # Planning cost for entering a tile under threat when the trip is planned.
 _DANGER_HARD = 60.0
@@ -295,6 +299,7 @@ class AutoPlayController:
         self._trip_frigates: frozenset[tuple[int, int]] = frozenset()
         self._trip_planned_at = 0
         self._trip_stuck = 0
+        self._trip_still = 0  # turns on one tile; only a move resets it
         self._trip_last_pos: tuple[int, int] | None = None
         self._patrol_target: tuple[int, int] | None = None
         # Land tile the pirate hunt committed to (see _hunt_target).
@@ -2640,6 +2645,18 @@ class AutoPlayController:
             )
         return plan
 
+    @staticmethod
+    def _next_path_tile(plan, pos) -> tuple[int, int] | None:
+        """The tile after ``pos`` on the plan's path, else the first leg's end."""
+        path = [(x, y) for x, y, _m in (plan.path or ())]
+        for i, t in enumerate(path[:-1]):
+            if t == pos:
+                for n in path[i + 1:]:
+                    if n != pos:
+                        return n
+        end = plan.legs[0].end
+        return end if end != pos else None
+
     def _trip_drive(self, state_machine, screen, gmap, party, px, py, map_id, dest):
         """Advance the committed trip toward ``dest``. Returns a key, _ARRIVED or None (no route)."""
         self._ow_turn += 1
@@ -2647,8 +2664,10 @@ class AutoPlayController:
         mode = Transport.SHIP if party.transport == Transport.SHIP else Transport.FOOT
         if pos == self._trip_last_pos:
             self._trip_stuck += 1
+            self._trip_still += 1
         else:
             self._trip_stuck = 0
+            self._trip_still = 0
         self._trip_last_pos = pos
 
         plan = self._trip
@@ -2661,22 +2680,26 @@ class AutoPlayController:
                 self._trip_stuck = 0
         frig_sig = frozenset(self._frigate_costs(party, screen))
         waiting = plan is not None and plan.legs and plan.legs[0].action in ("GATE", "CAPTURE") and pos == plan.legs[0].end
-        # No-progress guard: a replan at _TRIP_STUCK_TURNS that gives the
-        # same plan again means a step the plan relies on is refused (a
-        # parked frigate on the landing tile, live trace 2026-11-25,
-        # trace_20261125-180541, ~3,200 turns). At twice that, still on
-        # the same tile, the leg's end is barred for a while and the trip
-        # replans around it. 60 turns: twice the replan threshold, past
-        # any headwind wait or monster in the way the first replan covers.
+        # No-progress guard. _trip_stuck drives the replan at
+        # _TRIP_STUCK_TURNS and is reset by every replan; _trip_still only
+        # by a change of tile. A replan that gives the same plan again means
+        # a step the plan relies on is refused (a parked frigate on the
+        # landing tile, live trace 2026-11-25, trace_20261125-180541,
+        # ~3,200 turns). At _TRIP_STILL_TURNS on one tile the next tile of
+        # the planned path is barred for _BLOCK_TURNS and the trip replans
+        # around it. A destination tile is never barred (that would leave
+        # the goal unreachable): the trip only replans, and the blocked
+        # tile's neighbours stay open as other ways in.
         if (
             plan is not None
             and plan.legs
             and not waiting
-            and self._trip_stuck >= 2 * _TRIP_STUCK_TURNS
-            and plan.legs[0].end != pos
+            and self._trip_still >= _TRIP_STILL_TURNS
         ):
-            self._blocked_tiles[plan.legs[0].end] = self._ow_turn + _BLOCK_TURNS
-            self._trip_stuck = 0
+            nxt = self._next_path_tile(plan, pos)
+            if nxt is not None and nxt not in dest.tiles:
+                self._blocked_tiles[nxt] = self._ow_turn + _BLOCK_TURNS
+            self._trip_still = 0
             plan = self._trip = None
         if (
             plan is None
