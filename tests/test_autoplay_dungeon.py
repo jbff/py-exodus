@@ -777,3 +777,39 @@ def test_a_ladder_wait_that_cannot_end_leaves_instead(am, monkeypatch):
         ds.state.torchtime = 255
     assert (ds.state.x, ds.state.y, ds.state.z) != (15, 12, 6)
     assert ctrl._gave_up_state is ds.state
+
+
+def test_a_ladder_give_up_while_retreating_still_leaves(am, monkeypatch):
+    """Review 2026-11-25: Fires of Hell z 5 on the ladder (1, 15, 5), where
+    the way to Force goes down and the way out goes up, with too little
+    food to rest outside (96 rations). The ladder wait can't end
+    (descend_mp_short pinned: an MP target never met), so the party gives
+    up and heads out. Then a fight leaves the Cleric under the bar for z 6
+    with no MP (turning back): the retreat used to overwrite 'leaving' with
+    _can_rest_indoors (False), so the party turned round and went down the
+    ladder with no wait. It keeps heading out, never below z 5."""
+    from py_exodus.autoplay import controller as ctl
+
+    monkeypatch.setattr(ctl, "descend_mp_short", lambda party: True)
+    party = _ladder_party(3)
+    for m in party.members:
+        m.food = 24
+        m.hp = m.max_hp
+    party.members[2].mp = 0
+    sm, ds = _dungeon(am, party, FIRE, (1, 15, 5))
+    for xy in ((1, 1), (9, 9)):
+        ds.state.dmap.set_tile(*xy, 4, DungeonTile.NOTHING)
+    ds.state.torchtime = 255
+    ctrl = AutoPlayController(enabled=True)
+    deepest = 5
+    for i in range(AutoPlayController._LADDER_WAIT_MAX + 80):
+        ctrl.step(sm)
+        if sm.current_screen is not ds:
+            break
+        ds.state.torchtime = 255
+        if ctrl._gave_up_state is ds.state and party.members[2].hp > 300:
+            party.members[2].hp = 300  # the fight: under need(z 6) = 336
+        deepest = max(deepest, ds.state.z)
+    assert ctrl._gave_up_state is ds.state
+    assert ctrl._retreating
+    assert deepest == 5

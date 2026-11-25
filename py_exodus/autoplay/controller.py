@@ -726,7 +726,10 @@ class AutoPlayController:
             if cast is not None:
                 self._queue_text(cast, enter=False)
                 return self._emit_key(state_machine, pygame.K_c)
-            leaving = self._can_rest_indoors(party, goal)
+            # A give-up stands: a retreat that can't rest outside must not
+            # turn it back into a descent past the MP wait (review
+            # 2026-11-25).
+            leaving = leaving or self._can_rest_indoors(party, goal)
 
         target_tiles: set[tuple[int, int, int]] = set()
         if wanted_marks and not leaving:
