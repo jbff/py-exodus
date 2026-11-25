@@ -300,6 +300,8 @@ class AutoPlayController:
         self._trip_planned_at = 0
         self._trip_stuck = 0
         self._trip_still = 0  # turns on one tile; only a move resets it
+        self._cure_latch = None  # the dungeon state whose poison went dire
+        self._cure_mode = False
         self._trip_last_pos: tuple[int, int] | None = None
         self._patrol_target: tuple[int, int] | None = None
         # Land tile the pirate hunt committed to (see _hunt_target).
@@ -670,7 +672,16 @@ class AutoPlayController:
             (i + 1 for i, m in enumerate(party.members) if not m.is_dead() and m.status == Status.POISONED),
             None,
         )
-        if poisoned is not None and self._poison_dire(party, screen.state.z):
+        # Cure mode latches once poison is dire, until nobody is poisoned or
+        # the party leaves (a new dungeon state): the bar is lower a level
+        # up, so a climb toward a cure used to drop the cure and walk back
+        # down, see-sawing on the ladder (review 2026-11-25).
+        if poisoned is None:
+            self._cure_latch = None
+        elif self._poison_dire(party, screen.state.z):
+            self._cure_latch = screen.state
+        self._cure_mode = poisoned is not None and self._cure_latch is screen.state
+        if self._cure_mode:
             alcort = self._find_caster(party, (Profession.CLERIC, Profession.DRUID), min_mp=35)
             if alcort is not None:
                 self._queue_text(self._cleric_cast(party, alcort[0], f"h{poisoned}"), enter=False)
@@ -3816,7 +3827,8 @@ class AutoPlayController:
         Poison wants a CURE fountain: a heal fountain never cures (live
         trace 2026-11-25, trace_20261125-173226: a poisoned party at 97%
         walked to and from a heal fountain for ~5,000 steps). Poison is
-        carried until dire (_poison_dire): before that only a cure fountain
+        carried until dire (_poison_dire, latched as _cure_mode until cured
+        or out of the dungeon): before that only a cure fountain
         within _CURE_DETOUR moves on this level counts. Once dire the route
         search takes the nearest by steps, ladders counted, on any level,
         except while turning back or under the bar for the next level down
@@ -3834,7 +3846,7 @@ class AutoPlayController:
         if not any(m.status == Status.POISONED for m in living):
             return set()
         cure = self._find_dungeon_tiles(dmap, {DungeonTile.FOUNTAIN_CURE})
-        if not self._poison_dire(party, z):
+        if not self._cure_mode:
             # Poison is carried until dire (user ruling 2026-11-25): only a
             # cure fountain a few steps away, nearly free, is worth it.
             if xy is None:

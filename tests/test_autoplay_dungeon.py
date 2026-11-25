@@ -539,7 +539,8 @@ def test_poisoned_party_cures_instead_of_pacing_to_a_heal_fountain(am):
     Hell z 4, the whole party poisoned at ~97% HP, the Cleric at 4 MP, Fire
     held and Force wanted. It walked to the heal fountain (1, 1, 4), drank,
     walked toward the mark, lost a few HP to poison and went back. Now it
-    goes to the nearest cure fountain (any level) and never paces."""
+    goes to the nearest cure fountain on its level or above once the
+    poison is dire (it drains to that bar here) and never paces."""
     party = _party(marks=(1, 1, 0, 0))
     for m in party.members:
         m.status = Status.POISONED
@@ -813,3 +814,34 @@ def test_a_ladder_give_up_while_retreating_still_leaves(am, monkeypatch):
     assert ctrl._gave_up_state is ds.state
     assert ctrl._retreating
     assert deepest == 5
+
+
+def test_dire_poison_stays_in_cure_mode_up_the_ladder(am):
+    """Review 2026-11-25: poisoned at 330 HP on Fires of Hell z 4 is dire
+    (need(z 4) = 336 at 950 max HP) but not on z 3 (324). With z 4's heal
+    fountains gone and the Cleric at 20 MP (no ALCORT), the cure is up at
+    z 1/z 0. Arriving on z 3 at (5, 5, 3) used to drop the cure and turn
+    back toward Force: the way down is that same ladder, so the party sat
+    on it waiting for the descent MP (the Cleric's heals keep it under 20)
+    until the poison made it dire again. Cure mode latches until cured: it
+    goes straight on up, never waiting to go back down."""
+    party = _poisoned_at_z4(330, 20)
+    sm, ds = _dungeon(am, party, FIRE, (1, 4, 4))
+    for xy in ((1, 1), (9, 9)):
+        ds.state.dmap.set_tile(*xy, 4, DungeonTile.NOTHING)
+    ds.state.torchtime = 255
+    ctrl = AutoPlayController(enabled=True)
+    zs = [4]
+    waits_on_z3 = 0
+    for _ in range(400):
+        key = ctrl.step(sm)
+        ds.state.torchtime = 255
+        if ds.state.z == 3 and key == pygame.K_SPACE:
+            waits_on_z3 += 1
+        if ds.state.z != zs[-1]:
+            zs.append(ds.state.z)
+        if all(m.status == Status.GOOD for m in party.members):
+            break
+    assert all(m.status == Status.GOOD for m in party.members), zs
+    assert zs == sorted(zs, reverse=True), zs
+    assert waits_on_z3 == 0
