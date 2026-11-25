@@ -681,7 +681,8 @@ def test_leaving_another_town_keeps_nothing_of_exodus(town):
 
 def test_insert_progress_never_saved(tmp_path):
     """User ruling C-29: card progress is not written to a save; an old
-    save that carries it loads as 0. ``exodus_defeated`` is still saved."""
+    save that carries it loads as 0. ``exodus_defeated`` is still written but
+    loads as 0 (the game ends when Exodus falls, user ruling 2026-11-25)."""
     import json
 
     from py_exodus.save_system import SaveSystem
@@ -695,7 +696,7 @@ def test_insert_progress_never_saved(tmp_path):
     assert "exodus_cards_status" not in path.read_text()
     loaded = SaveSystem.load_game(path)
     assert loaded.exodus_cards_status == 0
-    assert loaded.exodus_defeated == 1
+    assert loaded.exodus_defeated == 0
 
     # An old save written with the field loads it as 0.
     data = json.loads(path.read_text())

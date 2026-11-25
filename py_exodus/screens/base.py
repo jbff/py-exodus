@@ -74,14 +74,15 @@ class BaseScreen(ABC):
         self.return_to_title(game_over=True)
         return True
 
-    def return_to_title(self, game_over: bool = False) -> BaseScreen:
+    def return_to_title(self, game_over: bool = False, won: bool = False) -> BaseScreen:
         """End the game: the title screen replaces every screen.
 
         Shared by the dead party's game over (``check_party_death``) and the
         victory ending (user ruling 2026-11-25: the game ends when Exodus
         falls, as the 8-bit originals did). ``game_over`` shows the
-        perished line; the ending passes False. The title keeps the party
-        so autoplay and the trace can tell how the game ended.
+        perished line; the ending passes ``won``. The title keeps the party
+        only so autoplay and the trace can tell how the game ended: after
+        either end it never hands it on (``StartScreen._new_game``).
         """
         from py_exodus.screens.start import StartScreen
 
@@ -91,6 +92,7 @@ class BaseScreen(ABC):
             party=getattr(self, "party", None),
             manager=self.manager,
             game_over=game_over,
+            won=won,
         )
         if self.manager is not None:
             self.manager.set_screen(start_screen)

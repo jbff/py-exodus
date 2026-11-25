@@ -659,6 +659,9 @@ class DungeonScreen(BaseScreen):
         self._consume_turn()
 
     def exit_screen(self) -> None:
+        # LairWare Routine6E6B (UltimaMisc.c:1336): ``Party[3] = 0; // back
+        # to surface`` before the save; the ladder and Sequitu both end here.
+        self.party.dungeon_level = 0
         super().exit_screen()
         # LairWare Routine6E6B (UltimaMisc.c:1336-1347): back on Sosaria,
         # classic AutoSave writes roster, party and Sosaria.

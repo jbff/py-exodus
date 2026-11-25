@@ -33,6 +33,7 @@ class StartScreen(BaseScreen):
         party: Party | None = None,
         return_screen: BaseScreen | None = None,
         game_over: bool = False,
+        won: bool = False,
         **kwargs: Any,
     ) -> None:
         super().__init__(return_screen=return_screen, **kwargs)
@@ -41,6 +42,9 @@ class StartScreen(BaseScreen):
         self.party = party
         # Task 2 death flow: True when routed here because the party perished
         self.game_over: bool = game_over
+        # Back from the victory ending: the won party is kept only for
+        # autoplay and the trace; the roster reads the save from disk.
+        self.won: bool = won
 
         self.options = [
             ("Journey Onward", self._start_journey),
@@ -217,6 +221,9 @@ class StartScreen(BaseScreen):
             return
 
         self.party = party
+        # Journey Onward always resumes on Sosaria: the surface (LW Party[3]
+        # 0). Saves from before the fix could carry a stale dungeon level.
+        self.party.dungeon_level = 0
 
         from py_exodus.screens.overworld import OverworldScreen
 
@@ -244,6 +251,7 @@ class StartScreen(BaseScreen):
             None
             if (
                 self.game_over
+                or self.won
                 or (
                     self.party is not None
                     and self.party.members

@@ -646,3 +646,217 @@ def test_autosave_never_in_headless_batches_tests_or_autoplay(
     live_autoplay.autoplay_enabled = True
     play(live_autoplay)
     assert not (tmp_path / "saves").exists()
+
+
+# --- Fix round (review of 4a6063f..d10ae75) ----------------------------------------
+
+
+def _slotted_party() -> Party:
+    """Two members holding roster slots 1 and 2, with the roster saved."""
+    from pathlib import Path
+
+    from py_exodus.save_system import SaveSystem
+
+    a, b = _pm("A"), _pm("B")
+    a.player.roster_slot, b.player.roster_slot = 1, 2
+    a.player.cards = [1, 1, 1, 1]
+    p = _party(a, b)
+    Path("saves").mkdir(exist_ok=True)
+    SaveSystem.save_roster([Character.from_dict(m.player.to_dict()) for m in p.members],
+                           "saves/roster.json")
+    return p
+
+
+def _roster_on_disk() -> dict[int, Character]:
+    from py_exodus.save_system import SaveSystem
+
+    return {c.roster_slot: c for c in SaveSystem.load_roster("saves/roster.json")}
+
+
+def test_after_victory_the_title_forgets_the_won_party(autosaving):
+    """The won party in memory must not reach the roster screen as the
+    party in use: New Game / Roster reads the save from disk (the one made
+    on entering Castle Exodus), and that save survives."""
+    from pathlib import Path
+
+    from py_exodus.screens import final
+    from py_exodus.screens.roster_screen import RosterScreen
+    from py_exodus.screens.start import StartScreen
+
+    p = _slotted_party()
+    sm, ow = autosaving(10, 53, party=p)
+    ow._enter_portal()
+    castle = sm.current_screen
+    castle.game_map.npcs = []
+    p.members[0].gold = 4321  # changed after the pre-castle save
+    p.exodus_cards_status = 0x7
+    final.prompt_insert_card(castle, 33, 12)
+    _key(castle, pygame.K_1, "1")
+    _key(castle, pygame.K_d, "d")
+    _key(sm.current_screen, pygame.K_SPACE)
+    sm.update(0.0)
+    title = sm.current_screen
+    assert isinstance(title, StartScreen) and not title.game_over
+    assert title.party is p and p.exodus_defeated == 1  # autoplay and the trace
+    title._new_game()
+    roster = sm.current_screen
+    assert isinstance(roster, RosterScreen)
+    assert roster.party is not p
+    assert roster.party.members[0].gold == 100  # the pre-castle save
+    assert Path("saves/party.json").exists()
+    roster._disperse_party()
+    assert _roster_on_disk()[1].gold == 100
+
+
+def test_a_wipe_leaves_the_roster_dead(autosaving):
+    """UltimaMain.c:2798-2810 (CheckAllDead) and 3254-3266 (HPSubtract) run
+    PutRoster too: after a wipe the roster records of the party lie dead,
+    and Journey Onward (no living party) opens the roster showing them."""
+    from py_exodus.screens.roster_screen import RosterScreen
+
+    p = _slotted_party()
+    sm, ow = autosaving(party=p)
+    p.members[0].apply_damage(999)
+    assert _roster_on_disk()[1].is_dead() and not _roster_on_disk()[2].is_dead()
+    p.members[1].apply_damage(999, True)
+    assert ow.check_party_death()
+    disk = _roster_on_disk()
+    assert disk[1].is_dead() and disk[2].is_dead()
+    sm.current_screen._start_journey()
+    scr = sm.current_screen
+    assert isinstance(scr, RosterScreen) and scr.party.members == []
+    assert {c.roster_slot: c.is_dead() for c in scr.roster} == {1: True, 2: True}
+
+
+def test_entry_and_exit_autosaves_keep_the_roster_in_step(autosaving):
+    """UltimaMain.c:1486-1494 and UltimaMisc.c:1336-1347: PutRoster with
+    PutParty, so each roster record matches its member after a save."""
+    p = _slotted_party()
+    sm, ow = autosaving(46, 19, party=p)
+    p.members[0].gold = 555
+    ow._enter_portal()
+    assert _roster_on_disk()[1].gold == 555
+    sm.current_screen.party.members[1].gold = 666
+    sm.current_screen._exit_town()
+    sm.update(0.0)
+    disk = _roster_on_disk()
+    assert (disk[1].gold, disk[2].gold) == (555, 666)
+
+
+def test_leaving_a_dungeon_resets_its_level(autosaving, monkeypatch):
+    """UltimaMisc.c:1336 (Routine6E6B) ``Party[3] = 0; // back to surface``:
+    by the ladder or Sequitu, the party is on the surface again before the
+    exit save, so a surface chest's bomb uses level 0 (8 + roll)."""
+    from py_exodus.world import chests
+    from py_exodus.world.dungeon import DungeonEvent, DungeonEventType
+
+    for how in ("ladder", "sequitu"):
+        sm, ow = autosaving(56, 6)
+        ow._enter_portal()
+        dscr = sm.current_screen
+        dscr.party.dungeon_level = 5
+        if how == "ladder":
+            dscr._process_event(DungeonEvent(type=DungeonEventType.EXIT_DUNGEON, message=""))
+        else:
+            dscr._process_event(dscr.state.spell_exit())
+        sm.update(0.0)
+        assert sm.current_screen is ow
+        assert ow.party.dungeon_level == 0
+        assert _saved()["dungeon_level"] == 0
+
+    rolls = iter([0, 255, 2, 2])
+    monkeypatch.setattr(chests.random, "randrange", lambda n: next(rolls, 0))
+    hp = ow.party.members[0].hp
+    lines, bomb = chests._chest_trap(ow.party, ow.party.members[0])
+    assert bomb and ow.party.members[0].hp == hp - 8
+
+
+def test_a_death_save_inside_a_dungeon_reloads_on_the_surface(autosaving):
+    """HPSubtract saves in a dungeon too (UltimaMain.c:3254-3266). The port's
+    save is a Sosaria record: the dungeon's entrance square, level 0, and
+    Journey Onward resumes there."""
+    from py_exodus.screens.overworld import OverworldScreen
+    from py_exodus.screens.start import StartScreen
+
+    sm, ow = autosaving(56, 6)
+    ow._enter_portal()
+    sm.current_screen.party.dungeon_level = 4
+    ow.party.members[1].apply_damage(999)
+    data = _saved()
+    assert (data["x"], data["y"], data["dungeon_level"]) == (56, 6, 0)
+    start = StartScreen(asset_mgr=ow.asset_mgr)
+    start._start_journey()
+    loaded = start.next_screen
+    assert isinstance(loaded, OverworldScreen)
+    assert (loaded.party.x, loaded.party.y, loaded.party.dungeon_level) == (56, 6, 0)
+    assert loaded.party.members[1].is_dead() and not loaded.party.members[0].is_dead()
+
+
+def test_a_death_save_in_combat_reloads(autosaving):
+    """The combat death save keeps the party's Sosaria square, and Journey
+    Onward resumes it there with the member dead."""
+    from py_exodus.screens.start import StartScreen
+
+    sm, ow = autosaving(30, 40)
+    ow._trigger_combat("orc")
+    ow.party.members[0].apply_damage(999, True)
+    data = _saved()
+    assert (data["x"], data["y"]) == (30, 40)
+    start = StartScreen(asset_mgr=ow.asset_mgr)
+    start._start_journey()
+    loaded = start.next_screen.party
+    assert (loaded.x, loaded.y) == (30, 40)
+    assert loaded.members[0].is_dead() and not loaded.members[1].is_dead()
+
+
+def test_a_death_save_on_ambrosia_mid_combat(autosaving):
+    """On Ambrosia the save is the Sosaria record GoWhirlPool left: the
+    engulf square, on the frigate, with Sosaria's monsters (the whirlpool at
+    (2, 62)), never Ambrosia's position or monsters."""
+    from py_exodus.screens.start import StartScreen
+
+    sm, ow = autosaving(47, 17)
+    ow.party.transport = Transport.SHIP
+    ow._check_whirlpool_engulf()
+    assert ow.map_id == 13
+    ow.party.x, ow.party.y = 30, 30
+    ow._trigger_combat("orc")
+    assert type(sm.current_screen).__name__ == "CombatScreen"
+    ow.party.members[0].apply_damage(999, True)
+    data = _saved()
+    assert (data["x"], data["y"]) == (47, 17)
+    assert data["transport"] == Transport.SHIP.value
+    assert [(m["x"], m["y"]) for m in data["overworld"]["monsters"]] == [(2, 62)]
+    start = StartScreen(asset_mgr=ow.asset_mgr)
+    start._start_journey()
+    loaded = start.next_screen
+    assert str(loaded.map_id) == "0"
+    assert (loaded.party.x, loaded.party.y) == (47, 17)
+    assert loaded.party.members[0].is_dead()
+
+
+def test_an_old_won_save_loads_as_not_won(pygame_setup, asset_mgr, monkeypatch, tmp_path):
+    """Saves from LW's play-on era can carry exodus_defeated = 1. The game
+    ends when Exodus falls now (user ruling 2026-11-25), so such a save
+    loads as not won and autoplay keeps playing it."""
+    from py_exodus.autoplay import AutoPlayController
+    from py_exodus.save_system import SaveSystem
+    from py_exodus.screens.start import StartScreen
+    from py_exodus.state_machine import StateMachine
+
+    monkeypatch.chdir(tmp_path)
+    old = _party(_pm("A"), _pm("B"))
+    old.exodus_defeated = 1
+    SaveSystem.save_game(old, "saves/party.json")
+    assert '"exodus_defeated": 1' in (tmp_path / "saves" / "party.json").read_text()
+    assert SaveSystem.load_game("saves/party.json").exodus_defeated == 0
+
+    sm = StateMachine(asset_mgr=asset_mgr)
+    start = StartScreen(asset_mgr=asset_mgr)
+    sm.set_screen(start)
+    start._start_journey()
+    assert sm.current_screen.party.exodus_defeated == 0
+    ctrl = AutoPlayController(enabled=True, step_interval=0.01)
+    for _ in range(5):
+        ctrl.step(sm)
+    assert ctrl.enabled

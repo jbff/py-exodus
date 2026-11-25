@@ -173,7 +173,9 @@ def test_book_screen_pagination():
 
 
 def test_party_exodus_defeated_roundtrip():
-    """The beat-Exodus flag (LW Party[16]) is persisted with the party."""
+    """The beat-Exodus flag (LW Party[16]) is written with the party but
+    loads as 0: a won save predates the game ending at the fall (user ruling
+    2026-11-25), so it plays on as not won."""
     p = Party()
     c = Character("Hero", "M", Race.HUMAN, Profession.FIGHTER)
     p.add_member(c)
@@ -181,7 +183,7 @@ def test_party_exodus_defeated_roundtrip():
     data = p.to_dict()
     assert data["exodus_defeated"] == 1
     restored = Party.from_dict(data)
-    assert restored.exodus_defeated == 1
+    assert restored.exodus_defeated == 0
     # Legacy save without the key loads the pre-win default.
     legacy = Party.from_dict({k: v for k, v in data.items() if k != "exodus_defeated"})
     assert legacy.exodus_defeated == 0

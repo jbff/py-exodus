@@ -339,7 +339,7 @@ class FinalScreen(BaseScreen):
             # the dead party's way (check_party_death); nothing is saved, so
             # the last save stays the one made before entering the castle.
             if event.key in (pygame.K_SPACE, pygame.K_RETURN, pygame.K_ESCAPE):
-                self.return_to_title()
+                self.return_to_title(won=True)
             return
 
         if event.key == pygame.K_ESCAPE:

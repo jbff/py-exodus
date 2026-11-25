@@ -103,6 +103,37 @@ def autosave_allowed(manager: Any) -> bool:
     )
 
 
+#: The roster file (LairWare's 20 roster records, PutRoster).
+ROSTER_SAVE_PATH = "saves/roster.json"
+
+
+def sync_roster(party: Any, path: str | Path = ROSTER_SAVE_PATH) -> None:
+    """LairWare PutRoster with PutParty (UltimaMisc.c:709-755): write each
+    party member into its own roster record (``roster_slot``), as dispersing
+    the party does, so the roster never holds a stale copy (a wiped party
+    lies dead there too). Members without a slot (saves from before slots)
+    are left out; nothing is written when no member has one."""
+    members = [
+        getattr(m, "character", m)
+        for m in getattr(party, "members", ())
+        if getattr(getattr(m, "character", m), "roster_slot", 0)
+    ]
+    if not members:
+        return
+    p = Path(path)
+    roster = SaveSystem.load_roster(p) if p.exists() else []
+    for char in members:
+        idx = next(
+            (i for i, r in enumerate(roster) if getattr(r, "roster_slot", 0) == char.roster_slot),
+            None,
+        )
+        if idx is None:
+            roster.append(char)
+        else:
+            roster[idx] = char
+    SaveSystem.save_roster(roster, p)
+
+
 class SaveSystem:
     """Manages serialization of party, character roster, and dynamic overworld deltas."""
 

@@ -926,7 +926,11 @@ class Party:
             active_member_index=p_data.get("active_member_index", 0),
             # An old save's exodus_cards_status is ignored and loads as 0
             # (user ruling C-29: card progress lasts one castle visit).
-            exodus_defeated=p_data.get("exodus_defeated", 0),
+            # Not read from the save: saves that carry exodus_defeated = 1
+            # come from LW's play-on era. The game ends when Exodus falls
+            # (user ruling 2026-11-25), so they load as not won and play on
+            # (autoplay too).
+            exodus_defeated=0,
             dynamic_objects=data.get("dynamic_objects", p_data.get("dynamic_objects", [])),
             dynamic_monsters=data.get("dynamic_monsters", p_data.get("dynamic_monsters", [])),
             objects_map_id=data.get("objects_map_id", 0),
