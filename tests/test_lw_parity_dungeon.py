@@ -234,3 +234,66 @@ def test_autoplay_route_does_not_turn_in_a_doorway():
     dmap.set_tile(4, 3, 0, DungeonTile.WALL)
     key = find_dungeon_step(dmap, 4, 4, 0, Direction.NORTH, {(4, 6, 0)})
     assert key == pygame.K_DOWN
+
+
+# --- D-07 fountains: CheckAlive ---------------------------------------------------
+
+
+@pytest.mark.parametrize("tile", [DungeonTile.FOUNTAIN_HEAL, DungeonTile.FOUNTAIN_CURE])
+@pytest.mark.parametrize("status", [Status.DEAD, Status.ASHES])
+def test_fountain_drinker_must_be_alive(tile, status):
+    """UltimaDngn.c:237-241: `if (CheckAlive(chnum - 1) == FALSE) {
+    UPrintMessage(153); ...}` ("Can't"): the dead and ashes cannot drink.
+    The port healed a dead drinker to full HP and the cure fountain set a
+    dead one back to Good."""
+    party = _party()
+    m = party.members[0]
+    m.status = status
+    m.hp = 0
+    dmap = _dmap()
+    dmap.set_tile(4, 4, 0, tile)
+    state = DungeonState(dmap, start_x=4, start_y=4, start_z=0, party=party)
+    evt = state.drink_fountain(0)
+    assert m.status == status
+    assert m.hp == 0
+    assert evt.success is False
+    assert evt.message == "Can't"
+
+
+# --- D-19 dungeon chests: CheckAlive -------------------------------------------
+
+
+@pytest.mark.parametrize("status", [Status.DEAD, Status.ASHES])
+def test_getchest_dungeon_opener_must_be_alive(status, asset_mgr):
+    """UltimaMain.c:1601-1604: `if (CheckAlive(chnum - 1) == FALSE) {
+    Incap(); return; }` before the tile is even looked at, in the dungeon
+    as on the surface. The port's dungeon G opened it for a dead member."""
+    import pygame
+
+    from py_exodus.screens.dungeon_screen import DungeonScreen
+
+    pygame.init()
+    party = _party()
+    party.members[0].status = status
+    dmap = _dmap()
+    dmap.set_tile(1, 1, 0, DungeonTile.CHEST)
+    screen = DungeonScreen(party=party, dungeon_map=dmap, asset_mgr=asset_mgr)
+    screen.state.random_encounters_enabled = False
+    gold = party.members[0].gold
+    screen.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_g))
+    screen.text_log.submit_input("1")
+    assert dmap.get_tile(1, 1, 0) == DungeonTile.CHEST
+    assert party.members[0].gold == gold
+    assert any("Incapacitated" in line for line in screen.text_log.history)
+
+
+def test_dungeon_open_chest_opener_must_be_alive():
+    """UltimaMain.c:1601-1604 (CheckAlive) on the search path's chest too."""
+    party = _party()
+    party.members[0].status = Status.DEAD
+    dmap = _dmap()
+    dmap.set_tile(4, 4, 0, DungeonTile.CHEST)
+    state = DungeonState(dmap, start_x=4, start_y=4, start_z=0, party=party)
+    evt = state.open_chest(0)
+    assert dmap.get_tile(4, 4, 0) == DungeonTile.CHEST
+    assert evt.success is False

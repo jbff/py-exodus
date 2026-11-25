@@ -1805,6 +1805,18 @@ class DungeonState:
             )
 
         member = self.party.get_member(member_index) if self.party else None
+        # LairWare fountain (UltimaDngn.c:237-241): CheckAlive, else "Can't"
+        # (message 153) -- the dead and ashes cannot drink.
+        if member is not None and member.is_disabled():
+            return DungeonEvent(
+                type=DungeonEventType.FOUNTAIN,
+                message="Can't",
+                x=self.x,
+                y=self.y,
+                z=self.z,
+                tile=tile,
+                success=False,
+            )
 
         if tile == DungeonTile.FOUNTAIN_HEAL:
             if member:
@@ -1985,6 +1997,17 @@ class DungeonState:
                 tile=tile,
             )
 
+        # LairWare GetChest (UltimaMain.c:1601-1604): CheckAlive, else Incap.
+        if member.is_disabled():
+            return DungeonEvent(
+                type=DungeonEventType.BLOCKED,
+                message="Incapacitated!",
+                x=self.x,
+                y=self.y,
+                z=self.z,
+                tile=tile,
+                success=False,
+            )
         result = open_chest(self.party, member, dungeon=True, disarmed=disarm)
         self.dmap.set_tile(self.x, self.y, self.z, DungeonTile.NOTHING)
 

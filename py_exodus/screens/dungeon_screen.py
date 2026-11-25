@@ -446,6 +446,10 @@ class DungeonScreen(BaseScreen):
             member = self.party.get_member(idx)
             if member is None:
                 self.text_log.add_message("Invalid member #!")
+            elif member.is_disabled():
+                # LairWare GetChest (UltimaMain.c:1601-1604): CheckAlive
+                # comes before the tile is looked at.
+                self.text_log.add_message("Incapacitated!")
             else:
                 self._finish_dungeon_chest(member)
             if tick_evt is not None:
