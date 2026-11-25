@@ -39,6 +39,10 @@ from py_exodus.autoplay.planner import (
     needs_heal,
     prefer_ranged_weapons,
     raid_gold_target,
+    mark_reachable,
+    rod_plan,
+    rod_safe,
+    ROD_BURN,
     DEATH_GULCH_GOLD_CAP,
     return_trip_gold,
 )
@@ -293,6 +297,8 @@ class AutoPlayController:
         self._ow_turn = 0
         self._blocked_tiles: dict[tuple[int, int], int] = {}
         self._fleeing = False
+        # A member lacking a wanted mark is not safe for its rod (dungeon).
+        self._rod_heal_wanted = False
 
     def toggle(self) -> bool:
         """Flip autoplay enabled state and clear any queued keystrokes."""
@@ -570,11 +576,42 @@ class AutoPlayController:
         if rod is not None and rod[0] == "heal":
             self._queue_text(rod[1], enter=False)
             return self._emit_key(state_machine, pygame.K_c)
-        # Nobody safe, no MP yet, but standing here gets there (a healer's
-        # MP or HP regen): pass the turn on the rod (no encounter roll on a
-        # fixture, UltimaDngn.c:183-341); the rod asks, Esc answers.
-        if rod is not None and rod[0] == "wait":
-            return self._emit_key(state_machine, pygame.K_SPACE)
+
+        # The marks wanted here: the goal's, while a living member lacks one
+        # and can be made safe for its rod (now, by a cast or a wait, or at
+        # a heal fountain within a level of the mark; item 2).
+        mark_tiles = {0: DungeonTile.MARK_KINGS, 1: DungeonTile.MARK_FIRE,
+                      2: DungeonTile.MARK_SNAKE, 3: DungeonTile.MARK_FORCE}
+        goal_marks = (
+            (0,) if goal == Goal.GET_MARK_KINGS
+            else (1, 2, 3) if goal == Goal.GET_REMAINING_MARKS
+            else ()
+        )
+
+        def _reachable(mark_idx: int) -> bool:
+            plan = self._rod_plan(party, mark_idx)
+            if plan is None:
+                return False
+            if plan[0] != "off":
+                return True
+            # "off": nobody safe, no heal, no wait helps. A heal fountain
+            # near the mark still does, unless someone is under 10 rations.
+            if not mark_reachable(party, mark_idx):
+                return False
+            marks = self._find_dungeon_tiles(dmap, {mark_tiles[mark_idx]})
+            heals = self._find_dungeon_tiles(dmap, {DungeonTile.FOUNTAIN_HEAL})
+            return any(abs(hz - mz) <= self._FOUNTAIN_LEVELS for *_m, mz in marks for *_h, hz in heals)
+
+        wanted_marks = [
+            i for i in goal_marks
+            if self._find_dungeon_tiles(dmap, {mark_tiles[i]}) and _reachable(i)
+        ]
+        # A member who lacks a wanted mark and is not safe to burn (the rod
+        # would wait, or can do nothing) wants a heal fountain first.
+        self._rod_heal_wanted = any(
+            (plan := self._rod_plan(party, i)) is not None and plan[0] in ("wait", "off")
+            for i in wanted_marks
+        )
 
         # A chest underfoot: open it the safe way (APPAR UNEM, or G with no
         # caster alive in a party strong enough for a trap). Never waits for
@@ -627,31 +664,20 @@ class AutoPlayController:
                 if key is not None:
                     return self._emit_key(state_machine, key)
 
-        # A mark nobody can touch safely, no heal can fix and no wait on the
-        # rod will help ("off": no Cleric, Druid or Paladin with a 10-MP
-        # pool, and the needer poisoned or the food short, or someone under
-        # 10 rations) is not walked to or back onto: the party leaves. Such
-        # a party can't rest indoors either (_can_rest_indoors needs that
-        # same healer, and 100 food); the mark waits until food is bought
-        # or the poison cured, which the planner's own goals see to.
-        def _reachable(mark_idx: int) -> bool:
-            plan = self._rod_plan(party, mark_idx)
-            return plan is not None and plan[0] != "off"
+        # Nobody safe, no MP yet, no heal fountain near, but standing here
+        # gets there (a healer's MP or HP regen): pass the turn on the rod
+        # (no encounter roll on a fixture, UltimaDngn.c:183-341).
+        if rod is not None and rod[0] == "wait":
+            return self._emit_key(state_machine, pygame.K_SPACE)
 
+        # A mark nobody can touch safely and nothing here can fix (see
+        # _reachable) is not walked to or back onto: the party leaves, and
+        # the planner's loop guard (planner.mark_reachable) keeps it from
+        # walking straight back in. The mark stays a goal until every
+        # living member has it, so the party comes back for it.
         target_tiles: set[tuple[int, int, int]] = set()
-        if goal == Goal.GET_MARK_KINGS:
-            if _reachable(0):
-                target_tiles = self._find_dungeon_tiles(dmap, {DungeonTile.MARK_KINGS})
-        elif goal == Goal.GET_REMAINING_MARKS:
-            wanted: set[DungeonTile] = set()
-            if _reachable(1):
-                wanted.add(DungeonTile.MARK_FIRE)
-            if _reachable(2):
-                wanted.add(DungeonTile.MARK_SNAKE)
-            if _reachable(3):
-                wanted.add(DungeonTile.MARK_FORCE)
-            if wanted:
-                target_tiles = self._find_dungeon_tiles(dmap, wanted)
+        if wanted_marks:
+            target_tiles = self._find_dungeon_tiles(dmap, {mark_tiles[i] for i in wanted_marks})
 
         # Anyone at 0 food is starving every step: leave now, Mark or not
         # (batch 1c7525f: members hit 0 on the Fire dungeon's level 4 and
@@ -2160,7 +2186,7 @@ class AutoPlayController:
                 and (m.armor == ArmorType.EXOTIC or m.armors.get(ArmorType.EXOTIC, 0) > 0)
                 for m in party.members
             )
-            and all(any(m.marks[i] > 0 for m in living) for i in (1, 2, 3))
+            and all(m.marks[i] > 0 for m in living for i in (1, 2, 3))
             and len(living) == len(party.members)
             # Raid until the Ambrosia trip is paid for and beyond: stopping
             # at 4500 left parties short of 4500 + food + keys, grinding
@@ -3484,63 +3510,23 @@ class AutoPlayController:
         book = "c" if len(get_castable_spell_types(prof)) > 1 else ""
         return f"{idx}{book}{rest}"
 
-    # LairWare dungeonmech case 5 (UltimaDngn.c:300-318): the rod burns
-    # ``HPSubtract(chnum, 50)``.
-    _ROD_BURN = 50
+    _ROD_BURN = ROD_BURN
 
     @classmethod
     def _rod_safe(cls, m) -> bool:
-        """Safe to touch the rod: half health or better after the burn
-        (user 2026-11-25)."""
-        return not m.is_dead() and m.hp - cls._ROD_BURN >= m.max_hp // 2
+        return rod_safe(m)
 
     @classmethod
     def _rod_plan(cls, party, mark_idx: int) -> tuple[str, Any] | None:
-        """What to do about the rod of mark ``mark_idx``.
-
-        ``("touch", n)``: member n (1-based) needs it and is safe to burn.
-        ``("heal", keys)``: none is safe; a Cleric or Druid (Sanctu Mani, K,
-        50 MP, for a gap over Sanctu's 30) or a Cleric, Druid or Paladin
-        (Sanctu, C, 10 MP) heals the needer closest to safe first.
-        ``("wait", None)``: no MP to heal now, but passing turns on the rod
-        helps: a living Cleric, Druid or Paladin whose MP pool reaches 10
-        will regain it (+1 a tick, Druid +2) while everyone has 10 rations
-        or more, or the needer, not poisoned,
-        regains the gap at +1 HP per 10 ticks before anyone's food (about a
-        ration a tick-tenth: one ration per HP) runs low.
-        ``("off", None)``: none is safe and none of that applies.
-        None: no living member needs this mark."""
-        needers = [
-            (i + 1, m) for i, m in enumerate(party.members) if not m.is_dead() and m.marks[mark_idx] == 0
-        ]
-        if not needers:
+        """planner.rod_plan, with the keys for a heal: ``("heal", keys)``
+        after C (Sanctu Mani K or Sanctu C on the needer)."""
+        plan = rod_plan(party, mark_idx)
+        if plan is None:
             return None
-        for n, m in needers:
-            if cls._rod_safe(m):
-                return ("touch", n)
-        n, m = min(needers, key=lambda nm: nm[1].max_hp // 2 + cls._ROD_BURN - nm[1].hp)
-        gap = m.max_hp // 2 + cls._ROD_BURN - m.hp
-        mani = cls._find_caster(party, (Profession.CLERIC, Profession.DRUID), min_mp=50)
-        if gap > 30 and mani is not None:
-            return ("heal", cls._cleric_cast(party, mani[0], f"k{n}"))
-        sanctu = cls._find_caster(party, (Profession.CLERIC, Profession.DRUID, Profession.PALADIN), min_mp=10)
-        if sanctu is not None:
-            return ("heal", cls._cleric_cast(party, sanctu[0], f"c{n}"))
-        living = [x for x in party.members if not x.is_dead()]
-        # Never wait while someone is about to starve (the walk leaves the
-        # dungeon at 0 food).
-        if any(x.food < 10 for x in living):
-            return ("off", None)
-        if any(
-            x.profession in (Profession.CLERIC, Profession.DRUID, Profession.PALADIN) and x.max_mp >= 10
-            for x in living
-        ):
-            return ("wait", None)
-        # Party.age: +1 HP every 10th tick, a ration every 9.9 ticks: about
-        # one ration per HP regained; keep a margin of 20.
-        if m.status != Status.POISONED and all(x.food >= gap + 20 for x in living):
-            return ("wait", None)
-        return ("off", None)
+        if plan[0] == "heal":
+            _kind, n, caster, letter = plan
+            return ("heal", cls._cleric_cast(party, caster, f"{letter}{n}"))
+        return (plan[0], plan[1] if plan[0] == "touch" else None)
 
     @staticmethod
     def _find_caster(
@@ -3571,8 +3557,9 @@ class AutoPlayController:
         return None
 
     def _wants_heal_fountain(self, party) -> bool:
-        """The party would drink from a heal fountain on its way."""
-        return needs_heal(party)
+        """The party would drink from a heal fountain on its way: hurt, or
+        a member who lacks a wanted mark is not safe for its rod (item 2)."""
+        return needs_heal(party) or self._rod_heal_wanted
 
     def _fountain_goals(self, party, dmap, z: int) -> set[tuple[int, int, int]]:
         """Heal fountains (when the party wants healing) and cure fountains

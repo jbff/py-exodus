@@ -401,13 +401,104 @@ def prefer_ranged_weapons(party: Party) -> bool:
     if not living:
         return True
     has_all_cards = all(any(m.cards[i] > 0 for m in living) for i in range(4))
-    has_remaining_marks = all(any(m.marks[i] > 0 for m in living) for i in (1, 2, 3))
+    has_remaining_marks = all(every_living_has_mark(party, i) for i in (1, 2, 3))
     has_exotics = all(
         (m.weapon == WeaponType.EXOTIC or m.weapons.get(WeaponType.EXOTIC, 0) > 0)
         and (m.armor == ArmorType.EXOTIC or m.armors.get(ArmorType.EXOTIC, 0) > 0)
         for m in party.members
     )
     return not (has_all_cards and has_remaining_marks and has_exotics)
+
+
+# LairWare dungeonmech case 5 (UltimaDngn.c:300-318): the rod burns
+# ``HPSubtract(chnum, 50)``.
+ROD_BURN = 50
+_ROD_HEALERS = (Profession.CLERIC, Profession.DRUID, Profession.PALADIN)
+
+
+def rod_safe(m) -> bool:
+    """Safe to touch the rod: half health or better after the burn
+    (user 2026-11-25)."""
+    return not m.is_dead() and m.hp - ROD_BURN >= m.max_hp // 2
+
+
+def _caster(party: Party, professions, min_mp: int) -> int | None:
+    for i, m in enumerate(party.members):
+        if not m.is_dead() and m.profession in professions and m.mp >= min_mp:
+            return i + 1
+    return None
+
+
+def rod_plan(party: Party, mark_idx: int) -> tuple | None:
+    """What to do about the rod of mark ``mark_idx`` (0 Kings, 1 Fire,
+    2 Snake, 3 Force) for the living members who lack it.
+
+    ``("touch", n)``: member n (1-based) needs it and is safe to burn.
+    ``("heal", n, caster, letter)``: none is safe; a Cleric or Druid
+    (Sanctu Mani, K, 50 MP, for a gap over Sanctu's 30) or a Cleric, Druid
+    or Paladin (Sanctu, C, 10 MP) heals needer n, the one closest to safe.
+    ``("wait", n)``: no MP to heal now, but passing turns on the rod helps:
+    a living Cleric, Druid or Paladin whose MP pool reaches 10 will regain
+    it while everyone has 10 rations or more, or needer n, not poisoned,
+    regains the gap at +1 HP per 10 ticks before anyone's food runs low.
+    ``("off", n)``: none is safe and none of that applies (a heal fountain
+    or leaving to rest still can).
+    None: every living member has this mark."""
+    needers = [
+        (i + 1, m) for i, m in enumerate(party.members) if not m.is_dead() and m.marks[mark_idx] == 0
+    ]
+    if not needers:
+        return None
+    for n, m in needers:
+        if rod_safe(m):
+            return ("touch", n)
+    n, m = min(needers, key=lambda nm: nm[1].max_hp // 2 + ROD_BURN - nm[1].hp)
+    gap = m.max_hp // 2 + ROD_BURN - m.hp
+    mani = _caster(party, (Profession.CLERIC, Profession.DRUID), 50)
+    if gap > 30 and mani is not None:
+        return ("heal", n, mani, "k")
+    sanctu = _caster(party, _ROD_HEALERS, 10)
+    if sanctu is not None:
+        return ("heal", n, sanctu, "c")
+    living = [x for x in party.members if not x.is_dead()]
+    # Never wait while someone is about to starve (the walk leaves the
+    # dungeon at 0 food).
+    if any(x.food < 10 for x in living):
+        return ("off", n)
+    if any(x.profession in _ROD_HEALERS and x.max_mp >= 10 for x in living):
+        return ("wait", n)
+    # Party.age: +1 HP every 10th tick, a ration every 9.9 ticks: about
+    # one ration per HP regained; keep a margin of 20.
+    if m.status != Status.POISONED and all(x.food >= gap + 20 for x in living):
+        return ("wait", n)
+    return ("off", n)
+
+
+# The dungeon autoplay fetches each mark from, and the mark's level (z,
+# 0-based), from assets/maps (tests pin them): Kings in Dardin's Dungeon
+# (level 2), Fire and Force in the Fires of Hell (level 8), Snake in the
+# Snake dungeon (level 8). Each has a heal fountain within one level of the
+# mark (Dardin z 2, Fire z 7, Snake z 6), so a member too weak for the rod
+# can always be healed there (item 1).
+MARK_DUNGEON = {0: 15, 1: 17, 2: 19, 3: 17}
+MARK_LEVEL = {0: 1, 1: 7, 2: 7, 3: 7}
+
+
+def mark_reachable(party: Party, mark_idx: int) -> bool:
+    """Some living member lacks the mark and can be made safe for the rod:
+    now, by a heal or a wait on the rod, or by the heal fountain near it
+    (not while anyone is under 10 rations: that walk leaves at 0 food)."""
+    plan = rod_plan(party, mark_idx)
+    if plan is None:
+        return False
+    if plan[0] != "off":
+        return True
+    return all(m.food >= 10 for m in party.members if not m.is_dead())
+
+
+def every_living_has_mark(party: Party, mark_idx: int) -> bool:
+    """A mark goal is done only when every living member has the mark."""
+    return all(m.marks[mark_idx] > 0 for m in party.members if not m.is_dead())
 
 
 def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
@@ -487,7 +578,8 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
         return Goal.CURE_POISON
 
     has_all_cards = all(any(m.cards[i] > 0 for m in living) for i in range(4))
-    has_remaining_marks = all(any(m.marks[i] > 0 for m in living) for i in (1, 2, 3))
+    # Every living member needs each mark (autoplay round 1, item 2).
+    has_remaining_marks = all(every_living_has_mark(party, i) for i in (1, 2, 3))
 
     # Live run 2026-11-22: a return trip sailed in with no keys budgeted;
     # the intelligence shrine (6,6) lies behind the locked door (10,6) and
@@ -558,6 +650,11 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
             # 17's door).
             if any(m.food <= 0 for m in living):
                 return Goal.GRIND_AND_LEVEL
+        # Loop guard (item 2): if no member who still lacks a mark can be
+        # made safe for its rod, walking in only walks out again; earn
+        # food and gold instead.
+        if not any(mark_reachable(party, i) for i in (1, 2, 3)):
+            return Goal.GRIND_AND_LEVEL
         return Goal.GET_REMAINING_MARKS
 
     if not has_all_cards:

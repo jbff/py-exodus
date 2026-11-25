@@ -165,3 +165,63 @@ def test_poisoned_member_walks_to_a_cure_fountain(am):
             break
     assert party.members[0].status == Status.GOOD
     assert sm.current_screen is ds
+
+
+# --- Item 2: a mark is a goal until every living member has it ----------------
+
+
+def _surface(party):
+    party.map_id = 0
+    party.gold = 0
+    for m in party.members:
+        m.cards = [1, 1, 1, 1]
+        m.gold = 0
+    return party
+
+
+def test_remaining_marks_need_every_living_member():
+    from py_exodus.autoplay.planner import Goal, evaluate_goal
+
+    party = _surface(_party(marks=(1, 1, 1, 1)))
+    party.members[2].marks[3] = 0  # the Cleric lacks Force
+    assert evaluate_goal(party, 0) == Goal.GET_REMAINING_MARKS
+    # A dead member's missing mark does not count.
+    party.members[2].hp = 0
+    party.members[2].status = Status.DEAD
+    assert evaluate_goal(party, 17) != Goal.GET_REMAINING_MARKS
+
+
+def test_unfixable_rod_does_not_send_the_party_in(am):
+    """Loop guard: under 10 rations (and too broke for food) nobody can be
+    made safe for the rod, so walking in would only walk out again."""
+    from py_exodus.autoplay.planner import Goal, evaluate_goal
+
+    party = _surface(_party(marks=(1, 0, 0, 0)))
+    for m in party.members:
+        m.hp = 100  # 100 - 50 < max/2 for everyone
+        m.mp = 0
+        m.food = 5
+    assert evaluate_goal(party, 0) == Goal.GRIND_AND_LEVEL
+
+
+def test_weak_member_heals_at_a_fountain_and_comes_back_for_the_mark(am):
+    """Fires of Hell level 8: the Fighter lacks Force (4, 10, 7) and would
+    drop under half health; the Cleric has no MP. The heal fountain at
+    (9, 7, 7) comes first, then the rod."""
+    party = _party(marks=(1, 1, 0, 1))
+    fighter = party.members[1]
+    fighter.marks[3] = 0
+    fighter.hp = 300  # of 850: 250 after the burn, under 425
+    for m in party.members:
+        m.mp = 0
+        m.marks[2] = 1  # nothing else wanted
+    sm, ds = _dungeon(am, party, FIRE, (4, 10, 7))
+    ctrl = AutoPlayController(enabled=True)
+    healed = False
+    for _ in range(200):
+        ctrl.step(sm)
+        healed = healed or fighter.hp == fighter.max_hp
+        if fighter.marks[3]:
+            break
+    assert healed and fighter.marks[3] > 0
+    assert fighter.hp == fighter.max_hp - 50
