@@ -1077,6 +1077,9 @@ def test_dungeon_buys_torches_and_lights_darkness(pygame_setup):
     sm.set_screen(ds)
 
     ctrl = AutoPlayController(enabled=True)
+    # A step from the exit: only a move needs light (climbing out at (1, 1)
+    # lights nothing; live trace 2026-11-25, trace_20261125-174431).
+    ds.state.x, ds.state.y = 1, 2
     # With a torch owned and darkness, ignites torch via K_i
     party.members[0].torches = 1
     ds.state.torchtime = 0

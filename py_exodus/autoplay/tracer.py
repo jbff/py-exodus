@@ -59,6 +59,10 @@ def party_snapshot(party) -> dict[str, Any]:
         "marks": "".join(
             "KFSO"[i] if any(m.marks[i] > 0 for m in members) else "-" for i in range(4)
         ),
+        # Per member, so a member missing a mark the party holds shows.
+        "mk": [
+            "".join("KFSO"[i] if m.marks[i] > 0 else "-" for i in range(4)) for m in members
+        ],
         "cards": "".join(
             "DSML"[i] if any(m.cards[i] > 0 for m in members) else "-" for i in range(4)
         ),
@@ -172,7 +176,9 @@ class RunTracer:
             self._emit({
                 "t": "combat_start",
                 "step": self.steps,
-                "map": _screen_map(screen, party),
+                # The combat screen's own map is the arena (id 0): the map
+                # fought on is the last one stepped on.
+                "map": self._last_sig[1] if self._last_sig else _screen_map(screen, party),
                 "x": party.x,
                 "y": party.y,
                 "creatures": sorted({str(getattr(m, "tile", getattr(m, "name", ""))).lower() for m in mons}),

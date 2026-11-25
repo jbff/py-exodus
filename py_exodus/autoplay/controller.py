@@ -40,6 +40,7 @@ from py_exodus.autoplay.planner import (
     needs_heal,
     prefer_ranged_weapons,
     raid_gold_target,
+    DESCEND_MP,
     descend_mp_short,
     dungeon_hp_need,
     dungeon_may_resume,
@@ -308,6 +309,9 @@ class AutoPlayController:
         # Turning back in a dungeon (item 5), latched per dungeon visit.
         self._retreating = False
         self._retreat_state = None
+        self._ladder_wait_at = None
+        self._ladder_waited = 0
+        self._gave_up_state = None
 
     def toggle(self) -> bool:
         """Flip autoplay enabled state and clear any queued keystrokes."""
@@ -633,27 +637,6 @@ class AutoPlayController:
             if opener is not None and (opener[0] == "cast" or not weak):
                 return self._open_chest(state_machine, party)
 
-        # Ignite a torch or cast light spell whenever dungeon light is out,
-        # but not on the strange wind: it puts the light out after every
-        # command there (LairWare UltimaDngn.c:280-283, ledger D-12).
-        if not getattr(screen.state, "is_torch_on", False) and cur_tile != DungeonTile.WIND_TRAP:
-            holder = next(
-                (i + 1 for i, m in enumerate(party.members) if not m.is_dead() and m.torches > 0),
-                None,
-            )
-            if holder is not None:
-                # Ignite asks whose torch (LairWare Ignite, UltimaMain.c:1962-1966).
-                self._queue_text(str(holder), enter=False)
-                return self._emit_key(state_machine, pygame.K_i)
-            wiz = self._find_caster(party, (Profession.WIZARD,), min_mp=10)
-            if wiz is not None:
-                self._queue_text(f"{wiz[0]}c", enter=False)
-                return self._emit_key(state_machine, pygame.K_c)
-            cleric = self._find_caster(party, (Profession.CLERIC,), min_mp=15)
-            if cleric is not None:
-                self._queue_text(f"{cleric[0]}d", enter=False)
-                return self._emit_key(state_machine, pygame.K_c)
-
         # Item 5: turn back when a living member is under the bar for this
         # level or the next one down on the way to the mark (planner
         # dungeon_turn_back); go on again only past the mark level's bar
@@ -706,10 +689,10 @@ class AutoPlayController:
                 )
                 # A fountain trip down a ladder waits for the healer's MP
                 # like any other descent (item 5).
-                if key == pygame.K_d and descend_mp_short(party):
-                    return self._emit_key(state_machine, pygame.K_SPACE)
+                if key == pygame.K_d and descend_mp_short(party) and self._gave_up_state is not screen.state:
+                    return self._ladder_wait(state_machine, screen)
                 if key is not None:
-                    return self._emit_key(state_machine, key)
+                    return self._move_lit(state_machine, screen, party, cur_tile, key)
 
         # Nobody safe, no MP yet, no heal fountain near, but standing here
         # gets there (a healer's MP or HP regen): pass the turn on the rod
@@ -727,7 +710,9 @@ class AutoPlayController:
         # the party leaves, if the surface can heal it (it rests indoors).
         # A party that can't be healed out there gains nothing by leaving
         # and walking back in: it goes on.
-        leaving = False
+        # A ladder wait that could not end (_ladder_wait) leaves for the
+        # rest of this visit.
+        leaving = self._gave_up_state is screen.state
         if self._retreating and mark_z is not None:
             cast = self._dungeon_heal_cast(party, mark_z)
             if cast is not None:
@@ -765,11 +750,77 @@ class AutoPlayController:
         )
         # Down a ladder only with the healer's two Sanctus: short, wait on
         # the ladder (no encounter roll there) while the food allows.
-        if key == pygame.K_d and descend_mp_short(party):
-            return self._emit_key(state_machine, pygame.K_SPACE)
+        if key == pygame.K_d and descend_mp_short(party) and self._gave_up_state is not screen.state:
+            return self._ladder_wait(state_machine, screen)
         if key is not None:
-            return self._emit_key(state_machine, key)
+            return self._move_lit(state_machine, screen, party, cur_tile, key)
         return self._emit_key(state_machine, pygame.K_k)
+
+    # A ladder MP wait that runs this long has an end it can't reach (the
+    # healer gains about 1 MP per 4 turns, so 20 MP takes ~80): for the
+    # rest of this visit the party heads for the exit and waits on no
+    # ladder (the way out may itself go down: Fires of Hell z 6 at
+    # (15, 12) is reached only from z 7). Live trace 2026-11-25,
+    # trace_20261125-174431.
+    _LADDER_WAIT_MAX = 160
+
+    def _ladder_wait(self, state_machine, screen) -> int:
+        """Pass on the ladder (no encounter roll there) for the healer's MP;
+        past _LADDER_WAIT_MAX turns in a row, leave the dungeon instead."""
+        st = screen.state
+        here = (st.x, st.y, st.z)
+        if self._ladder_wait_at != (st, here):
+            self._ladder_wait_at = (st, here)
+            self._ladder_waited = 0
+        self._ladder_waited += 1
+        if self._ladder_waited > self._LADDER_WAIT_MAX:
+            self._gave_up_state = st
+        return self._emit_key(state_machine, pygame.K_SPACE)
+
+    # Light: a torch, else a Wizard's spell, else a Cleric's only when its
+    # MP stays at the healer reserve the ladder wait and the heals need.
+    _LIGHT_KEYS = (pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame.K_RIGHT, pygame.K_d)
+
+    def _move_lit(self, state_machine, screen, party, cur_tile, key: int) -> int:
+        """Emit a move, lighting the way first when the light is out. Only
+        a move needs light: waiting (a ladder, the rod, a fountain) never
+        lights. Live trace 2026-11-25 (trace_20261125-174431): the party
+        waited on a Fires of Hell ladder for the Cleric's 20 MP, the light
+        spell (10 turns) ran out, the light block cast it again at 15 MP,
+        and the Cleric never reached 20 for ~8,000 steps. Not on the
+        strange wind: it puts the light out after every command there
+        (LairWare UltimaDngn.c:280-283, ledger D-12)."""
+        if (
+            key in self._LIGHT_KEYS
+            and not getattr(screen.state, "is_torch_on", False)
+            and cur_tile != DungeonTile.WIND_TRAP
+        ):
+            holder = next(
+                (i + 1 for i, m in enumerate(party.members) if not m.is_dead() and m.torches > 0),
+                None,
+            )
+            if holder is not None:
+                # Ignite asks whose torch (LairWare Ignite, UltimaMain.c:1962-1966).
+                self._queue_text(str(holder), enter=False)
+                return self._emit_key(state_machine, pygame.K_i)
+            wiz = self._find_caster(party, (Profession.WIZARD,), min_mp=10)
+            if wiz is not None:
+                self._queue_text(f"{wiz[0]}c", enter=False)
+                return self._emit_key(state_machine, pygame.K_c)
+            cleric = next(
+                (
+                    i + 1
+                    for i, m in enumerate(party.members)
+                    if not m.is_dead()
+                    and m.profession == Profession.CLERIC
+                    and m.mp - 15 >= min(m.max_mp, DESCEND_MP)
+                ),
+                None,
+            )
+            if cleric is not None:
+                self._queue_text(f"{cleric}d", enter=False)
+                return self._emit_key(state_machine, pygame.K_c)
+        return self._emit_key(state_machine, key)
 
     def _step_2d(self, state_machine: StateMachine, screen) -> int | None:
         if screen.text_log.is_waiting_for_input:

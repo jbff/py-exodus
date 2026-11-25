@@ -57,3 +57,31 @@ def test_atlas_classifies_wipe_in_combat_and_oscillation():
     assert a["cause"] == "combat:pirate@sea"
     assert a["flips"] >= 5
     assert a["furthest"] == "on a ship"
+
+
+def test_snapshot_logs_each_members_marks():
+    from py_exodus.autoplay.tracer import party_snapshot
+
+    p = batch.build_party()
+    for m in p.members:
+        m.marks = [1, 1, 0, 1]
+    p.members[2].marks = [1, 0, 0, 1]
+    snap = party_snapshot(p)
+    assert snap["marks"] == "KF-O"
+    assert snap["mk"] == ["KF-O", "KF-O", "K--O", "KF-O"]
+
+
+def test_combat_start_logs_the_map_fought_on(tmp_path):
+    from types import SimpleNamespace
+
+    p = batch.build_party()
+    t = RunTracer(enabled=True, seed=1, out_dir=tmp_path)
+    rows = []
+    t._emit = rows.append
+    dungeon = type("DungeonScreen", (), {})()
+    dungeon.party, dungeon.state = p, SimpleNamespace(x=3, y=4, z=2, dmap=SimpleNamespace(id=17))
+    combat = type("CombatScreen", (), {})()
+    combat.party, combat.game_map, combat.arena = p, SimpleNamespace(id=0), SimpleNamespace(monsters=[])
+    for scr in (dungeon, combat):
+        t.record_step(SimpleNamespace(current_screen=scr), key=None, goal="X")
+    assert [r["map"] for r in rows if r["t"] == "combat_start"] == [17]

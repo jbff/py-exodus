@@ -648,3 +648,63 @@ def test_a_cure_trip_down_a_ladder_waits_for_the_healers_mp(am):
     ctrl = AutoPlayController(enabled=True)
     for _ in range(3):
         assert ctrl.step(sm) == pygame.K_SPACE and ds.state.z == 0
+
+
+# --- Live stall 2026-11-25: light spells during the ladder MP wait ------------
+
+
+def _ladder_party(torches: int):
+    """trace_20261125-174431 at step 50275: Fires of Hell z 6 on the ladder
+    down (15, 12), levels 25/22/11/20, the Cleric (missing Force) at
+    573/1150 HP and 12 MP, the Wizard at 4, the light out."""
+    party = _party(marks=(1, 1, 0, 1))
+    for m, lv in zip(party.members, (25, 22, 11, 20)):
+        m.level = lv
+        m.max_hp = m.hp = lv * 100 + 50
+        m.torches = torches
+        m.food = 300
+    party.members[2].marks = [1, 0, 0, 1]
+    party.members[2].hp = 573
+    party.members[2].mp = 12
+    party.members[3].mp = 4
+    return party
+
+
+@pytest.mark.parametrize("torches", [0, 3])
+def test_ladder_mp_wait_never_spends_the_wait_on_light(am, torches):
+    """The Cleric waited for 20 MP on the ladder while the light spell (10
+    turns) ran out and was recast at 15 MP, ~8,000 steps. Waiting lights
+    nothing, and a Cleric's light never takes it under the reserve: the
+    party goes down within ~4 turns per missing MP."""
+    party = _ladder_party(torches)
+    sm, ds = _dungeon(am, party, FIRE, (15, 12, 6))
+    ds.state.torchtime = 0
+    ctrl = AutoPlayController(enabled=True)
+    cleric_casts = 0
+    for _ in range(60):
+        mp = party.members[2].mp
+        ctrl.step(sm)
+        cleric_casts += party.members[2].mp < mp
+        if ds.state.z == 7:
+            break
+    assert ds.state.z == 7
+    assert cleric_casts == 0
+    assert party.members[2].mp >= 20
+
+
+def test_a_ladder_wait_that_cannot_end_leaves_instead(am, monkeypatch):
+    """Every wait has an end: past _LADDER_WAIT_MAX turns on the ladder the
+    party stops waiting for this visit and heads for the exit (from this
+    pocket of z 6 the way out goes down through z 7 first)."""
+    from py_exodus.autoplay import controller as ctl
+
+    monkeypatch.setattr(ctl, "descend_mp_short", lambda party: True)
+    party = _ladder_party(3)
+    sm, ds = _dungeon(am, party, FIRE, (15, 12, 6))
+    ds.state.torchtime = 255
+    ctrl = AutoPlayController(enabled=True)
+    for _ in range(AutoPlayController._LADDER_WAIT_MAX + 5):
+        ctrl.step(sm)
+        ds.state.torchtime = 255
+    assert (ds.state.x, ds.state.y, ds.state.z) != (15, 12, 6)
+    assert ctrl._gave_up_state is ds.state
