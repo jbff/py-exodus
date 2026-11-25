@@ -3303,6 +3303,21 @@ class AutoPlayController:
         if step is None:
             self._dash = None
             return None
+        # The foot route may pass a locked door (keys count as passable):
+        # unlock it, don't walk into it. Batch seed 1 (round 1 report):
+        # the dash pressed West into Ambrosia's door at (50, 6) from (51, 6)
+        # for ~7,000 steps, keys in hand, until the food ran low.
+        nx, ny = (pos[0] + step.dx) % w, (pos[1] + step.dy) % h
+        if self._is_locked_door(gmap, nx, ny):
+            key_idx = next(
+                (i + 1 for i, m in enumerate(party.members) if not m.is_dead() and m.keys > 0),
+                None,
+            )
+            if key_idx is None:
+                self._dash = None
+                return None
+            self._queue_text(f"{key_idx}{step.name[0].lower()}", enter=False)
+            return self._emit_key(state_machine, pygame.K_u, guarded=False)
         return self._emit_key(state_machine, _DIR_TO_KEY[step], guarded=False)
 
     _capture_goal: tuple[int, int] | None = None

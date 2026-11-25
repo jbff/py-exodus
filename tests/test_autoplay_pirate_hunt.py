@@ -269,3 +269,35 @@ def test_stalled_capture_too_weak_for_the_lane_goes_elsewhere():
     trail, attacked = _shadow_run(cleric_hp=200, steps=30)
     assert not attacked, trail
     assert any(abs(x - 45) + abs(y - 35) > 3 for x, y in trail), trail
+
+
+def test_capture_dash_unlocks_a_locked_door_on_its_route():
+    """Batch seed 1 (round 1 report, steps 97,134-104,400): on Ambrosia the
+    shrine trip's capture stalled, the dash's foot route to a pirate at
+    (35, 10) went west through the locked door (50, 6), and the dash pressed
+    West into the door from (51, 6) ~7,300 steps, 7 keys in hand, until the
+    food ran low. The dash unlocks it (U, member, direction) instead."""
+    from py_exodus.autoplay.planner import evaluate_goal
+    from py_exodus.autoplay.threats import compute_threats
+    from py_exodus.autoplay.trip import Destination, Leg, TripPlan, terrain_for
+
+    pygame.init()
+    am = batch._assets()
+    p = batch.build_party()
+    p.map_id = 13
+    for m in p.members:
+        m.keys = 2
+        m.max_hp = m.hp = 2550
+    ow = OverworldScreen(party=p, asset_mgr=am, random_encounters=False, map_id=13)
+    sm = StateMachine(asset_mgr=am, audio=None)
+    sm.set_screen(ow)
+    gm = ow.game_map
+    p.x, p.y, p.transport = 51, 6, Transport.FOOT
+    ctrl = AutoPlayController(enabled=True)
+    th = compute_threats(gm, p, [{"tile_name": "pirate", "tile": "pirate", "x": 35, "y": 10}])
+    comp = terrain_for(gm, p, 13).sea_comp[(35, 10)]
+    leg = Leg(Transport.FOOT, (34, 55), "CAPTURE")
+    ctrl._trip = TripPlan(Destination(frozenset({(45, 52)}), Transport.FOOT, "shrine"), [leg], 0.0, 0)
+    ctrl._dash = (frozenset({comp}), 13, "shrine", evaluate_goal(p, 13))
+    assert ctrl._capture_dash(sm, ow, gm, p, (51, 6), th) == pygame.K_u
+    assert list(ctrl._key_queue) == [pygame.K_1, pygame.K_w]
