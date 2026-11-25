@@ -1067,3 +1067,95 @@ def test_dowind_counter_is_not_saved_and_old_saves_load():
     loaded = Party.from_dict(d)
     assert loaded.wind_direction == Direction.WEST
     assert loaded.wind_ctr == 0
+
+
+# --- T-29 (user ruling 2026-11-25): the mounted flip in towns and castles -------
+
+
+def _town_with_follower(asset_mgr, party: Party):
+    from py_exodus.screens.town import TownScreen
+    from py_exodus.world.map import MapNpc
+
+    tw = TownScreen(party=party, map_id=3, asset_mgr=asset_mgr, start_x=32, start_y=32)
+    gm = tw.game_map
+    x, y = next(
+        (x, y) for y in range(2, 60) for x in range(2, 50)
+        if all(gm.get_tile(x + i, y).name == "floor" for i in range(10))
+    )
+    tw.avatar_x, tw.avatar_y = x, y
+    follower = MapNpc(tile_index=0, tile_name="cleric", x=x + 9, y=y, start_x=x + 9,
+                      start_y=y, movement="FOLLOW_AVATAR")
+    gm.npcs = [follower]
+    return tw, follower, x + 9
+
+
+def test_finishall_town_people_move_every_other_turn_on_horseback(pygame_setup, asset_mgr):
+    """UltimaMisc.c:1112-1119 (FinishAll), run by Routine6E35 in towns too:
+
+        if (Party[1] == 0x14 || Party[1] == 0x16) {
+            zp[0xCD] = 255 - zp[0xCD];
+            if (zp[0xCD] < 128)
+                return;
+        }
+        ...
+        MoveMonsters();
+
+    Enter (UltimaMain.c:1398-1503) leaves Party[1] alone, so a party that
+    rides in stays mounted, and town people move only every other turn. On
+    foot they move every turn."""
+    party = _party()
+    party.transport = Transport.HORSE
+    tw, follower, x0 = _town_with_follower(asset_mgr, party)
+    assert tw.party.transport == Transport.HORSE  # the town keeps the horse
+    for _ in range(4):
+        tw._finish_turn(None)
+    assert follower.x == x0 - 2
+
+    party = _party()
+    tw, follower, x0 = _town_with_follower(asset_mgr, party)
+    for _ in range(4):
+        tw._finish_turn(None)
+    assert follower.x == x0 - 4
+
+
+def test_finishall_town_negate_time_counts_only_on_mounted_moving_turns(pygame_setup, asset_mgr):
+    """UltimaMisc.c:1115-1123: the mounted flip returns before
+    ``if (gTimeNegate != 0) { gTimeNegate--; return; }``, so on horseback in
+    a town stopped time counts down only every other turn (T-13 on
+    Sosaria): its 10 counts fall on turns 1, 3, ..., 19 from a fresh flip,
+    where on foot they would take 10 turns."""
+    party = _party()
+    party.transport = Transport.HORSE
+    tw, follower, x0 = _town_with_follower(asset_mgr, party)
+    party.aura.set(AuraType.QUICKNESS, 10)
+    for _ in range(18):
+        tw._finish_turn(None)
+    assert party.aura.get_type() == AuraType.QUICKNESS
+    tw._finish_turn(None)  # turn 19: the 10th count
+    assert party.aura.get_type() != AuraType.QUICKNESS
+    assert follower.x == x0
+    tw._finish_turn(None)  # turn 20: skipped by the flip
+    tw._finish_turn(None)  # turn 21: people move again
+    assert follower.x == x0 - 1
+
+
+def test_finishall_flip_is_one_counter_for_surface_and_town(pygame_setup, asset_mgr):
+    """zp[0xCD] is one zero-page byte (UltimaMisc.c:1115-1117), not a
+    per-map counter: the flip runs on from the surface into a town. It is
+    not saved (no PutParty/PutMiscStuff field), so it starts at 0."""
+    from py_exodus.screens.overworld import OverworldScreen
+
+    party = _party()
+    party.transport = Transport.HORSE
+    ow = OverworldScreen(party=party, map_id=0, asset_mgr=asset_mgr, start_x=40, start_y=40,
+                         random_encounters=False)
+    ow.creatures = []
+    ow._update_creatures()  # 0 -> 255: monsters act
+    assert party.finish_all_flip == 255
+    tw, follower, x0 = _town_with_follower(asset_mgr, party)
+    tw._finish_turn(None)  # 255 -> 0: skipped
+    assert follower.x == x0
+    tw._finish_turn(None)
+    assert follower.x == x0 - 1
+    assert "finish_all_flip" not in party.to_dict()
+    assert Party.from_dict(party.to_dict()).finish_all_flip == 0

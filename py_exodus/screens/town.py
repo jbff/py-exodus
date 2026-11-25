@@ -656,8 +656,13 @@ class TownScreen(BaseScreen):
         (any of the 8 neighbours), starts the battle (AttackCode removes it
         from the map). A blocked diagonal tries the vertical step, then the
         horizontal one (move7AAA); nobody steps onto the party."""
-        # FinishAll (UltimaMisc.c:1120-1125), from Routine6E35 in towns too:
-        # while time is stopped (gTimeNegate) nobody moves, and the count
+        # FinishAll (UltimaMisc.c:1112-1125), from Routine6E35 in towns too.
+        # Enter (UltimaMain.c:1398-1503) keeps Party[1], so a mounted party
+        # is mounted here as well: people move, and stopped time counts
+        # down, only every other turn (the mounted flip, T-29).
+        if self.party.finish_all_skips():
+            return
+        # While time is stopped (gTimeNegate) nobody moves, and the count
         # drops a turn.
         if self.party.aura.get_type() == AuraType.QUICKNESS:
             self.party.aura.pass_turn()

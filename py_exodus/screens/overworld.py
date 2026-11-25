@@ -334,9 +334,6 @@ class OverworldScreen(BaseScreen):
         # Wandering overland creatures visible on Sosaria (declared before the
         # first map load so _load_world_map can purge stale fixtures)
         self.creatures: list[dict[str, Any]] = []
-        # LairWare zp[0xCD] (FinishAll, UltimaMisc.c:1115-1118): flips each
-        # mounted turn; monsters act on the turns it reads 255.
-        self._finish_all_flip = 0
         # PushSosaria's copy of Sosaria's monsters and whirlpool while the
         # party is on Ambrosia (UltimaMisc.c:923-968); None otherwise.
         self._sosaria_creatures: list[dict[str, Any]] | None = None
@@ -1940,10 +1937,9 @@ class OverworldScreen(BaseScreen):
         # LairWare FinishAll (UltimaMisc.c:1112-1126): on horseback or aboard
         # ship the monsters act only every other turn (zp[0xCD] flips
         # 255/0 each mounted turn and runs on 255); on foot, every turn.
-        if self.party.transport in (Transport.HORSE, Transport.SHIP):
-            self._finish_all_flip = 255 - self._finish_all_flip
-            if self._finish_all_flip < 128:
-                return
+        # The flip byte is the party's, shared with towns (T-29).
+        if self.party.finish_all_skips():
+            return
 
         # FinishAll: while time is stopped (gTimeNegate) neither SpawnMonster
         # nor MoveMonsters runs, and only here does the count drop

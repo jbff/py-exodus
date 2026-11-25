@@ -310,6 +310,10 @@ class Party:
 
         self.wind_ctr = 0
         self.wind_clock = PollClock()
+        # LairWare zp[0xCD] (FinishAll, UltimaMisc.c:1115-1118): one byte
+        # for the surface and towns alike, flipped each mounted turn; not
+        # saved, so it starts at 0.
+        self.finish_all_flip = 0
 
         # Gold and food live on each member (Java CharacterRecord); these
         # optional constructor arguments RE-SEED the party's total via the
@@ -671,6 +675,22 @@ class Party:
                 m.gold -= transfer
         target.gold = total
         return target.gold
+
+    def finish_all_skips(self) -> bool:
+        """LairWare FinishAll's mounted flip (UltimaMisc.c:1115-1119)::
+
+            if (Party[1] == 0x14 || Party[1] == 0x16) {
+                zp[0xCD] = 255 - zp[0xCD];
+                if (zp[0xCD] < 128) return;
+            }
+
+        True when this FinishAll returns before stopped time and the
+        monsters: every other turn on horseback or aboard ship, on the
+        surface and in towns and castles alike."""
+        if self.transport in (Transport.HORSE, Transport.SHIP):
+            self.finish_all_flip = 255 - self.finish_all_flip
+            return self.finish_all_flip < 128
+        return False
 
     def end_turn(self, sosaria: bool = True) -> None:
         """One consumed turn: LairWare Routine6E35 (UltimaMisc.c:1357-1374)
