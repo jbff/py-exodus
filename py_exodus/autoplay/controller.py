@@ -123,6 +123,19 @@ _DRAGON_CHASE_LEVEL = 8  # the grind leaves dragons alone below this
 # A party this strong walks up to pirates and fights them from land.
 _PIRATE_HUNT_MIN_LEVEL = 8
 _PIRATE_HUNT_RANGE = 10
+# A capture hunt whose nearest pirate has not come closer for this many
+# capture turns in a row is stalled (live trace 2026-11-25: a shadowing
+# pirate kept the hunt pacing two tiles for ~9,000 steps). A normal approach
+# closes in almost every turn; a lane-free detour around one pirate column
+# costs a sidestep or two, and a pirate may drift back a turn, so 5 lets
+# those through while a pace is caught within a few steps.
+_CAPTURE_STALL_TURNS = 5
+# One LairWare moveshoot hit costs each living member (rand & 0x77) + 8 HP
+# at most (threats.py). The dash walks a lane only if all can take two.
+_BROADSIDE_MAX = 0x77 + 8
+# A stalled capture the party is too weak to dash leaves the pirate alone
+# this many capture turns (patrols the coast instead of pacing).
+_CAPTURE_SHUN_TURNS = 30
 _MAP_CASTLE_LB = 1
 _MAP_EXODUS = 2
 _MAP_DEATH_GULCH = 10
@@ -1447,6 +1460,11 @@ class AutoPlayController:
         ):
             return None
 
+        # A stalled capture's dash through the lanes: nothing else undoes it.
+        dash_key = self._capture_dash(state_machine, screen, gmap, party, pos, th)
+        if dash_key is not None:
+            return dash_key
+
         # A pirate orthogonally adjacent: attack it (battle, then its frigate).
         if th.pirates and not party_has_low_hp(party):
             for d in (Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST):
@@ -1540,21 +1558,26 @@ class AutoPlayController:
             and all(m.status != Status.POISONED and m.level >= _PIRATE_HUNT_MIN_LEVEL for m in living)
         )
 
-    def _pirate_hunt_step(self, gmap, party, pos, th) -> Direction | None:
+    def _pirate_hunt_step(
+        self, gmap, party, pos, th, pirates=None, limit: int = _PIRATE_HUNT_RANGE
+    ) -> Direction | None:
         """First step of the shortest land path (lanes allowed) to a tile
-        orthogonally next to a pirate, within _PIRATE_HUNT_RANGE steps."""
+        orthogonally next to a pirate (of ``pirates``, default all), within
+        ``limit`` steps."""
         w, h = gmap.width, gmap.height
         reach = self._foot_reachable(gmap, party, pos)
         engage = {
             ((p[0] + dx) % w, (p[1] + dy) % h)
-            for p in th.pirates
+            for p in (th.pirates if pirates is None else pirates)
             for dx, dy in _NEIGHBOURS4
         } & reach
         if not engage:
             return None
         seen = {pos}
         frontier: list[tuple[tuple[int, int], Direction | None]] = [(pos, None)]
-        for _ in range(_PIRATE_HUNT_RANGE):
+        for _ in range(limit):
+            if not frontier:
+                break
             nxt = []
             for cur, first in frontier:
                 for d in (Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST):
@@ -2642,10 +2665,29 @@ class AutoPlayController:
         }
         th = self._threats
         pirates = [p for p in (th.pirates if th is not None else []) if terr.sea_comp.get(p) in comps]
+        if self._ow_turn < self._capture_shun_until:
+            pirates = []  # too weak to dash a stalled hunt: patrol for a while
         for d in (Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST):
             if ((pos[0] + d.dx) % w, (pos[1] + d.dy) % h) in pirates:
+                self._dash = None
                 return self._attack(state_machine, d)
         reach = self._foot_reachable(gmap, party, pos)
+        if pirates and self._capture_stalled(w, h, pos, pirates):
+            if self._can_take_broadsides(party):
+                self._dash = (
+                    frozenset(comps),
+                    map_id,
+                    self._trip.dest.label if self._trip is not None else None,
+                    evaluate_goal(party, map_id),
+                )
+                key = self._capture_dash(state_machine, state_machine.current_screen, gmap, party, pos, th)
+                if key is not None:
+                    return key
+            else:
+                self._capture_shun_until = self._ow_turn + _CAPTURE_SHUN_TURNS
+                self._cap_best = None
+                self._patrol_target = None
+                pirates = []
         if pirates:
             engage = {
                 ((p[0] + dx) % w, (p[1] + dy) % h)
@@ -2999,6 +3041,77 @@ class AutoPlayController:
         return lanes
 
     _chest_target: tuple[int, int] | None = None
+    # Stalled-capture tracking (_capture_stalled / _capture_dash).
+    _cap_best: int | None = None
+    _cap_stall = 0
+    _cap_seen_turn = -10
+    _capture_shun_until = -1
+    # (sea components, map id, trip label, goal) of a dash under way, or None.
+    _dash: tuple | None = None
+
+    def _capture_stalled(self, w, h, pos, pirates) -> bool:
+        """Count capture turns in a row in which the nearest pirate came no
+        closer than the closest it has been; stalled at _CAPTURE_STALL_TURNS."""
+        d = min(manhattan(w, h, pos, p) for p in pirates)
+        if self._cap_best is None or self._ow_turn - self._cap_seen_turn > 3 or d < self._cap_best:
+            self._cap_best = d
+            self._cap_stall = 0
+        else:
+            self._cap_stall += 1
+        self._cap_seen_turn = self._ow_turn
+        if self._cap_stall >= _CAPTURE_STALL_TURNS:
+            self._cap_best = None
+            self._cap_stall = 0
+            return True
+        return False
+
+    @staticmethod
+    def _can_take_broadsides(party) -> bool:
+        """Every living member survives two worst-case LairWare broadsides."""
+        living = [m for m in party.members if not m.is_dead()]
+        return bool(living) and all(m.hp > 2 * _BROADSIDE_MAX for m in living)
+
+    def _capture_dash(self, state_machine, screen, gmap, party, pos, th) -> int | None:
+        """Walk a stalled capture through the firing lanes: the shortest foot
+        route to a tile next to the pirate, attacking once orthogonally
+        adjacent. Live trace 2026-11-25 (trace_20261125-163401): a pirate
+        shadowing the party along Sosaria's coast turned every off-lane
+        sidestep into its new lane, so the hunt paced (45,35)-(46,35) for
+        ~9,000 steps. Emitted unguarded: the lane guard, the lane escape and
+        the no-ending-in-a-lane rule don't undo it. Ends on the attack, when
+        the pirate is gone, the goal or capture leg changes, or a member can
+        no longer take two broadsides."""
+        dash = self._dash
+        if dash is None:
+            return None
+        comps, map_id, label, goal = dash
+        plan = self._trip
+        terr = terrain_for(gmap, party, map_id)
+        pirates = [p for p in th.pirates if terr.sea_comp.get(p) in comps]
+        if (
+            party.transport != Transport.FOOT
+            or self._screen_map_id(screen, party) != map_id
+            or plan is None
+            or not plan.legs
+            or plan.legs[0].action != "CAPTURE"
+            or plan.dest.label != label
+            or not pirates
+            or not self._can_take_broadsides(party)
+            or evaluate_goal(party, map_id) != goal
+        ):
+            self._dash = None
+            return None
+        w, h = gmap.width, gmap.height
+        for d in (Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST):
+            if ((pos[0] + d.dx) % w, (pos[1] + d.dy) % h) in pirates:
+                self._dash = None
+                return self._attack(state_machine, d)
+        step = self._pirate_hunt_step(gmap, party, pos, th, pirates=pirates, limit=w * h)
+        if step is None:
+            self._dash = None
+            return None
+        return self._emit_key(state_machine, _DIR_TO_KEY[step], guarded=False)
+
     _capture_goal: tuple[int, int] | None = None
     _capture_turn = -10
 

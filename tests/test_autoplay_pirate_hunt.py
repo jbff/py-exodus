@@ -194,3 +194,78 @@ def test_capture_crosses_lanes_to_a_pinned_pirate_instead_of_pacing():
     finally:
         random.setstate(rng)
         tile_effects._rng.setstate(trng)
+
+
+def _shadow_run(cleric_hp: int, steps: int = 40):
+    """Live trace 2026-11-25 (trace_20261125-163401, steps 16258-25469): on
+    Sosaria, on foot, capturing a ship for DIG_EXOTICS, the party paced
+    (45,35)-(46,35) for ~9,000 steps. A pirate on the bay at row 39 shadows
+    the party's column; the straight walk south to the engage tiles (45/46,38)
+    is its firing lane, the off-lane route sidesteps one column, the pirate
+    follows, and the party sidesteps back, forever. Runs the overworld tick
+    order (threat escape, then the capture driver) with the pirate mirroring
+    the party's x along row 39. Returns (trail, attacked)."""
+    from py_exodus.autoplay.trip import Destination, Leg, TripPlan
+
+    pygame.init()
+    pygame.font.init()
+    rng = random.getstate()
+    try:
+        random.seed(1)
+        am = batch._assets()
+        p = batch.build_party()
+        for m, lv, hp, mx in zip(
+            p.members, (12, 12, 3, 9), (1145, 1149, 344, 893), (1250, 1250, 350, 950)
+        ):
+            m.level, m.hp, m.max_hp = lv, hp, mx
+        p.members[2].hp = cleric_hp
+        sm = StateMachine(asset_mgr=am, audio=None)
+        ow = OverworldScreen(party=p, asset_mgr=am, random_encounters=False)
+        sm.set_screen(ow)
+        gm = ow.game_map
+        sent: list[int] = []
+        sm.handle_event = lambda e: sent.append(e.key)
+        ctrl = AutoPlayController(enabled=True)
+        leg = Leg(Transport.FOOT, (45, 38), "CAPTURE")
+        ctrl._trip = TripPlan(Destination(frozenset({(45, 38)}), Transport.SHIP, "capture"), [leg], 0.0, 0)
+        p.x, p.y = 45, 35
+        p.transport = Transport.FOOT
+        trail = []
+        moves = {pygame.K_UP: (0, -1), pygame.K_DOWN: (0, 1), pygame.K_LEFT: (-1, 0), pygame.K_RIGHT: (1, 0)}
+        for _ in range(steps):
+            px = p.x if gm.get_tile(p.x, 39).name == "water" else 45
+            ow.creatures = [{"tile_name": "pirate", "tile": "pirate", "x": px, "y": 39}]
+            sent.clear()
+            ctrl._key_queue.clear()
+            if ctrl._threat_escape(sm, ow, p, p.x, p.y) is None:
+                ctrl._ow_turn += 1
+                # As _monster_avoid sets it for the trip: lanes and barred tiles.
+                ctrl._overworld_avoid = ctrl._threats.hard_avoid() | ctrl._active_blocks()
+                ctrl._drive_capture(sm, ow, gm, p, (p.x, p.y), leg, 0)
+            if pygame.K_a in sent:
+                return trail, True
+            for k in sent:
+                if k in moves:
+                    p.x += moves[k][0]
+                    p.y += moves[k][1]
+            trail.append((p.x, p.y))
+        return trail, False
+    finally:
+        random.setstate(rng)
+
+
+def test_stalled_capture_dashes_through_a_shadowing_pirates_lane():
+    """Every living member can take two broadsides (hp > 2 x (0x77 + 8);
+    LairWare moveshoot hits each member for (rand & 0x77) + 8): once the
+    hunt stops closing in, the party walks the lane and attacks."""
+    trail, attacked = _shadow_run(cleric_hp=344)
+    assert attacked, trail
+
+
+def test_stalled_capture_too_weak_for_the_lane_goes_elsewhere():
+    """The level-3 Cleric at 200 HP can't take two broadsides: no dash, but
+    no pacing either; the capture drops the pirate for a while and walks
+    on along the coast."""
+    trail, attacked = _shadow_run(cleric_hp=200, steps=30)
+    assert not attacked, trail
+    assert any(abs(x - 45) + abs(y - 35) > 3 for x, y in trail), trail
