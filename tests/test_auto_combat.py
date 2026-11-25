@@ -96,7 +96,8 @@ def test_ranged_attack_clear_los_without_asset_mgr_fallback():
     assert action.direction == Direction.NORTH
 
 
-def test_ranged_attack_blocked_by_wall_does_not_fire(asset_mgr):
+def test_ranged_attack_fires_over_a_wall(asset_mgr):
+    """Missiles fly over walls (B-06), so auto-combat shoots (A-09)."""
     arena = _open_arena(weapon=WeaponType.BOW, asset_mgr=asset_mgr, monster_count=1)
     arena.monsters[0].x = 5
     arena.monsters[0].y = 2
@@ -104,7 +105,7 @@ def test_ranged_attack_blocked_by_wall_does_not_fire(asset_mgr):
     arena.combat_map.set_tile(5, 4, wall)
 
     action = choose_auto_combat_action(arena, 0, asset_mgr=asset_mgr)
-    assert not (action.type == ActionType.ATTACK and action.direction == Direction.NORTH)
+    assert action.type == ActionType.ATTACK and action.direction == Direction.NORTH
 
 
 def test_advance_toward_nearest_enemy(asset_mgr):
@@ -298,7 +299,7 @@ def test_cleric_casts_pontori_against_skeletons():
     assert action.spell != Spell.PONTORI
 
 
-def test_cleric_heals_lowest_hp_living_ally_with_sanctu_and_sanctu_mani():
+def test_cleric_heals_lowest_hp_living_ally_with_sanctu():
     arena = _caster_arena(Profession.CLERIC, mp=20, creature_tile="orc", monster_count=1)
     arena.monsters[0].x = 9
     arena.monsters[0].y = 9
@@ -326,11 +327,11 @@ def test_cleric_heals_lowest_hp_living_ally_with_sanctu_and_sanctu_mani():
     assert action.spell == Spell.SANCTU
     assert action.target_member is arena.party.members[3]
 
-    # With >= 50 MP, Cleric upgrades to SANCTU_MANI
+    # Never SANCTU_MANI in combat (A-06, user ruling 2026-11-25)
     arena.party.members[0].mp = 50
     action = choose_auto_combat_action(arena, 0)
     assert action.type == ActionType.CAST
-    assert action.spell == Spell.SANCTU_MANI
+    assert action.spell == Spell.SANCTU
     assert action.target_member is arena.party.members[3]
 
 
@@ -417,7 +418,7 @@ def test_high_threat_masskill_unspeakable_and_zxkuqyb():
     assert action.spell != Spell.ZXKUQYB
 
 
-def test_auto_combat_never_throws_last_dagger():
+def test_auto_combat_never_throws_a_dagger():
     from py_exodus.assets import AssetManager
 
     am = AssetManager("data")
@@ -437,10 +438,11 @@ def test_auto_combat_never_throws_last_dagger():
     assert action_single.type == ActionType.MOVE
     assert action_single.direction == Direction.NORTH
 
-    # With a spare Dagger (> 1 total), throwing at range is allowed
+    # A spare changes nothing: a dagger is a hand weapon (A-09, user
+    # ruling 2026-11-25).
     wiz.weapons = {WeaponType.DAGGER: 1}
     action_spare = choose_auto_combat_action(arena, 0, asset_mgr=am)
-    assert action_spare.type == ActionType.ATTACK
+    assert action_spare.type == ActionType.MOVE
     assert action_spare.direction == Direction.NORTH
 
 
@@ -599,8 +601,10 @@ def _cleric_arena(asset_mgr, level: int, hp: int = 150):
     return arena, cleric
 
 
-def test_a_low_level_cleric_steps_away_at_half_hp(asset_mgr):
+def test_a_low_level_cleric_fights_at_half_hp_above_50(asset_mgr):
+    """The level-5 Cleric half-HP retreat (243d2e9) is gone: flee is LW's
+    absolute 50 HP (A-01, user ruling 2026-11-25)."""
     arena, _ = _cleric_arena(asset_mgr, level=2, hp=120)  # of 250
     arena.monsters[0].x, arena.monsters[0].y = 6, 8
     action = choose_auto_combat_action(arena, 1, asset_mgr=asset_mgr)
-    assert action.type == ActionType.MOVE and action.direction != Direction.EAST
+    assert action.type == ActionType.ATTACK and action.direction == Direction.EAST

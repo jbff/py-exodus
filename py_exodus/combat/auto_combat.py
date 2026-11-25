@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 from py_exodus.aura import AuraType
 from py_exodus.combat.arena import Action
 from py_exodus.combat.resolver import trace_projectile_path
-from py_exodus.constants import Direction, Profession, Spell, TileAttrib, WeaponType
+from py_exodus.constants import Direction, Spell, TileAttrib, WeaponType
 
 if TYPE_CHECKING:
     from py_exodus.combat.arena import CombatArena, CombatMonster
@@ -51,13 +51,11 @@ def _get_weapon_info(member: Any, asset_mgr: Any) -> tuple[int, bool]:
         except ValueError:
             wt = WeaponType.NONE
 
-    # Never throw the last Dagger (no spare in member.weapons) in auto-combat;
-    # throwing it disarms the character for a single low-damage ranged shot.
+    # LairWare UltimaAutocombat.c:155 (A-09, user ruling 2026-11-25): only
+    # weapons 3, 5, 9, 13 (sling, bow, Bow +2, Bow +4) are projectile
+    # weapons; a dagger is a hand weapon, never thrown, spares or not.
     if wt == WeaponType.DAGGER:
-        weapons = getattr(member, "weapons", None)
-        spare_daggers = weapons.get(WeaponType.DAGGER, 0) if isinstance(weapons, dict) else 0
-        if spare_daggers <= 0:
-            return (1, False)
+        return (1, False)
 
     if asset_mgr is not None:
         w_name = weapon.value if isinstance(weapon, WeaponType) else str(weapon)
@@ -97,24 +95,23 @@ def _is_walkable_unoccupied(
     return True
 
 
-# A Cleric below this level is the party's healer and its weakest body:
-# batch 775884a's early wipes lost the Cleric first in 26 of 34, often a
-# level behind with 200 fewer max HP. It steps away at half HP. (Holding it
-# out of melee entirely, 243d2e9, starved it of kills: batch 3bb71ce b1 sat
-# at levels 5/5/2/5 until it starved.)
-HEALER_BACK_LEVEL = 5
+# LairWare NearlyDead (UltimaAutocombat.c:268-291): under 50 HP, absolute.
+NEARLY_DEAD_HP = 50
+
+# LairWare AutoCombat (UltimaAutocombat.c:57-91), classic mode (no
+# diagonals, A-13): the flee squares are tried S, W, E, N.
+_FLEE_ORDER: tuple[Direction, ...] = (
+    Direction.SOUTH,
+    Direction.WEST,
+    Direction.EAST,
+    Direction.NORTH,
+)
 
 
-def _held_back_healer(arena: CombatArena, member: Any) -> bool:
-    """A low-level Cleric with another living, non-Cleric member to fight."""
-    if getattr(member, "profession", None) != Profession.CLERIC:
-        return False
-    if getattr(member, "level", 25) >= HEALER_BACK_LEVEL:
-        return False
-    return any(
-        m is not member and not _is_member_dead(m) and getattr(m, "profession", None) != Profession.CLERIC
-        for m in getattr(arena.party, "members", ())
-    )
+def _monster_can_attack(monsters: list[CombatMonster], x: int, y: int) -> bool:
+    """LairWare MonsterCanAttack (UltimaAutocombat.c:237-266): a living
+    monster on one of the 8 squares round ``(x, y)``."""
+    return any(max(abs(m.x - x), abs(m.y - y)) == 1 for m in monsters)
 
 
 def _try_low_hp_retreat(
@@ -124,42 +121,31 @@ def _try_low_hp_retreat(
     pos: tuple[int, int],
     visible_monsters: list[CombatMonster],
 ) -> Action | None:
-    """Retreat one cardinal step if HP is critical (half, for a held-back
-    healer) and an enemy is adjacent."""
-    # The last one standing gains nothing by stepping back: nobody comes to
-    # heal, and the step back and in again can go on forever (batch 1c7525f
-    # seed 17: a lone Fighter and one Goblin from step 45,791 to the cap).
+    """LairWare flee (UltimaAutocombat.c:56-91, A-01, user ruling
+    2026-11-25): a member under 50 HP with a monster next to it steps S, W,
+    E or N (first that works) onto a free square no monster neighbours. No
+    such square: ``None``, and it fights on."""
+    # User ruling 2026-11-25: the last living member never flees (batch
+    # 1c7525f seed 17: a lone Fighter stepped back and in from step 45,791
+    # to the cap).
     if not any(
         i != member_idx and not _is_member_dead(m) for i, m in enumerate(arena.party.members)
     ):
         return None
-    max_hp = getattr(member, "max_hp", 0)
-    floor = max_hp // 2 if _held_back_healer(arena, member) else max(15, max_hp // 5)
-    if getattr(member, "hp", 0) > floor:
+    if getattr(member, "hp", 0) >= NEARLY_DEAD_HP:
         return None
-
+    living = [m for m in arena.monsters if not m.is_dead]
     px, py = pos
-    if not any(max(abs(m.x - px), abs(m.y - py)) <= 1 for m in visible_monsters):
+    if not _monster_can_attack(living, px, py):
         return None
-
-    cur_min_manh = min(abs(m.x - px) + abs(m.y - py) for m in visible_monsters)
-    best_dir: Direction | None = None
-    best_score: tuple[int, int] | None = None
-
-    for d in _CARDINAL_DIRS:
+    for d in _FLEE_ORDER:
         nx, ny = px + d.dx, py + d.dy
         if not _is_walkable_unoccupied(arena, member_idx, nx, ny):
             continue
-        min_cheb = min(max(abs(m.x - nx), abs(m.y - ny)) for m in visible_monsters)
-        min_manh = min(abs(m.x - nx) + abs(m.y - ny) for m in visible_monsters)
-        if min_manh <= cur_min_manh:
+        if _monster_can_attack(living, nx, ny):
             continue
-        score = (min_cheb, min_manh)
-        if best_score is None or score > best_score:
-            best_score = score
-            best_dir = d
-
-    return Action.move(best_dir) if best_dir is not None else None
+        return Action.move(d)
+    return None
 
 
 def _is_member_dead(member: Any) -> bool:
@@ -202,18 +188,19 @@ def _is_poisonous(monster: CombatMonster) -> bool:
     return bool(getattr(definition, "poisons", False) or getattr(definition, "poison", False))
 
 
+# LairWare AutoCombat Sanctu (UltimaAutocombat.c:130-149): heal only a
+# member under 75 HP, absolute.
+SANCTU_BELOW_HP = 75
+
+
 def _find_lowest_hp_heal_target(party: Any) -> Any | None:
-    """Return the lowest-HP living party member needing urgent healing, or None."""
-    candidates = [
-        m
-        for m in getattr(party, "members", ())
-        if not _is_member_dead(m)
-        and m.hp * 4 < m.max_hp * 3
-        and m.hp < m.max_hp
-    ]
-    if not candidates:
+    """LairWare (UltimaAutocombat.c:132-141, A-06/A-12): the living member
+    with the lowest HP, first slot on a tie, if that HP is under 75."""
+    living = [m for m in getattr(party, "members", ()) if not _is_member_dead(m)]
+    if not living:
         return None
-    return min(candidates, key=lambda m: m.hp)
+    lowest = min(living, key=lambda m: m.hp)
+    return lowest if lowest.hp < SANCTU_BELOW_HP else None
 
 
 _TRAINING_SPELLS = (Spell.UNSPEAKABLE, Spell.ZXKUQYB, Spell.NECORP, Spell.DAG_MENTAR, Spell.NOXUM)
@@ -276,11 +263,11 @@ def _try_pre_attack_spell(
             if _can_cast_spell(member, Spell.NECORP):
                 return Action.cast(Spell.NECORP)
 
-    lowest_member = _find_lowest_hp_heal_target(arena.party)
-    if lowest_member is not None:
-        if _can_cast_spell(member, Spell.SANCTU_MANI):
-            return Action.cast(Spell.SANCTU_MANI, target_member=lowest_member)
-        if _can_cast_spell(member, Spell.SANCTU):
+    # LairWare UltimaAutocombat.c:130-149 (A-06, user ruling 2026-11-25):
+    # Sanctu only, never Sanctu Mani, in combat.
+    if _can_cast_spell(member, Spell.SANCTU):
+        lowest_member = _find_lowest_hp_heal_target(arena.party)
+        if lowest_member is not None:
             return Action.cast(Spell.SANCTU, target_member=lowest_member)
 
     return None
@@ -380,6 +367,15 @@ def choose_auto_combat_action(
             if getattr(arena, "ship_battle", False) and _can_cast_spell(member, Spell.FULGAR):
                 return Action.cast(Spell.FULGAR, direction=spell_dir)
             return Action.cast(Spell.MITTAR, direction=spell_dir)
+    elif getattr(member, "weapon", WeaponType.NONE) in _RANGED_WEAPON_TYPES:
+        # LairWare UltimaAutocombat.c:155-169 (A-09, user ruling
+        # 2026-11-25): a sling or bow shoots the nearest monster lined up on
+        # its row or column, any range, adjacent included; missiles fly over
+        # walls (B-06), so no wall test.
+        living_monsters = [m for m in arena.monsters if not m.is_dead]
+        shot_dir = _monster_lined_up_dir(px, py, living_monsters)
+        if shot_dir is not None:
+            return Action.attack(shot_dir)
     else:
         # Adjacent cardinal melee attack
         for d in _CARDINAL_DIRS:
