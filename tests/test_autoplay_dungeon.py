@@ -576,3 +576,32 @@ def test_poison_cured_by_alcort_when_the_cleric_has_35_mp(am):
         if party.members[0].status == Status.GOOD:
             break
     assert party.members[0].status == Status.GOOD
+
+
+# --- Review fixes (2026-11-25) ---------------------------------------------------
+
+
+def test_food_bought_at_the_ambrosia_gate_keeps_the_trip_on(am):
+    """Review #1: at exactly ambrosia_trip_gold, the grocer fills to the
+    entry food only (the gate budgets that much), so the party is still at
+    or over the gate afterwards and the trip goes ahead."""
+    from py_exodus.autoplay.planner import Goal, ambrosia_trip_gold, evaluate_goal
+    from py_exodus.screens.town import TownScreen
+
+    party = _trip_party()
+    party.map_id = 4
+    for m in party.members:
+        m.food = 120
+    party.gold = ambrosia_trip_gold(party)
+    assert evaluate_goal(party, 4) == Goal.BUY_FOOD
+    sm = StateMachine(asset_mgr=am, audio=None)
+    ts = TownScreen(party=party, asset_mgr=am, map_id=4, start_x=31, start_y=17)
+    sm.set_screen(ts)
+    ctrl = AutoPlayController(enabled=True)
+    for _ in range(80):
+        ctrl.step(sm)
+        if all(m.food >= 200 for m in party.members):
+            break
+    assert all(m.food >= 200 for m in party.members)
+    assert party.gold >= ambrosia_trip_gold(party)
+    assert evaluate_goal(party, 4) == Goal.SAIL_WHIRLPOOL

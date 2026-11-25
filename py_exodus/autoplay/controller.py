@@ -28,6 +28,7 @@ from py_exodus.autoplay.nav import (
 )
 from py_exodus.autoplay.planner import (
     AMBROSIA_ENTRY_FOOD,
+    ambrosia_trip_due,
     DEATH_GULCH_BRIBE_GOLD,
     DEATH_GULCH_KEYS,
     Goal,
@@ -1164,7 +1165,11 @@ class AutoPlayController:
                 food_price = 1  # a ration, LairWare Shop case 1
                 if goal == Goal.BUY_FOOD and getattr(self, "_food_shop_target", None) is None:
                     trip_gold = return_trip_gold(party)
-                    if trip_gold and total_gold >= trip_gold:
+                    # Item 7's trip too: its gold gate (ambrosia_trip_gold)
+                    # budgets food up to the entry food only, so filling to
+                    # 400 dropped the party ~760 under it, back to grinding,
+                    # and the next food run did it again (review 2026-11-25).
+                    if (trip_gold and total_gold >= trip_gold) or ambrosia_trip_due(party):
                         # Stocking for a return trip: only the entry food
                         # the trip's gold target counts. Filling to 400
                         # dropped a party under the target and back to

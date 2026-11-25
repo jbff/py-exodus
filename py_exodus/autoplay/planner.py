@@ -110,6 +110,16 @@ def alcort_wisdom_gap(party: Party) -> int | None:
     return min(gaps) if gaps else None
 
 
+def entry_food_gold(living) -> int:
+    """Gold to top every living member up to AMBROSIA_ENTRY_FOOD. The grocer
+    sells in 25s (controller food packs), so each shortfall rounds up to a
+    pack, plus a fifth for meals eaten on the way: buying the food never
+    drops the party under a gate that counts it (review 2026-11-25)."""
+    return sum(
+        -(-max(0, AMBROSIA_ENTRY_FOOD - m.food) // 25) * 25 for m in living
+    ) * 6 // 5
+
+
 def ambrosia_trip_gold(party: Party, needed_keys: int = 0) -> int:
     """Gold the party should hold before sailing for Ambrosia.
 
@@ -121,7 +131,7 @@ def ambrosia_trip_gold(party: Party, needed_keys: int = 0) -> int:
     """
     living = [m for m in party.members if not m.is_dead()]
     shrine_gold = AMBROSIA_SHRINE_BUDGET if next_shrine_goal(party) is not None else 1500
-    food_gold = sum(max(0, AMBROSIA_ENTRY_FOOD - m.food) for m in living) * 6 // 5
+    food_gold = entry_food_gold(living)
     keys_short = max(0, AMBROSIA_CARD_KEYS - sum(m.keys for m in living))
     return shrine_gold + food_gold + 50 * keys_short
 
@@ -306,7 +316,7 @@ def return_trip_gold(party: Party) -> int:
     if cost == 0:
         return 0
     living = [m for m in party.members if not m.is_dead()]
-    food_gold = sum(max(0, AMBROSIA_ENTRY_FOOD - m.food) for m in living) * 6 // 5
+    food_gold = entry_food_gold(living)
     # The keys still to buy are in the target too, so buying them never
     # drops the party back under it (and back to raiding).
     keys_gold = 50 * max(0, AMBROSIA_RETURN_KEYS - sum(m.keys for m in living))
@@ -750,6 +760,21 @@ def ambrosia_ready(party: Party) -> bool:
     )
 
 
+def ambrosia_trip_due(party: Party) -> bool:
+    """Item 7's trip is due: Kings held by all, a reason (a card missing or
+    a return-trip SHRINE_PLAN step left), everyone alive, the gold
+    (ambrosia_trip_gold) and the strength for the route."""
+    living = [m for m in party.members if not m.is_dead()]
+    if not living or not all(m.marks[0] > 0 for m in party.members):
+        return False
+    has_all_cards = all(any(m.cards[i] > 0 for m in living) for i in range(4))
+    if has_all_cards and next_shrine_goal(party, RETURN_TRIP_STEPS) is None:
+        return False
+    if len(living) < len(party.members) or party.gold < ambrosia_trip_gold(party):
+        return False
+    return ambrosia_ready(party)
+
+
 def _ambrosia_trip_goal(party: Party, living: list) -> Goal | None:
     """Item 7 (user 2026-11-25): with Kings, the gold for a full trip
     (ambrosia_trip_gold: the shrine budget plus the food and keys still to
@@ -757,12 +782,7 @@ def _ambrosia_trip_goal(party: Party, living: list) -> Goal | None:
     left), go to Ambrosia now, before or between the marks, and again on
     every later fill: gold left unspent is eaten by food on long grinds.
     Everyone alive and strong enough for the route's fights."""
-    has_all_cards = all(any(m.cards[i] > 0 for m in living) for i in range(4))
-    if has_all_cards and next_shrine_goal(party, RETURN_TRIP_STEPS) is None:
-        return None
-    if len(living) < len(party.members) or party.gold < ambrosia_trip_gold(party):
-        return None
-    if not ambrosia_ready(party):
+    if not ambrosia_trip_due(party):
         return None
     keys = sum(m.keys for m in living)
     if keys < AMBROSIA_CARD_KEYS:
