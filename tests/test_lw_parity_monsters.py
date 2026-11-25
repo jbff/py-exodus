@@ -588,3 +588,49 @@ def test_attackcode_ambrosia_horse_and_jester_are_fought_as_themselves(pygame_se
     ow._trigger_combat(tile, mon)
     arena = sm.current_screen.arena
     assert arena.monsters and {m.tile for m in arena.monsters} == {tile}
+
+
+# --- M-17 (user ruling Q30): shots stop where the party can't see -------------
+
+
+def test_moveshoot_stops_at_the_first_hidden_tile(overworld, monkeypatch):
+    """UltimaMisc.c:1255-1266 (moveshoot): the shot is traced over the
+    screen DrawMap has just drawn, and DrawMap blacks out every tile hidden
+    from the party (UltimaGraphics.c:603-625 sets them to 0x48):
+
+        DrawMap(xpos, ypos);
+        ...
+        value = GetXY(xs, ys);
+        if (value == 0x08 || value == 0x46 || value == 0x48)
+            goto movemon;
+
+    So a pirate's or dragon's shot stops at the first square the party
+    can't see, behind forest as behind mountains. The port uses its own
+    view (world/field_of_view.py) for "can see" (user ruling Q30).
+    """
+    from py_exodus.screens import overworld as overworld_module
+
+    ow = overworld(20, 20)
+    grass = ow.asset_mgr.get_tile_by_name("grass")
+    forest = ow.asset_mgr.get_tile_by_name("forest")
+    for x in range(14, 27):
+        for y in range(14, 27):
+            ow.game_map.set_tile(x, y, grass)
+    hero = ow.party.members[0]
+    hp = hero.hp
+
+    def fire(seq):
+        seq = list(seq)
+        monkeypatch.setattr(overworld_module.random, "randint", lambda a, b: seq.pop(0))
+        ow._lw_monster_shoot({"tile_name": "pirate", "x": 23, "y": 20})
+
+    # Open ground: the shot lands (fires on 0; damage roll 0 & 0x77 -> 8).
+    fire([0, 0])
+    assert hero.hp == hp - 8
+    # A forest tile beside the party hides (22, 20) and (23, 20) behind it:
+    # the shot stops on its first step and nothing lands.
+    ow.game_map.set_tile(21, 20, forest)
+    shots = len(ow.cannon_fx)
+    fire([0, 0])
+    assert hero.hp == hp - 8
+    assert not any(fx["hit"] for fx in ow.cannon_fx[shots:])

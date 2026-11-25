@@ -2366,7 +2366,8 @@ class OverworldScreen(BaseScreen):
         """LairWare moveshoot (UltimaMisc.c:1245-1278): half the time a pirate
         or dragon in the 11x11 view fires toward the party, each axis
         stepping toward it on its own (so diagonals too), up to 3 tiles,
-        stopped by mountains, walls and the void. Reaching the party is
+        stopped by mountains, walls, the void and any tile the party can't
+        see. Reaching the party is
         BombTrap (UltimaMain.c:1728): every living member loses
         (rand & 0x77) + 8 hit points."""
         if random.randint(0, 255) > 127:
@@ -2378,6 +2379,18 @@ class OverworldScreen(BaseScreen):
         if self.audio is not None:
             self.audio.play_sfx("Shoot.wav")
         w, h = self.game_map.width, self.game_map.height
+        # LairWare traces the shot over the screen DrawMap just drew, where
+        # every tile hidden from the party is void (0x48, UltimaGraphics.c:
+        # 603-625; moveshoot UltimaMisc.c:1255-1266): the shot stops at the
+        # first tile the party can't see. The port's own view decides what
+        # it sees (user ruling Q30).
+        from py_exodus.world.field_of_view import compute_fov
+
+        seen = (
+            None
+            if self.game_map.no_line_of_sight
+            else compute_fov(self.game_map, self.party.x, self.party.y, radius=6)
+        )
         x, y = c["x"], c["y"]
         path: list[tuple[int, int]] = []
         hit = False
@@ -2387,6 +2400,8 @@ class OverworldScreen(BaseScreen):
                 break
             tile = self.game_map.get_tile(x % w, y % h)
             if getattr(tile, "name", tile) in self.LW_SHOT_BLOCKERS:
+                break
+            if seen is not None and (x % w, y % h) not in seen:
                 break
             path.append((x % w, y % h))
             if (x, y) == (self.party.x, self.party.y):
