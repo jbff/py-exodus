@@ -93,13 +93,12 @@ def can_move_to(
         # unwalkable energy field opens with the mark and a walkable fire
         # field still demands it.
         #
-        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): force field 99
-        # damage to members lacking the Mark of Force; passage only when all
-        # marked (GBC postexo1.c:1861-1880). The ENERGY (force) field
-        # specifically demands EVERY living member carry the mark; the other
-        # dispelable fields (fire, poison) keep Java's any-marked passage.
-        # The refused strike is applied by the overworld move handler
-        # (OverworldScreen._apply_force_field_block) on this blocked step.
+        # LairWare ValidDir (UltimaMain.c:3178-3192), user ruling 2026-11-25
+        # (ledger T-05): the ENERGY (force) field passes only when every
+        # living member carries the mark; the other dispelable fields (fire,
+        # poison) keep Java's any-marked passage. The refused step's 99 to the
+        # first unmarked living member is applied by the move handler
+        # (OverworldScreen._apply_force_field_block, the town's equivalent).
         if tile.dispelable:
             if tile.rule == "energy":
                 return tile_effects.all_members_mark_of_force(party)

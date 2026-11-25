@@ -464,9 +464,9 @@ class TownScreen(BaseScreen):
             if (nx == 0 or ny == 0) and not self.party.is_party_dead():
                 self._exit_town()  # Routine6E35, UltimaMisc.c:1365-1369
         else:
-            # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): force field 99
-            # damage to members lacking the Mark of Force; passage only when
-            # all marked (GBC postexo1.c:1861-1880). The movement validator
+            # LairWare ValidDir (UltimaMain.c:3178-3192), user ruling
+            # 2026-11-25 (T-05): the first unmarked living member takes 99;
+            # passage only when every living member is marked. The validator
             # fires in ANY context, so the town-blocked energy-field entry
             # strikes too (british/exodus/death carry energy cells); a wipe
             # routes through check_party_death like _finish_turn.

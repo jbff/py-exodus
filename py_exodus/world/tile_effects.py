@@ -74,7 +74,7 @@ def slowed_by_tile(tile: TileDef, rng: random.Random | None = None) -> bool:
     return False
 
 
-# --- Mark of Force passage (BaseMap.java:719-744; GBC postexo1.c:1861-1880) ---
+# --- Mark of Force passage (LairWare ValidDir, UltimaMain.c:3178-3192) ---
 
 
 def party_has_mark_of_force(party: Party | None) -> bool:
@@ -89,26 +89,28 @@ def party_has_mark_of_force(party: Party | None) -> bool:
 
 
 def all_members_mark_of_force(party: Party | None) -> bool:
-    """GBC force-field passage: every living member carries ``marks[3]``.
+    """Force-field passage: every living member carries the Mark of Force
+    (``marks[3]``, LW byte 14 & 0x10).
 
-    GBC ``postexo1.c:1861-1880`` starts ``forceOK`` set and zeroes it once
-    for each unmarked member before returning it as the passage decision;
-    the per-member strike only reaches ``status < 2``, so DEAD members
-    neither take the 99 nor block the (vacuously) all-marked party.
+    User ruling 2026-11-25 (ledger T-05) on LairWare ValidDir
+    (UltimaMain.c:3178-3192): the party passes only when every member not
+    dead or ashes is marked. LW's GoodPlace, set by any marked member and
+    never cleared, lets a marked leader pull the unmarked through; that is
+    a bug the user does not want.
     """
     if party is None:
         return False
-    living = [m for m in party.members if not m.is_dead()]
+    living = [m for m in party.members if not m.is_disabled()]
     return all(m.marks[3] == 1 for m in living)
 
 
 def force_field_blockers(party: Party | None, tile) -> list:
-    """Living members a refused GBC force-field entry would strike, else [].
+    """The unmarked living members barring a force-field entry, else [].
 
     Non-empty exactly when ``tile`` is the ENERGY (force) field and the
-    all-marked passage fails (``all_members_mark_of_force`` above) — the
+    all-marked passage fails (``all_members_mark_of_force`` above), the
     same condition the walkability gate refuses on (renderer ``can_move_to``
-    foot branch).
+    foot branch). Only the first of them is struck.
     """
     if party is None or tile is None:
         return []
@@ -117,31 +119,29 @@ def force_field_blockers(party: Party | None, tile) -> list:
     if all_members_mark_of_force(party):
         return []
     return [
-        m for m in list(party.members) if not m.is_dead() and m.marks[3] != 1
+        m for m in list(party.members) if not m.is_disabled() and m.marks[3] != 1
     ]
 
 
 def apply_force_field_strike(party: Party | None, tile, message_logger=None) -> bool:
-    """Refuse a GBC force-field entry and strike the unmarked, then True.
+    """Refuse a force-field entry and strike, then True.
 
-    USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): force field 99 damage to
-    members lacking the Mark of Force; passage only when all marked
-    (GBC postexo1.c:1861-1880). The movement validator fires in ANY context
-    — overworld, town, wherever a step into tile 0x26 is refused — so every
-    blocked-branch caller funnels here: the FORCE FIELD message goes to
-    ``message_logger`` (when given) and each living member lacking
-    ``marks[3]`` takes 99 through ``apply_damage`` (a DEAD member neither
-    blocks nor takes the strike). ``PartyDeathException`` from a wipe
-    PROPAGATES — the caller catches it and routes its own death check
-    (``check_party_death``).
+    LairWare ValidDir (UltimaMain.c:3178-3192): the first member without
+    the Mark of Force takes 99 and the loop stops (``byte = 5``). User
+    ruling 2026-11-25 (ledger T-05): the dead and ashes are skipped, and the
+    party is blocked unless every living member is marked. Every refused
+    step into the field funnels here (overworld, town): the FORCE FIELD
+    message goes to ``message_logger`` (when given) and the first unmarked
+    living member takes 99 through ``apply_damage``.
+    ``PartyDeathException`` from a wipe PROPAGATES; the caller catches it and
+    routes its own death check (``check_party_death``).
     """
     unmarked = force_field_blockers(party, tile)
     if not unmarked:
         return False
     if message_logger is not None:
         message_logger("FORCE FIELD!")
-    for member in unmarked:
-        member.apply_damage(99, False)
+    unmarked[0].apply_damage(99, False)
     return True
 
 

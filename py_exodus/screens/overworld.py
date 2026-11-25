@@ -1459,10 +1459,9 @@ class OverworldScreen(BaseScreen):
             if self.random_encounters_enabled:
                 self._check_random_encounter()
         else:
-            # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): force field 99
-            # damage to members lacking the Mark of Force; passage only when
-            # all marked (GBC postexo1.c:1861-1880). The refused energy-field
-            # step strikes the unmarked before the block plays out; no sfx
+            # LairWare ValidDir (UltimaMain.c:3178-3192), user ruling
+            # 2026-11-25 (T-05): a refused force-field step strikes the first
+            # unmarked living member for 99 before the block plays out; no sfx
             # change (the blocked step keeps its usual sound, per Task 20's
             # refusal shape).
             self._apply_force_field_block(nx, ny)
@@ -1482,11 +1481,11 @@ class OverworldScreen(BaseScreen):
             self._check_random_encounter()
 
     def _apply_force_field_block(self, nx: int, ny: int) -> None:
-        """Apply the GBC force-field strike to a refused energy-field entry.
+        """Apply the force-field strike to a refused energy-field entry.
 
-        USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): force field 99
-        damage to members lacking the Mark of Force; passage only when all
-        marked (GBC postexo1.c:1861-1880). The strike is the shared
+        LairWare ValidDir (UltimaMain.c:3178-3192), user ruling 2026-11-25
+        (ledger T-05): the first unmarked living member takes 99; the party
+        passes only when every living member is marked. The strike is the shared
         ``tile_effects.apply_force_field_strike`` (the movement validator
         fires in any context, town screens included); a wipe raises
         ``PartyDeathException`` from the strike, which this catches and

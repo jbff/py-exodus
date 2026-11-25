@@ -420,10 +420,10 @@ def test_none_and_electricity_effects_are_no_ops():
 
 
 def test_energy_field_passes_only_when_every_member_marked(asset_mgr):
-    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): the force field's
-    passage decision (GBC postexo1.c:1861-1880 ``forceOK``) demands EVERY
-    living member carry the Mark of Force — one marked member is no longer
-    enough."""
+    """User ruling 2026-11-25 on LairWare ValidDir (UltimaMain.c:3178-3192,
+    ledger T-05): the force field demands EVERY living member carry the Mark
+    of Force; one marked member is not enough (LW's never-cleared GoodPlace
+    is not ported)."""
     grass = asset_mgr.get_tile_by_name("grass")
     energy = asset_mgr.get_tile_by_name("energy_field")
     gmap = GameMap(id=0, name="T", width=2, height=1, tiles=[grass, energy])
@@ -439,7 +439,7 @@ def test_energy_field_passes_only_when_every_member_marked(asset_mgr):
 def test_fire_field_keeps_any_marked_passage(asset_mgr):
     """Java gate is the rule attribute, not the walkable flag: fire fields
     (walkable, dispelable) keep the ANY-marked (BaseMap.java:719-744)
-    passage — the GBC all-marked refusal is the ENERGY field specifically."""
+    passage; the all-marked refusal is the ENERGY field specifically."""
     grass = asset_mgr.get_tile_by_name("grass")
     fire = asset_mgr.get_tile_by_name("fire")
     gmap = GameMap(id=0, name="T", width=2, height=1, tiles=[grass, fire])
@@ -450,9 +450,9 @@ def test_fire_field_keeps_any_marked_passage(asset_mgr):
     assert can_move_to(gmap, 1, 0, transport=Transport.FOOT, party=party) is True
 
 
-# --- GBC force field: 99 damage on the refused entry
-#     (USER-DIRECTED GBC-RULES DEVIATION 2026-11-14,
-#     GBC postexo1.c:1861-1880) ---
+# --- Force field: 99 to the first unmarked living member on the refused
+#     entry (LairWare ValidDir, UltimaMain.c:3178-3192; user ruling
+#     2026-11-25, ledger T-05) ---
 
 
 def _force_field_screen(pygame_setup, asset_mgr, n: int = 2, hp: int = 100):
@@ -476,8 +476,8 @@ def _force_field_screen(pygame_setup, asset_mgr, n: int = 2, hp: int = 100):
 def test_force_field_refused_move_deals_99_to_unmarked_members(
     pygame_setup, asset_mgr
 ):
-    """A refused energy-field entry writes 'FORCE FIELD!' and strikes every
-    living member lacking the Mark of Force for 99; the marked member is
+    """A refused energy-field entry writes 'FORCE FIELD!' and strikes the
+    first living member lacking the Mark of Force for 99; the marked member is
     untouched and the party does not move."""
     ow, party = _force_field_screen(pygame_setup, asset_mgr)
     party.members[0].marks[3] = 1
@@ -521,8 +521,9 @@ def test_force_field_all_marked_party_passes(pygame_setup, asset_mgr):
 
 
 def test_force_field_strike_skips_dead_and_strikes_living_unmarked(asset_mgr):
-    """A DEAD unmarked member neither blocks the gate nor takes the strike —
-    the living, unmarked members take the 99 (strike-helper pin)."""
+    """A DEAD unmarked member neither blocks the gate nor takes the strike;
+    the first living unmarked member takes the 99, and only it (LW's
+    `byte = 5` stops the loop)."""
     energy = asset_mgr.get_tile_by_name("energy_field")
     party = make_party(n=3)
     party.members[0].status = Status.DEAD
@@ -537,7 +538,7 @@ def test_force_field_strike_skips_dead_and_strikes_living_unmarked(asset_mgr):
     assert party.members[0].status == Status.DEAD
     assert party.members[1].hp == 100 - 99
     assert party.members[1].status == Status.GOOD
-    assert party.members[2].hp == 100 - 99
+    assert party.members[2].hp == 100
     assert party.members[2].status == Status.GOOD
 
 
@@ -556,7 +557,7 @@ def test_force_field_dead_member_does_not_block_passage(asset_mgr):
     assert can_move_to(gmap, 1, 0, transport=Transport.FOOT, party=party) is True
 
 
-# --- GBC force field, town-screen move path (review fix round 1) ---------
+# --- Force field, town-screen move path (review fix round 1) -------------
 
 
 def _british_screen(asset_mgr, party):
@@ -575,15 +576,15 @@ def _british_screen(asset_mgr, party):
 
 def test_town_force_field_refusal_strikes_unmarked(pygame_setup, asset_mgr):
     """The movement validator fires in any context: a refused energy-field
-    entry on the town screen writes "FORCE FIELD!" and strikes the living
-    unmarked members for 99; the move is refused."""
+    entry on the town screen writes "FORCE FIELD!" and strikes the first
+    living unmarked member for 99; the move is refused."""
     tw = _british_screen(asset_mgr, make_party())
 
     tw._try_move(Direction.EAST)
 
     assert any(m == "FORCE FIELD!" for m in tw.text_log.history)
     assert (tw.avatar_x, tw.avatar_y) == (41, 17)
-    assert all(m.hp == 100 - 99 for m in tw.party.members)
+    assert [m.hp for m in tw.party.members] == [100 - 99, 100]
     assert all(m.status == Status.GOOD for m in tw.party.members)
 
 
@@ -591,7 +592,7 @@ def test_town_force_field_refusal_skips_dead_and_strikes_living(
     pygame_setup, asset_mgr
 ):
     """Same vacuous-gate case from the town angle: a DEAD unmarked member
-    takes nothing; the living unmarked members take the 99."""
+    takes nothing; the first living unmarked member takes the 99."""
     party = make_party(n=3)
     party.members[0].status = Status.DEAD
     party.members[0].hp = 0
@@ -603,7 +604,7 @@ def test_town_force_field_refusal_skips_dead_and_strikes_living(
     assert (tw.avatar_x, tw.avatar_y) == (41, 17)
     assert tw.party.members[0].hp == 0
     assert tw.party.members[1].hp == 100 - 99
-    assert tw.party.members[2].hp == 100 - 99
+    assert tw.party.members[2].hp == 100
 
 
 def test_town_force_field_all_marked_passes(pygame_setup, asset_mgr):

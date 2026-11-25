@@ -830,3 +830,55 @@ def test_negatetime_counts_down_in_towns(town):
     for _ in range(3):
         scr._finish_turn(None)
     assert scr.party.aura.get_type() == AuraType.NONE
+
+
+# --- T-05: the force field (user ruling 2026-11-25) --------------------------
+
+
+def _forcefield_party(*marked: bool, ashes_first: bool = False) -> Party:
+    party = _party(*(_member(f"M{i}", hp=200) for i in range(len(marked))))
+    for m, mk in zip(party.members, marked):
+        m.marks[3] = 1 if mk else 0
+    return party
+
+
+def test_validdir_forcefield_strikes_only_the_first_unmarked(asset_mgr):
+    """UltimaMain.c:3178-3192 (ValidDir):
+
+        for (byte = 0; byte < 4; byte++) {
+            if (!(Player[Party[byte + 7]][14] & 0x10)) {
+                HPSubtract(Party[byte + 7], 99);
+                ...
+                byte = 5;
+
+    The first member without the Mark of Force takes 99 and the loop stops
+    (`byte = 5`). User ruling: the party is blocked unless every living
+    member is marked (LW's never-cleared GoodPlace, which lets a marked
+    leader pull the unmarked through, is not ported).
+    """
+    from py_exodus.world import tile_effects
+
+    energy = asset_mgr.get_tile_by_name("energy_field")
+    party = _forcefield_party(True, False, False)
+    lines: list[str] = []
+    assert tile_effects.apply_force_field_strike(party, energy, lines.append)
+    assert [m.hp for m in party.members] == [200, 101, 200]
+    assert not tile_effects.all_members_mark_of_force(party)
+
+
+def test_validdir_forcefield_ignores_the_dead_and_ashes(asset_mgr):
+    """User ruling 2026-11-25: dead and ashes members neither block the
+    marked party nor take the strike; the first unmarked LIVING one does."""
+    from py_exodus.world import tile_effects
+
+    energy = asset_mgr.get_tile_by_name("energy_field")
+    party = _forcefield_party(False, True, False)
+    party.members[0].status, party.members[0].hp = Status.ASHES, 0
+    party.members[2].status, party.members[2].hp = Status.DEAD, 0
+    assert tile_effects.all_members_mark_of_force(party)
+    assert not tile_effects.apply_force_field_strike(party, energy)
+
+    party.members[2].status, party.members[2].hp = Status.GOOD, 200
+    party.members[1].marks[3] = 0
+    assert tile_effects.apply_force_field_strike(party, energy)
+    assert [m.hp for m in party.members] == [0, 101, 200]
