@@ -833,3 +833,120 @@ def test_steal_alchemist_gets_the_disarm_bonus(asset_mgr):
     sc.do_steal(_party(alch), alch, 54, 20, Direction.NORTH, gm, rng=Script([25 + 64]))
     assert gm.get_tile(54, 17).name == "floor"
     assert chests.disarm_factor(alch) == 25 + 64
+
+
+# --- C-23 LetterCommand S and L (user ruling 2026-11-25) --------------------
+
+
+def test_lettercommand_s_is_steal_on_the_surface(overworld):
+    """UltimaMain.c:1186 (LetterCommand): ``case 'S': Steal(); break;``.
+    Steal (2248-2259) asks who (``UPrintMessage(84); chnum = GetChar();``)
+    and then a direction. The port's S was Java's Search."""
+    scr = overworld()
+    _key(scr, pygame.K_s, "s")
+    assert scr.text_log.is_waiting_for_input
+    assert "STEAL" in scr.text_log.current_prompt
+    _key(scr, pygame.K_1, "1")
+    assert scr.text_log.is_waiting_for_input
+    assert "Direction" in scr.text_log.current_prompt
+
+
+def test_lettercommand_s_is_steal_in_town(town):
+    """UltimaMain.c:1186: towns run the same LetterCommand, so S steals."""
+    scr = town()
+    _key(scr, pygame.K_s, "s")
+    assert "STEAL" in scr.text_log.current_prompt
+
+
+def test_steal_is_not_an_other_word(town):
+    """UltimaMisc.c:2286-2508 (OtherCommand): no STEAL word; an unknown word
+    is NoEffect (2507). Stealing is the S letter command."""
+    scr = town()
+    _key(scr, pygame.K_o, "o")
+    scr.text_log.submit_input("STEAL")
+    assert not scr.text_log.is_waiting_for_input
+    assert "STEAL" not in (scr.text_log.current_prompt or "")
+
+
+def test_search_gives_no_label_items_or_experience(asset_mgr):
+    """UltimaMain.c:1160-1195: there is no Search letter command; S is Steal.
+    LW's only search is the Other word (UltimaMisc.c:2445-2453), the shrine
+    cards. Java's S (map labels: Exotics, cards, +100 XP) is gone: S on
+    Ambrosia's Card of Death label grants nothing."""
+    from py_exodus.screens.overworld import OverworldScreen
+
+    party = _party(_pm())
+    party.x, party.y = 55, 27
+    scr = OverworldScreen(party=party, map_id=13, asset_mgr=asset_mgr,
+                          start_x=55, start_y=27, random_encounters=False)
+    scr.party.x, scr.party.y = 55, 27
+    m = party.members[0]
+    xp = m.exp
+    _key(scr, pygame.K_s, "s")
+    _key(scr, pygame.K_1, "1")
+    scr.text_log.cancel_prompt()
+    assert m.cards[0] == 0
+    assert m.exp == xp
+
+
+def test_look_names_the_tile(overworld, asset_mgr):
+    """UltimaMain.c:2063-2071 (Look): ``UPrintMessage(69); GetDirection(0);
+    ... temp = GetXYVal(xs, ys); mon = MonsterHere(xs, ys); if (mon == 255)
+    { PrintTile(temp / 4, false);`` -- the tile's name (Tiles.plist)."""
+    scr = overworld()
+    scr.game_map.set_tile(40, 39, asset_mgr.get_tile_by_name("forest"))
+    _key(scr, pygame.K_l, "l")
+    assert scr.text_log.is_waiting_for_input
+    assert "Look" in scr.text_log.current_prompt
+    _key(scr, pygame.K_UP)
+    assert "Forest" in scr.text_log.history[-1]
+
+
+def test_look_names_a_monster_plural_outside_towns(overworld):
+    """UltimaMain.c:2090-2091: ``} else { // plural if not in town or castle.
+    PrintMonster(Monsters[mon] / 2, (Party[3] != 2 && Party[3] != 3),
+    Monsters[mon + VARMON]);`` -- on Sosaria an orc group reads "Orcs", a
+    variant 1 orc "Goblins"."""
+    scr = overworld()
+    scr.creatures = [{"tile_name": "orc", "tile": "orc", "x": 41, "y": 40, "variant": 0},
+                     {"tile_name": "orc", "tile": "orc", "x": 39, "y": 40, "variant": 1}]
+    _key(scr, pygame.K_l, "l")
+    _key(scr, pygame.K_RIGHT)
+    assert "Orcs" in scr.text_log.history[-1]
+    _key(scr, pygame.K_l, "l")
+    _key(scr, pygame.K_LEFT)
+    assert "Goblins" in scr.text_log.history[-1]
+
+
+def test_look_names_a_town_person_singular(town):
+    """UltimaMain.c:2090-2091: in a town or castle (Party[3] 2 or 3) the
+    monster's name is singular: a guard is "Guard"."""
+    from py_exodus.world.map import MapNpc
+
+    scr = town()
+    scr.game_map.npcs = [MapNpc(18, "guard", 33, 32, 33, 32)]
+    _key(scr, pygame.K_l, "l")
+    _key(scr, pygame.K_RIGHT)
+    assert "Guard" in scr.text_log.history[-1]
+    assert "Guards" not in scr.text_log.history[-1]
+
+
+def test_look_does_not_open_a_door(town, asset_mgr):
+    """UltimaMain.c:1179: ``case 'L': Look(); break;`` -- L only looks.
+    The port's L was Java's Open."""
+    scr = town()
+    door = asset_mgr.get_tile_by_name("locked_door")
+    scr.game_map.set_tile(33, 32, door)
+    _key(scr, pygame.K_l, "l")
+    _key(scr, pygame.K_RIGHT)
+    assert scr.game_map.get_tile(33, 32).name == "locked_door"
+
+
+def test_look_takes_the_turn(overworld):
+    """UltimaMain.c:1057-1059: ``LetterCommand(); Routine6E35();`` -- Look,
+    like every letter, ends the turn."""
+    scr = overworld()
+    moves = scr.party.moves
+    _key(scr, pygame.K_l, "l")
+    _key(scr, pygame.K_UP)
+    assert scr.party.moves == moves + 1

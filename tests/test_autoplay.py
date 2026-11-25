@@ -448,6 +448,30 @@ def test_autoplay_controller_overworld_dig_exotics(pygame_setup, asset_mgr):
     )
 
 
+def test_autoplay_takes_an_ambrosia_card_with_other_search(pygame_setup, asset_mgr, monkeypatch):
+    """LairWare has no S Search (S is Steal, UltimaMain.c:1186; ledger
+    C-23): the shrine cards come from the Other word SEARCH
+    (UltimaMisc.c:2445-2453). On a card site autoplay types O, SEARCH, a
+    member, and never starts a steal."""
+    import py_exodus.autoplay.controller as controller_mod
+
+    party = _make_party(level=5, exp=500, marks=[1, 0, 0, 0], map_id=13, x=55, y=27)
+    party.members[0].keys = 2
+    monkeypatch.setattr(controller_mod, "evaluate_goal", lambda *_a, **_k: Goal.AMBROSIA_CARDS_SHRINES)
+    sm = StateMachine(asset_mgr=asset_mgr)
+    ow = OverworldScreen(party=party, map_id=13, asset_mgr=asset_mgr, start_x=55, start_y=27)
+    ow.creatures = []
+    party.x, party.y = 55, 27
+    sm.push_screen(ow)
+    ctrl = AutoPlayController(enabled=True, step_interval=0.01)
+    for _ in range(20):
+        ctrl.step(sm)
+        assert "STEAL" not in (ow.text_log.current_prompt or "")
+        if any(m.cards[0] for m in party.members):
+            break
+    assert any(m.cards[0] for m in party.members)
+
+
 def test_autoplay_controller_exodus_insert_to_final_screen(pygame_setup, asset_mgr):
     party = _make_party(
         level=6,

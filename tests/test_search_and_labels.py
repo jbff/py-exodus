@@ -1,4 +1,5 @@
-"""Tests for map label searching (exotic items, cards) and town chest looting."""
+"""Town chest looting. (The Java S Search of map labels was removed: S is
+Steal in LairWare, UltimaMain.c:1186; ledger C-23.)"""
 import pygame
 import pytest
 
@@ -29,69 +30,6 @@ def party_four():
         PartyMember(Character("Thief", "M", Race.FUZZY, Profession.THIEF, hp=100)),
     ]
     return Party(members, x=79, y=176, gold=500, transport=Transport.FOOT)
-
-
-def test_search_exotic_armor(asset_mgr, party_four):
-    """Searching at (79, 176) awards Exotic Armor and 100 XP to the searching member."""
-    party_four.x = 79
-    party_four.y = 176
-    ow = OverworldScreen(party=party_four, map_id=0, asset_mgr=asset_mgr, start_x=79, start_y=176)
-
-    m1 = party_four.members[0]
-    initial_xp = m1.exp
-    initial_armor_count = m1.armors.get(ArmorType.EXOTIC, 0)
-
-    # Press 'S' to search
-    ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_s, unicode="s"))
-    assert ow.text_log.is_waiting_for_input
-
-    # Select member 1
-    ow.text_log.handle_char("1")
-    ow.text_log.handle_enter()
-
-    assert m1.armors.get(ArmorType.EXOTIC, 0) == initial_armor_count + 1
-    assert m1.exp == initial_xp + 100
-    assert any("Exotic" in msg for msg in ow.text_log.history)
-
-
-def test_search_exotic_weapon(asset_mgr, party_four):
-    """Searching at (134, 14) awards Exotic Weapon and 100 XP to the searching member."""
-    party_four.x = 134
-    party_four.y = 14
-    ow = OverworldScreen(party=party_four, map_id=0, asset_mgr=asset_mgr, start_x=134, start_y=14)
-
-    m2 = party_four.members[1]
-    initial_xp = m2.exp
-    initial_weapon_count = m2.weapons.get(WeaponType.EXOTIC, 0)
-
-    # Press 'S' and select member 2
-    ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_s, unicode="s"))
-    ow.text_log.handle_char("2")
-    ow.text_log.handle_enter()
-
-    assert m2.weapons.get(WeaponType.EXOTIC, 0) == initial_weapon_count + 1
-    assert m2.exp == initial_xp + 100
-    assert any("Exotic" in msg for msg in ow.text_log.history)
-
-
-def test_search_card_of_death(asset_mgr, party_four):
-    """Searching at Ambrosia Card of Death (55, 27) awards the card and 100 XP."""
-    party_four.x = 55
-    party_four.y = 27
-    # Ambrosia is map_id 13
-    ow = OverworldScreen(party=party_four, map_id=13, asset_mgr=asset_mgr, start_x=55, start_y=27)
-
-    m3 = party_four.members[2]
-    initial_xp = m3.exp
-    assert m3.cards[0] == 0
-
-    ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_s, unicode="s"))
-    ow.text_log.handle_char("3")
-    ow.text_log.handle_enter()
-
-    assert m3.cards[0] == 1
-    assert m3.exp == initial_xp + 100
-    assert any("Death" in msg for msg in ow.text_log.history)
 
 
 def test_town_get_chest_party_tile_only(asset_mgr, party_four, monkeypatch):

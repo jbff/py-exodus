@@ -493,12 +493,13 @@ class TestScreenWiring:
         assert "No effect." in messages
 
     def test_overworld_steal_asks_like_anywhere(self, ow):
-        self._key(ow, pygame.K_o)
-        # LW Steal has no inside-only gate (UltimaMain.c:2248-2258): on
-        # Sosaria there is no counter, so a steal can only fail.
-        self._answer(ow, "STEAL")
+        # LW Steal is the S letter (UltimaMain.c:1186) and has no
+        # inside-only gate (2248-2258): on Sosaria there is no counter, so a
+        # steal can only fail.
+        self._key(ow, pygame.K_s)
 
         assert ow.text_log.is_waiting_for_input
+        assert "STEAL" in ow.text_log.current_prompt
 
     def test_dungeon_other_refuses_outside_only_commands(self, pygame_setup):
         """Dungeon K_o prompts; BRIBE/STEAL/DIG take the GBC noeffectdat

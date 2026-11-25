@@ -40,7 +40,6 @@ from py_exodus.ui.text_log import (
 )
 from py_exodus.world import doors as door_module
 from py_exodus.world import portal_entry
-from py_exodus.world import search as search_module
 from py_exodus.world import realtime
 from py_exodus.world import tile_effects
 
@@ -311,7 +310,8 @@ class TownScreen(BaseScreen):
         elif event.key == pygame.K_j:
             self._join_gold()
         elif event.key == pygame.K_l:
-            self._open()
+            # LairWare LetterCommand (UltimaMain.c:1179): L is Look.
+            self._look()
         elif event.key == pygame.K_m:
             self._prompt_modify_order()
         elif event.key == pygame.K_n:
@@ -332,7 +332,11 @@ class TownScreen(BaseScreen):
         elif event.key == pygame.K_r:
             self._prompt_ready_weapon()
         elif event.key == pygame.K_s:
-            self._search()
+            # LairWare LetterCommand (UltimaMain.c:1186): S is Steal (user
+            # ruling 2026-11-25, ledger C-23; Java's Search is gone).
+            special_commands.steal_flow(
+                self.text_log, self.party, self.avatar_x, self.avatar_y, self.game_map
+            )
         elif event.key == pygame.K_t:
             self._prompt_talk()
         elif event.key == pygame.K_u:
@@ -956,26 +960,32 @@ class TownScreen(BaseScreen):
             on_cancel=self._play_town_music,
         )
 
-    def _open(self) -> None:
-        """L = OPEN with a direction (Java SIP:212-219 + BaseMap.openDoor)."""
-        self.text_log.prompt(
-            "OPEN> Direction? (N,S,E,W):",
-            callback=self._parse_and_open,
-            single_char=True,
-        )
+    def _look(self) -> None:
+        """L = Look (LairWare UltimaMain.c:2063-2094): the person or monster
+        in that direction, singular in a town or castle (``Party[3]`` 2 or
+        3), else the tile's name."""
+        def _name_at(d: Direction) -> str:
+            tx, ty = self.avatar_x + d.dx, self.avatar_y + d.dy
+            npc = self._find_npc_at(tx, ty)
+            if npc is not None:
+                return special_commands.look_monster_name(
+                    npc.tile_name, asset_mgr=self.asset_mgr
+                )
+            for c in self.creatures:
+                if c.get("x") == tx and c.get("y") == ty:
+                    tile = c.get("tile_name") or c.get("tile") or "orc"
+                    return special_commands.look_monster_name(
+                        tile, int(c.get("variant", 0) or 0), asset_mgr=self.asset_mgr
+                    )
+            for obj in self.party.objects_on(self.game_map):
+                if obj.get("x") == tx and obj.get("y") == ty:
+                    return special_commands.look_monster_name(
+                        str(obj.get("tile", "")), asset_mgr=self.asset_mgr
+                    )
+            tile = self.game_map.get_tile(tx, ty) if self.game_map else None
+            return special_commands.look_tile_name(tile)
 
-    def _parse_and_open(self, d_str: str) -> None:
-        d = Direction.from_name_or_key(d_str)
-        if d is None:
-            self.text_log.add_message("Invalid direction!")
-            return
-        if self.game_map is None:
-            self.text_log.add_message("Can't!")
-            return
-        if door_module.open_door(self.game_map, self.avatar_x + d.dx, self.avatar_y + d.dy):
-            self.text_log.add_message("Opened!")
-        else:
-            self.text_log.add_message("Can't!")
+        special_commands.look_flow(self.text_log, _name_at)
 
     def _unlock(self) -> None:
         """UNLOCK: a member 1-4 unlocks a chosen direction with one of their
@@ -1173,24 +1183,6 @@ class TownScreen(BaseScreen):
             _spent, turn_callback=self._consume_pass_turn,
         )
 
-    def _search(self) -> None:
-        """SEARCH: a member 1-4 searches the party's tile (Java SIP:240-250
-        with ``BaseMap.searchLocation`` — labels, else "Nothing here!")."""
-        def _on_who(who_str: str) -> None:
-            member = self._parse_member(who_str)
-            if member is None:
-                self.text_log.add_message("Invalid member #!")
-                return
-            desc = search_module.search_location(
-                self.game_map, self.party, member, self.avatar_x, self.avatar_y
-            )
-            if desc is not None:
-                self.text_log.add_message(f"You found {desc}.")
-            else:
-                self.text_log.add_message("Nothing here!")
-
-        self.text_log.prompt("SEARCH> Which party member? (1-4):", callback=_on_who, single_char=True)
-
     def _enter_portal(self) -> None:
         """Enter a portal on the party's tile (Java GameScreen.java:538-556 —
         E is available on every map including towns)."""
@@ -1279,10 +1271,6 @@ class TownScreen(BaseScreen):
                 self.avatar_y,
                 self.game_map,
                 creatures=self.creatures,
-            )
-        elif c == "STEAL":
-            special_commands.steal_flow(
-                self.text_log, self.party, self.avatar_x, self.avatar_y, self.game_map
             )
         elif c == "DIG":
             special_commands.dig_flow(

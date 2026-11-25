@@ -344,46 +344,6 @@ class TestAuraQuicknessHook:
         assert (12, 10) in [(c["x"], c["y"]) for c in ow.creatures]
 
 
-class TestOpen:
-    """(e) L on the overworld = OPEN (direction prompt, "Opened!"/"Can't!")."""
-
-    def test_l_prompts_direction_and_cant_without_door(self, ow):
-        key(ow, pygame.K_l)
-        assert ow.text_log.is_waiting_for_input
-        assert "OPEN" in ow.text_log.current_prompt
-        answer(ow, "N")
-        assert any(m == "Can't!" for m in ow.text_log.history)
-
-    def test_l_opens_unlocked_door(self, ow):
-        ow.game_map.set_tile(
-            10, 9,
-            TileDef(index=35, name="door", rule="door", attribs=TileAttrib.DOOR),
-        )
-        key(ow, pygame.K_l)
-        press_direction(ow, Direction.NORTH)
-        assert any(m == "Opened!" for m in ow.text_log.history)
-        assert ow.game_map.get_tile(10, 9).rule != "door"
-
-    def test_l_locked_door_cant(self, ow):
-        ow.game_map.set_tile(
-            10, 9,
-            TileDef(index=100, name="locked_door", rule="locked_door", attribs=TileAttrib.LOCKEDDOOR),
-        )
-        key(ow, pygame.K_l)
-        press_direction(ow, Direction.NORTH)
-        assert any(m == "Can't!" for m in ow.text_log.history)
-        assert ow.game_map.get_tile(10, 9).rule == "locked_door"
-
-    def test_town_l_opened(self, town):
-        town.game_map.set_tile(
-            10, 9,
-            TileDef(index=35, name="door", rule="door", attribs=TileAttrib.DOOR),
-        )
-        key(town, pygame.K_l)
-        press_direction(town, Direction.NORTH)
-        assert any(m == "Opened!" for m in town.text_log.history)
-
-
 class TestUnlock:
     """(f) U requires member keys > 0 and bm.unlockDoor(x, y), then decrements."""
 
@@ -590,24 +550,6 @@ class TestGetChest:
         assert not any("Invalid member #!" in m for m in town.text_log.history)
         assert not any("Nobody selected!" in m for m in town.text_log.history)
         assert not town.is_finished
-
-
-class TestSearchTown:
-    """(h) S in town: member prompt + searchLocation flow (labels / "Nothing here!")."""
-
-    def test_town_search_finds_label(self, asset_mgr, sample_party):
-        # Ambrosia (13) has CARD_OF_DEATH at (55, 27)
-        town = TownScreen(party=sample_party, map_id=13, asset_mgr=asset_mgr, start_x=55, start_y=27)
-        key(town, pygame.K_s)
-        assert town.text_log.is_waiting_for_input
-        answer(town, "1")
-        assert any("You found Card of Death." in m for m in town.text_log.history)
-        assert sample_party.members[0].cards[0] == 1
-
-    def test_town_search_nothing_here(self, town):
-        key(town, pygame.K_s)
-        answer(town, "1")
-        assert any(m == "Nothing here!" for m in town.text_log.history)
 
 
 class TestTalkOverworld:

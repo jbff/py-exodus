@@ -1516,7 +1516,7 @@ def test_navigation_arrow_keys_only_no_wasd(pygame_setup, asset_mgr, sample_part
     ow = OverworldScreen(party=sample_party, map_id=0, asset_mgr=asset_mgr)
     start_x, start_y = sample_party.x, sample_party.y
 
-    # WASD keys must NOT move the avatar (they are reserved for Wear, Attack, Search, Descend)
+    # WASD keys must NOT move the avatar (they are reserved for Wear, Attack, Steal, Descend)
     ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_w, unicode="w"))
     assert (sample_party.x, sample_party.y) == (start_x, start_y)
     ow.text_log.cancel_prompt()
@@ -1578,18 +1578,19 @@ def test_all_overland_commands_a_to_z(pygame_setup, asset_mgr, sample_party):
     assert ow.text_log.history[-1] == "Done!"
     assert sample_party.members[1].weapons[WeaponType.AXE] == 1
 
-    # L - OPEN with a direction (Java SIP:212-219; there is no Look command)
+    # L - Look with a direction (LairWare UltimaMain.c:1179, 2063-2094)
     ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_l))
     assert ow.text_log.is_waiting_for_input
-    assert "OPEN" in ow.text_log.current_prompt
+    assert "Look" in ow.text_log.current_prompt
     ow.text_log.submit_input("N")
-    assert any(m in ("Opened!", "Can't!") for m in ow.text_log.history)
+    assert ow.text_log.history[-1].startswith("Look-> ")
 
-    # S - Search
+    # S - Steal: who, then a direction (LairWare UltimaMain.c:1186, 2248-2259)
     ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_s))
-    if ow.text_log.is_waiting_for_input:
-        ow.text_log.submit_input("1")
-    assert any("Search:" in msg or "searches" in msg or "Nothing here" in msg for msg in ow.text_log.history)
+    assert "STEAL" in ow.text_log.current_prompt
+    ow.text_log.submit_input("1")
+    ow.text_log.submit_input("N")
+    assert not ow.text_log.is_waiting_for_input
 
     # N - Negate Time — powder → 10-turn QUICKNESS aura
     # (GBC battle2.c:722-733 — amended 2026-11-14; LW UltimaMain.c:2129-2139)
@@ -1627,7 +1628,8 @@ def test_all_overland_commands_a_to_z(pygame_setup, asset_mgr, sample_party):
     assert "UNLOCK" in ow.text_log.current_prompt
     ow.text_log.submit_input("1")
     ow.text_log.submit_input("N")
-    assert any(m in ("Unlocked!", "Can't!") for m in ow.text_log.history)
+    # LW Unlock (UltimaMain.c:2408-2409): north or south is NotHere.
+    assert ow.text_log.history[-1] == "Not Here!"
 
 
 def test_ready_weapon_and_wear_armor_a_p_flow_and_inventory(pygame_setup, asset_mgr, sample_party):

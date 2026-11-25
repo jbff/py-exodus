@@ -1,8 +1,8 @@
-"""Other commands (bribe, steal, dig, pray, search, score) and the item
-helpers they share.
+"""Other commands (bribe, dig, pray, search, score), the Steal and Look
+letter commands, and the item helpers they share.
 
-Rules: LairWare OtherCommand and Steal (UltimaMisc.c:2262-2510;
-UltimaMain.c:2248-2287). Port additions kept from the 2026-11-14 GBC work:
+Rules: LairWare OtherCommand, Steal and Look (UltimaMisc.c:2262-2510;
+UltimaMain.c:2063-2094, 2248-2287). Port additions kept from the 2026-11-14 GBC work:
 SCORE (the move counter) and the Alchemist's lack of a steal bonus (LW
 gives one; ledger ask row). KISS is not a U3 word.
 
@@ -184,11 +184,11 @@ def do_search(member: PartyMember, x: int, y: int, map_id, map_name: str = "") -
 
     GBC gates the four sites on ``peermap==12`` (Ambrosia — py map id 13)
     and credits ``players[pnum].markcard`` per member — an idempotent bit
-    ``|=``, so a repeat visit grants nothing (coordinator fix round 2026-11-14:
-    the port's ``world/search.py:63-65`` convention is adopted — an owned
-    card returns None and the site answers NO message). py credits the
-    member's ``cards`` slots (0=Death, 1=Sol, 2=Moons, 3=Love). The existing
-    'S' search command is untouched.
+    ``|=``, so a repeat visit grants nothing (coordinator fix round
+    2026-11-14: an owned card returns None and the site answers NO
+    message). py credits the member's ``cards`` slots (0=Death, 1=Sol,
+    2=Moons, 3=Love). LairWare's only search (UltimaMisc.c:2445-2453;
+    ledger C-18); there is no S Search letter (S is Steal, C-23).
     """
     if not _matches_map(map_id, map_name, "AMBROSIA"):
         return NO_EFFECT
@@ -319,6 +319,70 @@ def search_flow(text_log: TextLog, party: Party, x: int, y: int, game_map) -> No
             text_log.add_message(message)
 
     _prompt_member(text_log, "SEARCH", on_member)
+
+
+def look_flow(text_log: TextLog, name_at) -> None:
+    """LairWare Look (UltimaMain.c:2063-2094), the L letter command:
+    ``UPrintMessage(69); GetDirection(0); UPrintWin("\\p->");`` then the
+    name of what stands there. ``name_at(direction)`` names the monster
+    there or else the tile (``look_tile_name``). LW's "make it real" (a
+    monster drawn into the map becomes a live wanderer, 2071-2087) is not
+    ported (ledger C-24, wontfix)."""
+
+    def on_dir(d: str) -> None:
+        direction = Direction.from_name_or_key(d)
+        if direction is None:
+            text_log.add_message(CANCELLED if not d.strip() else INVALID_DIRECTION)
+            return
+        text_log.add_message(f"Look-> {name_at(direction)}")
+
+    text_log.prompt("Look-Direction? (N,S,E,W):", callback=on_dir, single_char=True)
+
+
+# LairWare Tiles.plist (refs/ultima3/Resources/English.lproj/Strings): the
+# names PrintTile(tile / 4, false) prints, by the port's tile index (the
+# same 0-63 order).
+LW_TILE_NAMES: tuple[str, ...] = (
+    "Water", "Grass", "Brush", "Forest", "Mountains", "Dungeon", "Towne",
+    "Castle", "Floor", "Chest", "Horse", "Frigate", "Whirlpool", "Serpent",
+    "Man-O-War", "Pirate", "Merchant", "Jester", "Guard", "Lord British",
+    "Fighter", "Cleric", "Wizard", "Thief", "Orc", "Skeleton", "Giant",
+    "Daemon", "Pincher", "Dragon", "Balron", "Exodus", "Force Field", "Lava",
+    "Moon Gate", "Wall", "Void", "Wall", "A", "B", "C", "D", "E", "F", "G",
+    "H", "I", "U", "Y", "L", "M", "N", "O", "P", "W", "R", "S", "T", "Snake",
+    "Snake", "Magic", "Fire", "Shrine", "Ranger",
+)
+
+
+def look_tile_name(tile) -> str:
+    """PrintTile(temp / 4, false) (UltimaText.c:630-634): the tile's
+    singular name. Port-only tiles read their own name ("locked_door" is
+    a Door)."""
+    if tile is None:
+        return LW_TILE_NAMES[36]
+    index = getattr(tile, "index", -1)
+    if 0 <= index < len(LW_TILE_NAMES):
+        return LW_TILE_NAMES[index]
+    name = str(getattr(tile, "name", "") or "")
+    if name == "locked_door":
+        return "Door"
+    return name.replace("_", " ").title() or LW_TILE_NAMES[36]
+
+
+def look_monster_name(tile_name: str, variant: int = 0, plural: bool = False, asset_mgr=None) -> str:
+    """PrintMonster(which, plural, variant) (UltimaText.c:642-660): the
+    variant's name, else the type's, plural outside towns and castles."""
+    from py_exodus.world.monster_variants import plural_name, variant_name
+
+    if plural:
+        return plural_name(tile_name, variant)
+    named = variant_name(tile_name, variant)
+    if named:
+        return named
+    tile = asset_mgr.get_tile_by_name(tile_name) if asset_mgr is not None else None
+    if tile is not None:
+        return look_tile_name(tile)
+    return str(tile_name).replace("_", " ").title()
 
 
 # --- internal helpers ---

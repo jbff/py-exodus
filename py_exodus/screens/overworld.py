@@ -51,7 +51,6 @@ from py_exodus.ui.text_log import (
 from py_exodus.world.monster_variants import roll_variant, variant_name
 from py_exodus.world import doors as door_module
 from py_exodus.world import portal_entry
-from py_exodus.world import search as search_module
 from py_exodus.world import tile_effects
 from py_exodus.world import realtime
 
@@ -701,7 +700,8 @@ class OverworldScreen(BaseScreen):
         elif event.key == pygame.K_j:
             self._join_gold()
         elif event.key == pygame.K_l:
-            self._open()
+            # LairWare LetterCommand (UltimaMain.c:1179): L is Look.
+            self._look()
         elif event.key == pygame.K_m:
             self._prompt_modify_order()
         elif event.key == pygame.K_n:
@@ -715,7 +715,11 @@ class OverworldScreen(BaseScreen):
         elif event.key == pygame.K_r:
             self._prompt_ready_weapon()
         elif event.key == pygame.K_s:
-            self._search()
+            # LairWare LetterCommand (UltimaMain.c:1186): S is Steal (user
+            # ruling 2026-11-25, ledger C-23; Java's Search is gone).
+            special_commands.steal_flow(
+                self.text_log, self.party, self.party.x, self.party.y, self.game_map
+            )
         elif event.key == pygame.K_t:
             self._talk()
         elif event.key == pygame.K_u:
@@ -1049,26 +1053,29 @@ class OverworldScreen(BaseScreen):
         except ValueError:
             return None
 
-    def _open(self) -> None:
-        """L = OPEN with a direction (Java SIP:212-219 + BaseMap.openDoor)."""
-        self.text_log.prompt(
-            "OPEN> Direction? (N,S,E,W):",
-            callback=self._parse_and_open,
-            single_char=True,
-        )
+    def _look(self) -> None:
+        """L = Look (LairWare UltimaMain.c:2063-2094): the monster in that
+        direction, plural on the surface (``Party[3] != 2 && != 3``), else
+        the tile's name."""
+        def _name_at(d: Direction) -> str:
+            w = self.game_map.width if self.game_map else 64
+            h = self.game_map.height if self.game_map else 64
+            tx, ty = (self.party.x + d.dx) % w, (self.party.y + d.dy) % h
+            for c in self.creatures:
+                if c.get("x") == tx and c.get("y") == ty:
+                    tile = c.get("tile_name") or c.get("tile") or "orc"
+                    return special_commands.look_monster_name(
+                        tile, int(c.get("variant", 0) or 0), plural=True
+                    )
+            for obj in self.party.objects_on(self.game_map):
+                if obj.get("x") == tx and obj.get("y") == ty:
+                    return special_commands.look_monster_name(
+                        str(obj.get("tile", "")), asset_mgr=self.asset_mgr
+                    )
+            tile = self.game_map.get_tile(tx, ty) if self.game_map else None
+            return special_commands.look_tile_name(tile)
 
-    def _parse_and_open(self, d_str: str) -> None:
-        d = Direction.from_name_or_key(d_str)
-        if d is None:
-            self.text_log.add_message("Invalid direction!")
-            return
-        if self.game_map is None:
-            self.text_log.add_message("Can't!")
-            return
-        if door_module.open_door(self.game_map, self.party.x + d.dx, self.party.y + d.dy):
-            self.text_log.add_message("Opened!")
-        else:
-            self.text_log.add_message("Can't!")
+        special_commands.look_flow(self.text_log, _name_at)
 
     def _prompt_hand_equipment(self) -> None:
         """LairWare HandEquip (UltimaMain.c:1744-1944): food, gold,
@@ -1132,10 +1139,6 @@ class OverworldScreen(BaseScreen):
                 self.game_map,
                 creatures=self.creatures,
             )
-        elif c == "STEAL":
-            special_commands.steal_flow(
-                self.text_log, self.party, self.party.x, self.party.y, self.game_map
-            )
         elif c == "DIG":
             special_commands.dig_flow(
                 self.text_log, self.party, self.party.x, self.party.y, self.game_map
@@ -1159,53 +1162,6 @@ class OverworldScreen(BaseScreen):
         implementation now lives in member_prompts.prompt_ready_weapon.
         """
         prompt_ready_weapon(self.text_log, self.party, self.asset_mgr, turn_callback=self._consume_pass_turn)
-
-    def _search(self) -> None:
-        """SEARCH: a member 1-4 searches the party's tile (Java SIP:240-250).
-
-        Java truth: ``exodus/BaseMap.searchLocation`` (BaseMap.java:855-937)
-        grants the label item once and awards 100 XP; anything else is
-        "Nothing here!". The portal and fountain checks below retain this
-        port's pre-existing overworld extras.
-        """
-        def _on_who(who_str: str) -> None:
-            pm = self._parse_member(who_str)
-            if pm is None:
-                self.text_log.add_message("Invalid member #!")
-                return
-
-            desc = search_module.search_location(
-                self.game_map, self.party, pm, self.party.x, self.party.y
-            )
-            if desc is not None:
-                self.text_log.add_message(f"You found {desc}.")
-                return
-
-            # Check portals
-            portal = None
-            if self.game_map is not None:
-                for p in self.game_map.portals:
-                    if p.x == self.party.x and p.y == self.party.y:
-                        portal = p
-                        break
-
-            if portal is not None:
-                self.text_log.add_message(f"Search: Thou discoverest an entrance to destination #{portal.dest_map_id}!")
-                return
-
-            # Check fountain
-            tile = self.game_map.get_tile(self.party.x, self.party.y) if self.game_map else None
-            tile_name = getattr(tile, "name", "ground").lower()
-            if "fountain" in tile_name:
-                self.text_log.add_message("Search: A clear bubbling fountain! Waters refresh the party.")
-                for m in self.party.members:
-                    if not m.is_dead():
-                        m.hp = min(m.max_hp, m.hp + 25)
-                return
-
-            self.text_log.add_message("Nothing here!")
-
-        self.text_log.prompt("SEARCH> Which party member? (1-4):", callback=_on_who, single_char=True)
 
     def _talk(self) -> None:
         """TALK: a member 1-4 speaks at a chosen direction (Java SIP:152-210).

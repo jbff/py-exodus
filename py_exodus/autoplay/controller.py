@@ -2303,8 +2303,11 @@ class AutoPlayController:
         living_idx = next((i + 1 for i, m in enumerate(party.members) if not m.is_dead()), 1)
         if uncollected:
             def _search() -> int:
+                # LairWare's card search is the Other word SEARCH
+                # (UltimaMisc.c:2445-2453); S is Steal (ledger C-23).
+                self._queue_text("SEARCH", enter=True)
                 self._queue_text(str(living_idx), enter=False)
-                return self._emit_key(sm, pygame.K_s)
+                return self._emit_key(sm, pygame.K_o)
 
             return (
                 Destination(frozenset((tx, ty) for tx, ty, _ in uncollected), Transport.FOOT, "cards"),

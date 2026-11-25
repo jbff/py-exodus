@@ -205,8 +205,8 @@ def build_dungeon_map(
     # 0 Force, 1 Fire, 2 Snake, 3 Kings). The maps.xml labels (the 2015
     # labeler's) no longer retype tiles: one turned the Snake dungeon's
     # writing at (9, 9, 4) into a fountain and one called the Time
-    # dungeon's Kings mark at (11, 15, 7) Fire. They stay on the map for
-    # the search command.
+    # dungeon's Kings mark at (11, 15, 7) Fire. They stay on the map as
+    # data only (LairWare has no Search letter, ledger C-23).
     fountain_by_x_mod = (
         DungeonTile.FOUNTAIN_POISON,
         DungeonTile.FOUNTAIN_HEAL,
