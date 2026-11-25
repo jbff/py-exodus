@@ -10,7 +10,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from py_exodus.autoplay.batch import PARTY_SETUP
-from py_exodus.constants import Profession, Race, Sex
+from py_exodus.constants import ArmorType, Profession, Race, Sex, WeaponType
 from py_exodus.entities.character import Character
 from py_exodus.save_system import SaveSystem
 
@@ -31,6 +31,9 @@ def reset_new_game(saves_dir: Path | None = None) -> None:
         Character(
             name, Sex.MALE if sex == "M" else Sex.FEMALE, Race[race], Profession[prof],
             strength=st, dexterity=dx, intelligence=it, wisdom=ws,
+            # LairWare CreateChar (UltimaMain.c:814-817): readied Dagger and
+            # Cloth, as the roster screen gives (user ruling Q55).
+            weapon=WeaponType.DAGGER, armor=ArmorType.CLOTH,
         )
         for name, sex, race, prof, st, dx, it, ws in PARTY_SETUP
     ]

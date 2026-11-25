@@ -98,3 +98,36 @@ def test_old_roster_with_long_name_and_no_gear_still_loads(tmp_path):
     assert loaded.weapon == WeaponType.NONE
     assert loaded.armor == ArmorType.NONE
     assert loaded.max_hp == 150
+
+
+def test_createchar_kit_also_in_batch_and_reset_parties(tmp_path):
+    """UltimaMain.c:814-817 (CreateChar), user ruling Q55 (follow LairWare):
+
+        Player[player][41] = 1;      // Cloth
+        Player[player][40] = 1;      // pre-readied
+        Player[player][49] = 1;      // Dagger
+        Player[player][48] = 1;      // pre-readied
+
+    The headless batch party (autoplay/batch.py ``build_party``) and the
+    roster written by scripts/reset_new_game.py are new characters too, so
+    they start with the same readied Dagger and Cloth as the roster screen's.
+    """
+    import importlib.util
+    from pathlib import Path
+
+    from py_exodus.autoplay import batch
+
+    for m in batch.build_party().members:
+        assert m.weapon == WeaponType.DAGGER, m.name
+        assert m.armor == ArmorType.CLOTH, m.name
+
+    script = Path(__file__).resolve().parent.parent / "scripts" / "reset_new_game.py"
+    spec = importlib.util.spec_from_file_location("reset_new_game", script)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    mod.reset_new_game(tmp_path)
+    roster = SaveSystem.load_roster(tmp_path / "roster.json")
+    assert len(roster) == 4
+    for c in roster:
+        assert c.weapon == WeaponType.DAGGER, c.name
+        assert c.armor == ArmorType.CLOTH, c.name

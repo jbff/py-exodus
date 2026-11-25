@@ -56,7 +56,7 @@ def _assets():
 
 
 def build_party():
-    from py_exodus.constants import Profession, Race, Sex
+    from py_exodus.constants import ArmorType, Profession, Race, Sex, WeaponType
     from py_exodus.entities.character import Character
     from py_exodus.entities.party import Party
 
@@ -73,6 +73,10 @@ def build_party():
                 intelligence=i,
                 wisdom=w,
                 gold=150,
+                # LairWare CreateChar (UltimaMain.c:814-817): every new
+                # character owns a readied Dagger and Cloth (user ruling Q55).
+                weapon=WeaponType.DAGGER,
+                armor=ArmorType.CLOTH,
             )
         )
     party.x, party.y = 44, 20
