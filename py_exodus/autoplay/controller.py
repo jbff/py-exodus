@@ -255,6 +255,7 @@ class AutoPlayController:
         self._wear_member_idx: int = 1
         self._wear_item_letter: str = "b"
         self._join_gold_member_idx: int = 1
+        self._town_danger_tiles: set[tuple[int, int]] = set()
         self._hand_from_idx: int = 1
         self._hand_to_idx: int = 2
         self._hand_item: tuple[str, str] = ("w", "b")
@@ -704,25 +705,35 @@ class AutoPlayController:
         # OverworldScreen (Sosaria = 0, Ambrosia = 13)
         return self._step_overworld(state_machine, screen, party, px, py, goal)
 
-    def _step_town(self, state_machine: StateMachine, screen, party, px: int, py: int, goal: Goal) -> int | None:
+    def _step_town(
+        self, state_machine: StateMachine, screen, party, px: int, py: int, goal: Goal,
+        roamers_ok: bool = False,
+    ) -> int | None:
         self._sell_plan = None  # a talk in progress answers prompts, not steps
         gmap = screen.game_map
         map_id = getattr(gmap, "id", getattr(screen, "map_id", party.map_id))
         # Ledger B-15 (LairWare Combat, UltimaSpellCombat.c:873-876): any
         # town fight turns every guard and Lord British into hunters for
-        # the visit, and a guard fight cannot be won (guards take no melee
-        # damage, B-11; 8 come, B-09). Keep out of reach of hostile people,
-        # and once the guards hunt, bribe the one at hand or walk out.
-        danger = self._town_danger(gmap, map_id)
-        self._town_danger_tiles = danger
+        # the visit. Eight guards come to that fight (B-09) and Lord British
+        # can't be hurt (B-11), so it is a hard fight at best. Keep out of
+        # reach of hostile people, and once the guards hunt, bribe the one
+        # at hand or walk out.
+        pen_danger, roam_danger = self._town_danger_parts(gmap, map_id)
+        full_danger = pen_danger | roam_danger
         if self._town_alarm(gmap, map_id):
-            return self._flee_town(state_machine, gmap, party, px, py, danger)
+            self._town_danger_tiles = full_danger
+            return self._flee_town(state_machine, gmap, party, px, py, full_danger)
+        # A roaming hostile (Grey's thief) can stand across every route to a
+        # goal; then go anyway (second pass, roamers_ok) rather than walk out
+        # and back in forever. Penned ones (shop merchants) stay avoided.
+        danger = pen_danger if roamers_ok else full_danger
+        self._town_danger_tiles = danger
         # Lord British raises max HP without healing (LairWare Transact,
         # UltimaMain.c:2373-2380), so level first, rest after.
         british_levels = map_id == 1 and any(self._can_level_at_british(m) for m in party.members)
         if (
             map_id not in _UNSAFE_REST_TOWN_MAPS
-            and (px, py) not in danger
+            and (px, py) not in full_danger
             and not british_levels
             and needs_heal(party)
             and self._can_rest_indoors(party, goal)
@@ -826,7 +837,7 @@ class AutoPlayController:
                 )
             finally:
                 gmap.npcs = saved_npcs
-            # Chests next to a hostile merchant's walk (the gold room's row
+            # Chests next to a hostile merchant's walk (the armour shop's row
             # 55) are left: opening one starts a fight that sets the guards
             # hunting (B-15).
             open_chests = (dg_chests & reach) - danger
@@ -1092,11 +1103,14 @@ class AutoPlayController:
         if key is not None:
             return key
 
+        if roam_danger and not roamers_ok:
+            # No goal route kept clear of a roaming hostile: try once more
+            # with only the people in the way before giving up on the town.
+            return self._step_town(state_machine, screen, party, px, py, goal, roamers_ok=True)
+
         # Default in town: walk to nearest exit border (e.g. Britain's east gate)
         return self._walk_out_of_town(state_machine, gmap, party, px, py, npc_tiles)
 
-    _PEOPLE_LAND = frozenset({"grass", "brush", "forest", "floor"})
-    _PEOPLE_SEA = frozenset({"pirate", "serpent", "squid"})
     # A hostile person penned in a room this small (a shop's merchant, the
     # Castle British cell) is kept off by its whole pen; one that roams
     # the town by its current tile.
@@ -1117,20 +1131,30 @@ class AutoPlayController:
 
     @classmethod
     def _town_danger(cls, gmap, map_id) -> set[tuple[int, int]]:
-        """Tiles where a hostile (0xC0) person can attack the party on its
+        pen, roam = cls._town_danger_parts(gmap, map_id)
+        return pen | roam
+
+    @classmethod
+    def _town_danger_parts(cls, gmap, map_id) -> tuple[set[tuple[int, int]], set[tuple[int, int]]]:
+        """(penned, roaming) danger: tiles where a hostile (0xC0) person can attack the party on its
         next move: LairWare MoveMonsters (UltimaMisc.c:1197-1203) attacks
         when the person's step toward the party lands on it, i.e. from any
         of the 8 neighbours, across a counter too. For a person penned in a
         small room: every tile next to the pen. For a roaming one: within 2
         of it (it closes 1 a turn). Not Castle Exodus (fought through)."""
-        danger: set[tuple[int, int]] = set()
+        from py_exodus.screens.town import TownScreen
+
+        pen_danger: set[tuple[int, int]] = set()
+        roam_danger: set[tuple[int, int]] = set()
         if gmap is None or map_id == _MAP_EXODUS:
-            return danger
+            return pen_danger, roam_danger
         for n in getattr(gmap, "npcs", ()):
             if getattr(n, "movement", None) != "ATTACK_AVATAR":
                 continue
             kind = str(getattr(n, "tile_name", "")).lower()
-            walk = frozenset({"water"}) if kind in cls._PEOPLE_SEA else cls._PEOPLE_LAND
+            walk = (
+                frozenset({"water"}) if kind in TownScreen._PEOPLE_SEA else TownScreen._PEOPLE_LAND_TILES
+            )
             pen = {(n.x, n.y)}
             stack = [(n.x, n.y)]
             while stack and len(pen) <= cls._HUNTER_PEN_MAX:
@@ -1143,40 +1167,52 @@ class AutoPlayController:
                         if str(getattr(gmap.get_tile(*q), "name", "")).lower() in walk:
                             pen.add(q)
                             stack.append(q)
-            centres, r = (pen, 1) if len(pen) <= cls._HUNTER_PEN_MAX else ({(n.x, n.y)}, 2)
+            penned = len(pen) <= cls._HUNTER_PEN_MAX
+            centres, r = (pen, 1) if penned else ({(n.x, n.y)}, 2)
+            out = pen_danger if penned else roam_danger
             for cx, cy in centres:
                 for dx in range(-r, r + 1):
                     for dy in range(-r, r + 1):
-                        danger.add((cx + dx, cy + dy))
-        return danger
+                        out.add((cx + dx, cy + dy))
+        return pen_danger, roam_danger
 
     def _flee_town(self, state_machine, gmap, party, px: int, py: int, danger) -> int | None:
         """The guards hunt (B-15): bribe a guard standing N/S/E/W of the
         party (LairWare Bribe, UltimaMisc.c:2446-2464: 100 gold, any guard
-        leaves), else walk for the nearest exit keeping out of reach."""
+        leaves), else walk for the nearest exit keeping out of reach. No
+        Join Gold first: that turn is the guard's attack, so with nobody
+        holding 100 gold the party steps away instead."""
         living = [(i + 1, m) for i, m in enumerate(party.members) if not m.is_dead()]
-        if living and party.gold >= 100:
-            for d_g in (Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST):
-                at = (px + d_g.dx, py + d_g.dy)
-                if any(
-                    (n.x, n.y) == at and getattr(n, "tile_index", -1) == 18
-                    for n in getattr(gmap, "npcs", ())
-                ):
-                    briber_idx, briber = max(living, key=lambda im: im[1].gold)
-                    if briber.gold < 100:
-                        self._join_gold_member_idx = briber_idx
-                        return self._emit_key(state_machine, pygame.K_j)
-                    self._queue_text("BRIBE", enter=True)
-                    self._queue_text(f"{briber_idx}{d_g.name[0].lower()}", enter=False)
-                    return self._emit_key(state_machine, pygame.K_o)
+        if living:
+            briber_idx, briber = max(living, key=lambda im: im[1].gold)
+            if briber.gold >= 100:
+                for d_g in (Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST):
+                    at = (px + d_g.dx, py + d_g.dy)
+                    if any(
+                        (n.x, n.y) == at and getattr(n, "tile_index", -1) == 18
+                        for n in getattr(gmap, "npcs", ())
+                    ):
+                        self._queue_text("BRIBE", enter=True)
+                        self._queue_text(f"{briber_idx}{d_g.name[0].lower()}", enter=False)
+                        return self._emit_key(state_machine, pygame.K_o)
         npc_tiles = {(n.x, n.y) for n in getattr(gmap, "npcs", ())}
+        hunters = [
+            (n.x, n.y) for n in getattr(gmap, "npcs", ())
+            if getattr(n, "movement", None) == "ATTACK_AVATAR"
+        ]
         return self._walk_out_of_town(
-            state_machine, gmap, party, px, py, npc_tiles, safe=npc_tiles | (danger - {(px, py)})
+            state_machine, gmap, party, px, py, npc_tiles,
+            safe=npc_tiles | (danger - {(px, py)}), hunters=hunters,
         )
 
-    def _walk_out_of_town(self, state_machine, gmap, party, px, py, npc_tiles, safe=None) -> int | None:
+    def _walk_out_of_town(
+        self, state_machine, gmap, party, px, py, npc_tiles, safe=None, hunters=(),
+    ) -> int | None:
         """Step for the nearest town edge: around ``safe`` tiles if given
-        and a way exists, else around the people, else straight."""
+        and a way exists, else around the people, else straight. On those
+        fallbacks a step that would end next to a hunter (diagonals too:
+        MoveMonsters attacks from all 8 neighbours, UltimaMisc.c:1197-1203)
+        gives way to one at least 2 from every hunter, nearest the exit."""
         if py == gmap.height - 1:
             return self._emit_key(state_machine, pygame.K_DOWN)
         if py == 0:
@@ -1198,6 +1234,7 @@ class AutoPlayController:
                 gmap, (px, py), exits, Transport.FOOT, party=party,
                 avoid_tiles=safe, prefer_paths=True, allow_locked_doors=has_key,
             )
+        fallback = d is None
         if d is None:
             d = find_2d_step(
                 gmap, (px, py), exits, Transport.FOOT, party=party,
@@ -1208,6 +1245,29 @@ class AutoPlayController:
                 gmap, (px, py), exits, Transport.FOOT, party=party,
                 prefer_paths=True, allow_locked_doors=has_key,
             )
+
+        def _clear(xy) -> bool:
+            return all(max(abs(xy[0] - hx), abs(xy[1] - hy)) >= 2 for hx, hy in hunters)
+
+        if fallback and hunters and (d is None or not _clear((px + d.dx, py + d.dy))):
+            best = None
+            for cand in (Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST):
+                nxt = (px + cand.dx, py + cand.dy)
+                if nxt in npc_tiles or not _clear(nxt):
+                    continue
+                if not (0 <= nxt[0] < gmap.width and 0 <= nxt[1] < gmap.height):
+                    continue
+                if not can_move_to(gmap, nxt[0], nxt[1], Transport.FOOT, party=party):
+                    continue
+                cost = find_2d_step_and_cost(
+                    gmap, nxt, exits, Transport.FOOT, party=party,
+                    avoid_tiles=npc_tiles, prefer_paths=True, allow_locked_doors=has_key,
+                )[1]
+                key = 0 if nxt in exits else (cost if cost is not None else 10**9)
+                if best is None or key < best[0]:
+                    best = (key, cand)
+            if best is not None:
+                d = best[1]
         if d is not None:
             return self._step_or_unlock(state_machine, gmap, party, px, py, d)
         return self._emit_key(state_machine, pygame.K_SPACE)

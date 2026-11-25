@@ -116,9 +116,10 @@ def test_ship_parked_on_sosaria_does_not_open_the_pub_counter():
 
 # --- B-15: a town fight turns the guards and Lord British into hunters -----
 # (LairWare Combat, UltimaSpellCombat.c:873-876; user ruling 2026-11-25).
-# Guards take no melee damage (B-11) and 8 come to a fight (B-09), so a
-# hunting guard reaching the party is a wipe: autoplay keeps out of reach
-# of hostile people and, once the guards hunt, bribes or walks out.
+# Eight guards come to that fight (B-09) and Lord British can't be hurt
+# (B-11), so a hunting guard reaching the party is a hard fight at best:
+# autoplay keeps out of reach of hostile people and, once the guards hunt,
+# bribes or walks out.
 
 
 def _all_guards_hunt(town):
@@ -137,8 +138,8 @@ def _in_death_gulch_with_guards(p):
     return sm, sm.current_screen
 
 
-def test_raid_keeps_out_of_the_gold_room_merchants_reach():
-    """The gold room's merchant (16,54, ctrl 0xC0) walks row 54 after the
+def test_raid_keeps_out_of_the_armour_merchants_reach():
+    """The armour shop's merchant (16,54, ctrl 0xC0) walks row 54 after the
     party; a party on row 55 gets attacked (MoveMonsters, UltimaMisc.c:
     1197-1203) and the fight turns all 15 guards. Its row-55 chests are
     never raid targets and the party never stands next to its walk."""
@@ -225,3 +226,56 @@ def test_hunting_guards_send_the_raid_out_of_town():
         sm.update(0.1)
     assert gm.get_tile(23, 56).name == "chest"
     assert cost() < start
+
+
+def _cheb(a, b):
+    return max(abs(a[0] - b[0]), abs(a[1] - b[1]))
+
+
+def _flee_setup(member_gold):
+    pygame.init()
+    pygame.font.init()
+    p = _raid_party()
+    for m in p.members:
+        m.gold = member_gold
+    sm, town = _in_death_gulch_with_guards(p)
+    gm = town.game_map
+    _all_guards_hunt(town)
+    guards = [n for n in gm.npcs if n.tile_index == 18]
+    town._move_people = lambda: None  # look at the party's step alone
+    town.avatar_x, town.avatar_y = 30, 32
+    return sm, town, guards
+
+
+def test_flee_fallback_steps_out_of_reach_of_every_hunter():
+    """Every exit route crosses a hunter's reach (15 hunting guards), so the
+    flee falls back to a route around people. Its step must still end at
+    least 2 from every hunter: a 0xC0 person attacks from any of the 8
+    neighbours (MoveMonsters, UltimaMisc.c:1197-1203), diagonals too."""
+    sm, town, guards = _flee_setup(member_gold=1000)
+    gm = town.game_map
+    spots = [(31, 31), (28, 32), (33, 33)]  # NE diagonal, 2 west, far SE
+    for g, xy in zip(guards, spots):
+        g.x, g.y = xy
+    gm.npcs = guards[: len(spots)]
+    ctrl = AutoPlayController(enabled=True)
+    sm.autoplay_enabled = True
+    ctrl.step(sm)
+    pos = (town.avatar_x, town.avatar_y)
+    assert pos != (30, 32)
+    assert min(_cheb(pos, (n.x, n.y)) for n in gm.npcs) >= 2, pos
+
+
+def test_no_join_gold_with_a_guard_at_hand():
+    """Join Gold takes a turn, and a guard next to the party attacks on it.
+    With nobody holding the 100 gold, step away instead."""
+    sm, town, guards = _flee_setup(member_gold=60)
+    gm = town.game_map
+    guards[0].x, guards[0].y = 31, 32  # east, bribable but nobody has 100
+    gm.npcs = guards[:1]
+    ctrl = AutoPlayController(enabled=True)
+    sm.autoplay_enabled = True
+    key = ctrl.step(sm)
+    assert key != pygame.K_j
+    pos = (town.avatar_x, town.avatar_y)
+    assert _cheb(pos, (31, 32)) >= 2, pos

@@ -129,3 +129,45 @@ def test_guild_see_more_is_declined():
     assert ctrl._handle_town_prompt(sm, screen) == pygame.K_n
     log.lines = ["Avast ye mate!"]  # the opening offer is still accepted
     assert ctrl._handle_town_prompt(sm, screen) == pygame.K_y
+
+
+def test_grey_guild_reached_with_the_thief_near_its_counter():
+    """Grey's thief (ctrl 0xC0) roams; its reach covers the guild's stand.
+    With no route around that reach, autoplay still goes for the guild
+    (a thief fight can be won) instead of walking out, re-entering and
+    leaving again (review of B-15)."""
+    from py_exodus.world.map import MapNpc
+
+    pygame.init()
+    rng = random.getstate()
+    try:
+        random.seed(0)
+        am = batch._assets()
+        p = _make_party(
+            level=5, exp=500, marks=[0, 0, 0, 0],
+            weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC, gold=1500,
+        )
+        for m in p.members:
+            m.keys = 0
+            m.food = 400
+        p.map_id = 6
+        sm = StateMachine(asset_mgr=am, audio=None)
+        ts = TownScreen(party=p, asset_mgr=am, map_id=6, start_x=1, start_y=32)
+        gm = ts.game_map
+        thief = next(n for n in gm.npcs if n.movement == "ATTACK_AVATAR")
+        thief.x, thief.y = 33, 23  # two south of the guild stand (33, 21)
+        # Only the guild's merchant and the thief, who stays put.
+        gm.npcs = [thief] + [n for n in gm.npcs if (n.x, n.y) == (33, 19)]
+        ts._move_people = lambda: None
+        sm.set_screen(ts)
+        assert evaluate_goal(p, 6) == Goal.BUY_TORCHES
+        ctrl = AutoPlayController(enabled=True)
+        assert (33, 21) in ctrl._town_danger(gm, 6)
+        for _ in range(300):
+            ctrl.step(sm)
+            sm.update(0.1)
+            if sum(m.torches for m in p.members) > 0 or sm.current_screen is not ts:
+                break
+        assert sum(m.torches for m in p.members) > 0, (ts.avatar_x, ts.avatar_y)
+    finally:
+        random.setstate(rng)
