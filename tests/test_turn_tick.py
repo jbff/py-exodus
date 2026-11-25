@@ -1,16 +1,12 @@
-"""Per-turn tick — submorsels, per-member food/gold, regen rules.
+"""Per-turn tick: food, starving, poison, healing and mana, per member.
 
-Java truth: ``exodus/Party.java:592-639`` (``Party.endTurn``) and
-``objects/SaveGame.java:190-192,390-392`` (per-member ``food``/``gold`` and
-``adjustGold`` capping a member's purse at 9999).
-
-Rule split (USER-DIRECTED GBC-RULES DEVIATION, 2026-11-14, supersedes the
-2026-11-10 interpretation for the HP-regen and starvation rules ONLY): at
-each meal crossing a member with food 0 takes 5 damage and a fed, unpoisoned
-member heals +1 HP (GBC funcs5.c:741-789; LW UltimaMisc.c:1428-1493).
-Mana (+1/turn surface, +1 per 4 turns underground, Druids double the local
-rate) and poison (-1 HP per turn) stay on the per-turn tick
-(``Party.tick_regen``, 2026-11-10 interpretation kept).
+LairWare AgeChars ($7470, UltimaMisc.c:1403-1468) and EatFood ($761D,
+1470-1488), by the user's rulings of 2026-11-25 (ledger T-16..T-20): one tick
+every Sosaria turn and every 4th turn elsewhere (Party[3] > 0); each tick
+eats 40 of a member's 400 pool, takes 5 from a member with no food left,
+1 from the poisoned, gives +1 MP (a Druid +2, Book of Lore) and, every 10th
+tick, +1 HP to every living member. Gold is per member (Java
+``objects/SaveGame.java:190-192,390-392``).
 """
 from __future__ import annotations
 
@@ -55,21 +51,23 @@ def hero(
 
 class TestSubmorselsTick:
     def test_main_map_food_decrements_on_11th_move(self):
-        """Sosaria/Exodus: 40 submorsels per move; 400 pool hits exactly 0 on
-        move 10 (no reset at 0), resets on move 11 → first food decrement."""
+        """Sosaria: a tick every turn, 40 of the 400 pool each; the pool hits
+        exactly 0 on move 10 (no reset at 0), crosses on move 11: food -1."""
         party = make_party(hero())
         hero_member = party.members[0]
         for _ in range(11):
-            party.end_turn(surface=True)
+            party.end_turn(sosaria=True)
         assert hero_member.food == hero().food - 1
 
-    def test_town_food_decrements_every_41_moves(self):
-        """Towns: 10 submorsels per move; 400 pool reaches 0 on move 40,
-        resets on move 41 → food -1."""
+    def test_town_food_decrements_on_the_11th_tick(self):
+        """Towns: a tick every 4th turn (the first turn ticks), 40 each; the
+        11th tick is turn 41: food -1."""
         party = make_party(hero(food=500))
         m = party.members[0]
-        for _ in range(41):
-            party.end_turn(surface=False)
+        for _ in range(40):
+            party.end_turn(sosaria=False)
+        assert m.food == 500
+        party.end_turn(sosaria=False)
         assert m.food == 499
         assert m.submorsels == 400
 
@@ -77,14 +75,14 @@ class TestSubmorselsTick:
         party = make_party(hero())
         # Drive submorsels to the crossing point and confirm reset.
         party.members[0].submorsels = 5
-        party.end_turn(surface=True)
+        party.end_turn(sosaria=True)
         assert party.members[0].submorsels == 400
         assert party.members[0].food == 149
 
     def test_moves_increment_once_per_tick(self):
         party = make_party(hero())
-        party.end_turn(surface=True)
-        party.end_turn(surface=False)
+        party.end_turn(sosaria=True)
+        party.end_turn(sosaria=False)
         assert party.moves == 2
 
     def test_each_member_ticks_its_own_submorsels(self):
@@ -94,7 +92,7 @@ class TestSubmorselsTick:
         party.members[1].food = 99900
         party.members[1].submorsels = 5
         for _ in range(11):
-            party.end_turn(surface=True)
+            party.end_turn(sosaria=True)
         # Member A started at 400 → crossed once on move 11.
         assert party.members[0].food == 149
         # Member B started at 5 → crossed below 0 on the very first move,
@@ -104,21 +102,16 @@ class TestSubmorselsTick:
         assert party.members[1].submorsels == 0
 
 
-
 class TestManaRegenTick:
-    """Original-rules mana regen — user-directed deviation from Java.
-
-    Java regen sat inside the meal crossing (Party.java:612-617) and could
-    exceed maxMana (`mana < maxMana` checked once, then +1, +1 more for a
-    Druid). The original tick regenerates every consumed turn: +1 per turn
-    on the surface, +1 every 4 turns in a town/dungeon, Druids double the
-    local rate, capped at max_mp.
-    """
+    """LairWare AgeChars mana (UltimaMisc.c:1418-1447): +1 MP a tick up to
+    the class cap, the dead and ashes included; a Druid +2 to its max (user
+    ruling 2026-11-25, Book of Lore). Java's exceed-max quirk is not
+    reproduced."""
 
     def test_surface_five_turns_gains_five_mana(self):
         party = make_party(hero(mp=0, max_mp=10))
         for _ in range(5):
-            party.tick_regen(surface=True)
+            party.age_chars(sosaria=True)
         assert party.members[0].mp == 5
 
     def test_druid_surface_gains_two_per_turn_capped_at_max(self):
@@ -126,141 +119,149 @@ class TestManaRegenTick:
             hero(name="D", mp=0, max_mp=10, profession=Profession.DRUID)
         )
         for _ in range(5):
-            party.tick_regen(surface=True)
+            party.age_chars(sosaria=True)
         assert party.members[0].mp == 10  # 2 x 5, capped at max
 
     def test_mana_never_exceeds_max(self):
-        """Java's exceed-max quirk (9 → 11 for a Druid) is NOT reproduced:
-        the original-rules tick caps at max_mp."""
         party = make_party(
             hero(name="D", mp=9, max_mp=10, profession=Profession.DRUID)
         )
         m = party.members[0]
-        party.tick_regen(surface=True)
+        party.age_chars(sosaria=True)
         assert m.mp == 10
 
         # Already at max: no regen.
-        party.tick_regen(surface=True)
+        party.age_chars(sosaria=True)
         assert m.mp == 10
 
     def test_town_mana_once_every_four_turns(self):
+        """Off Sosaria a tick every 4th call; LW's gTime[0] starts at 0, so
+        the first call ticks."""
         party = make_party(hero(mp=0, max_mp=10))
         m = party.members[0]
-        for _ in range(3):
-            party.tick_regen(surface=False)
-        assert m.mp == 0
-        party.tick_regen(surface=False)  # 4th turn
+        party.age_chars(sosaria=False)  # 1st call ticks
         assert m.mp == 1
-        for _ in range(4):
-            party.tick_regen(surface=False)  # turns 5-8
+        for _ in range(3):
+            party.age_chars(sosaria=False)
+        assert m.mp == 1
+        party.age_chars(sosaria=False)  # 5th call
         assert m.mp == 2
 
-    def test_town_druid_gains_two_in_the_same_fourth_turn_slot(self):
-        """Druids double the local rate — 2 in the SAME 4th turn slot,
-        not +1 every 2nd turn."""
+    def test_town_druid_gains_two_in_the_same_tick(self):
+        """Druids gain 2 in the same tick, not +1 every 2nd turn."""
         party = make_party(
             hero(name="D", mp=0, max_mp=10, profession=Profession.DRUID)
         )
         m = party.members[0]
-        for _ in range(3):
-            party.tick_regen(surface=False)
-        assert m.mp == 0  # not every 2nd turn
-        party.tick_regen(surface=False)  # 4th turn
+        party.age_chars(sosaria=False)
         assert m.mp == 2
-        for _ in range(4):
-            party.tick_regen(surface=False)
+        for _ in range(3):
+            party.age_chars(sosaria=False)
+        assert m.mp == 2  # not every 2nd turn
+        party.age_chars(sosaria=False)
         assert m.mp == 4
 
-    def test_no_mana_regen_for_disabled_members(self):
+    def test_ashes_regain_mana(self):
+        """UltimaMisc.c:1415-1449: the mana block runs before the status
+        test, so ashes regain MP as in LairWare."""
         party = make_party(hero(mp=0, max_mp=10, status=Status.ASH))
         m = party.members[0]
-        party.tick_regen(surface=True)
-        assert m.mp == 0
+        party.age_chars(sosaria=True)
+        assert m.mp == 1
 
-    def test_dead_members_never_regen(self):
-        party = make_party(hero(status=Status.DEAD, mp=0, max_mp=10))
+    def test_dead_members_regain_mana(self):
+        party = make_party(hero(status=Status.DEAD, hp=0, mp=0, max_mp=10))
         m = party.members[0]
-        party.tick_regen(surface=True)
-        assert m.mp == 0
+        party.age_chars(sosaria=True)
+        assert m.mp == 1
 
-    def test_regen_counter_is_count_based_across_screen_hops(self):
-        """The 4-turn slot counts consumed turns (move or pass — both route
-        through the tick), not wall-clock, and a surface hop does not reset
-        the underground cadence counter."""
+    def test_age_count_carries_across_screen_hops(self):
+        """The 4-call count (gTime[0]) is one party counter: Sosaria ticks
+        leave it alone, the next off-Sosaria calls carry on from it."""
         party = make_party(hero(mp=0, max_mp=10))
-        for _ in range(3):
-            party.tick_regen(surface=False)
-        party.tick_regen(surface=True)
-        assert party.members[0].mp == 1
+        party.age_chars(sosaria=False)  # ticks: count back to 4
+        party.age_chars(sosaria=False)  # 3
+        party.age_chars(sosaria=True)  # Sosaria tick, count untouched
+        assert party.members[0].mp == 2
+        party.age_chars(sosaria=False)  # 2
+        party.age_chars(sosaria=False)  # 1
+        assert party.members[0].mp == 2
+        party.age_chars(sosaria=False)  # 0: ticks
+        assert party.members[0].mp == 3
 
 
-class TestMealCrossingRegen:
-    """GBC meal-bound HP rules — USER-DIRECTED GBC-RULES DEVIATION
-    (2026-11-14, supersedes the 2026-11-10 interpretation for these two
-    rules): at each meal crossing (the ``submorsels < 0`` block in
-    ``end_turn``) a member with food 0 takes 5 damage and a member with
-    food > 0 heals +1 HP unless POISONED (GBC funcs5.c:741-789; LW
-    UltimaMisc.c:1428-1493). Both route through ``apply_damage`` — a wipe
-    raises ``PartyDeathException``."""
+class TestHealAndPoison:
+    """LairWare AgeChars (UltimaMisc.c:1454-1462): POISON! -1 HP a tick;
+    every 10th tick (gTime[1], one party counter) +1 HP to every member not
+    dead or ashes, the poisoned and starving too. Both route through
+    ``apply_damage``: a wipe raises ``PartyDeathException``."""
 
     def test_heal_caps_at_max_health(self):
         party = make_party(hero(hp=100, max_hp=100))
-        for _ in range(3):
-            party.tick_regen(surface=True)
+        for _ in range(10):
+            party.age_chars(sosaria=True)
         assert party.members[0].hp == 100
 
-    def test_poisoned_member_loses_one_hp_per_turn(self):
+    def test_poisoned_member_loses_one_hp_per_tick(self):
         party = make_party(hero(hp=50, status=Status.POISONED))
         m = party.members[0]
         for _ in range(5):
-            party.tick_regen(surface=True)
+            party.age_chars(sosaria=True)
         assert m.hp == 45
         assert m.status == Status.POISONED  # poison persists through tick damage
 
-    def test_poisoned_member_does_not_also_heal(self):
+    def test_poisoned_member_heals_on_the_tenth_tick_too(self):
         party = make_party(hero(hp=50, max_hp=100, status=Status.POISONED))
-        party.tick_regen(surface=True)
-        assert party.members[0].hp == 49
+        for _ in range(10):
+            party.age_chars(sosaria=True)
+        assert party.members[0].hp == 41
 
     def test_no_regen_for_dead_member(self):
         party = make_party(hero(hp=0, status=Status.DEAD))
-        party.tick_regen(surface=True)
+        for _ in range(10):
+            party.age_chars(sosaria=True)
         assert party.members[0].hp == 0
+
+    def test_heal_every_tenth_tick(self):
+        party = make_party(hero(hp=98, max_hp=100))
+        m = party.members[0]
+        for _ in range(9):
+            party.age_chars(sosaria=True)
+        assert m.hp == 98
+        party.age_chars(sosaria=True)
+        assert m.hp == 99
+        for _ in range(10):
+            party.age_chars(sosaria=True)
+        assert m.hp == 100
 
 
 class TestStarvation:
-    def test_starvation_is_meal_bound_not_turn_bound(self, monkeypatch):
-        """No crossing this turn → no starvation blow at all: the per-turn
-        2-damage tick is gone (superseded); 5 HP lands ONLY at the crossing."""
-        monkeypatch.setattr("py_exodus.entities.party.random.randint", lambda a, b: 1)
+    """LairWare EatFood (UltimaMisc.c:1477-1487): a member whose food (the
+    fraction too) is gone starves for 5 HP every tick."""
+
+    def test_food_zero_with_a_fraction_left_does_not_starve(self):
         party = make_party(hero(hp=50, food=0))
         m = party.members[0]
-        party.end_turn(surface=True)  # submorsels 400: no crossing on move 1
-        assert m.hp == 50
-        party.tick_regen(surface=True)  # mana/poison tick: no starvation
+        party.end_turn(sosaria=True)  # 400 → 360: the fraction is left
         assert m.hp == 50
 
-    def test_meal_crossing_at_food_zero_takes_5(self, monkeypatch):
-        monkeypatch.setattr("py_exodus.entities.party.random.randint", lambda a, b: 1)
+    def test_food_gone_takes_5(self):
         party = make_party(hero(hp=20, food=0))
         m = party.members[0]
         m.submorsels = 5
-        party.end_turn(surface=True)
+        party.end_turn(sosaria=True)
         assert m.hp == 15
 
-    def test_two_meal_crossings_take_exactly_two_5_damage_events(self, monkeypatch):
-        monkeypatch.setattr("py_exodus.entities.party.random.randint", lambda a, b: 1)
+    def test_starving_every_tick_once_gone(self):
         party = make_party(hero(hp=20, food=0))
         m = party.members[0]
         m.submorsels = 5
-        party.end_turn(surface=True)  # crossing #1: 20 → 15
-        assert m.hp == 15
-        m.submorsels = 5
-        party.end_turn(surface=True)  # crossing #2
+        party.end_turn(sosaria=True)  # 20 → 15, the pool stays empty
+        assert (m.hp, m.submorsels) == (15, 0)
+        party.end_turn(sosaria=True)
         assert m.hp == 10
 
-    def test_starvation_wipe_at_crossing_raises_party_death(self, monkeypatch):
-        monkeypatch.setattr("py_exodus.entities.party.random.randint", lambda a, b: 1)
+    def test_starvation_wipe_raises_party_death(self):
         party = make_party(
             hero(hp=1, food=0),
             hero(name="B", hp=1, food=0),
@@ -268,38 +269,18 @@ class TestStarvation:
         for m in party.members:
             m.submorsels = 5
         with pytest.raises(PartyDeathException):
-            party.end_turn(surface=True)
+            party.end_turn(sosaria=True)
 
-    def test_fed_member_heals_one_per_crossing_capped_at_max(self, monkeypatch):
-        monkeypatch.setattr("py_exodus.entities.party.random.randint", lambda a, b: 1)
-        party = make_party(hero(hp=98, max_hp=100))
-        m = party.members[0]
-        m.submorsels = 5
-        party.end_turn(surface=True)
-        assert m.hp == 99
-        m.submorsels = 5
-        party.end_turn(surface=True)
-        assert m.hp == 100
-
-    def test_poisoned_member_gets_no_crossing_heal(self, monkeypatch):
-        monkeypatch.setattr("py_exodus.entities.party.random.randint", lambda a, b: 1)
-        party = make_party(hero(hp=50, max_hp=100, status=Status.POISONED))
-        m = party.members[0]
-        m.submorsels = 5
-        party.end_turn(surface=True)
-        assert m.hp == 50  # GBC "not poisoned" gate: no +1 heal at the crossing
-        assert m.status == Status.POISONED
-
-    def test_meal_crossing_regen_lands_there_not_on_the_tick(self):
-        """The crossing heals +1 (GBC meal-bound regen); mana and poison
-        stay on the per-turn tick — no mana at the crossing."""
+    def test_meal_crossing_does_not_heal(self):
+        """Healing rides the 10th tick, not the meal; mana ticks every
+        tick."""
         party = make_party(hero(hp=50, max_hp=100, mp=0, max_mp=10))
         m = party.members[0]
         m.submorsels = 5
-        party.end_turn(surface=True)
+        party.end_turn(sosaria=True)
         assert m.food == 149
-        assert m.hp == 51  # +1 heal AT the meal crossing
-        assert m.mp == 0  # mana stays on the per-turn tick
+        assert m.hp == 50
+        assert m.mp == 1
 
 
 class TestPerMemberGold:
@@ -338,12 +319,8 @@ class TestPerMemberGold:
 
 
 class TestScreenTickRouting:
-    """Every consumed turn on every screen routes through the regen tick
-    (user-directed deviation) — mana and poison only, since the GBC
-    2026-11-14 ruling moved HP regen and starvation onto the meal crossing.
-    Surface for regen means the overworld SCREEN (Sosaria AND Ambrosia) —
-    the map_id in ("0","2") 40-submorsel decision is the food rule, not the
-    regen rule."""
+    """Every consumed overworld turn routes through AgeChars: every turn on
+    Sosaria, every 4th on Ambrosia (Party[3] > 0)."""
 
     @pytest.fixture
     def ow(self, pygame_setup, asset_mgr, monkeypatch):
@@ -378,36 +355,29 @@ class TestScreenTickRouting:
         return o
 
     def test_overworld_pass_counts_as_a_turn(self, ow):
-        import pygame
-
         m = ow.party.members[0]
         hp_before = m.hp
         for _ in range(5):
             ow.handle_event(
                 pygame.event.Event(pygame.KEYDOWN, key=pygame.K_SPACE, unicode=" ")
             )
-        # No per-turn HP regen (GBC meal-bound rules); 5 passes at 40
-        # submorsels each do not reach a crossing (200 of 400).
+        # Five ticks: 5 MP, no heal yet (the 10th tick), 200 of the pool.
         assert m.hp == hp_before
+        assert m.mp == 5
+        assert m.submorsels == 200
 
-    def test_move_crossing_heals_and_pass_does_not_starve(self, ow, monkeypatch):
-        import pygame
-
-        # Pin the party RNG so nothing random fires into the assertion.
-        monkeypatch.setattr("py_exodus.entities.party.random.randint", lambda a, b: 1)
+    def test_tenth_move_heals(self, ow):
         m = ow.party.members[0]
-        m.submorsels = 5
         hp_before = m.hp
-        ow.handle_event(
-            pygame.event.Event(pygame.KEYDOWN, key=pygame.K_UP, unicode="")
-        )
-        assert m.hp == hp_before + 1  # the move crossed a meal: +1 HP, fed member
+        for _ in range(10):
+            ow.handle_event(
+                pygame.event.Event(pygame.KEYDOWN, key=pygame.K_UP, unicode="")
+            )
+        assert m.hp == hp_before + 1
 
-    def test_ambrosia_food_drains_at_the_town_interval_no_regen(self, pygame_setup, asset_mgr, ow):
-        """map_id 13 (Ambrosia) drains food at the 10-submorsel town
-        interval (Java truth); the crossing regen has NO surface cadence
-        split (GBC meal-bound rules supersede the 2026-11-10 HP rule), and
-        11 passes at 10 submorsels never cross (110 of 400)."""
+    def test_ambrosia_ticks_every_fourth_turn(self, pygame_setup, asset_mgr, ow):
+        """map_id 13 (Ambrosia): Party[3] > 0, so AgeChars acts on turns 1,
+        5, 9 of 11: three ticks of 40."""
         m = ow.party.members[0]
         ow.map_id = 13
         ow.party.map_id = 13
@@ -416,6 +386,7 @@ class TestScreenTickRouting:
             ow.handle_event(
                 pygame.event.Event(pygame.KEYDOWN, key=pygame.K_SPACE, unicode=" ")
             )
-        assert m.hp == 50  # no per-turn regen, no crossing this turn count
+        assert m.hp == 50
         assert m.food == 150
-        assert m.submorsels == 400 - 110
+        assert m.submorsels == 400 - 120
+        assert m.mp == 3

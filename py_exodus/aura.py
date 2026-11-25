@@ -2,9 +2,10 @@
 ``AuraType`` enum at ``exodus/Constants.java:878-886``).
 
 The aura is a single typed effect with a turn duration. N (negate time) sets
-QUICKNESS for 6 turns (Java ``GameScreen.java:1089-1100``); ``pass_turn`` is
-ticked once per movement turn (Java ``GameScreen.finishTurn:714``). Monster
-turn-skipping and other consumers live in their own tasks; this module only
+QUICKNESS for 10 (LairWare NegateTime, ``gTimeNegate = 10``); ``pass_turn``
+counts it down where LairWare does: in FinishAll on turns the monsters would
+move (10 turns on foot, about 20 mounted) and once a combat round. Meals,
+moons, poison and healing carry on under it (ledger T-13). This module only
 provides the carrier.
 """
 from __future__ import annotations

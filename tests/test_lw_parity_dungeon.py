@@ -166,7 +166,9 @@ def test_dungeonmech_turning_takes_the_turn(turn):
     state.torchtime = 50
     evt = getattr(state, turn)()
     assert state.torchtime == 49
-    assert party.members[0].submorsels == 390
+    # AgeChars: the first call acts (gTime[0] starts at 0) and eats 40 of the
+    # 400 pool (UltimaMisc.c:1405-1410, 1449-1453).
+    assert party.members[0].submorsels == 360
     assert evt.type == DungeonEventType.COMBAT
 
 
@@ -569,3 +571,29 @@ def test_dungeonmech_once_when_the_prompt_is_cancelled(asset_mgr, key):
     screen.text_log.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_ESCAPE, unicode=""))
     assert not screen.text_log.is_waiting_for_input
     assert len(calls) == 1
+
+
+# --- D-01: AgeChars after every dungeon command, every 4th acts -------------
+
+
+def test_dungeonmech_agechars_every_fourth_command():
+    """UltimaDngn.c:183-189 (dungeonmech):
+
+        dungeonmech: /* $8FC2 */
+            ...
+            AgeChars();
+            ShowChars(false);
+
+    With Party[3] = 1 AgeChars acts on every 4th call (UltimaMisc.c:1405-1410):
+    poison, food, mana and healing tick every 4th dungeon command. No move is
+    counted and the moons stand still (MoonGateUpdate, UltimaMisc.c:1490-1493).
+    """
+    sick = Character("Sick", "M", Race.HUMAN, Profession.FIGHTER, hp=300, max_hp=300,
+                     status=Status.POISONED)
+    party = _party(sick)
+    state = DungeonState(_dmap(), start_x=4, start_y=4, start_z=0, party=party)
+    phase = party.moon_phase
+    for _ in range(8):
+        state._tick_turn(roll_encounter=False)
+    assert sick.hp == 298
+    assert party.moves == 0 and party.moon_phase == phase

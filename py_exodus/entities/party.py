@@ -12,7 +12,7 @@ from py_exodus.constants import (
     Transport,
 )
 from py_exodus import debug
-from py_exodus.aura import Aura, AuraType
+from py_exodus.aura import Aura
 from py_exodus.entities.character import Character
 
 
@@ -242,7 +242,8 @@ class Party:
         gold: int | None = None,
         food: int | None = None,
         moves: int = 0,
-        regen_turns: int = 0,
+        age_count: int = 0,
+        heal_count: int = 0,
         moon_phase: int = 12,
         moon_turns: int = 0,
         torch_duration: int = 0,
@@ -308,18 +309,18 @@ class Party:
         self.moves = moves
         self.torch_duration = torch_duration
 
-        # Per-turn regen counter (Party.tick_regen, user-directed deviation
-        # 2026-11-10): counts consumed turns for the underground 1-in-4
-        # mana cadence (HP regen is meal-bound — GBC deviation 2026-11-14).
-        # Persisted so a save/load does not reset the count-based slot.
-        self.regen_turns = regen_turns
+        # LairWare AgeChars counters (UltimaMisc.c:1405-1414): gTime[0]
+        # counts the off-Sosaria calls (a tick every 4th), gTime[1] the ticks
+        # (+1 HP every 10th). LW's globals start at 0. Persisted; saves
+        # without them load 0 (the retired ``regen_turns`` is ignored).
+        self.age_count = age_count
+        self.heal_count = heal_count
 
-        # Move-driven moon clock (user-directed GBC-rules deviation
-        # 2026-11-14): ``moon_phase`` is the 0..23 combined celestial phase
-        # the moongate routing and sky strip derive from; ``moon_turns``
-        # counts consumed turns (move or pass) behind the advance cadence —
-        # every 4th on the world surface maps, every 16th elsewhere. Both
-        # persisted so a save/load resumes the same integer phase.
+        # Move-driven moon clock (LairWare MoonGateUpdate, ledger W-03):
+        # ``moon_phase`` is the 0..23 combined celestial phase the moongate
+        # routing and sky strip derive from; ``moon_turns`` counts Sosaria
+        # turns (the moons stand still anywhere else), advancing every 4th.
+        # Both persisted so a save/load resumes the same integer phase.
         # A new game starts at 12, both moons at phase 4 with fresh counters:
         # LairWare ``gMoon[2] = {12,4}, gMoonDisp[2] = {'4','4'}``
         # (UltimaMain.c:36). Trammel = phase // 3, Felucca = phase % 8.
@@ -368,8 +369,9 @@ class Party:
         self.last_ship: dict[str, int] | None = None
 
         # The single typed aura the party carries (Java Context.getAura,
-        # objects/Aura.java): N (negate time) sets QUICKNESS for 6 turns and
-        # finishTurn ticks it via pass_turn (GameScreen.java:714, 728-731).
+        # objects/Aura.java): N (negate time) sets QUICKNESS (LairWare
+        # gTimeNegate = 10, ledger T-13); FinishAll and the combat round
+        # count it down via pass_turn.
         # Runtime-only: Java keeps it on Context, not the SaveGame.
         self.aura: Aura = Aura()
 
@@ -657,188 +659,83 @@ class Party:
         target.gold = total
         return target.gold
 
-    def end_turn(
-        self, surface: bool = True, sosaria: bool = False, combat: bool = False
-    ) -> None:
-        """Advance one movement turn: move counter, per-member submorsels.
+    def end_turn(self, sosaria: bool = True) -> None:
+        """One consumed turn: LairWare Routine6E35 (UltimaMisc.c:1357-1374)
+        runs IncMoves, MoonGateUpdate, then AgeChars.
 
-        Java truth: ``exodus/Party.java:592-639`` ``Party.endTurn``. Increments
-        the move counter, then for every non-DEAD member: decrement the
-        member's ``submorsels`` by 40 on the surface maps (Sosaria/Exodus) or
-        10 elsewhere (towns, castles, dungeons); when the pool crosses below
-        0 it resets to 400 and one unit of food is consumed.
-
-        ``combat`` mirrors Java's gate at ``Party.java:600`` — the per-member
-        submorsel/meal block sits behind ``mapType != MapType.combat``, so the
-        combat round-finish caller (``CombatScreen.finishTurn``,
-        ``CombatScreen.java:472``) counts the round as a move and runs the
-        move count ONLY.
-
-        USER-DIRECTED GBC-RULES DEVIATION (2026-11-14, supersedes the
-        2026-11-10 interpretation for these two rules): starvation and HP
-        regen ride the MEAL CROSSING (GBC funcs5.c:741-789; LW
-        UltimaMisc.c:1428-1493 — an hour tick heals +1 HP at food > 0 or,
-        at food 0, takes 5 HP off the whole party via the same meal
-        underflow), inside ``turn_meals`` below. The "not poisoned" heal
-        gate py had carries over. Mana and poison STAY on the per-turn tick
-        (``tick_regen``, 2026-11-10 interpretation kept): mana +1/turn
-        surface, +1 every 4 turns underground, Druids double; poison 1 HP
-        per turn.
-
-        History: Java regenerated inside the meal crossing
-        (``Party.java:612-617``); the 2026-11-10 ruling moved regen onto
-        the turn (U3 Book of Play wording); the 2026-11-14 GBC ruling
-        supersedes that for HP regen and starvation only. The QUICKNESS
-        (stop-time) aura freezes the whole crossing — decrement, food and
-        both effects (GBC funcs5.c:1273-1278) — see ``turn_meals``. Damage routes
-        through ``apply_damage`` (the Task 2 chokepoint), so a wipe raises
-        ``PartyDeathException`` out of ``end_turn`` — every calling screen
-        already catches it around the tick block and routes the game-over
-        flow (Task 21 patterns). ``end_turn`` has no internal catch.
+        ``sosaria`` is True only on the Sosaria overworld (LW ``Party[3] ==
+        0``); towns, castles and Ambrosia pass False. The moons turn only on
+        Sosaria (MoonGateUpdate, UltimaMisc.c:1490-1493). Stopped time
+        (QUICKNESS, LW gTimeNegate) is read only by FinishAll, so it stops
+        none of this (ledger T-13). Damage routes through ``apply_damage``:
+        a wipe raises ``PartyDeathException`` out of here, which every
+        calling screen catches.
         """
         self.moves += 1
+        if sosaria:
+            self.advance_moons()
+        self.age_chars(sosaria=sosaria)
 
-        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): the QUICKNESS
-        # (stop-time) aura freezes food consumption — see ``turn_meals``.
-        # The move counter above still ticks
-        # while time is stopped.
-        self.turn_meals(surface=surface, combat=combat)
+    def age_chars(self, sosaria: bool = True) -> None:
+        """LairWare AgeChars ($7470, UltimaMisc.c:1403-1468) with EatFood
+        ($761D, 1470-1488): the one place food, starving, poison, healing and
+        mana tick (user rulings 2026-11-25, ledger T-16..T-20, B-01, D-01).
 
-    def turn_meals(self, surface: bool = True, combat: bool = False) -> None:
-        """Per-member meal pipeline: the submorsel decrement + meal crossing.
+        Off Sosaria (``Party[3] > 0``: towns, castles, dungeons, Ambrosia and
+        every combat round, where Party[3] = 0x80) it acts on every 4th call
+        (``gTime[0]``, here ``age_count``). Each tick, for every member:
 
-        Extracted from ``end_turn`` (pending item 23) so the dungeon tick
-        can run the same crossing WITHOUT the move counter. ``end_turn`` passes its own flags here — zero
-        behavior change anywhere ``end_turn`` already ran;
-        ``DungeonState._tick_turn`` calls ``turn_meals(surface=False)`` on
-        every consumed dungeon move (USER-DIRECTED GBC-RULES DEVIATION
-        2026-11-14: the original rules feed underground at the same cadence
-        this method already uses for towns — the 10-submorsel interval; GBC
-        funcs5.c:1274; LW UltimaMisc.c:1428-1467 corroborates).
-
-        Java truth: ``exodus/Party.java:592-639`` — for every non-DEAD
-        member, decrement the member's ``submorsels`` by 40 on the surface
-        maps (Sosaria/Exodus) or 10 elsewhere (towns, castles, dungeons);
-        when the pool crosses below 0 it resets to 400 and one unit of
-        food is consumed.
-
-        At the crossing a member with food 0 takes 5 damage and a fed,
-        unpoisoned member heals +1 HP (USER-DIRECTED GBC-RULES DEVIATION
-        2026-11-14, supersedes the 2026-11-10 interpretation for these two
-        rules: GBC funcs5.c:741-789; LW UltimaMisc.c:1428-1493).
-
-        ``combat`` mirrors Java's gate at ``Party.java:600`` — a combat
-        round-finish caller counts the round but runs no meals. A QUICKNESS
-        (stop-time) aura freezes the whole crossing — decrement, food and
-        both effects (GBC funcs5.c:1273-1278). Damage routes through
-        ``apply_damage`` (the Task 2 chokepoint), so a wipe raises
-        ``PartyDeathException``; there is no internal catch.
+        - mana +1 up to the class cap (MaxMana), dead and ashes included (the
+          status test comes after). Druid: +2 up to the greater half, the
+          Book of Lore's "Druids regain two points per turn" (user ruling
+          2026-11-25, over LW's +1 per half it is under);
+        - the dead and ashes stop there. Others eat 10 of 100 (the port's 40
+          of a 400 pool, T-14); a member with no food left (the fraction too)
+          starves for 5 HP every tick, the pool staying empty (LW zeroes all
+          three food bytes);
+        - poisoned: -1 HP;
+        - every 10th tick (``gTime[1]``, here ``heal_count``, one party
+          counter) +1 HP, capped at max HP.
         """
-        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): the QUICKNESS
-        # (stop-time) aura freezes food consumption — the submorsel
-        # decrement and its meal crossing both sit in the stoptime gate
-        # (GBC funcs5.c:1273-1278).
-        if combat or self.aura.get_type() == AuraType.QUICKNESS:
-            return
-
-        decr_interval = 40 if surface else 10
-
-        for m in self.members:
-            # LairWare AgeChars (UltimaMisc.c:1449-1452): the dead and ashes
-            # neither eat nor starve nor heal.
+        if not sosaria:
+            self.age_count -= 1
+            if self.age_count > 0:
+                return
+            self.age_count = 4
+        self.heal_count -= 1
+        if self.heal_count < 0:
+            self.heal_count = 9
+        for m in reversed(self.members):  # LW: for (x = 3; x >= 0; x--)
+            cap = m.max_mp
+            if m.mp < cap:
+                gain = 2 if m.profession == Profession.DRUID else 1
+                m.mp = min(cap, m.mp + gain)
             if m.is_disabled():
                 continue
-
-            m.submorsels -= decr_interval
+            m.submorsels -= 40
             if m.submorsels < 0:
-                m.submorsels = 400
-                m.food = max(0, m.food - 1)
-
-                # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14, supersedes the 2026-11-10 interpretation for these two rules): starvation 5 HP per meal crossing; HP +1 regen at meal crossing (GBC funcs5.c:741-789; LW UltimaMisc.c:1428-1493)
-                if m.food == 0:
+                if m.food > 0:
+                    m.food -= 1
+                    m.submorsels = 400
+                else:
+                    # EatFood underflow past 0: STARVING!, HPSubtract 5.
+                    m.submorsels = 0
                     m.apply_damage(5, False)
-                elif m.status != Status.POISONED:
-                    m.hp = min(m.max_hp, m.hp + 1)
-
-    def advance_moons(self, surface: bool = True) -> None:
-        """Advance the moon clock by one consumed turn.
-
-        USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): the moon phase is
-        move-driven, not wall-clock — every 4th consumed turn on the world
-        SURFACE maps (the overworld screen: Sosaria AND Ambrosia, the
-        outdoor worlds) and every 16th consumed turn otherwise (towns,
-        castles, dungeons), with a QUICKNESS (stop-time) aura freezing the
-        advance entirely (GBC funcs5.c:1272-1279: ``!stoptime`` gating
-        ``moves%(4<<(oins*2))==0 → update_moons()``; the port keeps GBC's
-        semantics over LairWare's fast-4/slow-12, which the NES build
-        disagrees with besides). Like GBC's ``moves`` modulo, the counter
-        keeps counting while time is stopped — only the advance is frozen —
-        so on lifting the aura the phase lands on the same shared 4th/16th
-        slots it would have reached.
-
-        Call once per consumed turn, right after ``end_turn`` (whose move
-        increment lands the counter the way GBC's postmove does).
-
-        ``surface`` means the overworld SCREEN (Sosaria AND Ambrosia), the
-        same convention ``tick_regen`` documents; GBC's ``oins`` flag makes
-        everything outdoors the fast cadence.
-        """
-        self.moon_turns += 1
-        if self.aura.get_type() == AuraType.QUICKNESS:
-            return
-        cadence = 4 if surface else 16
-        if self.moon_turns % cadence == 0:
-            self.moon_phase = (self.moon_phase + 1) % 24
-
-    def tick_regen(self, surface: bool = True) -> None:
-        """Per-turn regen tick — mana and poison ONLY.
-
-        History: the 2026-11-10 user-directed deviation moved what Java kept
-        inside the meal crossing (``Party.java:612-617``) onto the turn
-        itself. The 2026-11-14 GBC ruling then superseded that interpretation
-        for HP regen and starvation ONLY — both live at the meal crossing in
-        ``end_turn`` now (GBC funcs5.c:741-789; LW UltimaMisc.c:1428-1493).
-        This tick keeps the two rules the 2026-11-10 interpretation still
-        governs:
-
-        - Mana: "A character replenishes that energy at a rate of one point
-          per turn on the surface, and one point every four turns in a town
-          or dungeon. Druids regain two points per turn" — implemented as
-          doubling the LOCAL rate: +2/turn on the surface, +2 in the SAME
-          4th-turn slot elsewhere (not every 2nd turn). Capped at max_mp —
-          Java's exceed-max quirk (`mana < maxMana` checked once, then +1,
-          +1 Druid — Party.java:612-617) is deliberately NOT reproduced.
-        - Poison: "Every step the character takes, lowers the character's
-          hit level by one" — poisoned living members lose 1 HP per TURN
-          (per move AND per pass), everywhere.
-
-        HP regen and starvation are NOT here: no +1 per turn / per 4 turns,
-        no 2/turn at food 0 — GBC ties both to the meal crossing.
-
-        ``surface`` means the overworld SCREEN (Sosaria AND Ambrosia) per
-        the original rule; the map_id in ("0","2") 40-submorsel decision in
-        ``end_turn`` is the food rule only. The 4-turn slot is
-        count-based on consumed turns (move or pass — every caller routes
-        exactly one tick per consumed turn), never wall-clock. Poison
-        damage routes through ``apply_damage`` (the Task 2 chokepoint), so
-        DEAD is never touched and a wipe raises ``PartyDeathException``.
-        """
-        self.regen_turns += 1
-        underground_slot = not surface and self.regen_turns % 4 == 0
-
-        for m in self.members:
-            if m.is_dead():
-                continue
-
-            # Mana: +1/+2 Druid on the surface, in the shared 4th-turn slot
-            # underground; capped at max_mp (recomputed from stats).
-            if not m.is_disabled() and (surface or underground_slot):
-                gain = 2 if m.profession == Profession.DRUID else 1
-                m.mp = min(m.max_mp, m.mp + gain)
-
-            # Poison every turn (2026-11-10 interpretation, kept).
             if m.status == Status.POISONED:
-                m.apply_damage(1, False)
+                m.apply_damage(1, False)  # POISON!
+            if self.heal_count == 0 and not m.is_disabled():
+                m.hp = min(m.max_hp, m.hp + 1)
+
+    def advance_moons(self) -> None:
+        """LairWare MoonGateUpdate ($6F5D, UltimaMisc.c:1490-1506), called
+        by ``end_turn`` on Sosaria only (``if (Party[3] != 0) return;``):
+        Trammel turns every 12 turns and Felucca every 4. The port's
+        0..23 ``moon_phase`` steps every 4th Sosaria turn (Trammel = phase
+        // 3, Felucca = phase % 8), the same rates (ledger W-03). Stopped
+        time does not hold the moons (T-13)."""
+        self.moon_turns += 1
+        if self.moon_turns % 4 == 0:
+            self.moon_phase = (self.moon_phase + 1) % 24
 
     # --- Party Status Checks ---
     def is_anyone_alive(self) -> bool:
@@ -914,7 +811,8 @@ class Party:
             "gold": self.gold,
             "food": self.food,
             "moves": self.moves,
-            "regen_turns": self.regen_turns,
+            "age_count": self.age_count,
+            "heal_count": self.heal_count,
             "moon_phase": self.moon_phase,
             "moon_turns": self.moon_turns,
             "torch_duration": self.torch_duration,
@@ -968,7 +866,8 @@ class Party:
             # gold and food live on the member records. Legacy-migration below
             # handles old saves that kept a party-level wallet.
             moves=p_data.get("moves", 0),
-            regen_turns=p_data.get("regen_turns", 0),
+            age_count=p_data.get("age_count", 0),
+            heal_count=p_data.get("heal_count", 0),
             # Integer moon_phase/moon_turns round-trip: an old save without
             # the keys loads phase 0 — the same integer the screen-side
             # counter produced before the clock moved onto the party record.

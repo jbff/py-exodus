@@ -137,10 +137,10 @@ def test_moons_start_at_phase_four():
     scr.party = p
     assert (scr.trammel_phase, scr.felucca_phase) == (4, 4)
     for _ in range(4):
-        p.advance_moons(surface=True)
+        p.advance_moons()
     assert (scr.trammel_phase, scr.felucca_phase) == (4, 5)
     for _ in range(8):
-        p.advance_moons(surface=True)
+        p.advance_moons()
     assert (scr.trammel_phase, scr.felucca_phase) == (5, 7)
 
 

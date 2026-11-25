@@ -229,15 +229,10 @@ def test_dungeon_tick_drains_food_and_never_ticks_moves(open_dmap, test_party):
 
 
 def test_dungeon_tick_regens_mana_and_ticks_meals(open_dmap, test_party):
-    """USER-DIRECTED: the dungeon tick regenerates mana per consumed turn
-    even though Java's dungeon finishTurn never calls Party.endTurn
-    (DungeonScreen.java:1124-1142 — creature upkeep only). The mana cadence
-    applies underground (+1 per 4 turns — 2026-11-10 interpretation kept).
-    HP regen and starvation are MEAL-BOUND (GBC deviation 2026-11-14,
-    supersedes the 2026-11-10 interpretation for those two rules), and
-    pending item 23 routes the dungeon meals underground too: 4 dungeon
-    ticks move the pool 400 -> 360 — no crossing, so an injured member
-    neither heals nor starves, and no food is spent."""
+    """LairWare dungeonmech (UltimaDngn.c:183-189) runs AgeChars after every
+    dungeon command, acting every 4th call (ledger D-01): 4 commands make
+    one tick (the first), +1 MP and 40 of the pool; no crossing, no heal
+    (that is the 10th tick), no food spent."""
     state = DungeonState(
         open_dmap,
         start_x=5,
@@ -254,15 +249,17 @@ def test_dungeon_tick_regens_mana_and_ticks_meals(open_dmap, test_party):
     food_before = test_party.food
     for _ in range(4):
         state._tick_turn()
-    assert hero.hp == 50  # no crossing in 4 ticks → no meal-bound regen
-    assert mage.mp == 1  # +1 mana on the 4th turn slot
-    assert hero.submorsels == 360  # 10 submorsels/tick underground (item 23)
+    assert hero.hp == 50  # one tick: no heal before the 10th
+    assert mage.mp == 1  # +1 mana on the one tick
+    assert hero.submorsels == 360  # one tick of 40
     assert test_party.food == food_before  # no crossing → no food spent
 
 
-def test_dungeon_tick_passes_the_aura_turn(open_dmap, test_party):
-    """Java finishTurn opens with getAura().passTurn() — a dungeon move
-    decrements the aura (and expires it at 0) like any other screen."""
+def test_dungeon_tick_does_not_count_stopped_time_down(open_dmap, test_party):
+    """LairWare reads gTimeNegate only in FinishAll (UltimaMisc.c:1120-1123)
+    and in combat; a dungeon command runs neither (dungeonmech,
+    UltimaDngn.c:183-209), so stopped time keeps its count underground
+    (ledger T-13)."""
     from py_exodus.aura import AuraType
 
     state = DungeonState(
@@ -276,8 +273,8 @@ def test_dungeon_tick_passes_the_aura_turn(open_dmap, test_party):
     )
     test_party.aura.set(AuraType.QUICKNESS, 1)
     state._tick_turn()
-    assert not test_party.aura.is_active()
-    assert test_party.aura.get_type() == AuraType.NONE
+    assert test_party.aura.get_type() == AuraType.QUICKNESS
+    assert test_party.aura.get_duration() == 1
 
 
 def test_normal_move_no_direct_ambush_roll(open_dmap, test_party):
@@ -466,7 +463,8 @@ def test_blocked_move_still_ticks(open_dmap, test_party):
     # finishTurn runs on the blocked move but NEVER Party.endTurn
     # (DungeonScreen.java:1124-1141), so the move counter does not tick.
     assert test_party.moves == moves_before
-    # The turn tick ran on the blocked move: the meal pool moved.
-    assert test_party.members[0].submorsels == 390
+    # The turn tick ran on the blocked move: AgeChars' first call acts
+    # (gTime[0] starts at 0) and the meal pool moved by 40.
+    assert test_party.members[0].submorsels == 360
 
 

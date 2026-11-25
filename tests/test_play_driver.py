@@ -479,7 +479,9 @@ class TestCombatCastFlow:
         the letter press itself; pre-amendment the "Direction?" prompt ran
         first and cast_spell prevalidation refused only after the
         direction was chosen. Disarm, turn retained, no round advance."""
-        session = PlaySession(asset_mgr).start(party=_druid_party(mp=3))
+        # MP 1 + 2 from combatstart's AgeChars (a Druid, LairWare
+        # UltimaSpellCombat.c:920; Book of Lore +2) = 3 at the menu.
+        session = PlaySession(asset_mgr).start(party=_druid_party(mp=1))
         session.enter_combat(creature_tile="orc", context_map_id=2, monster_count=1)
         before_round = session.screen.arena.round_count
 

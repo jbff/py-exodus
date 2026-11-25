@@ -808,11 +808,11 @@ def test_successful_bolt_still_consumes_the_turn(asset_mgr, conflict_map):
     assert arena.active_party_member_idx == 1
 
 
-# --- Pending item 2: ship-combat rounds tick turns and hull ---
-# Java CombatScreen.java:470-496 finishTurn: every combat round-finish runs
-# party.endTurn (CombatScreen.java:472) — the round counts as a move; the meal block is skipped under mapType == combat
-# (Party.java:600). The port routes the tick through ship battles only
-# (pending item 2, ruled ship-once).
+# --- B-01: combat rounds count no moves; AgeChars every 4th round ---
+# LairWare UltimaSpellCombat.c:883, 920-923: combat sets Party[3] = 0x80 and
+# runs AgeChars at the top of every round, acting every 4th call. No move is
+# counted, aboard ship or not (the old ship-once ruling is withdrawn,
+# user ruling 2026-11-25).
 
 def _ship_party() -> Party:
     party = Party()
@@ -822,32 +822,30 @@ def _ship_party() -> Party:
     return party
 
 
-def test_ship_battle_round_counts_a_move_and_skips_the_meal_block(
+def test_ship_battle_round_counts_no_move_and_eats_every_fourth_round(
     asset_mgr, conflict_map
 ):
     random.seed(500)
     party = _ship_party()
-    # A plain turn would cross this pool (45 - 40 < 0) and burn one food.
     party.members[0].submorsels = 45
     party.members[0].food = 10
     arena = CombatArena(
         party, conflict_map, creature_tile="orc", asset_mgr=asset_mgr, monster_count=1
     )
-    moves_before = party.moves
+    # combatstart's first AgeChars ticks (gTime[0] starts at 0): 45 - 40.
+    assert party.members[0].submorsels == 5
+    arena._execute_single_monster_ai = lambda m: None  # type: ignore[method-assign]
+    for _ in range(3):
+        arena.execute_turn(Action.pass_turn())
+    assert party.moves == 0
+    assert arena.round_count == 4
+    assert party.members[0].food == 10  # calls 2-4 do not tick
+    arena.execute_turn(Action.pass_turn())  # call 5 ticks: the pool crosses
+    assert party.members[0].food == 9
 
-    arena.execute_turn(Action.pass_turn())
 
-    assert party.moves == moves_before + 1
-    assert arena.round_count == 2  # the round itself advanced as before
-    assert party.members[0].submorsels == 45  # Java Party.java:600 gate
-    assert party.members[0].food == 10
-    assert party.members[0].hp == party.members[0].max_hp  # no meal regen
-
-
-def test_non_ship_combat_round_ticks_nothing(asset_mgr, conflict_map, monkeypatch):
-    """Pending item 2, ruled ship-once: plain combat rounds run no endTurn —
-    no move counter, no hull roll (the pinned 0 roll would repair if a tick
-    wrongly ran)."""
+def test_non_ship_combat_round_counts_no_move(asset_mgr, conflict_map, monkeypatch):
+    """No move counter, no hull roll in a land fight either."""
     monkeypatch.setattr("py_exodus.entities.party.random.randint", lambda a, b: 0)
     party = Party()
     party.add_member(Character("Hero", "M", Race.HUMAN, Profession.FIGHTER))
@@ -864,11 +862,10 @@ def test_non_ship_combat_round_ticks_nothing(asset_mgr, conflict_map, monkeypatc
     assert party.ship_hull == 40
 
 
-def test_ship_battle_killing_action_counts_the_win_round(asset_mgr, conflict_map, monkeypatch):
-    """Java CombatScreen.java:448-465: the round that empties combatMap is
-    done at once (roundIsDone via getCreatures().isEmpty(), line 459) and
-    still runs endTurn before end() (CombatScreen.java:472-478) — the win
-    round ticks exactly once, from the action path."""
+def test_ship_battle_killing_action_ages_nothing_more(asset_mgr, conflict_map, monkeypatch):
+    """LairWare plrdone (UltimaSpellCombat.c:1083-1094): the action that
+    empties the board goes to Victory, not back to combatstart, so the win
+    round runs no AgeChars and counts no move."""
     monkeypatch.setattr("py_exodus.entities.party.random.randint", lambda a, b: 0)
     party = _ship_party()
     random.seed(505)
@@ -877,11 +874,13 @@ def test_ship_battle_killing_action_counts_the_win_round(asset_mgr, conflict_map
     )
     arena.monsters[0].take_damage(9999)  # mortally wounded out-of-band
     moves_before = party.moves
+    count = party.age_count
 
     arena.execute_turn(Action.pass_turn())
 
     assert arena.is_victory
-    assert party.moves == moves_before + 1
+    assert party.moves == moves_before
+    assert party.age_count == count
 
 
 def test_dead_members_are_off_the_board_and_block_nobody(asset_mgr, conflict_map):

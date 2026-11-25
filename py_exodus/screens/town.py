@@ -554,27 +554,12 @@ class TownScreen(BaseScreen):
         self._combat_npc = None
 
     def _finish_turn(self, effect_tile=None) -> None:
-        """End the town movement turn: submorsel tick, regen tick, aura tick,
-        then the standing tile effect (Java GameScreen.finishTurn
-        GameScreen.java:706-754 — endTurn, then aura.passTurn). Towns drain
-        submorsels at 10 per move (non-surface map).
-
-        USER-DIRECTED ORIGINAL-RULES DEVIATION (2026-11-10): mana
-        (+1/turn surface, +1 per 4 turns underground — "one point every
-        four turns in a town or dungeon") and poison run every consumed
-        turn (Party.tick_regen). HP regen and starvation are meal-bound —
-        USER-DIRECTED GBC-RULES DEVIATION (2026-11-14, supersedes the
-        2026-11-10 interpretation for these two rules): both ride the meal
-        crossing in Party.end_turn (GBC funcs5.c:741-789; LW
-        UltimaMisc.c:1428-1493)."""
+        """End the town turn: LairWare Routine6E35 (UltimaMisc.c:1357-1401):
+        IncMoves and AgeChars (every 4th call here, Party[3] > 0; the moons
+        stand still off Sosaria), the tile effect, the castle gate and the
+        Exodus fireball, then FinishAll's people moves."""
         try:
-            self.party.end_turn(surface=False)
-            self.party.tick_regen(surface=False)
-            # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): moons advance
-            # per 4 moves surface / 16 elsewhere; stop-time freezes moons
-            # (GBC funcs5.c:1272-1279). Towns are the slow cadence here.
-            self.party.advance_moons(surface=False)
-            self.party.aura.pass_turn()
+            self.party.end_turn(sosaria=False)
             tile_effects.apply_rule_effect(self.party, effect_tile)
             self._moon_step()
             self._exodus_castle_ball()
@@ -670,12 +655,14 @@ class TownScreen(BaseScreen):
         (any of the 8 neighbours), starts the battle (AttackCode removes it
         from the map). A blocked diagonal tries the vertical step, then the
         horizontal one (move7AAA); nobody steps onto the party."""
+        # FinishAll (UltimaMisc.c:1120-1125), from Routine6E35 in towns too:
+        # while time is stopped (gTimeNegate) nobody moves, and the count
+        # drops a turn.
+        if self.party.aura.get_type() == AuraType.QUICKNESS:
+            self.party.aura.pass_turn()
+            return
         gm = self.game_map
         if gm is None or not gm.npcs:
-            return
-        # FinishAll (UltimaMisc.c:1120-1125), from Routine6E35 in towns too:
-        # while time is stopped (gTimeNegate) nobody moves.
-        if self.party.aura.get_type() == AuraType.QUICKNESS:
             return
         px, py = self.avatar_x, self.avatar_y
         for npc in list(reversed(gm.npcs)):

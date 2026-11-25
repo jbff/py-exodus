@@ -1518,7 +1518,7 @@ class OverworldScreen(BaseScreen):
         self.party.wind_direction = random.choice(choices)
 
     def _finish_turn(self, effect_tile=None) -> None:
-        """End the movement turn: sink check, aura tick, submorsel tick, tile
+        """End the movement turn: Routine6E35's IncMoves, moons and AgeChars, tile
         effect, then the whirlpool engulf scan.
 
         Java truth: ``exodus/GameScreen.java:706-754`` ``finishTurn`` —
@@ -1534,28 +1534,18 @@ class OverworldScreen(BaseScreen):
         (GBC/LW, 2026-11-14). A wipe raises
 
         ``PartyDeathException``; the post-check routes the game-over flow
-        (Task 2). ``sosaria`` tracks the current map id;
-        the 40-submorsel interval is surface maps SOSARIA (0) and EXODUS (2)
-        only — Ambrosia (13) drains at 10 (``Party.java:598-600``).
+        (Task 2). ``sosaria`` (map 0) is LairWare's Party[3] == 0: AgeChars
+        every turn and the moons turn; on Ambrosia (13) AgeChars acts every
+        4th turn and the moons stand still. Stopped time counts down in
+        ``_update_creatures`` (FinishAll), not here.
         """
         map_id = str(getattr(self.game_map, "id", self.map_id))
         sosaria = map_id == "0"
         try:
-            # Java order (GameScreen.java:710-714): endTurn, then aura.passTurn.
-            self.party.end_turn(surface=map_id in ("0", "2"), sosaria=sosaria)
-            # USER-DIRECTED ORIGINAL-RULES DEVIATION (2026-11-10): mana
-            # (+1/turn surface, Druids double) and poison (-1 HP per turn)
-            # run every consumed turn here. HP regen and starvation are
-            # meal-bound — USER-DIRECTED GBC-RULES DEVIATION (2026-11-14,
-            # supersedes the 2026-11-10 interpretation for these two rules):
-            # both ride the meal crossing inside Party.end_turn (GBC
-            # funcs5.c:741-789; LW UltimaMisc.c:1428-1493).
-            self.party.tick_regen(surface=True)
-            # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): moons advance
-            # per 4 moves surface / 16 elsewhere; stop-time freezes moons
-            # (GBC funcs5.c:1272-1279). Every overland map is the fast
-            # (outdoor) cadence here.
-            self.party.advance_moons(surface=True)
+            # LairWare Routine6E35 (UltimaMisc.c:1357-1374): IncMoves,
+            # MoonGateUpdate (Sosaria only) and AgeChars, which ticks every
+            # turn on Sosaria and every 4th on Ambrosia (Party[3] > 0).
+            self.party.end_turn(sosaria=sosaria)
             # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): wind blocks
             # when becalmed/against headwind; forced re-roll per 20 moves
             # (GBC postexo1.c:1848-1852; menucmd3.c:1449-1467). Move-driven
@@ -1566,7 +1556,6 @@ class OverworldScreen(BaseScreen):
             # dowinds avoids repeating).
             if self.party.moves % 20 == 0:
                 self._reroll_wind()
-            self.party.aura.pass_turn()
             tile_effects.apply_rule_effect(self.party, effect_tile)
         except PartyDeathException:
             pass
@@ -1995,8 +1984,10 @@ class OverworldScreen(BaseScreen):
                 return
 
         # FinishAll: while time is stopped (gTimeNegate) neither SpawnMonster
-        # nor MoveMonsters runs (UltimaMisc.c:1120-1125).
+        # nor MoveMonsters runs, and only here does the count drop
+        # (UltimaMisc.c:1120-1125): 10 turns on foot, 20 mounted (T-13).
         if self.party.aura.get_type() == AuraType.QUICKNESS:
+            self.party.aura.pass_turn()
             return
 
         # SpawnMonster then MoveMonsters; the 7/135 gate lives in the spawn

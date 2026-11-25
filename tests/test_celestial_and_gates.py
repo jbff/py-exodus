@@ -405,29 +405,29 @@ class TestMoveDrivenMoons:
         party.aura = Aura()
         party.moon_phase = 23
         for _ in range(4):
-            party.advance_moons(surface=True)
+            party.advance_moons()
         assert party.moon_phase == 0
 
-    def test_moons_advance_every_16th_consumed_turn_underground(self, party):
-        """Non-surface maps advance the phase on the 16th consumed turn."""
-        party.moon_phase = 0  # a new game starts at 12 (LairWare 4/4)
-        for _ in range(15):
-            party.advance_moons(surface=False)
+    def test_moons_stand_still_off_sosaria(self, party):
+        """LairWare MoonGateUpdate (UltimaMisc.c:1490-1493): `if (Party[3]
+        != 0) return;` - towns, castles, dungeons and Ambrosia never turn
+        the moons (ledger W-03; it replaced the GBC every-16th rule)."""
+        party.moon_phase = 0
+        for _ in range(64):
+            party.end_turn(sosaria=False)
         assert party.moon_phase == 0
-        party.advance_moons(surface=False)
-        assert party.moon_phase == 1
 
-    def test_moon_counter_shared_across_maps(self, party):
-        """One consumed-turn counter behind the cadence, like GBC's moves
-        modulo: 3 surface + 12 underground spent turns leave the 16th one
-        to trigger."""
+    def test_moon_counter_resumes_on_sosaria(self, party):
+        """The Sosaria count (``moon_turns``) is not disturbed by turns off
+        Sosaria: 3 Sosaria turns, any number elsewhere, and the 4th Sosaria
+        turn advances."""
         party.moon_phase = 0  # a new game starts at 12 (LairWare 4/4)
         for _ in range(3):
-            party.advance_moons(surface=True)
+            party.end_turn(sosaria=True)
         for _ in range(12):
-            party.advance_moons(surface=False)
+            party.end_turn(sosaria=False)
         assert party.moon_phase == 0
-        party.advance_moons(surface=False)
+        party.end_turn(sosaria=True)
         assert party.moon_phase == 1
 
     def test_update_dt_never_advances_moons(self, asset_mgr, party, monkeypatch):
@@ -438,38 +438,30 @@ class TestMoveDrivenMoons:
         ow.update(1000.0)
         assert ow.moon_phase == 5
 
-    def test_quickness_freezes_moon_advance(self, asset_mgr, party):
+    def test_quickness_does_not_freeze_the_moons(self, asset_mgr, party):
+        """LairWare Routine6E35 (UltimaMisc.c:1357-1360): MoonGateUpdate runs
+        before FinishAll, the only reader of gTimeNegate, so stopped time
+        does not hold the moons (ledger T-13, user ruling 2026-11-25)."""
         from py_exodus.aura import AuraType
 
         ow = self._surface_ow(asset_mgr, party)
         ow.moon_phase = 7
-        # Four turns frozen under the aura; the spent turns still counted
-        # (GBC's moves modulo keeps ticking under stoptime), so the cadence
-        # lands on the same shared 4th slots (turn 8 = 4th counted).
         party.aura.set(AuraType.QUICKNESS, 4)
-        for _ in range(4):
-            ow._finish_turn(None)
-        assert ow.moon_phase == 7
         for _ in range(4):
             ow._finish_turn(None)
         assert ow.moon_phase == 8
 
-    def test_quickness_freezes_food_consumption(self, party):
+    def test_quickness_does_not_freeze_food(self, party):
+        """LairWare: AgeChars runs before FinishAll (UltimaMisc.c:1372), so
+        stopped time does not stop eating (ledger T-13)."""
         from py_exodus.aura import AuraType
 
         m = party.members[0]
-        m.submorsels = 39  # one surface decrement from the meal crossing
+        m.submorsels = 39  # one Sosaria tick from the meal crossing
         food_before = m.food
 
         party.aura.set(AuraType.QUICKNESS, 2)
-        party.end_turn(surface=True)
-        assert m.submorsels == 39
-        assert m.food == food_before
-
-        # Control: with the aura gone the meal crossing fires again.
-        from py_exodus.aura import Aura
-        party.aura = Aura()
-        party.end_turn(surface=True)
+        party.end_turn(sosaria=True)
         assert m.submorsels == 400
         assert m.food == food_before - 1
 

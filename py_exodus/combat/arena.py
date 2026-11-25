@@ -27,6 +27,7 @@ from py_exodus.combat.resolver import (
 )
 from py_exodus.entities.defs import CreatureDef
 from py_exodus.world.tile_effects import apply_effect_rolled
+from py_exodus.entities.party import PartyDeathException
 
 if TYPE_CHECKING:
     from py_exodus.assets import AssetManager
@@ -283,6 +284,10 @@ class CombatArena:
         # Set initial active party member index
         self.active_party_member_idx: int = self._find_first_eligible_member_idx()
 
+        # LairWare combatstart (UltimaSpellCombat.c:920-921): the first
+        # round opens with AgeChars too.
+        self._age_round()
+
         # Check immediate end conditions (e.g. empty party)
         if not self._get_living_party_members():
             self.is_finished = True
@@ -477,14 +482,8 @@ class CombatArena:
 
         # Check combat victory
         if len(self.monsters) == 0:
-            # Pending item 2 (Java CombatScreen.java:448-465): the round that
-            # empties combatMap IS done at once (roundIsDone via
-            # combatMap.getCreatures().isEmpty(), CombatScreen.java:459) and
-            # still runs endTurn before end() (CombatScreen.java:472-478) — a
-            # killing action lands here before _advance_player_turn, so the
-            # win round's tick runs here instead of execute_monster_turns.
-            if self.ship_battle:
-                self._ship_round_tick()
+            # LairWare plrdone (UltimaSpellCombat.c:1083-1094): the win ends
+            # the fight before the next combatstart, so no AgeChars here.
             self._handle_victory()
             return res
 
@@ -835,32 +834,23 @@ class CombatArena:
     def _cleanup_dead_monsters(self) -> None:
         self.monsters = [m for m in self.monsters if not m.is_dead]
 
-    def _ship_round_tick(self) -> None:
-        """Run Java's combat round-finish endTurn for a ship battle (pending
-        item 2).
-
-        Java truth: ``exodus/CombatScreen.java:470-496`` ``finishTurn`` — every
-        combat round-finish opens with
-        ``party.endTurn(Maps.get(combatMap.getId()), combatMap.getType())``
-        (``CombatScreen.java:472``), i.e. the round counts as a move. The per-member meal block is skipped:
-        Java gates it on ``mapType != MapType.combat`` (``Party.java:600``).
-
-        Scoping note (pending item 2, ruled ship-once): Java runs this
-        endTurn on EVERY combat round; the port routes only ship battles
-        through it — plain combat rounds tick nothing (user ruling
-        2026-11-13, flagged then implemented here).
-
-        Nothing else: Java's round-end calls endTurn plus
-        ``context.getAura().passTurn`` (``CombatScreen.java:474``) — the aura
-        pass already lives in ``execute_monster_turns``; no moon advance (Java
-        advances moons on GameScreen's turn hooks only,
-        ``GameScreen.java:706-754``). This arena round-end is the only caller —
-        the screen turn hooks (overworld ``_finish_turn``) do not run during
-        combat.
-        """
-        sosaria = self.context_map_id == MAP_NAME_TO_ID["SOSARIA"]
-        # surface=True is moot: the meal block is skipped under combat=True.
-        self.party.end_turn(surface=True, sosaria=sosaria, combat=True)
+    def _age_round(self) -> None:
+        """LairWare combatstart (UltimaSpellCombat.c:920-923): AgeChars at
+        the top of every round, the first included. Combat sets Party[3] =
+        0x80 (883), so it acts on every 4th call: mana, food, starving,
+        poison and the healing count tick every 4th round (user ruling
+        2026-11-25, ledger B-01). No move is counted, aboard ship too (the
+        old ship-once round tick is withdrawn). A wipe by poison or hunger
+        ends the fight as a defeat."""
+        age = getattr(self.party, "age_chars", None)
+        if age is None:
+            return
+        try:
+            age(sosaria=False)
+        except PartyDeathException:
+            pass
+        if not self._get_living_party_members():
+            self._evaluate_party_status()
 
     # --- Monster Turn Execution & AI ---
 
@@ -869,21 +859,11 @@ class CombatArena:
 
         Java CombatScreen.finishTurn (CombatScreen.java:479-502): the aura
         passes a turn every round and a live QUICKNESS aura skips the
-        creature-action sequence entirely (silent in Java). There is NO
-        per-round poison tick in combat (party.endTurn runs the exploration
-        tick at the round level; it is out of this arena's scope — except the
-        ship-battle round tick above, which Java's round-finish endTurn
-        carries; see _ship_round_tick).
+        creature-action sequence entirely (silent in Java). The round ends
+        back at LairWare's combatstart, AgeChars (``_age_round``).
         """
         if self.is_finished:
             return []
-
-        # Pending item 2 (Java CombatScreen.java:472): the round-finish
-        # endTurn runs before the aura pass and the creature phase — Java's
-        # finishTurn opens with party.endTurn, then aura.passTurn
-        # (CombatScreen.java:472-474).
-        if self.ship_battle:
-            self._ship_round_tick()
 
         aura = getattr(self.party, "aura", None)
         if aura is not None:
@@ -904,6 +884,9 @@ class CombatArena:
                     self._handle_victory()
                 self.round_count += 1
                 self.is_party_round_done = False
+                if not self.is_finished:
+                    # gTimeNegate--; goto combatstart (UltimaSpellCombat.c:1102-1105)
+                    self._age_round()
                 self.active_party_member_idx = self._find_first_eligible_member_idx()
                 return []
 
@@ -935,6 +918,8 @@ class CombatArena:
         # Reset turn order for next round
         self.round_count += 1
         self.is_party_round_done = False
+        if not self.is_finished:
+            self._age_round()  # back to combatstart
         self.active_party_member_idx = self._find_first_eligible_member_idx()
 
         return results

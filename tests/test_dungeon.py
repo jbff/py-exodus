@@ -416,21 +416,31 @@ class ZeroRNG(random.Random):
 # pipeline (moon clock + encounter roll) that K/D now shares with a
 # normal dungeon move.
 
+def _age_calls(party) -> list:
+    """Count AgeChars calls: the dungeon's turn meter (LairWare dungeonmech,
+    UltimaDngn.c:183-189, runs it once per command)."""
+    calls: list = []
+    real = party.age_chars
+    party.age_chars = lambda *a, **k: (calls.append(1), real(*a, **k))[1]
+    return calls
+
+
 def test_ladder_consume_turn_moon_tick(empty_dmap, test_party):
-    """A real climb ticks the shared consumed-turn counter like a normal
-    move (moon_turns +1 via Party.advance_moons in _tick_turn)."""
+    """A real climb ticks the turn like a normal move (one AgeChars call
+    in _tick_turn)."""
     empty_dmap.set_tile(5, 5, 0, DungeonTile.LADDER_DOWN)
     state = DungeonState(empty_dmap, start_x=5, start_y=5, start_z=0, party=test_party)
+    calls = _age_calls(test_party)
 
-    assert test_party.moon_turns == 0
+    assert len(calls) == 0
     ev_down = state.klimb_down()
     assert ev_down.type == DungeonEventType.LADDER_DOWN
-    assert test_party.moon_turns == 1
+    assert len(calls) == 1
 
     empty_dmap.set_tile(5, 5, 1, DungeonTile.LADDER_UP)
     ev_up = state.klimb_up()
     assert ev_up.type == DungeonEventType.LADDER_UP
-    assert test_party.moon_turns == 2
+    assert len(calls) == 2
 
 
 def test_ladder_no_turn_blocked_and_exit(empty_dmap, test_party):
@@ -448,13 +458,13 @@ def test_ladder_no_turn_blocked_and_exit(empty_dmap, test_party):
     ev_blocked = state.klimb_up()
     assert ev_blocked.type == DungeonEventType.BLOCKED
     assert len(calls) == 1
-    test_party.moon_turns = 0
+    ages = _age_calls(test_party)
 
     # K at level 0 on a ladder up: exits to the surface, no tick.
     empty_dmap.set_tile(5, 5, 0, DungeonTile.LADDER_UP)
     ev_exit = state.klimb_up()
     assert ev_exit.type == DungeonEventType.EXIT_DUNGEON
-    assert test_party.moon_turns == 0
+    assert len(ages) == 0
 
 
 class RemainingRng:
@@ -1145,14 +1155,9 @@ def test_torch_load_maps_old_boolean_saves(empty_dmap, test_party):
     assert state.is_torch_on is False
 
 
-# --- Pending item 23: dungeon meal cadence (USER-DIRECTED GBC-RULES
-# DEVIATION, 2026-11-14). The original rules feed underground at the same
-# cadence ``end_turn(surface=False)`` already runs for towns/castles — the
-# per-member meal pipeline (GBC funcs5.c:1274; LW UltimaMisc.c:1428-1467
-# corroborates). Java DungeonScreen never calls Party.endTurn, so the move
-# counter stays OUT of the dungeon tick; only the
-# meals ride it. A QUICKNESS (stop-time) aura freezes dungeon meals the
-# same way it freezes surface meals.
+# --- Dungeon meal cadence: LairWare dungeonmech (UltimaDngn.c:183-189)
+# runs AgeChars after every dungeon command; with Party[3] = 1 it acts every
+# 4th call (ledger D-01, user ruling 2026-11-25). No move is counted.
 
 
 class TestDungeonMealCadence:
@@ -1169,9 +1174,10 @@ class TestDungeonMealCadence:
         )
 
     def test_meal_crosses_every_41_dungeon_moves(self, state):
-        """Underground cadence: 10 submorsels per consumed dungeon move —
-        a fresh 400 pool sits at 0 after 40 moves (no crossing) and resets
-        on the 41st, spending one unit of food."""
+        """Underground cadence: AgeChars acts on every 4th dungeon command
+        (the first included), 40 of the pool each: a fresh 400 pool sits at
+        0 after 40 commands (ten ticks) and crosses on the 41st (the 11th),
+        spending one unit of food."""
         m = state.party.members[0]
         for _ in range(40):
             state._tick_turn()
@@ -1213,23 +1219,24 @@ class TestDungeonMealCadence:
         dungeon_state._tick_turn()
         assert party.is_party_dead()
 
-    def test_quickness_freezes_dungeon_meals(self, state):
-        """The stop-time gate covers the dungeon tick too — no decrement,
-        no crossing, no starvation while QUICKNESS is up."""
+    def test_quickness_does_not_freeze_dungeon_meals(self, state):
+        """LairWare (ledger T-13): stopped time is read only by FinishAll and
+        combat, so AgeChars in dungeonmech (UltimaDngn.c:188) eats and
+        starves on, and the dungeon step does not count the stop down."""
         m = state.party.members[0]
         m.submorsels = 9
         m.food = 0
         state.party.aura.set(AuraType.QUICKNESS, 5)
         state._tick_turn()
-        assert m.submorsels == 9
-        assert m.food == 0
-        assert m.hp == 100
+        assert m.submorsels == 0
+        assert m.hp == 95
+        assert state.party.aura.get_duration() == 5
 
-    def test_turn_meals_matches_end_turn_without_the_move_counter(
+    def test_age_chars_matches_end_turn_without_the_move_counter(
         self,
     ):
-        """Party.turn_meals(surface=False) alone reproduces the
-        end_turn(surface=False) meal block — same crossing, no move count."""
+        """Party.age_chars(sosaria=False) alone reproduces
+        end_turn(sosaria=False) off Sosaria: same tick, no move count."""
         via_end_turn = Party()
         via_end_turn.add_member(
             Character("A", "M", Race.HUMAN, Profession.FIGHTER, hp=100, max_hp=100)
@@ -1238,7 +1245,7 @@ class TestDungeonMealCadence:
             Character("B", "M", Race.HUMAN, Profession.FIGHTER, hp=100, max_hp=100)
         )
         via_end_turn.members[1].submorsels = 10
-        via_end_turn.end_turn(surface=False)
+        via_end_turn.end_turn(sosaria=False)
 
         via_meals = Party()
         via_meals.add_member(
@@ -1248,7 +1255,7 @@ class TestDungeonMealCadence:
             Character("B", "M", Race.HUMAN, Profession.FIGHTER, hp=100, max_hp=100)
         )
         via_meals.members[1].submorsels = 10
-        via_meals.turn_meals(surface=False)
+        via_meals.age_chars(sosaria=False)
 
         for m1, m2 in zip(via_end_turn.members, via_meals.members):
             assert m1.food == m2.food

@@ -65,15 +65,17 @@ def _negated_cast_setup(asset_mgr, conflict_map):
 def test_negate_blocks_casting_without_spending_mana(asset_mgr, conflict_map):
     party, caster = _negated_cast_setup(asset_mgr, conflict_map)
     party.aura.set(AuraType.NEGATE, 3)
-
-    res = cast_spell(Spell.SANCTU, caster=caster, party=party, arena=CombatArena(
+    arena = CombatArena(
         party=party, combat_map=conflict_map, creature_tile="skeleton",
         asset_mgr=asset_mgr, monster_count=1,
-    ))
+    )
+    mp = caster.mp  # after combatstart's AgeChars (+1, LW UltimaSpellCombat.c:920)
+
+    res = cast_spell(Spell.SANCTU, caster=caster, party=party, arena=arena)
 
     assert not res.success
     assert res.message == "Spell is negated!"
-    assert caster.mp == 50  # Java: adjustMagic runs after the NEGATE check
+    assert caster.mp == mp  # Java: adjustMagic runs after the NEGATE check
 
 
 def test_negated_free_spell_flag_is_consumed_java_order(asset_mgr, conflict_map):
@@ -83,11 +85,12 @@ def test_negated_free_spell_flag_is_consumed_java_order(asset_mgr, conflict_map)
     arena = CombatArena(party=party, combat_map=conflict_map, creature_tile="skeleton",
                         asset_mgr=asset_mgr, monster_count=1)
     party.aura.set(AuraType.NEGATE, 3)
+    mp = caster.mp  # after combatstart's AgeChars (+1, LW UltimaSpellCombat.c:920)
 
     res = cast_spell(Spell.PONTORI, caster=caster, party=party, arena=arena)
     assert not res.success
     assert res.message == "Spell is negated!"
-    assert caster.mp == 50
+    assert caster.mp == mp
     assert caster.used_free_spell_in_combat is True
 
     # Aura expiry restores casting, but the free spell is gone
@@ -95,7 +98,7 @@ def test_negated_free_spell_flag_is_consumed_java_order(asset_mgr, conflict_map)
     res2 = cast_spell(Spell.PONTORI, caster=caster, party=party, arena=arena)
     assert not res2.success
     assert res2.message == "Can't!"
-    assert caster.mp == 50
+    assert caster.mp == mp
 
 
 def test_spell_not_negated_with_plain_aura(asset_mgr, conflict_map):

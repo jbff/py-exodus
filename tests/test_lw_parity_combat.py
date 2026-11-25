@@ -731,3 +731,44 @@ def test_howmany_town_merchant_and_lord_british_come_alone(monkeypatch):
 def test_howmany_town_guards_still_come_eight(monkeypatch):
     """HowMany: `if (gMonType == 0x24) return 7;` -- 8 guards (ruling 13)."""
     assert _town_fight_count(1, 18, monkeypatch) == 8
+
+
+# --- B-01: AgeChars once a combat round, every 4th round ------------------
+
+
+def _agechars_arena(asset_mgr, transport: Transport):
+    from py_exodus.constants import Profession
+
+    party = Party(transport=transport)
+    wiz = Character("Mage", "M", profession=Profession.WIZARD, intelligence=40, wisdom=10,
+                    hp=300, max_hp=300, mp=0)
+    party.add_member(wiz)
+    party.x, party.y = 44, 20
+    arena = CombatArena(
+        party, MapLoader(asset_mgr).load_conflict_map("CNFLCT_A.ULT"),
+        creature_tile="orc", asset_mgr=asset_mgr, monster_count=1,
+    )
+    arena._execute_single_monster_ai = lambda m: None  # the orc stands still
+    return party, wiz, arena
+
+
+@pytest.mark.parametrize("transport", [Transport.FOOT, Transport.SHIP])
+def test_combat_agechars_every_fourth_round_no_moves(asset_mgr, transport):
+    """UltimaSpellCombat.c:883 `Party[3] = 0x80;` and 920-923:
+
+        combatstart:
+            AgeChars();
+            ShowChars(false);
+            g835D = 0;
+
+    AgeChars runs at the top of every round (the first included) and, with
+    Party[3] > 0, acts every 4th call (UltimaMisc.c:1405-1410): mana, food,
+    poison and the healing count tick every 4th round. No move is counted,
+    aboard ship too (the old ship-once ruling is withdrawn, 2026-11-25).
+    """
+    party, wiz, arena = _agechars_arena(asset_mgr, transport)
+    assert wiz.mp == 1  # combatstart: the first call ticks (gTime[0] was 0)
+    for _ in range(8):
+        arena.execute_monster_turns()
+    assert wiz.mp == 3  # calls 1, 5 and 9 of nine
+    assert party.moves == 0

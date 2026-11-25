@@ -264,8 +264,8 @@ def test_agechars_skips_dead_and_ashes(monkeypatch):
     """
     ash = _member("Ash", hp=0, status=Status.ASHES)
     party = _party(_member("Live"), ash)
-    for _ in range(11):  # one surface meal crossing (40 per turn)
-        party.end_turn(surface=True)
+    for _ in range(11):  # one Sosaria meal crossing (40 per tick)
+        party.end_turn(sosaria=True)
     assert party.members[0].food == 149
     assert ash.food == 150
     assert ash.submorsels == 400
@@ -518,3 +518,315 @@ def test_validtrans_old_save_keeps_its_wind(tmp_path):
 
     calm = Party.from_dict({**old, "wind_direction": None})
     assert calm.wind_direction is None
+
+
+# --- AgeChars ($7470) and EatFood ($761D): user rulings 2026-11-25 ----------
+#
+# UltimaMisc.c:1403-1414 (AgeChars):
+#
+#     if (Party[3] > 0) {
+#         gTime[0]--;
+#         if (gTime[0] > 0)
+#             return;
+#         gTime[0] = 4;
+#     }
+#     gTime[1]--;
+#     if (gTime[1] < 0)
+#         gTime[1] = 9;
+#
+# One tick every Sosaria turn, every 4th call anywhere else (Party[3] > 0:
+# towns, castles, dungeons, Ambrosia, combat); a party-wide counter for the
+# +1 HP every 10th tick.
+
+
+def _caster(name: str = "Mage", prof: Profession = Profession.WIZARD, intel: int = 40,
+            wis: int = 40, mp: int = 0, status: Status = Status.GOOD, hp: int = 200) -> Character:
+    return Character(name=name, profession=prof, intelligence=intel, wisdom=wis, hp=hp,
+                     max_hp=300, mp=mp, food=150, gold=0, status=status)
+
+
+def _turns(party: Party, n: int, sosaria: bool) -> None:
+    for _ in range(n):
+        party.end_turn(sosaria=sosaria)
+
+
+# T-16
+
+
+def test_eatfood_starving_every_tick_on_sosaria():
+    """UltimaMisc.c:1477-1487 (EatFood):
+
+        if (Player[rosNum][32] > 127) {
+            Player[rosNum][32] = Player[rosNum][33] = Player[rosNum][34] = 0;
+            UPrintMessage(184);
+            ...
+            HPSubtract(rosNum, 5);
+
+    Once the food is gone (the fraction too) every AgeChars tick underflows
+    again: STARVING! and 5 HP. On Sosaria that is every turn.
+    """
+    m = _member()
+    party = _party(m)
+    m.food, m.submorsels = 0, 0
+    _turns(party, 3, sosaria=True)
+    assert m.hp == 200 - 15
+    assert m.food == 0
+
+
+def test_eatfood_starving_every_fourth_turn_off_sosaria():
+    """UltimaMisc.c:1405-1410 with 1477-1487: off Sosaria (Party[3] > 0)
+    AgeChars acts every 4th call, so starving takes 5 every 4th turn."""
+    m = _member()
+    party = _party(m)
+    m.food, m.submorsels = 0, 0
+    _turns(party, 8, sosaria=False)
+    assert m.hp == 200 - 10
+
+
+def test_eatfood_last_ration_does_not_starve():
+    """UltimaMisc.c:1470-1476 (EatFood): the borrow that takes the last unit
+    of food leaves a fraction (`[34] -= 157`), so that tick does no harm; the
+    starving starts when the fraction runs out too."""
+    m = _member(hp=300)  # at max HP: the 10th-tick heal changes nothing
+    party = _party(m)
+    m.food, m.submorsels = 1, 0
+    _turns(party, 1, sosaria=True)
+    assert (m.food, m.hp) == (0, 300)
+    _turns(party, 10, sosaria=True)  # the fraction runs out
+    assert m.hp == 300
+    _turns(party, 1, sosaria=True)
+    assert m.hp == 295
+
+
+def test_agechars_quickness_does_not_stop_meals():
+    """T-13, UltimaMisc.c:1357-1374 (Routine6E35): IncMoves, MoonGateUpdate
+    and AgeChars run before FinishAll, the only place gTimeNegate is read
+    (1120-1123): stopped time does not stop eating."""
+    m = _member()
+    party = _party(m)
+    m.submorsels = 0
+    party.aura.set(AuraType.QUICKNESS, 10)
+    _turns(party, 1, sosaria=True)
+    assert m.food == 149
+
+
+# T-17
+
+
+def test_agechars_heals_every_tenth_tick_for_every_living_member():
+    """UltimaMisc.c:1412-1414 and 1461-1462 (AgeChars):
+
+        gTime[1]--;
+        if (gTime[1] < 0)
+            gTime[1] = 9;
+        ...
+            if (gTime[1] == 0)
+                HPAdd(rosNum, 1);
+
+    One party counter: +1 HP on every 10th tick to every member not dead or
+    ashes, the poisoned and the starving too.
+    """
+    fed = _member("Fed")
+    sick = _member("Sick", status=Status.POISONED)
+    hungry = _member("Hungry")
+    party = _party(fed, sick, hungry)
+    hungry.food, hungry.submorsels = 0, 0
+    _turns(party, 9, sosaria=True)
+    assert fed.hp == 200
+    _turns(party, 1, sosaria=True)
+    assert fed.hp == 201
+    assert sick.hp == 200 - 10 + 1
+    assert hungry.hp == 200 - 50 + 1
+
+
+def test_agechars_heals_every_fortieth_turn_off_sosaria():
+    """UltimaMisc.c:1405-1414: off Sosaria the 10th tick is the 40th turn
+    (the first call ticks: gTime[0] starts at 0)."""
+    m = _member()
+    party = _party(m)
+    _turns(party, 36, sosaria=False)  # ticks on turns 1, 5, ..., 33: nine
+    assert m.hp == 200
+    _turns(party, 1, sosaria=False)  # turn 37: the 10th tick
+    assert m.hp == 201
+    _turns(party, 39, sosaria=False)
+    assert m.hp == 201
+    _turns(party, 1, sosaria=False)
+    assert m.hp == 202
+
+
+def test_agechars_heal_caps_at_max_hp():
+    """UltimaMain.c:3239-3247 (HPAdd): `if (hp > maxhp) hp = maxhp;`."""
+    m = _member(hp=300)
+    party = _party(m)
+    _turns(party, 10, sosaria=True)
+    assert m.hp == 300
+
+
+def test_agechars_counters_survive_a_save_and_old_saves_load():
+    """gTime[0] and gTime[1] carry on across a save; a save from before
+    them loads with LW's zeroed globals (the next off-Sosaria call ticks,
+    the 10th tick heals)."""
+    party = _party(_member())
+    _turns(party, 3, sosaria=False)
+    again = Party.from_dict(party.to_dict())
+    assert (again.age_count, again.heal_count) == (party.age_count, party.heal_count)
+    old = party.to_dict()
+    old.pop("age_count")
+    old.pop("heal_count")
+    old["regen_turns"] = 17  # the retired per-turn regen counter
+    loaded = Party.from_dict(old)
+    assert (loaded.age_count, loaded.heal_count) == (0, 0)
+    assert "regen_turns" not in loaded.to_dict()
+
+
+# T-18
+
+
+def test_agechars_poison_every_tick():
+    """UltimaMisc.c:1454-1460 (AgeChars):
+
+        if (Player[rosNum][17] == 'P') {
+            HPSubtract(rosNum, 1);
+            ...
+            UPrintMessage(183);
+
+    POISON! takes 1 HP a tick: every Sosaria turn, every 4th turn elsewhere.
+    """
+    m = _member(status=Status.POISONED)
+    party = _party(m)
+    _turns(party, 4, sosaria=True)
+    assert m.hp == 196
+    _turns(party, 4, sosaria=False)
+    assert m.hp == 195
+
+
+# T-20
+
+
+def test_agechars_mana_every_tick_up_to_the_class_cap():
+    """UltimaMisc.c:1418-1428 (AgeChars):
+
+        // Wizard, full Int
+        if (cType == careerTable[2]) {
+            if (Player[rosNum][25] < Player[rosNum][20])
+                Player[rosNum][25]++;
+        }
+
+    +1 MP a tick (every Sosaria turn, every 4th turn elsewhere) up to the
+    class's cap (MaxMana).
+    """
+    wiz = _caster(intel=30, mp=0)
+    party = _party(wiz)
+    _turns(party, 5, sosaria=True)
+    assert wiz.mp == 5
+    _turns(party, 8, sosaria=False)
+    assert wiz.mp == 7
+    wiz.mp = 29
+    _turns(party, 3, sosaria=True)
+    assert wiz.mp == 30
+
+
+def test_agechars_mana_for_the_dead_and_ashes_too():
+    """UltimaMisc.c:1415-1449: the mana block runs for all four slots before
+    the status test (`if ((temp == 'D') || (temp == 'A') ...`), so the dead
+    and ashes regain MP as LairWare does."""
+    dead = _caster("Dead", status=Status.DEAD, hp=0, mp=0)
+    ash = _caster("Ash", status=Status.ASHES, hp=0, mp=0)
+    party = _party(_member(), dead, ash)
+    _turns(party, 3, sosaria=True)
+    assert (dead.mp, ash.mp) == (3, 3)
+
+
+def test_agechars_druid_two_a_tick_to_max_book_of_lore():
+    """User ruling 2026-11-25, the Book of Lore over LairWare
+    (assets/data/ultima3.txt:159,168-169: "Greater of Both Halfs. Druids
+    regain their magic points faster"; "Druids regain two points per turn").
+    LairWare (UltimaMisc.c:1430-1440) gives +1 per half the Druid is under;
+    the port gives +2 a tick all the way to the greater half."""
+    druid = _caster("Druid", prof=Profession.DRUID, intel=40, wis=20, mp=10)
+    party = _party(druid)
+    _turns(party, 3, sosaria=True)  # past WIS/2 = 10: LW would give +1 here
+    assert druid.mp == 16
+    _turns(party, 4, sosaria=False)  # one tick
+    assert druid.mp == 18
+    _turns(party, 5, sosaria=True)
+    assert druid.mp == 20
+
+
+def test_agechars_mana_above_the_cap_is_kept():
+    """UltimaMisc.c:1418-1447: every gain is `if (mp < cap) mp++`, so MP
+    already above the cap (a stat lowered) is not cut down."""
+    wiz = _caster(intel=20, mp=25)
+    party = _party(wiz)
+    _turns(party, 2, sosaria=True)
+    assert wiz.mp == 25
+
+
+# W-03
+
+
+def test_moongateupdate_only_on_sosaria():
+    """UltimaMisc.c:1490-1493 (MoonGateUpdate):
+
+        if (Party[3] != 0)
+            return; /* only if on surface! */
+
+    The moons stand still in towns, castles, dungeons and on Ambrosia, and
+    turn on Sosaria while time is stopped (T-13: the check is FinishAll's)."""
+    party = _party()
+    phase = party.moon_phase
+    _turns(party, 64, sosaria=False)
+    assert party.moon_phase == phase
+    party.aura.set(AuraType.QUICKNESS, 10)
+    _turns(party, 4, sosaria=True)
+    assert party.moon_phase == (phase + 1) % 24
+
+
+def test_moongateupdate_frozen_on_ambrosia(overworld, asset_mgr):
+    """UltimaMisc.c:1490-1493: Ambrosia (Party[3] > 0) has no moon turn,
+    and its AgeChars acts every 4th turn."""
+    ow = overworld(10, 10)
+    ow.map_id = 13
+    ow.game_map.id = 13
+    m = ow.party.members[0]
+    m.status = Status.POISONED
+    phase = ow.party.moon_phase
+    for _ in range(8):
+        ow._finish_turn(None)
+    assert ow.party.moon_phase == phase
+    assert m.hp == 198
+
+
+# T-13
+
+
+def test_negatetime_counts_down_only_when_monsters_would_move(overworld):
+    """UltimaMain.c:2138 `gTimeNegate = 10;` and UltimaMisc.c:1115-1123
+    (FinishAll): the count drops only on turns past the mounted flip, so
+    stopped time lasts 10 turns on foot and 20 on horse or ship."""
+    ow = overworld(10, 10)
+    ow.party.aura.set(AuraType.QUICKNESS, 10)
+    for _ in range(9):
+        ow._consume_pass_turn()
+    assert ow.party.aura.get_type() == AuraType.QUICKNESS
+    ow._consume_pass_turn()
+    assert ow.party.aura.get_type() == AuraType.NONE
+
+    ow.party.transport = Transport.HORSE
+    ow.party.aura.set(AuraType.QUICKNESS, 10)
+    for _ in range(18):  # nine counted turns of the 18 (the flip's phase)
+        ow._consume_pass_turn()
+    assert ow.party.aura.get_type() == AuraType.QUICKNESS
+    for _ in range(2):
+        ow._consume_pass_turn()
+    assert ow.party.aura.get_type() == AuraType.NONE
+
+
+def test_negatetime_counts_down_in_towns(town):
+    """UltimaMisc.c:1120-1123: FinishAll runs from Routine6E35 in towns too,
+    so stopped time drops a turn there while the townsfolk stand still."""
+    scr = town(1, 10, 10)
+    scr.party.aura.set(AuraType.QUICKNESS, 3)
+    for _ in range(3):
+        scr._finish_turn(None)
+    assert scr.party.aura.get_type() == AuraType.NONE

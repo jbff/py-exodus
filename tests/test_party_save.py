@@ -239,27 +239,26 @@ def test_party_gold_food_and_transport():
     assert c1.gold == 300
     assert c2.gold == 0
 
-    # Submorsels tick (town interval 10): crossing eats one unit of food each
+    # AgeChars (LairWare UltimaMisc.c:1403-1468): a town turn's first call
+    # ticks, 40 of each pool: the crossing eats one unit of food each. The
+    # +1 HP waits for the 10th tick.
     for m in p.members:
         m.submorsels = 5
         m.food = 10
         m.hp = 100
-    p.end_turn(surface=False)
+    p.end_turn(sosaria=False)
     assert p.food == 18
-    # Meal crossing: food decrements and the GBC meal-bound regen
-    # (2026-11-14, supersedes the 2026-11-10 interpretation for HP regen)
-    # heals +1 at the crossing. Mana stays on the per-turn tick.
-    assert c1.hp == 101
-    assert c2.hp == 101
+    assert c1.hp == 100
+    assert c2.hp == 100
 
-    # Starvation is MEAL-BOUND (GBC user-directed deviation 2026-11-14,
-    # supersedes the per-turn 2/turn tick): food 0 AT a crossing → 5 HP.
+    # Starving (EatFood, UltimaMisc.c:1477-1487): no food and no fraction
+    # left → 5 HP every tick (a Sosaria turn ticks every time).
     for m in p.members:
         m.food = 0
         m.submorsels = 5
-    p.end_turn(surface=False)  # crossing on a food-0 member → -5 HP
-    assert c1.hp == 96
-    assert c2.hp == 96
+    p.end_turn(sosaria=True)
+    assert c1.hp == 95
+    assert c2.hp == 95
 
     # Transport
     assert p.transport == Transport.FOOT

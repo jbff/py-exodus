@@ -18,7 +18,6 @@ from py_exodus.constants import (
     Direction,
     WeaponType,
 )
-from py_exodus.aura import AuraType
 from py_exodus.entities.character import Character
 from py_exodus.entities.party import Party
 from py_exodus.screens.dungeon_screen import DungeonScreen
@@ -36,11 +35,18 @@ def pygame_setup():
 
 
 def turn_meter(party: Party):
-    """Java finishTurn opens with aura.passTurn() and NEVER calls
-    Party.endTurn from a dungeon (DungeonScreen.java:1124-1142) — party.moves
-    does not tick while exploring, so aura decrements are the turn meter."""
-    party.aura.set(AuraType.QUICKNESS, 99)
-    return party.aura.get_duration
+    """LairWare dungeonmech (UltimaDngn.c:183-189) runs AgeChars once per
+    dungeon command and party.moves does not tick while exploring, so the
+    AgeChars calls are the turn meter: it reads 99 less one per turn."""
+    left = [99]
+    real = party.age_chars
+
+    def counted(*a, **k):
+        left[0] -= 1
+        return real(*a, **k)
+
+    party.age_chars = counted
+    return lambda: left[0]
 
 
 def make_dmap() -> DungeonMap:
@@ -355,23 +361,23 @@ def test_dungeon_unhandled_keys_pass_and_consume_turn(pygame_setup):
 # (GBC ult3.c:1388-1429; LW free-action ladders disagree, no LW+NES
 # agreement — GBC retained). Java's K/D return false before finishTurn —
 # the port now runs the same turn tick a normal move runs, so the climb is
-# metered by the moon-clock counter (the party.moves move counter does not
+# metered by the AgeChars call count (the party.moves move counter does not
 # tick while exploring a dungeon — Java truth, kept).
 def test_dungeon_ladders_consume_turns(pygame_setup):
     party = make_party()
     scr = make_screen(party)
     scr.dungeon_map.set_tile(scr.state.x, scr.state.y, scr.state.z, DungeonTile.LADDER_DOWN)
-    turn = party.moon_turns
+    ticks = turn_meter(party)
 
     press(scr, pygame.K_d)
     assert scr.state.z == 1
     assert any("Climbed down" in m for m in scr.text_log.history)
-    assert party.moon_turns == turn + 1
+    assert ticks() == 98
 
     scr.dungeon_map.set_tile(scr.state.x, scr.state.y, scr.state.z, DungeonTile.LADDER_UP)
     press(scr, pygame.K_k)
     assert scr.state.z == 0
-    assert party.moon_turns == turn + 2
+    assert ticks() == 97
 
 
 # --- (e) ladder bounds clamp (Java DungeonScreen.java:959-982) ---------

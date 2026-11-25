@@ -361,13 +361,10 @@ def test_town_starvation_wipe_transitions_to_start_screen(sm, asset_mgr, monkeyp
 
 
 def test_dungeon_food_zero_never_starves_without_a_crossing(sm, asset_mgr):
-    """Starvation is MEAL-BOUND (USER-DIRECTED GBC-RULES DEVIATION
-    2026-11-14, supersedes the 2026-11-10 per-turn tick): the dungeon moves
-    tick the meal pipeline at the underground cadence (pending item 23 —
-    GBC funcs5.c:1274; LW UltimaMisc.c:1428-1467 corroborates), 10
-    submorsels per consumed move — so ONE dungeon move at a fresh 400 pool
-    takes NO crossing and no starvation blow. Java DungeonScreen
-    (DungeonScreen.java:1124-1141) still never calls Party.endTurn: the
+    """LairWare EatFood (UltimaMisc.c:1470-1487): food 0 with the fraction
+    left does not starve. One dungeon move runs AgeChars (UltimaDngn.c:188;
+    the first call acts) and takes 40 of a fresh 400 pool: no crossing, no
+    starvation blow. Java DungeonScreen still never calls Party.endTurn: the
     move counter does not tick per dungeon move."""
 
     def member(name: str) -> Character:
@@ -399,23 +396,19 @@ def test_dungeon_food_zero_never_starves_without_a_crossing(sm, asset_mgr):
 
     assert not party.is_party_dead()
     assert sm.current_screen is dungeon
-    # No meal crossing on this move (submorsels 400 -> 390 at the
-    # underground cadence) → no 5 HP starvation blow.
+    # No meal crossing on this move (submorsels 400 -> 360, one AgeChars
+    # tick) → no 5 HP starvation blow.
     assert party.get_member(1).hp == 6
     assert all(m.food == 0 for m in party.members)
-    assert all(m.submorsels == 390 for m in party.members)
+    assert all(m.submorsels == 360 for m in party.members)
 
 
 def test_dungeon_starvation_crossing_transitions_to_start_screen(sm, asset_mgr):
-    """Pending item 23: a dungeon meal crossing at food 0 starves the whole
-    party through the tick's apply_damage chokepoint, and the screen's
-    post-move check routes the wipe (the pit-trap death flow).
-
-    USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): the underground meal
-    cadence (GBC funcs5.c:1274; LW UltimaMisc.c:1428-1467 corroborates)
-    crosses this move with 9 submorsels pre-staged (pool must cross below
-    0); the 5 HP starvation blow (GBC funcs5.c:741-789) wipes both hp-4
-    members."""
+    """A dungeon AgeChars tick at food 0 starves the whole party through
+    the apply_damage chokepoint, and the screen's post-move check routes the
+    wipe (the pit-trap death flow). LairWare EatFood (UltimaMisc.c:1477-1487):
+    with 9 submorsels left the tick's 40 runs the fraction out, and the
+    5 HP STARVING! blow wipes both hp-4 members."""
 
     def member(name: str) -> Character:
         char = Character(name, "M", Race.HUMAN, Profession.FIGHTER, hp=4, max_hp=100)

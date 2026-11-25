@@ -54,6 +54,9 @@ A Python 3 / Pygame-CE reimplementation of *Ultima III: Exodus*, with **Auto-Com
   - **Shrines**: no shrine screen. Enter on an Ambrosia shrine, name who enters, offer 0-9 hundred gold, all in the message log with the map still in view (no shrine picture or chant). The stat goes up by the offering, capped by race (the cap lifts after Exodus, never past 99).
   - **Opening**: LairWare's intro sequence, with py-exodus's own C64-style title art (pyExodus and Ultima III dissolving in, kept blocky by whole-pixel scaling), "by Lord British" written stroke by stroke, the copyright line (Ultima III © 1983 Lord British / Richard Garriott; py-exodus © 2026), the duel under pixel-art stalactites, with the party and dragon drawn from the current tile set and blocky EGA-coloured fire; the crackle plays only while each logo dissolves in), then the View, a scripted scene of Sosaria with its tiles animating at the in-game pace, attacks drawn as combat's hit orbs, and the songs playing one after another, until a key. The main menu is silent. Any key skips the intro; the main menu has "Return to the View". Never in headless or autoplay runs.
   - **The turn**: a refused step (a wall, a mountain, the wind) still takes the turn; lava burns on the step onto it, not while you stand there; a town is left the moment you step onto its edge row or column. On horseback or aboard ship the monsters act only every other turn, and while time is stopped no new ones appear and nobody in a town or castle moves.
+  - **Time and the body** (LairWare `AgeChars`): one tick every turn on Sosaria and every 4th turn anywhere else (towns, castles, dungeons, Ambrosia) and every 4th round of a fight. Each tick eats a tenth of a ration, takes 1 HP from the poisoned ("POISON!") and 5 HP from anyone whose food has run out ("STARVING!", every tick until fed), and gives every caster 1 MP up to their maximum, the dead and ashes too (a Druid 2, as the Book of Lore has it). Every 10th tick every living member heals 1 HP, poisoned or starving. Fights count no moves, aboard ship too.
+  - **Stopped time** (`N`, a powder) holds the monsters for 10 turns on foot (about 20 on horse or ship, as they move only every other turn), counting only turns they would have moved; meals, moons, poison and healing carry on. Dungeon steps don't count it down.
+  - **The moons** turn only on Sosaria (Trammel every 12 turns, Felucca every 4); in towns, castles, dungeons and on Ambrosia they stand still.
   - **Castle Exodus throws fireballs** until Exodus falls: each turn one chance in 144 that a ball lands on the party, every living member losing 8-127 HP; stopped time doesn't last there.
   - **Moongates**: a new game starts with both moons at phase 4 (so no Dawn yet), and the new-moon gate stands at (8, 8). A gate takes the party at the end of any turn it is under it, so one that rises where the party stands (a pass, a refused step, a command) sends it on too. Monsters never step or appear on the visible gate, nor on Dawn while it shows. The gate tiles inside Castle British and Castle Exodus can be walked onto, and each sends the party to a random grass tile of that castle.
   - **New characters** start with a readied Dagger and Cloth (on top of 150 food and 150 gold), and a name keeps at most 12 letters.
@@ -72,7 +75,7 @@ A Python 3 / Pygame-CE reimplementation of *Ultima III: Exodus*, with **Auto-Com
   - **Dungeon fights**: no monsters roam the dungeons. Every command that leaves the party on an empty tile has a (3 + level)-in-(131 + level) chance of a fight (about 2% on the first level, 7% on the eighth): orcs, skeletons and giants on the first level, then daemons, pinchers, dragons and balrons further down (balrons from the fifth). A chest is left on that tile before the fight, whatever its end.
   - **After Exodus falls** new monsters (pirates excepted) only wander about and never attack; those already out, and every pirate, still hunt, and pirates and dragons keep firing.
   - **Monster variants**: half of Sosaria's wanderers come as a named variant: Brigands and Cutpurses, Goblins and Trolls, Ghouls and Zombies, Golems and Titans, Gargoyles and Manes, Snatches and Bradles, Griffons and Wyverns, Orcuses and Devils. Same stats, new name, their own art.
-- **Other classic references**: the Game Boy Color port (`u3gbc`) for moongate routing, ship-battle cannon barrages, meal-crossing starvation/regen and the `QUICKNESS` aura; the NES `MoonGateTbl` for the 8-site moongate table.
+- **Other classic references**: the Game Boy Color port (`u3gbc`) for moongate routing and ship-battle cannon barrages; the NES `MoonGateTbl` for the 8-site moongate table.
 
 ---
 
@@ -165,7 +168,7 @@ About **1,700 tests** covering mechanics, LairWare/Java/GBC parity, vendors, dun
 
 1. **Wireframe dungeons**: a classic first-person wireframe view instead of Java's 3D pipeline (mechanics match). The wireframe makes depth hard to judge accurately, so the dungeon map overlay stays on by default (`P` hides it), even though the original has no such map.
 2. **Fixed spell letters (A–P)**: spell menus keep the original A–P slots; an invalid cast refuses with `"Not Here!"` or the MP message.
-3. **Classic GBC/LairWare rulings**: slow/fast moongate table, party-wide ship cannon barrage, meal-crossing `-5 HP` starvation / `+1 HP` regen, `QUICKNESS` stop-time.
+3. **Classic GBC/LairWare rulings**: slow/fast moongate table, party-wide ship cannon barrage. Druids regain 2 MP a tick to their maximum (the Book of Lore; LairWare gives 1 per half they are under).
 4. **Quality of life**: no quick-start party; `Q` saves only on the Sosaria overworld; `APPAR UNEM` opens the chest underfoot without a direction prompt; saves and rosters are JSON only; a shopkeeper's question is asked once, as the input prompt, with the answer on the same line (Java printed it and then prompted it again).
 5. **Wind display**: reads `Wind NORTH` etc. in words, without arrow glyphs (`Wind NORTH` blows from the north, as LairWare's NORTH WIND does).
 
@@ -173,8 +176,7 @@ About **1,700 tests** covering mechanics, LairWare/Java/GBC parity, vendors, dun
 
 1. **Audio**: the poison/fire field sound cues (`Sound.POISON_EFFECT`, `Sound.FIREFIELD`) aren't wired yet.
 2. **Input**: keyboard only.
-3. **Combat regen**: MP regen and meal-crossing `+1 HP` don't tick during combat rounds.
-4. **Autoplay**: early-game wipes are the main loss; see Status above.
+3. **Autoplay**: early-game wipes are the main loss; see Status above.
 
 ---
 

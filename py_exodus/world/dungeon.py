@@ -1604,46 +1604,21 @@ class DungeonState:
         upkeep, mirroring GBC's move loop (dungfunc.c:719-734) where the
         counter tick runs under the tile check before the view is drawn.
 
-        USER-DIRECTED ORIGINAL-RULES DEVIATION (2026-11-10): Java's dungeon
-        tick regenerates NOTHING, but the mana tick
-        (``Party.tick_regen`` — mana +1 per 4 turns underground, poison
-        -1 HP per turn) applies here every consumed turn. HP regen and
-        starvation are MEAL-BOUND — USER-DIRECTED GBC-RULES DEVIATION
-        (2026-11-14, supersedes the 2026-11-10 interpretation for these two
-        rules): both ride the meal crossing in Party.end_turn (GBC
-        funcs5.c:741-789; LW UltimaMisc.c:1428-1493). Pending item 23
-        (USER-DIRECTED GBC-RULES DEVIATION, 2026-11-14): the party DOES eat
-        underground now — this tick runs the per-member meal pipeline
-        (``Party.turn_meals(surface=False)``, the 10-submorsel cadence the
-        port already uses for towns; GBC funcs5.c:1274; LW
-        UltimaMisc.c:1428-1467 corroborates). A wipe raised at a
-        starvation crossing lands in the catch below and routes through
-        the screen's post-move ``check_party_death()`` (the pit-trap
-        death flow). The move counter stays OUT —
-        Java DungeonScreen never calls Party.endTurn.
+        LairWare dungeonmech (UltimaDngn.c:183-193) runs AgeChars after
+        every dungeon command; with Party[3] = 1 it acts on every 4th call
+        (``Party.age_chars(sosaria=False)``: food, starving, poison, healing,
+        mana; ledger D-01). No move is counted and the moons stand still
+        (MoonGateUpdate is Sosaria only). Stopped time does not count down
+        here: LW reads gTimeNegate only in FinishAll and in combat, neither
+        of which a dungeon step runs. A wipe lands in the catch below and
+        routes through the screen's post-move ``check_party_death()``.
         """
         if self.torchtime > 0:
             self.torchtime -= 1
         if self.party is not None:
-            # The aura pass precedes the encounter roll. It only decrements the aura counter, but a member death raised
-            # from a future aura effect must not crash the move — mirror the
-            # post-routing guard the other tick paths carry.
+            # AgeChars precedes the encounter roll (UltimaDngn.c:188-196).
             try:
-                self.party.tick_regen(surface=False)
-                # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): moons
-                # advance per 4 moves surface / 16 elsewhere; stop-time
-                # freezes moons (GBC funcs5.c:1272-1279). Dungeons are the
-                # slow cadence here (the move counter itself does not tick —
-                # Java truth, kept).
-                self.party.advance_moons(surface=False)
-                # USER-DIRECTED GBC-RULES DEVIATION (pending item 23,
-                # 2026-11-14): the original rules feed underground at the
-                # same cadence the port uses for towns (GBC funcs5.c:1274;
-                # LW UltimaMisc.c:1428-1467 corroborates). combat=False —
-                # the dungeon tick is not a combat round, so only the
-                # QUICKNESS gate can freeze the crossing.
-                self.party.turn_meals(surface=False)
-                self.party.aura.pass_turn()
+                self.party.age_chars(sosaria=False)
             except PartyDeathException:
                 pass
         if not roll_encounter:

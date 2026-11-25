@@ -241,10 +241,11 @@ def test_overworld_pass_turn_consumes_turn_without_standing_effect(
     assert all(m.hp == 100 for m in party.members)
 
 
-def test_ambrosia_drains_at_the_10_interval(pygame_setup, asset_mgr):
-    """Java Party.java:598-600: the 40-submorsel interval is Sosaria (0) and
-    Exodus (2) only — Ambrosia (13) drains at 10. With 30 submorsels banked,
-    a 10-per-move turn survives; a 40 turn crosses and takes the food."""
+def test_ambrosia_eats_every_fourth_turn(pygame_setup, asset_mgr):
+    """LairWare AgeChars (UltimaMisc.c:1405-1410): on Ambrosia (Party[3] >
+    0) it acts every 4th turn, on Sosaria every turn, 40 of the pool each.
+    With 30 submorsels banked, Ambrosia's first turn ticks and crosses; its
+    next three do nothing. Sosaria crosses on its first turn too."""
     def _screen_and_party(map_id: int):
         grass = asset_mgr.get_tile_by_name("grass")
         gmap = GameMap(
@@ -262,14 +263,21 @@ def test_ambrosia_drains_at_the_10_interval(pygame_setup, asset_mgr):
             party=party, map_id=map_id, asset_mgr=asset_mgr, random_encounters=False
         )
         ow.game_map = gmap
+        ow.creatures = []  # no fight (a combat runs AgeChars too)
         party.x, party.y = 0, 0
         return ow, party
 
     ow, party = _screen_and_party(13)
     food_before = party.food
     ow._pass_turn()
-    assert all(m.submorsels == 20 for m in party.members)
-    assert party.food == food_before  # 10 drain: no crossing
+    assert all(m.submorsels == 400 for m in party.members)
+    assert party.food == food_before - len(party.members)
+    for _ in range(3):
+        ow._pass_turn()
+    assert [m.submorsels for m in party.members] == [400, 400]  # no tick
+    for _ in range(1):
+        ow._pass_turn()
+    assert all(m.submorsels == 360 for m in party.members)  # 5th turn ticks
 
     ow0, party0 = _screen_and_party(0)
     ow0._pass_turn()

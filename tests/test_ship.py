@@ -145,23 +145,21 @@ class TestExactFrigateNameMatch:
 
 
 class TestCombatRoundEndTurn:
-    """Pending item 2 — Java Party.endTurn's combat gate (Party.java:600):
-    under mapType == combat the meal block is skipped; only the move counter
-    (Party.java:594) and the Sosaria hull roll (Party.java:633-638) run. The
-    arena caller is CombatScreen.finishTurn's round-end endTurn
-    (CombatScreen.java:472)."""
+    """LairWare (ledger B-01, user ruling 2026-11-25): a combat round counts
+    no move; it runs AgeChars, which off Sosaria acts every 4th call
+    (UltimaMisc.c:1405-1410, UltimaSpellCombat.c:883, 920-923)."""
 
-    def test_combat_end_turn_counts_the_move_and_skips_the_meal_block(
-        self, sample_party
-    ):
-        sample_party.members[0].submorsels = 45  # a surface turn would cross it
+    def test_combat_age_chars_counts_no_move(self, sample_party):
+        sample_party.members[0].submorsels = 45
         sample_party.members[0].food = 10
         moves_before = sample_party.moves
-        sample_party.end_turn(surface=True, sosaria=False, combat=True)
-        assert sample_party.moves == moves_before + 1
-        assert sample_party.members[0].submorsels == 45
+        sample_party.age_chars(sosaria=False)  # the first call ticks
+        assert sample_party.moves == moves_before
+        assert sample_party.members[0].submorsels == 5
+        for _ in range(3):
+            sample_party.age_chars(sosaria=False)
+        assert sample_party.members[0].submorsels == 5
         assert sample_party.members[0].food == 10
-        assert sample_party.members[0].hp == sample_party.members[0].max_hp
 
 
 class TestWindRules:
