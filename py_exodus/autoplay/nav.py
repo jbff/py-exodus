@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 import pygame
 
 from py_exodus.constants import Direction, Transport
-from py_exodus.entities.party import objects_on
+from py_exodus.entities.party import headwind, objects_on
 from py_exodus.screens.overworld import can_move_to
 from py_exodus.world import tile_effects
 from py_exodus.world.dungeon import turn_left_dir, turn_right_dir
@@ -69,8 +69,9 @@ def find_2d_step_and_cost(
     if transport == Transport.SHIP and wind_direction is None and not ignore_wind:
         return (None, None)
 
+    # LairWare ValidTrans: the wind's own name is the blocked heading (Q25).
     blocked_dir = (
-        wind_direction.reverse()
+        headwind(wind_direction)
         if transport == Transport.SHIP and wind_direction is not None and not ignore_wind
         else None
     )

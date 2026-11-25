@@ -12,7 +12,7 @@ A Python 3 / Pygame-CE reimplementation of *Ultima III: Exodus*, with **Auto-Com
 - **Rules authority: the LairWare Mac port** (`UltimaMain.c`, `UltimaMisc.c`, `UltimaSpellCombat.c`, ...). Where the Java port and the classic releases disagree, **LairWare is the correct implementation**. Recent LairWare ports include:
   - **People move in towns and castles** (`MoveMonsters`): wanderers wander, shopkeepers follow, attackers close in and start a fight; in Castle Exodus the defenders come to you.
   - **The dead leave the combat board** and no longer block the living.
-  - **Wind** steers ships on Ambrosia as on Sosaria, and is shown there too.
+  - **Wind** steers ships on Ambrosia as on Sosaria, and is shown there too. A wind is named for where it blows from, as sailors name them: a NORTH wind stops a ship sailing north.
   - **Monster attacks**: hit chance by armor (`RandNum(0, armor+16) < 8`), damage that grows with the target's max HP, and a location bonus (+16 dungeon, +32 town, +48 castles and Ambrosia). Castle Exodus is a real fight now. Dragon fire always hits.
   - **Party attacks**: half of all swings face a DEX check (a 0-99 roll above DEX misses), the rest land; a landed blow does 0 to STR (odd) + STR/2 + 3 per weapon rank (Dagger 1 .. Exotic 15) + 4.
   - **Missiles** (sling, bows, a thrown dagger) fly over walls and water to the edge of the board, stopping only at a monster.
@@ -162,7 +162,7 @@ About **1,600 tests** covering mechanics, LairWare/Java/GBC parity, vendors, dun
 2. **Fixed spell letters (A–P)**: spell menus keep the original A–P slots; an invalid cast refuses with `"Not Here!"` or the MP message.
 3. **Classic GBC/LairWare rulings**: slow/fast moongate table, party-wide ship cannon barrage, meal-crossing `-5 HP` starvation / `+1 HP` regen, `QUICKNESS` stop-time.
 4. **Quality of life**: no quick-start party; `Q` saves only on the Sosaria overworld; `APPAR UNEM` opens the chest underfoot without a direction prompt; saves and rosters are JSON only; a shopkeeper's question is asked once, as the input prompt, with the answer on the same line (Java printed it and then prompted it again).
-5. **Wind display**: reads `Wind NORTH` etc. in words, without arrow glyphs.
+5. **Wind display**: reads `Wind NORTH` etc. in words, without arrow glyphs (`Wind NORTH` blows from the north, as LairWare's NORTH WIND does).
 
 ## Known Open Items
 

@@ -457,3 +457,64 @@ def test_hpsubtract_raised_member_at_zero_hp_lives_until_hit():
     assert party.is_anyone_alive()
     a.apply_damage(0, True)
     assert a.status == Status.DEAD
+
+
+# --- T-08 naming (user ruling Q25): a NORTH wind blows from the north ---------
+
+
+def test_validtrans_north_wind_stops_sailing_north(overworld):
+    """UltimaMain.c:3222-3236 (ValidTrans) with North() at 1203-1207:
+
+        if (ValidTrans(1) == 0) { NoGo(); ...
+        ...
+        if ((value != WindDir) && (WindDir != 0)) { cango = TRUE; } else { cango = FALSE; }
+
+    WindDir 1 is shown as "NORTH WIND" (MoreMessages 44), so a north wind
+    blows from the north and stops a ship sailing north, as sailors name
+    winds (user ruling Q25). The port stopped the opposite heading.
+    """
+    ow = overworld(50, 13)
+    ow.party.transport = Transport.SHIP
+    ow.party.wind_direction = Direction.NORTH
+    _key(ow, pygame.K_UP)
+    assert (ow.party.x, ow.party.y) == (50, 13)
+    assert "Headwinds block thy ship!" in ow.text_log.history
+
+    ow.party.wind_direction = Direction.SOUTH
+    _key(ow, pygame.K_UP)
+    assert (ow.party.x, ow.party.y) == (50, 12)
+
+
+def test_validtrans_autoplay_sails_by_the_same_wind(asset_mgr):
+    """Autoplay plans by the same rule (UltimaMain.c:3229): with a NORTH
+    wind it never heads north, with a SOUTH wind it may."""
+    from py_exodus.autoplay.nav import find_2d_step
+    from py_exodus.world.loader import load_map
+
+    sosaria = load_map(0, asset_mgr)
+    assert find_2d_step(sosaria, start=(50, 13), goals=(50, 12), transport=Transport.SHIP,
+                        wind_direction=Direction.NORTH) != Direction.NORTH
+    assert find_2d_step(sosaria, start=(50, 13), goals=(50, 12), transport=Transport.SHIP,
+                        wind_direction=Direction.SOUTH) == Direction.NORTH
+
+
+def test_validtrans_old_save_keeps_its_wind(tmp_path):
+    """Save compatibility for Q25: a save written before the naming change
+    stored the way the wind blew to ("NORTH" stopped sailing south). It
+    loads as the same wind under the new name (from the south: "SOUTH"), so
+    the ship it stopped is the same; a new save round-trips unchanged."""
+    from py_exodus.entities.party import headwind
+
+    old = Party().to_dict()
+    old.pop("wind_from", None)
+    old["wind_direction"] = "NORTH"
+    loaded = Party.from_dict(old)
+    assert loaded.wind_direction == Direction.SOUTH
+    assert headwind(loaded.wind_direction) == Direction.SOUTH
+
+    p = Party(wind_direction=Direction.EAST)
+    again = Party.from_dict(p.to_dict())
+    assert again.wind_direction == Direction.EAST
+
+    calm = Party.from_dict({**old, "wind_direction": None})
+    assert calm.wind_direction is None

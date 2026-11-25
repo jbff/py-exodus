@@ -177,13 +177,13 @@ def test_find_2d_step_force_field_avoidance(asset_mgr):
 def test_find_2d_step_ship_wind_blocking(asset_mgr):
     sosaria = load_map(0, asset_mgr)
     # Open ocean at (50, 13) -> goal (50, 12) (due NORTH).
-    # When wind blows SOUTH, sailing NORTH (wind.reverse()) is blocked!
+    # A NORTH wind blows from the north: sailing NORTH is blocked (LW ValidTrans, Q25)!
     step_blocked = find_2d_step(
         sosaria,
         start=(50, 13),
         goals=(50, 12),
         transport=Transport.SHIP,
-        wind_direction=Direction.SOUTH,
+        wind_direction=Direction.NORTH,
     )
     assert step_blocked is None
 
@@ -197,13 +197,13 @@ def test_find_2d_step_ship_wind_blocking(asset_mgr):
     )
     assert step_becalmed is None
 
-    # When wind blows NORTH, sailing NORTH is allowed!
+    # A SOUTH wind (from the south) lets the ship sail NORTH!
     step_ok = find_2d_step(
         sosaria,
         start=(50, 13),
         goals=(50, 12),
         transport=Transport.SHIP,
-        wind_direction=Direction.NORTH,
+        wind_direction=Direction.SOUTH,
     )
     assert step_ok == Direction.NORTH
 
@@ -1384,7 +1384,7 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
     assert ctrl.step(sm) == pygame.K_RIGHT
 
     # SAIL_WHIRLPOOL tracks live whirlpool creature coordinates, not just static (50, 13)
-    p_ship.wind_direction = Direction.EAST
+    p_ship.wind_direction = Direction.WEST
     ow_s.creatures = [{"x": 52, "y": 17, "tile_name": "whirlpool"}]
     assert ctrl.step(sm) == pygame.K_DOWN
 
@@ -1433,7 +1433,7 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
     # Ship in DIG_EXOTICS steers around whirlpool instead of sailing into it
     p_whirl = _make_party(level=3, exp=200, gold=0, food=500, transport=Transport.SHIP)
     p_whirl.x, p_whirl.y = 49, 13
-    p_whirl.wind_direction = Direction.NORTH
+    p_whirl.wind_direction = Direction.SOUTH
     ow_w = OverworldScreen(party=p_whirl, asset_mgr=am, random_encounters=False)
     ow_w.creatures = [{"x": 50, "y": 13, "tile_name": "whirlpool"}]
     sm.set_screen(ow_w)
@@ -1458,7 +1458,7 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
         m.armor = ArmorType.EXOTIC
         m.armors[ArmorType.EXOTIC] = 1
     p_ret.x, p_ret.y = 18, 44
-    p_ret.wind_direction = Direction.EAST
+    p_ret.wind_direction = Direction.WEST
     ow_r = OverworldScreen(party=p_ret, asset_mgr=am, random_encounters=False)
     ow_r.creatures = []
     sm.set_screen(ow_r)
@@ -1507,7 +1507,7 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
     # Ship in DIG_EXOTICS in a pirate's firing lane at distance 3
     p_lane = _make_party(level=5, exp=500, gold=0, food=500, marks=[1, 0, 0, 0], transport=Transport.SHIP)
     p_lane.x, p_lane.y = 50, 12
-    p_lane.wind_direction = Direction.NORTH
+    p_lane.wind_direction = Direction.SOUTH
     ow_pl = OverworldScreen(party=p_lane, asset_mgr=am, random_encounters=False)
     ow_pl.creatures = [{"x": 53, "y": 12, "tile_name": "pirate"}]  # 3 tiles East over open water
     sm.set_screen(ow_pl)
@@ -1597,11 +1597,11 @@ def test_wind_hold_four_heading_progress(pygame_setup):
     sm = StateMachine(asset_mgr=am, audio=None)
 
     # 1. Wind-hold 4-heading leg: ship near (32, 58) heading to armor island berth (34, 3).
-    # Even when wind blocks a later heading (e.g. SOUTH blocks NORTH), ship advances when free_d != wind.reverse()
+    # Even when wind blocks a later heading (e.g. NORTH blocks NORTH), ship advances when free_d != headwind(wind)
     # instead of holding forever until food < 100, and holds (K_SPACE) when free_d IS blocked.
     p = _make_party(level=5, exp=500, gold=0, food=500, marks=[1, 0, 0, 0], transport=Transport.SHIP)  # gold 0: no shop detour
     p.x, p.y = 32, 59
-    p.wind_direction = Direction.SOUTH  # blocks NORTH, allows SOUTH/WEST/EAST
+    p.wind_direction = Direction.NORTH  # blocks NORTH, allows SOUTH/WEST/EAST
     ow = OverworldScreen(party=p, asset_mgr=am, random_encounters=False)
     ow.creatures = []
     sm.set_screen(ow)
@@ -1619,7 +1619,7 @@ def test_wind_hold_four_heading_progress(pygame_setup):
     ctrl._key_queue.clear()
     p2 = _make_party(level=5, exp=500, gold=0, food=500, marks=[1, 0, 0, 0], transport=Transport.SHIP)  # gold 0: no shop detour
     p2.x, p2.y = 34, 59
-    p2.wind_direction = Direction.NORTH  # blocks SOUTH (direct wrapped route to (34, 3))
+    p2.wind_direction = Direction.SOUTH  # blocks SOUTH (direct wrapped route to (34, 3))
     ow2 = OverworldScreen(party=p2, asset_mgr=am, random_encounters=False)
     ow2.creatures = []
     sm.set_screen(ow2)
@@ -2033,7 +2033,7 @@ def test_water_standoff_unconditional_full_hp(pygame_setup):
         weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC, transport=Transport.SHIP,
     )
     party.x, party.y = 3, 3
-    party.wind_direction = Direction.NORTH
+    party.wind_direction = Direction.SOUTH
     sm = StateMachine(asset_mgr=None, audio=None)
     screen = _stub_screen(
         game_map=gmap,

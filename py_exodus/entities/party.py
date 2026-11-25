@@ -908,6 +908,9 @@ class Party:
             "wind_direction": (
                 self.wind_direction.name if self.wind_direction is not None else None
             ),
+            # Q25: the stored wind names where it blows FROM (LairWare). Saves
+            # without this key stored where it blew TO; from_dict turns them.
+            "wind_from": True,
             "gold": self.gold,
             "food": self.food,
             "moves": self.moves,
@@ -960,7 +963,7 @@ class Party:
             map_id=p_data.get("map_id", 0),
             dungeon_level=p_data.get("dungeon_level", 0),
             transport=p_data.get("transport", Transport.FOOT),
-            wind_direction=p_data.get("wind_direction", Direction.NORTH),
+            wind_direction=_loaded_wind(p_data),
             # Per-member model (Java CharacterRecord, SaveGame.java:190-192):
             # gold and food live on the member records. Legacy-migration below
             # handles old saves that kept a party-level wallet.
@@ -1009,6 +1012,32 @@ class Party:
                 # (Utils.adjustValue(food, v, 999900, 0) — Party.java:604).
                 p.members[0].food = max(0, min(999900, food_total + legacy_food))
         return p
+
+
+def _loaded_wind(p_data: dict[str, Any]) -> Direction | str | None:
+    """A saved wind under LairWare's naming (Q25). A save written before
+    ``wind_from`` stored the way the wind blew TO, so its direction is turned
+    round: the same wind, stopping the same heading, under its new name."""
+    wind = p_data.get("wind_direction", Direction.NORTH)
+    if wind is None or p_data.get("wind_from"):
+        return wind
+    try:
+        d = wind if isinstance(wind, Direction) else Direction[str(wind).strip().upper()]
+    except KeyError:
+        return wind
+    return d.reverse()
+
+
+def headwind(wind: Direction | None) -> Direction | None:
+    """The heading a ship cannot sail into under ``wind`` (None when calm;
+    a calm ship cannot sail at all).
+
+    LairWare names a wind where it blows FROM: WindDir 1 shows as "NORTH
+    WIND" (MoreMessages 44) and ValidTrans refuses the move whose code equals
+    WindDir, North() passing 1 (UltimaMain.c:3222-3236, 1203-1207). So a
+    NORTH wind stops a ship sailing north (user ruling Q25; the port used to
+    stop the opposite heading)."""
+    return wind
 
 
 def objects_on(party: Any, game_map: Any) -> list[dict[str, Any]]:

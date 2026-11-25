@@ -125,7 +125,7 @@ def test_cannon_fx_flies_and_clears(ow):
 
 
 def test_a_ship_sails_straight_off_without_turning(ow):
-    ow.party.wind_direction = Direction.NORTH
+    ow.party.wind_direction = Direction.SOUTH
     for d, (x, y) in ((Direction.EAST, (21, 20)), (Direction.NORTH, (21, 19)),
                       (Direction.WEST, (20, 19))):
         ow._move_avatar(d)

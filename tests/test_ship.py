@@ -197,7 +197,7 @@ class TestWindRules:
 
     def test_headwind_blocks_sailing(self, overworld, sample_party):
         self._sailing_party(sample_party)
-        sample_party.wind_direction = Direction.NORTH
+        sample_party.wind_direction = Direction.SOUTH  # from the south (LW ValidTrans, Q25)
         overworld.heading = Direction.SOUTH
         key(overworld, pygame.K_DOWN)
         assert (sample_party.x, sample_party.y) == (10, 10)

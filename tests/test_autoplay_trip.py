@@ -137,7 +137,7 @@ def test_foot_escape_attacks_an_adjacent_pirate():
 def test_ship_escape_sails_out_of_the_lane_any_open_way():
     """LairWare ships have no heading: any direction the wind allows."""
     party = _make_party(level=5, transport=Transport.SHIP)
-    party.wind_direction = Direction.WEST  # blows west -> can't sail east
+    party.wind_direction = Direction.EAST  # from the east -> can't sail east (LW naming, Q25)
     th = compute_threats(_Grid, party, [_pirate(10, 10)])
     move = ship_escape(_Grid, party, (13, 10), th, lambda x, y: True, prefer_engage=False)
     assert move.key == "move" and move.direction in (Direction.NORTH, Direction.SOUTH)
@@ -1023,7 +1023,7 @@ def test_ship_escape_sails_on_through_the_lane_rather_than_sit_under_fire():
     pirate 2 tiles astern and upwind, the only open tile still in its lane:
     the ship waited and was sunk with the party aboard."""
     party = _make_party(level=5, transport=Transport.SHIP)
-    party.wind_direction = Direction.WEST  # can't sail east, toward the pirate
+    party.wind_direction = Direction.EAST  # from the east: can't sail east, toward the pirate
     th = compute_threats(_Grid, party, [_pirate(12, 10)])
     pos = (10, 10)
     open_water = {(9, 10), (11, 10)}  # walls north and south

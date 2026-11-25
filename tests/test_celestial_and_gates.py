@@ -213,7 +213,7 @@ def test_ambrosia_whirlpool_ship_sailing_exits_to_sosaria(asset_mgr, party):
     from py_exodus.ui.renderer import can_move_to
 
     party.transport = Transport.SHIP
-    party.wind_direction = Direction.SOUTH
+    party.wind_direction = Direction.NORTH
     party.x = 32
     party.y = 57
     ow = OverworldScreen(party=party, map_id=13, asset_mgr=asset_mgr, start_x=32, start_y=57)

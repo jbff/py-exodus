@@ -20,7 +20,7 @@ from py_exodus.constants import (
     TileAttrib,
     Transport,
 )
-from py_exodus.entities.party import PartyDeathException, objects_on
+from py_exodus.entities.party import PartyDeathException, headwind, objects_on
 from py_exodus import special_commands
 from py_exodus.screens.base import BaseScreen
 from py_exodus.screens.member_prompts import (
@@ -397,8 +397,9 @@ class OverworldScreen(BaseScreen):
         if self.party.wind_direction is None:
             self.text_log.add_message("The wind is calm.")
         else:
+            # LairWare names a wind where it blows from ("NORTH WIND").
             self.text_log.add_message(
-                f"Wind blows {self.party.wind_direction.name}."
+                f"{self.party.wind_direction.name.capitalize()} wind."
             )
 
     @property
@@ -1431,7 +1432,9 @@ class OverworldScreen(BaseScreen):
                 self.text_log.add_message("The ship is becalmed!")
                 self._refused_step_turn()
                 return
-            if direction == wind.reverse():
+            # LairWare ValidTrans (UltimaMain.c:3229): a NORTH wind blows
+            # from the north and stops sailing north (user ruling Q25).
+            if direction == headwind(wind):
                 self.text_log.add_message("Headwinds block thy ship!")
                 self._refused_step_turn()
                 return

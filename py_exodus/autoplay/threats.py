@@ -20,6 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from py_exodus.constants import Direction, Profession
+from py_exodus.entities.party import headwind
 
 SEA_MONSTERS = frozenset({"pirate", "serpent", "squid"})
 _CARDINALS = (Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST)
@@ -202,7 +203,7 @@ def ship_escape(
     """
     w, h = threats.width, threats.height
     wind = getattr(party, "wind_direction", None)
-    blocked = wind.reverse() if wind is not None else None
+    blocked = headwind(wind)  # LairWare ValidTrans naming (Q25)
     lane_p = threats.lane_pirates(pos) or threats.pirates
 
     def dest(d: Direction) -> tuple[int, int]:

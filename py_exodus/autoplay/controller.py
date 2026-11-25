@@ -18,7 +18,7 @@ from py_exodus.autoplay.equipment import (
     best_owned_weapon,
     best_shop_upgrade,
 )
-from py_exodus.entities.party import objects_on
+from py_exodus.entities.party import headwind, objects_on
 from py_exodus.autoplay.nav import (
     find_2d_step,
     find_2d_step_and_cost,
@@ -1737,7 +1737,7 @@ class AutoPlayController:
             wind = getattr(party, "wind_direction", None)
             if party.transport == Transport.SHIP and wind is None:
                 return self._emit_key(state_machine, pygame.K_SPACE)
-            blocked_dir = wind.reverse() if (party.transport == Transport.SHIP and wind is not None) else None
+            blocked_dir = headwind(wind) if party.transport == Transport.SHIP else None
             best_dir = None
             best_dist = -1
             for d in (Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST):
@@ -2903,7 +2903,7 @@ class AutoPlayController:
             if free_d is not None and free_cost is not None and (
                 d is None or (wind_cost is not None and wind_cost * 2 > free_cost * 3)
             ):
-                if free_d == wind.reverse():
+                if free_d == headwind(wind):
                     return self._emit_key(state_machine, pygame.K_SPACE)
                 # Advance along the wind-free shortest route while its next heading is allowed,
                 # holding only when reaching the pinch/turn where wind actually blocks free_d.
