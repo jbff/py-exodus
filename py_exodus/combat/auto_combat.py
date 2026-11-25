@@ -371,7 +371,10 @@ def choose_auto_combat_action(
         and getattr(member, "weapon", WeaponType.NONE) not in _NO_MITTAR_WEAPONS
     )
     if can_cast_mittar:
-        spell_dir = _monster_lined_up_dir(px, py, visible_monsters)
+        # MonsterLinedUp counts every monster with HP (UltimaAutocombat.c:
+        # 465-467: ``if (MonsterHP[mon] != 0)``), seen or not.
+        living_monsters = [m for m in arena.monsters if not m.is_dead]
+        spell_dir = _monster_lined_up_dir(px, py, living_monsters)
         if spell_dir is not None:
             # Port habit (A-08, deferred): Fulgar first in a ship battle.
             if getattr(arena, "ship_battle", False) and _can_cast_spell(member, Spell.FULGAR):

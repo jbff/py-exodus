@@ -357,10 +357,10 @@ class TestCombatCastFlow:
         assert not any("Which member?" in line for line in session.transcript)
         assert session.is_waiting_for_input
 
-    def test_masskill_gate_failed_cast_consumes_the_turn(self, asset_mgr):
-        """``C A`` (PONTORI) with the per-battle masskill latch OFF: FAILED is
-        an EXECUTED failure (GBC battle.c:1052-1060 — the masskill-mismatch
-        FAILED path prints and RETURNS 1, so the monster phase follows), the
+    def test_per_battle_latch_failed_cast_consumes_the_turn(self, asset_mgr):
+        """``C A`` (PONTORI) with the per-battle latch clear: FAILED is an
+        EXECUTED failure (LairWare UltimaSpellCombat.c:248-265 — the wrong
+        monster type is Failed() in the effect, so the monster phase follows), the
         turn is consumed, and the round rolls over: with a one-member party
         the caster still holds the prompt at the head of the NEXT round.
 
@@ -565,7 +565,7 @@ class TestClericCombatCastLoopRegression:
     always); availability refused at attempt.
 
     The reported session: combat vs the undead family (skeletons), the
-    per-battle masskill latch OFF, a lone cleric holding the turn:
+    per-battle Pontori latch clear, a lone cleric holding the turn:
     (1) ``C`` prints the FULL FIXED cleric list — PONTORI at its permanent
     ``A``, APPAR_UNEM at its permanent ``B`` (listed even though combat
     refuses the attempt); (2) pressing ``B`` in combat logs "Not Here!" —
@@ -574,7 +574,7 @@ class TestClericCombatCastLoopRegression:
     (3) ``C`` re-arms the prompt, and casting PONTORI (always letter ``A``)
     under the OFF latch prints FAILED and CONSUMES the turn (monster phase,
     round advance, same member re-armed next round); (4) combat never asks
-    "Which member?"; (5) the non-projectile masskill cast drew no fabricated
+    "Which member?"; (5) the non-projectile Pontori cast drew no fabricated
     tracer FX (mirrors Task 5's spell_fx_count hook)."""
 
     def test_list_rows_attempt_refusals_then_rearm(self, asset_mgr):
@@ -588,7 +588,7 @@ class TestClericCombatCastLoopRegression:
         assert session.active_member == "Cora"
 
         # (1) ``C``: the FULL FIXED cleric rows print for the active member —
-        # PONTORI (the masskill-gated spell) at its permanent ``A``,
+        # PONTORI (the per-battle latch spell) at its permanent ``A``,
         # APPAR_UNEM listed at its permanent ``B`` even though combat will
         # refuse the attempt (USER-DIRECTED RULING 2026-11-15).
         session.press("C")
@@ -638,12 +638,12 @@ class TestClericCombatCastLoopRegression:
         assert session.is_waiting_for_input
         assert any("[msg] A - PONTORI (0)" in line for line in session.transcript)
 
-    def test_masskill_failed_consumes_turn_no_member_prompt_no_tracer(
+    def test_per_battle_latch_failed_consumes_turn_no_member_prompt_no_tracer(
         self, asset_mgr, monkeypatch
     ):
-        """Play report (3)+(4)+(5): casting the masskill-gated PONTORI with
-        the latch OFF prints FAILED and CONSUMES the turn (an executed
-        failure per GBC battle.c:1052-1060): the monster phase follows, the
+        """Play report (3)+(4)+(5): casting PONTORI (per-battle latch) with
+        the latch clear and a missed 50% roll prints FAILED and CONSUMES the
+        turn (an executed failure, LairWare UltimaSpellCombat.c:262-265): the monster phase follows, the
         round advances, and the next round re-arms the same member at its
         position; no member prompt ever appears, and the non-projectile
         cast draws no fabricated tracer."""
@@ -669,7 +669,7 @@ class TestClericCombatCastLoopRegression:
                 if fx["type"] == "spell" and fx["path"]
             ]
 
-        session.press_seq("C A")  # PONTORI (0), the masskill-gated spell
+        session.press_seq("C A")  # PONTORI (0), the per-battle latch spell
         assert any("[msg] FAILED" in line for line in session.transcript), (
             session.transcript
         )

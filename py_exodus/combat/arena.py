@@ -788,9 +788,10 @@ class CombatArena:
         # "Can't!" used free spell, NEGATE aura) returns false before any
         # finishPlayerTurn, and SpellInputProcessor (SpellInputProcessor.java:
         # 63/84/116) ignores the result — the caster REMAINS ACTIVE. But an
-        # EXECUTED failure consumes: GBC battle.c:1052-1060 runs the
-        # masskill-mismatch FAILED path through the effect branch and returns
-        # 1 (the directional-cancel gate semantics differ per Java — those
+        # EXECUTED failure consumes: a Repond or Pontori cast that fails in
+        # its effect (wrong monster type, or the per-battle latch's missed
+        # 50% roll, LairWare UltimaSpellCombat.c:190-199, 248-265) still
+        # spends the turn (the directional-cancel gate semantics differ per Java — those
         # stay refusals here). On success the turn is consumed unless the
         # spell is a NO_TURN spell (SpellUtil.java:87-237), whose effect
         # branch never calls finishPlayerTurn. This corrects P6's

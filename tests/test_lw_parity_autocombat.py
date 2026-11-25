@@ -113,6 +113,19 @@ def test_autocombat_mittar_nearest_lined_up_monster(asset_mgr):
     assert choose_auto_combat_action(arena, 0).direction == Direction.WEST
 
 
+def test_autocombat_mittar_lines_up_every_living_monster(asset_mgr):
+    """UltimaAutocombat.c:465-467: ``if (MonsterHP[mon] != 0)`` -- every
+    monster with HP counts for MonsterLinedUp, seen or not; the port
+    passed only the visible ones. A hidden lined-up monster nearer than a
+    visible one draws the shot; a dead one never does."""
+    arena = _wiz(asset_mgr, monsters=((5, 0), (8, 5)))  # N at 5, E at 3
+    arena.monsters[1].visible = False
+    action = choose_auto_combat_action(arena, 0)
+    assert action.type == ActionType.CAST and action.direction == Direction.EAST
+    arena.monsters[1].hp = 0
+    assert choose_auto_combat_action(arena, 0).direction == Direction.NORTH
+
+
 def test_autocombat_mittar_rows_and_columns_only(asset_mgr):
     """User ruling (classic mode, U3PrefNoDiagonals, UltimaAutocombat.c:
     468-469): a diagonal monster is not lined up, so no cast; the port's

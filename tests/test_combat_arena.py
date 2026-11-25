@@ -758,7 +758,7 @@ def test_failed_spell_cast_leaves_caster_active(asset_mgr, conflict_map):
     assert arena.party.members[1].mp == 50
 
 
-def test_masskill_gate_failed_cast_consumes_the_turn(asset_mgr, conflict_map, monkeypatch):
+def test_per_battle_latch_failed_cast_consumes_the_turn(asset_mgr, conflict_map, monkeypatch):
     """A PONTORI cast whose 50% roll misses (LW UltimaSpellCombat.c:262-266
     ``if (RandNum(0, 255) < 128) { Failed(); return; }``) runs FAILED through
     the EFFECT branch and the turn is consumed even though success is

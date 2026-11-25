@@ -52,9 +52,10 @@ class SpellResult:
     open_gem_view: bool = False
     # Task 4 (2026-11-14 combat-interaction-parity): EXECUTED vs REFUSED.
     # True (default) marks a cast that reached its effect branch — mana was
-    # spent and the attempt happened, even when success is False (GBC
-    # battle.c:1052-1060: the masskill-mismatch FAILED path returns 1, the
-    # turn counts as spent). Only cast_spell's PRE-execution gates
+    # spent and the attempt happened, even when success is False (LairWare
+    # UltimaSpellCombat.c:190-199, 248-265: a Repond or Pontori cast at the
+    # wrong monster type, or past its per-battle latch's missed 50% roll,
+    # is Failed() and the turn counts as spent). Only cast_spell's PRE-execution gates
     # (SpellUtil.java:24-76 semantics: unknown spell, incapacitation,
     # profession, missing direction, mana, used free spell, NEGATE aura,
     # location, restorative prevalidation) return executed=False — the
@@ -365,7 +366,7 @@ def cast_spell(
     if (
         arena is not None
         and is_free_combat_spell
-        and _masskill_targets(resolved_spell, arena)
+        and _repond_pontori_targets(resolved_spell, arena)
         and getattr(arena, _latch_name(resolved_spell), False)
     ):
         return SpellResult(
@@ -571,7 +572,7 @@ def _free_spell_roll_fails(spell: Spell, arena: Any) -> bool:
     return random.randrange(256) < 128
 
 
-def _masskill_targets(spell: Spell, arena: Any) -> list[Any]:
+def _repond_pontori_targets(spell: Spell, arena: Any) -> list[Any]:
     """The living monsters REPOND (orcs, LW gMonType 0x30) or PONTORI (undead,
     the skeleton, LW 0x32) can strike in this fight."""
     out = []
@@ -685,7 +686,7 @@ def _apply_spell_effect(
             # LairWare UltimaSpellCombat.c:253-256: `if (gMonType != 0x32)
             # { Failed(); return; }` before the g56E7 latch - the wrong type
             # fails (the turn is spent) and leaves the latch alone.
-            if not _masskill_targets(spell, arena):
+            if not _repond_pontori_targets(spell, arena):
                 return SpellResult(success=False, message="FAILED", spell=spell, executed=True)
             # LairWare UltimaSpellCombat.c:262-266: the latch is set, then
             # the 50% roll; a miss is Failed() (the turn is spent).
@@ -732,7 +733,7 @@ def _apply_spell_effect(
         if arena is not None:
             # LairWare UltimaSpellCombat.c:191: `(gMonType != 0x30)` fails
             # before the g5521 latch is touched.
-            if not _masskill_targets(spell, arena):
+            if not _repond_pontori_targets(spell, arena):
                 return SpellResult(success=False, message="FAILED", spell=spell, executed=True)
             # LairWare UltimaSpellCombat.c:195-199: latch, then the 50% roll.
             if _free_spell_roll_fails(spell, arena):
