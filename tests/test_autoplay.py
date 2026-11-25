@@ -1225,9 +1225,26 @@ def test_stats_panel_autoplay_autocombat_and_turn_count(pygame_setup):
     assert after("Turn") == "42" and after("Gold") == "77" and "Torches" in texts
     assert ("Kings", (0, 0, 0)) in captured  # a lit chip: black on gold
     assert dict(captured)["Fire"] != (0, 0, 0)  # unlit
-    assert "Weapons 0/1" in texts and "Armor 0/1" in texts
+    assert "Weapons" in texts and "Armor" in texts  # no x/n count
+    assert not any(t.startswith(("Weapons ", "Armor ")) for t in texts)
     assert any(t.startswith("Sosaria (") for t in texts)
     assert MARK_ON  # chip colour exported for the renderer
+
+    # A mark or an Exotic lights only once EVERY member holds it (user
+    # ruling 2026-11-25: the quest is done only then).
+    from py_exodus.constants import WeaponType
+    party.add_member(Character("ZELDA", "F", Race.ELF, Profession.CLERIC))
+    party.members[0].weapons[WeaponType.EXOTIC] = 1
+    captured.clear()
+    ow._render_stats_panel(surf, pygame.Rect(0, 0, 300, 500))
+    assert dict(captured)["Kings"] != (0, 0, 0)  # one of two: unlit
+    assert dict(captured)["Weapons"] != (0, 0, 0)
+    party.members[1].marks[0] = 1
+    party.members[1].weapons[WeaponType.EXOTIC] = 1
+    captured.clear()
+    ow._render_stats_panel(surf, pygame.Rect(0, 0, 300, 500))
+    assert dict(captured)["Kings"] == (0, 0, 0)  # both: lit
+    assert dict(captured)["Weapons"] == (0, 0, 0)
 
 
 def test_heal_rest_on_sosaria_and_walkable_coast_patrol(pygame_setup):

@@ -251,7 +251,9 @@ class PartyPanel:
         members = party.members
         fl.text(f_body, "Marks", INK)
         for label, i in MARKS:
-            fl.chip(f_body, label, MARK_ON if any(m.marks[i] for m in members) else None)
+            # Lit only when the quest is done: every member holds the mark
+            # (the force fields and the castle want it on each one).
+            fl.chip(f_body, label, MARK_ON if members and all(m.marks[i] for m in members) else None)
         fl.newline()
         fl.text(f_body, "Cards", INK)
         for label, i in CARDS:
@@ -261,10 +263,11 @@ class PartyPanel:
                  or m.weapons.get(WeaponType.EXOTIC, 0) > 0)
         ea = sum(1 for m in members if m.armor == ArmorType.EXOTIC
                  or m.armors.get(ArmorType.EXOTIC, 0) > 0)
-        n = max(1, len(members))
+        n = len(members)
+        # Like the marks: lit once every member has one, no count.
         fl.text(f_body, "Exotics", INK)
-        fl.chip(f_body, f"Weapons {ew}/{n}", EXOTIC_ON if ew >= n else None)
-        fl.chip(f_body, f"Armor {ea}/{n}", EXOTIC_ON if ea >= n else None)
+        fl.chip(f_body, "Weapons", EXOTIC_ON if n and ew >= n else None)
+        fl.chip(f_body, "Armor", EXOTIC_ON if n and ea >= n else None)
 
     def _status(self, fl, party, f_body, f_bold, autoplay, auto_combat, step_interval,
                 location_text, goal):
