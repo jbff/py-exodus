@@ -386,14 +386,13 @@ def test_vieda_cast_on_overworld_opens_peer_gem_view(ow_vieda, cast_party):
     assert cast_party.members[1].gems == 7
 
 
-def test_fal_divi_cast_on_overworld_re_enters_cast_prompt(asset_mgr, cast_party):
-    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): FAL_DIVI re-dispatches
-    through the member+cleric-spell cast prompt once (GBC menucmd.c:1519-1530).
-    Run through the keyboard because the followup is consumed by the cast
-    handler, not by cast_spell."""
+def test_fal_divi_cast_on_overworld_casts_vieda(asset_mgr, cast_party):
+    """FAL_DIVI asks the same caster for a cleric letter and casts it
+    (LairWare case 9, UltimaSpellCombat.c:231-235, ledger P-20): through
+    Vieda the wizard opens the peer-gem view, 45 + 55 MP."""
     members = [
         PartyMember(
-            Character("Mage", "M", Race.FUZZY, Profession.WIZARD, intelligence=50, mp=50)
+            Character("Mage", "M", Race.FUZZY, Profession.WIZARD, intelligence=50, mp=100)
         ),
     ]
     party = Party(members, x=10, y=10, transport=Transport.FOOT)
@@ -409,24 +408,15 @@ def test_fal_divi_cast_on_overworld_re_enters_cast_prompt(asset_mgr, cast_party)
     assert "Which member?" in o.text_log.current_prompt
     o.text_log.handle_char("1")  # the Mage
     assert "Wizard Spell?" in o.text_log.current_prompt
-    o.text_log.handle_char("J")  # FAL_DIVI — its FIXED wizard code (USER-DIRECTED RULING 2026-11-15)
-
-    # The wizard's cast completes and the member prompt is re-opened once.
-    assert "Fal Divi" in "\n".join(str(line) for line in o.text_log.history)
-    assert "Which member?" in o.text_log.current_prompt
-    # One re-entry, no loop: re-answer the member prompt — the mage has 5 MP
-    # left, but USER-DIRECTED RULING (2026-11-15) makes the letters FIXED:
-    # the FULL wizard list still opens (no empty-map line), and mana only
-    # refuses AT ATTEMPT via cast_spell's canonical string.
-    o.text_log.handle_char("1")
-    assert "Wizard Spell? (A-P):" in o.text_log.current_prompt
-    blob = "\n".join(str(line) for line in o.text_log.history)
-    assert "No spells to cast!" not in blob
-    assert "[msg] J - FAL_DIVI (45)" in blob or "J - FAL_DIVI (45)" in blob
+    o.text_log.handle_char("J")  # FAL_DIVI
+    assert "Cleric Spell?" in o.text_log.current_prompt
+    o.text_log.handle_char("L")  # VIEDA
+    assert o.gem_view_active is True
+    assert members[0].mp == 0
     member_prompts = sum(
         1 for line in o.text_log.history if "Which member?" in str(line)
     )
-    assert member_prompts == 2
+    assert member_prompts == 1
 
 
 def test_vieda_cast_in_town_opens_peer_gem_view(asset_mgr):

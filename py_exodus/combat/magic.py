@@ -50,11 +50,6 @@ class SpellResult:
     # corroboration) — the flag tells the calling screen to open it, the same
     # convention as exit_dungeon.
     open_gem_view: bool = False
-    # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): FAL_DIVI re-dispatches
-    # to the cleric spell menu (GBC menucmd.c:1519-1530; LW
-    # UltimaSpellCombat.c corroboration) — "cleric_menu" asks the calling
-    # handler for one re-entry; combat consumes it as a no-op.
-    followup: str | None = None
     # Task 4 (2026-11-14 combat-interaction-parity): EXECUTED vs REFUSED.
     # True (default) marks a cast that reached its effect branch — mana was
     # spent and the attempt happened, even when success is False (GBC
@@ -166,8 +161,9 @@ PROJECTILE_SPELLS = {Spell.MITTAR, Spell.FULGAR, Spell.MENTAR, Spell.DECORP, Spe
 
 # Java spells whose effect branches never call finishPlayerTurn — the caster
 # acts again — plus the effect-less REPLACE ME / default cases (SpellUtil.java
-# 87-237). Only FAL_DIVI is actually castable in combat; the rest are
-# dungeon/surface/dungeon-screen spells carried here for parity. DAG_LORUM
+# 87-237): dungeon/surface/dungeon-screen spells carried here for parity.
+# FAL_DIVI is not here: LairWare's case 9 casts a cleric spell and the
+# combat loop goes on to plrdone, spending the turn (ledger P-20). DAG_LORUM
 # is not here: LairWare's case 8 is an ordinary cast that spends the turn.
 # ALTAIR is not here: LairWare's Altair (UltimaSpellCombat.c:238) is an
 # ordinary cast and the combat loop goes on to plrdone, spending the turn.
@@ -183,7 +179,6 @@ NO_TURN_SPELLS = {
     Spell.VIEDA,
     Spell.LUMINAE,
     Spell.SOMINAE,
-    Spell.FAL_DIVI,
 }
 
 TARGETED_MEMBER_SPELLS = {
@@ -279,8 +274,14 @@ def cast_spell(
     spell_type: str | None = None,
     position: tuple[int, int] | None = None,
     occupied: Callable[[int, int], bool] | None = None,
+    cleric_spell: Spell | None = None,
+    _via_fal_divi: bool = False,
 ) -> SpellResult:
     """Cast a spell by caster, validating MP, profession, target, and location.
+
+    ``cleric_spell`` is FAL_DIVI's ClericChoose letter: LairWare case 9
+    (UltimaSpellCombat.c:231-235) has the same caster cast it through
+    ProcessMagic once Fal Divi's own MP is spent (ledger P-20).
 
     ``position`` is the caster's tile on ``world_map`` when it is not the
     party's x/y (a town: the avatar walks the town map while party.x/y keep
@@ -311,7 +312,11 @@ def cast_spell(
     profession = caster_char.profession
     # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): debug cheat harness
     # (GBC cheat.c:414-825) — NOCLASS also opens the per-spell gate.
-    if not resolved_spell.can_cast(profession) and not debug.CHEATS.no_class:
+    if (
+        not resolved_spell.can_cast(profession)
+        and not debug.CHEATS.no_class
+        and not _via_fal_divi
+    ):
         prof_name = profession.value.capitalize() if isinstance(profession, Profession) else str(profession)
         return SpellResult(
             success=False,
@@ -492,6 +497,12 @@ def cast_spell(
     # 10. Deduct MP and flag free spell usage
     caster_char.mp = max(0, caster_char.mp - mp_cost)
 
+    if resolved_spell == Spell.FAL_DIVI:
+        return _fal_divi(
+            cleric_spell, caster, caster_char, target_dir, arena, world_map,
+            target_member, active_party, position, occupied,
+        )
+
     # 11. Execute spell effect
     return _apply_spell_effect(
         spell=resolved_spell,
@@ -505,6 +516,48 @@ def cast_spell(
         position=position,
         occupied=occupied,
     )
+
+
+def _fal_divi(
+    cleric_spell: Spell | None,
+    caster: Any,
+    caster_char: Character,
+    target_dir: Direction | str | None,
+    arena: Any,
+    world_map: Any,
+    target_member: Any,
+    party: Party | None,
+    position: tuple[int, int] | None,
+    occupied: Callable[[int, int], bool] | None,
+) -> SpellResult:
+    """LairWare Fal Divi (UltimaSpellCombat.c:231-235) after its 45 MP:
+
+        spellnum = ClericChoose();
+        ProcessMagic(chnum);
+
+    ProcessMagic (89-118) charges the cleric spell's MP, or prints "M.P.
+    too low!" (message 122) and stops; then the SAME caster casts it. Fal
+    Divi itself is spent either way (executed), so in combat it is the
+    caster's turn. No letter (a direct call without one) casts nothing.
+    """
+    if cleric_spell is None or getattr(cleric_spell, "spell_type", "") != "cleric":
+        return SpellResult(success=False, message="Cancelled.", spell=Spell.FAL_DIVI)
+    if cleric_spell.cost > caster_char.mp:
+        return SpellResult(success=False, message="M.P. too low!", spell=Spell.FAL_DIVI)
+    res = cast_spell(
+        spell=cleric_spell,
+        caster=caster,
+        target_dir=target_dir,
+        arena=arena,
+        world_map=world_map,
+        target_member=target_member,
+        party=party,
+        position=position,
+        occupied=occupied,
+        _via_fal_divi=True,
+    )
+    res.executed = True
+    return res
 
 
 def _masskill_targets(spell: Spell, arena: Any) -> list[Any]:
@@ -932,15 +985,6 @@ def _apply_spell_effect(
             open_gem_view=True,
         )
 
-    # Wizard Divine Blessing (FAL_DIVI)
-    if spell == Spell.FAL_DIVI:
-        return SpellResult(
-            success=True,
-            message="Fal Divi invokes clerical divination.",
-            spell=spell,
-            followup="cleric_menu",
-        )
-
     return SpellResult(success=True, message=f"{spell.name} cast successfully.", spell=spell)
 
 
@@ -1234,9 +1278,9 @@ def prompt_cast_party(
        APPAR_UNEM is exempt — USER RULING 2026-11-11: no direction prompt.
     5. If targeted restorative spell: On who? (1-4)
     6. Execute via cast_spell(...); VIEDA invokes ``view_callback`` and a
-       dungeon-exiting spell invokes ``exit_callback``; a FAL_DIVI cast
-       re-opens this whole member+spell prompt once (USER-DIRECTED GBC-RULES
-       DEVIATION 2026-11-14, GBC menucmd.c:1519-1530).
+       dungeon-exiting spell invokes ``exit_callback``. FAL_DIVI asks the
+       same caster for a cleric letter (and that spell's target or
+       direction) before it casts (LairWare case 9, ledger P-20).
 
     USER-DIRECTED RULING (2026-11-15): fixed spell letters (B=APPAR_UNEM
     always); availability refused at attempt — supersedes the Java
@@ -1302,6 +1346,23 @@ def prompt_cast_party(
             text_log.add_message("No spells to cast!")
             return
 
+        def _ask_fal_divi_letter(gather: Callable[..., None]) -> None:
+            """Fal Divi's ClericChoose: the cleric list, the same caster. A
+            letter refused by the prompt layer ("Not Here!", "Not a spell!")
+            ends the cast before anything is spent; MP is ProcessMagic's."""
+            c_entries = spell_menu_entries("cleric")
+            for line in spell_menu_prompt_lines(c_entries):
+                text_log.add_message(line)
+
+            def _on_cleric(c_code: str) -> None:
+                c_spell, c_refusal = letter_resolution(c_entries, c_code, context)
+                if c_refusal is not None:
+                    text_log.add_message(c_refusal)
+                    return
+                gather(c_spell, c_spell)
+
+            text_log.prompt("Cleric Spell? (A-P):", callback=_on_cleric, single_char=True)
+
         def _ask_spell_code(discipline: str) -> None:
             type_label = "Wizard" if discipline == "wizard" else "Cleric"
             # USER-DIRECTED RULING (2026-11-15): fixed spell letters
@@ -1346,7 +1407,11 @@ def prompt_cast_party(
                     text_log.add_message("Thou dost not have enough magic points!")
                     return
 
-                def _dispatch(target: Any | None = None, direction: Direction | None = None) -> None:
+                def _dispatch(
+                    target: Any | None = None,
+                    direction: Direction | None = None,
+                    cleric: Spell | None = None,
+                ) -> None:
                     res = cast_spell(
                         spell=found_spell,
                         caster=caster_m,
@@ -1356,6 +1421,7 @@ def prompt_cast_party(
                         target_dir=direction,
                         position=position,
                         occupied=occupied,
+                        cleric_spell=cleric,
                     )
                     if res.message:
                         text_log.add_message(res.message)
@@ -1365,45 +1431,43 @@ def prompt_cast_party(
                         view_callback()
                     if res.success and getattr(res, "exit_dungeon", False) and exit_callback is not None:
                         exit_callback()
-                    if res.success and res.followup == "cleric_menu":
-                        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14):
-                        # FAL_DIVI re-dispatches to the cleric spell menu
-                        # (GBC menucmd.c:1519-1530; LW UltimaSpellCombat.c
-                        # corroboration) — one re-entry at the member prompt,
-                        # the same flow the C command uses. No automatic
-                        # loop: the only followup emitter is FAL_DIVI (a
-                        # wizard spell), so a single-discipline cleric/wizard
-                        # re-entry cannot re-emit it; a druid choosing Wizard
-                        # there starts a new cast, exactly as GBC's re-entry
-                        # does.
-                        _open_cast_prompt()
 
-                if found_spell in TARGETED_MEMBER_SPELLS:
-                    def _on_target(target_str: str) -> None:
-                        try:
-                            t_idx = int(target_str.strip()) - 1
-                            target_m = party.get_member(t_idx)
-                        except ValueError:
-                            target_m = None
-                        if target_m is None:
-                            text_log.add_message("Invalid member #!")
-                            return
-                        _dispatch(target_m)
+                def _gather(prompt_spell: Spell, cleric: Spell | None = None) -> None:
+                    """The target or direction the (cleric) spell needs."""
+                    if prompt_spell in TARGETED_MEMBER_SPELLS:
+                        def _on_target(target_str: str) -> None:
+                            try:
+                                t_idx = int(target_str.strip()) - 1
+                                target_m = party.get_member(t_idx)
+                            except ValueError:
+                                target_m = None
+                            if target_m is None:
+                                text_log.add_message("Invalid member #!")
+                                return
+                            _dispatch(target_m, cleric=cleric)
 
-                    text_log.prompt("On who? (1-4):", callback=_on_target, single_char=True)
-                elif found_spell in PROJECTILE_SPELLS:
-                    text_log.add_message("Direction?")
+                        text_log.prompt("On who? (1-4):", callback=_on_target, single_char=True)
+                    elif prompt_spell in PROJECTILE_SPELLS:
+                        text_log.add_message("Direction?")
 
-                    def _on_dir(d_str: str) -> None:
-                        d = Direction.from_name_or_key(d_str)
-                        if d is None:
-                            text_log.add_message("Invalid direction!")
-                            return
-                        _dispatch(direction=d)
+                        def _on_dir(d_str: str) -> None:
+                            d = Direction.from_name_or_key(d_str)
+                            if d is None:
+                                text_log.add_message("Invalid direction!")
+                                return
+                            _dispatch(direction=d, cleric=cleric)
 
-                    text_log.prompt("Direction? (N,S,E,W):", callback=_on_dir, single_char=True)
+                        text_log.prompt("Direction? (N,S,E,W):", callback=_on_dir, single_char=True)
+                    else:
+                        _dispatch(None, cleric=cleric)
+
+                if found_spell == Spell.FAL_DIVI:
+                    # LairWare case 9 (UltimaSpellCombat.c:231-235): the
+                    # same caster picks a cleric letter (ClericChoose) and
+                    # ProcessMagic casts it (ledger P-20).
+                    _ask_fal_divi_letter(_gather)
                 else:
-                    _dispatch(None)
+                    _gather(found_spell)
 
             text_log.prompt(f"{type_label} Spell? (A-P):", callback=_on_spell, single_char=True)
 

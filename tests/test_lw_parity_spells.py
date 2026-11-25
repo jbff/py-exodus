@@ -596,3 +596,111 @@ def test_necorp_sets_five_hp_and_nothing_more(asset_mgr, monkeypatch):
     target = Character("Hero", "M", hp=999, max_hp=999)
     hit = resolver.resolve_monster_melee_attack(arena.monsters[0], target)
     assert hit.damage == 11 and target.hp == 999 - 11
+
+
+# --- P-20: Fal Divi casts a cleric spell (user ruling 2026-11-25) ----------
+
+
+def _fal_party(mp: int):
+    party = Party(transport=Transport.FOOT)
+    mage = _caster(Profession.WIZARD, mp=mp)
+    hurt = Character("Hurt", "F", profession=Profession.FIGHTER, hp=10, max_hp=900)
+    party.add_member(mage)
+    party.add_member(hurt)
+    return party, party.members[0], party.members[1]
+
+
+def test_fal_divi_the_same_caster_casts_the_cleric_spell():
+    """UltimaSpellCombat.c:231-235 (case 9):
+
+        case 9: /* Fal Divi */
+            Flashriek();
+            spellnum = ClericChoose();
+            ProcessMagic(chnum);
+
+    The SAME caster picks a cleric letter; ProcessMagic (89-118) charges
+    that spell's MP, `magicreq = (spellnum & 0x0F) * 5`, and casts it: a
+    wizard may heal through Fal Divi.
+    """
+    party, mage, hurt = _fal_party(99)
+    res = cast_spell(Spell.FAL_DIVI, caster=mage, party=party,
+                     cleric_spell=Spell.SANCTU, target_member=hurt)
+    assert res.success and res.executed
+    assert mage.mp == 99 - 45 - 10
+    assert hurt.hp > 10
+
+
+def test_fal_divi_mp_too_low_for_the_cleric_spell():
+    """ProcessMagic (UltimaSpellCombat.c:98-101):
+
+        if (magicreq > Player[rosNum][25]) {
+            UPrintMessage(122);          // "M.P. too low!"
+            return;
+
+    Fal Divi's own 45 MP are already gone; the cleric spell is not cast and
+    costs nothing.
+    """
+    party, mage, hurt = _fal_party(90)
+    res = cast_spell(Spell.FAL_DIVI, caster=mage, party=party,
+                     cleric_spell=Spell.SANCTU_MANI, target_member=hurt)
+    assert not res.success and res.executed
+    assert res.message == "M.P. too low!"
+    assert mage.mp == 90 - 45
+    assert hurt.hp == 10
+
+
+def test_fal_divi_in_combat_spends_the_turn(asset_mgr):
+    """In combat Fal Divi is case 9 of Spell(), an ordinary cast: the
+    combat loop goes on to plrdone and the caster's turn is spent."""
+    from py_exodus.combat.magic import NO_TURN_SPELLS
+
+    assert Spell.FAL_DIVI not in NO_TURN_SPELLS
+    arena = _board(asset_mgr)
+    mage = arena.party.members[0]
+    mage.hp = 100
+    res = arena.execute_player_action(
+        0, Action.cast(Spell.FAL_DIVI, target_member=mage, cleric_spell=Spell.SANCTU))
+    assert res.consume_turn
+    assert mage.hp > 100
+    assert mage.mp == 99 - 45 - 10
+
+
+def test_fal_divi_prompt_asks_the_cleric_letter_not_the_member():
+    """Out of combat the cast prompt goes from Fal Divi straight to
+    ClericChoose ("Cleric Spell-") for the same caster; no second "Cast by
+    whom?" (the old whole-prompt reopen is gone)."""
+    from py_exodus.combat.magic import prompt_cast_party
+    from py_exodus.ui.text_log import TextLog
+
+    party, mage, hurt = _fal_party(99)
+    log = TextLog()
+    prompt_cast_party(log, party)
+    log.handle_char("1")
+    log.handle_char("J")
+    assert log.current_prompt == "Cleric Spell? (A-P):"
+    log.handle_char("C")  # SANCTU
+    assert "On who?" in log.current_prompt
+    log.handle_char("2")
+    assert hurt.hp > 10
+    assert mage.mp == 99 - 45 - 10
+    assert not log.is_waiting_for_input
+
+
+def test_fal_divi_combat_prompt_asks_the_cleric_letter(asset_mgr, pygame_setup):
+    """The combat C prompt: J (Fal Divi), then ClericChoose's letter for the
+    same caster, then that spell's target; the cast spends the turn."""
+    from py_exodus.screens.combat_screen import CombatScreen
+
+    party, mage, hurt = _fal_party(99)
+    cmap = MapLoader(asset_mgr).load_conflict_map("cnflct_g.json")
+    screen = CombatScreen(party=party, combat_map=cmap, creature_tile="orc",
+                          asset_mgr=asset_mgr)
+    screen.arena.active_party_member_idx = 0
+    screen._prompt_cast()
+    screen.text_log.handle_char("J")
+    assert screen.text_log.current_prompt == "Cleric Spell? (A-P):"
+    screen.text_log.handle_char("C")  # SANCTU
+    assert "On who?" in screen.text_log.current_prompt
+    screen.text_log.handle_char("2")
+    assert hurt.hp > 10
+    assert mage.mp <= 99 - 45 - 10 + 1  # AgeChars may tick +1 MP after the round

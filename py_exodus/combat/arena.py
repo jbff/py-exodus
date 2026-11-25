@@ -73,6 +73,8 @@ class Action:
     armor: ArmorType | None = None
     item: str | None = None
     target_member: Any | None = None
+    # FAL_DIVI's ClericChoose letter (LairWare case 9, ledger P-20).
+    cleric_spell: Any | None = None
 
     @classmethod
     def move(cls, direction: Direction | str) -> Action:
@@ -94,13 +96,15 @@ class Action:
         spell: Any,
         direction: Direction | str | None = None,
         target_member: Any | None = None,
+        cleric_spell: Any | None = None,
     ) -> Action:
         d = (
             (direction if isinstance(direction, Direction) else Direction.from_name_or_key(direction))
             if direction is not None
             else None
         )
-        return cls(ActionType.CAST, spell=spell, direction=d, target_member=target_member)
+        return cls(ActionType.CAST, spell=spell, direction=d, target_member=target_member,
+                   cleric_spell=cleric_spell)
 
 
 @dataclass
@@ -780,6 +784,7 @@ class CombatArena:
             arena=self,
             target_member=action.target_member,
             party=self.party,
+            cleric_spell=getattr(action, "cleric_spell", None),
         )
         # Task 4 executed-vs-refusal rule (2026-11-14): Java never consumes a
         # PRE-execution refusal — every SpellUtil.spellCast gate
@@ -795,13 +800,8 @@ class CombatArena:
         # branch never calls finishPlayerTurn. This corrects P6's
         # over-breadth: the old success-based rule also granted a retry on
         # executed-but-failed casts.
-        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): FAL_DIVI re-dispatches
-        # to the cleric spell menu (GBC menucmd.c:1519-1530; LW
-        # UltimaSpellCombat.c corroboration) — GBC's fal-divi battle variant
-        # was never wired (battle.c:1129-1160, the block is commented out), so
-        # the combat site consumes the followup as a no-op rather than
-        # re-opening a spell menu mid-round (LW's battle case 9 goes the other
-        # way, ClericChoose; the GBC referee source settles it).
+        # FAL_DIVI spends the turn (LairWare case 9 casts its cleric spell
+        # and goes on to plrdone; ledger P-20).
         consumes = bool(spell_res.executed and resolved not in NO_TURN_SPELLS)
         return ActionResult(
             success=spell_res.success,

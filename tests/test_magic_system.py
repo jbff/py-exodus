@@ -781,38 +781,33 @@ def test_prompt_cast_party_flow():
 
 # --- Task 25 (D4): VIEDA peer view and FAL_DIVI cleric re-dispatch ---
 
-def test_vieda_result_requests_gem_view_and_fal_divi_requests_cleric_menu():
-    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): VIEDA's result tells the
-    calling screen to open the peer-gem view (GBC menucmd.c:1379-1390 —
-    magiceffect3, 55 MP deducted, dopeergem(1), which renders the same peer-gem
-    screen as the P command without the choosechar/gem-consumption branch);
-    FAL_DIVI's result asks for one re-entry into the cleric cast prompt
-    (GBC menucmd.c:1519-1530 — the wizard temporarily re-dispatches through the
-    cleric spell menu)."""
+def test_vieda_result_requests_gem_view_also_through_fal_divi():
+    """VIEDA's result tells the calling screen to open the peer-gem view
+    (GBC menucmd.c:1379-1390 — dopeergem(1), the P command's screen without
+    the gem payment). Through FAL_DIVI the wizard casts the cleric spell
+    itself (LairWare case 9, UltimaSpellCombat.c:231-235, ledger P-20), so
+    the same flag comes back: 45 + 55 MP."""
     caster_cleric = Character("Cleric", "F", Race.BOBBIT, Profession.CLERIC, mp=60)
-    caster_wizard = Character("Mage", "M", Race.FUZZY, Profession.WIZARD, intelligence=60, mp=60)
+    caster_wizard = Character("Mage", "M", Race.FUZZY, Profession.WIZARD, intelligence=60, mp=100)
 
     vieda_res = cast_spell(Spell.VIEDA, caster=caster_cleric)
     assert vieda_res.success
     assert vieda_res.open_gem_view is True
-    assert vieda_res.followup is None
     # Combat keeps the flavor behavior only — the screen, not cast_spell,
     # decides whether a view is possible.
     assert vieda_res.message
 
-    fal_res = cast_spell(Spell.FAL_DIVI, caster=caster_wizard)
+    fal_res = cast_spell(Spell.FAL_DIVI, caster=caster_wizard, cleric_spell=Spell.VIEDA)
     assert fal_res.success
-    assert fal_res.followup == "cleric_menu"
-    assert fal_res.open_gem_view is False
+    assert fal_res.open_gem_view is True
+    assert caster_wizard.mp == 0
 
 
-def test_fal_divi_re_enters_member_cleric_spell_prompt_once():
-    """FAL_DIVI re-opens the member+cleric-spell cast prompt exactly once.
-
-    GBC menucmd.c:1519-1530: after deducting 45 MP the wizard re-dispatches
-    through docastspell with the cleric menu forced; the re-entry is
-    user-driven from there, so casting again is a fresh cast, not a loop.
-    """
+def test_fal_divi_asks_the_cleric_letter_of_the_same_caster():
+    """FAL_DIVI goes straight to ClericChoose for the same caster (LairWare
+    case 9, ledger P-20): no second member prompt. A cleric spell the caster
+    cannot pay for after Fal Divi's 45 is ProcessMagic's "M.P. too low!"
+    (UltimaSpellCombat.c:98-101), with Fal Divi's MP spent."""
     from py_exodus.combat.magic import prompt_cast_party
     from py_exodus.ui.text_log import TextLog
 
@@ -833,47 +828,33 @@ def test_fal_divi_re_enters_member_cleric_spell_prompt_once():
     prompt_cast_party(log, party)
     log.handle_char("1")  # member 1: the Mage
     assert "Wizard Spell?" in log.current_prompt
-    # FAL_DIVI is J — its FIXED wizard code (USER-DIRECTED RULING
-    # 2026-11-15: spell letters are the enum's per-discipline alphabetical
-    # A-P and never move with mana or context).
-    log.handle_char("J")  # FAL_DIVI
-
-    # The cast message is logged and the member prompt is re-opened.
-    assert "Fal Divi" in "\n".join(str(line) for line in log.history)
-    assert log.current_prompt == "Cast: Which member? (1-4):"
-    # The re-entry is user-driven: answering it with a NON-fal-divi cast
-    # (DAG LORUM = its fixed I) completes the flow and re-opens NOTHING (no
-    # third member prompt, no loop).
-    log.handle_char("1")
-    assert log.current_prompt == "Wizard Spell? (A-P):"
-    log.handle_char("I")  # DAG LORUM — its fixed I
+    log.handle_char("J")  # FAL_DIVI, its fixed wizard letter
+    assert log.current_prompt == "Cleric Spell? (A-P):"
+    log.handle_char("L")  # VIEDA: 55 MP, but only 45 left
     assert not log.is_waiting_for_input
-    assert "Dag Lorum" in "\n".join(str(line) for line in log.history)
-    # Exactly one re-entry: member, spell, then member again, spell — no more.
+    assert "M.P. too low!" in "\n".join(str(line) for line in log.history)
+    assert mage.mp == 90 - 45
     assert prompts == [
         "Cast: Which member? (1-4):",
         "Wizard Spell? (A-P):",
-        "Cast: Which member? (1-4):",
-        "Wizard Spell? (A-P):",
+        "Cleric Spell? (A-P):",
     ]
 
 
-def test_fal_divi_in_combat_consumes_followup_as_noop(asset_mgr, conflict_map):
-    """GBC battle.c:1129-1160: the fal-divi battle variant is commented out —
-    the combat site must consume the cleric_menu followup as a no-op, with no
-    re-dispatch machinery engaged."""
+def test_fal_divi_in_combat_spends_the_turn(asset_mgr, conflict_map):
+    """LairWare case 9 is an ordinary cast in combat: the loop goes on to
+    plrdone (ledger P-20). Without a cleric letter nothing more is cast, but
+    Fal Divi's 45 MP and the turn are spent."""
     party = Party()
     wiz = Character("Wiz", "M", Race.FUZZY, Profession.WIZARD, intelligence=75, mp=75)
     party.add_member(wiz)
     arena = CombatArena(party=party, combat_map=conflict_map, creature_tile="orc",
                         asset_mgr=asset_mgr, monster_count=1)
+    mp = wiz.mp
 
-    res = arena.execute_turn(Action.cast(Spell.FAL_DIVI))
-    assert res.success
-    # The flavor message survived and nothing else happened.
-    assert "Fal Divi" in (res.message or "")
-    # FAL_DIVI is a NO_TURN spell — the caster acts again (test_aura parity).
-    assert not arena.is_party_round_done
+    res = arena.execute_player_action(0, Action.cast(Spell.FAL_DIVI))
+    assert res.consume_turn
+    assert wiz.mp == mp - 45
 
 
 def test_vieda_outside_combat_view_only_for_non_combat_sites():

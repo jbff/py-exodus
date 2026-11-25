@@ -50,6 +50,7 @@ A Python 3 / Pygame-CE reimplementation of *Ultima III: Exodus*, with **Auto-Com
   - **Repond and Pontori** work once a fight, half the time, and only on their own foe (orcs, skeletons): cast at the wrong kind they fail without using up that chance. **Altair** spends the caster's turn and holds the monsters for 20 rounds; winning the fight ends it.
   - **Dag Acron** drops the party on a random grass tile anywhere on Sosaria (never a monster's or a parked ship's); aboard ship it works only after Exodus falls, and then the ship lands on random open water.
   - **Dag Lorum** is wizard spell I (Java's food spell Pabulum is gone): a long light, 250 turns of it in a dungeon. It casts anywhere, and in a fight it spends the turn.
+  - **Fal Divi** (wizard J) lets the same caster pick a cleric spell and cast it, paying for both (if the cleric spell costs more than is left, "M.P. too low!" and only Fal Divi is spent). It works anywhere, and in a fight it spends the turn.
   - **Necorp** (wizard O, in a fight only) drops every living monster to 5 HP, and that is all: it leaves no weakness behind.
   - **Light never gets shorter**: Lorum and Luminae give at least 10 turns of light, Sominae and Dag Lorum at least 250 (Sominae used to give 235), a torch 255; none of them cuts short a light that would last longer.
   - **Who casts what**: only MP limits a caster, so a Ranger (up to 49 MP) can cast wizard I-J and cleric J too. Surmandum and Anju Sermani don't work in combat, and Dor Acron / Rec Du are refused on a dungeon's lowest level.

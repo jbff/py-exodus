@@ -407,30 +407,53 @@ class CombatScreen(BaseScreen):
                     self.text_log.add_message("Thou dost not have enough magic points!")
                     return
 
-                if found_spell in DIRECTIONAL_SPELLS:
-                    def _on_dir(d_str: str) -> None:
-                        d = Direction.from_name_or_key(d_str)
-                        if d is None:
-                            self.text_log.add_message("Invalid direction!")
-                            return
-                        self._execute_action(Action.cast(found_spell, direction=d))
+                def _gather(prompt_spell: Spell, cleric: Spell | None = None) -> None:
+                    """The target or direction the (cleric) spell needs."""
+                    if prompt_spell in DIRECTIONAL_SPELLS:
+                        def _on_dir(d_str: str) -> None:
+                            d = Direction.from_name_or_key(d_str)
+                            if d is None:
+                                self.text_log.add_message("Invalid direction!")
+                                return
+                            self._execute_action(
+                                Action.cast(found_spell, direction=d, cleric_spell=cleric))
 
-                    self.text_log.prompt("Direction? (N,S,E,W):", callback=_on_dir, single_char=True)
-                elif found_spell in TARGETED_MEMBER_SPELLS:
-                    def _on_target(target_str: str) -> None:
-                        try:
-                            t_idx = int(target_str.strip()) - 1
-                            target_m = self.party.get_member(t_idx)
-                        except ValueError:
-                            target_m = None
-                        if target_m is None:
-                            self.text_log.add_message("Invalid member #!")
-                            return
-                        self._execute_action(Action.cast(found_spell, target_member=target_m))
+                        self.text_log.prompt("Direction? (N,S,E,W):", callback=_on_dir, single_char=True)
+                    elif prompt_spell in TARGETED_MEMBER_SPELLS:
+                        def _on_target(target_str: str) -> None:
+                            try:
+                                t_idx = int(target_str.strip()) - 1
+                                target_m = self.party.get_member(t_idx)
+                            except ValueError:
+                                target_m = None
+                            if target_m is None:
+                                self.text_log.add_message("Invalid member #!")
+                                return
+                            self._execute_action(
+                                Action.cast(found_spell, target_member=target_m, cleric_spell=cleric))
 
-                    self.text_log.prompt("On who? (1-4):", callback=_on_target, single_char=True)
+                        self.text_log.prompt("On who? (1-4):", callback=_on_target, single_char=True)
+                    else:
+                        self._execute_action(Action.cast(found_spell, cleric_spell=cleric))
+
+                if found_spell == Spell.FAL_DIVI:
+                    # LairWare case 9 (UltimaSpellCombat.c:231-235): the same
+                    # caster picks a cleric letter; ProcessMagic charges its
+                    # MP and casts it, and the turn is spent (ledger P-20).
+                    c_entries = spell_menu_entries("cleric")
+                    for line in spell_menu_prompt_lines(c_entries):
+                        self.text_log.add_message(line)
+
+                    def _on_cleric(c_code: str) -> None:
+                        c_spell, c_refusal = letter_resolution(c_entries, c_code, "combat")
+                        if c_refusal is not None:
+                            self.text_log.add_message(c_refusal)
+                            return
+                        _gather(c_spell, c_spell)
+
+                    self.text_log.prompt("Cleric Spell? (A-P):", callback=_on_cleric, single_char=True)
                 else:
-                    self._execute_action(Action.cast(found_spell))
+                    _gather(found_spell)
 
             self.text_log.prompt(f"{type_label} Spell? (A-P):", callback=_on_spell, single_char=True)
 
