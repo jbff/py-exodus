@@ -488,6 +488,15 @@ class TownScreen(BaseScreen):
 
     def _start_exodus_combat(self, npc: Any) -> None:
         """Battle a hostile ATTACK_AVATAR person (any town; LW AttackCode)."""
+        # LairWare Combat ($7FB0, UltimaSpellCombat.c:873-876): every fight
+        # first sets HPMON 0xC0 (attack) for each guard (0x48, tile 18) and
+        # Lord British (0x4C, tile 19) in the monster table, whoever started
+        # it. They hunt the party for the rest of the visit (towns reset on
+        # entry). User ruling 2026-11-25 (ledger B-15): exactly LairWare.
+        if self.game_map is not None:
+            for person in self.game_map.npcs:
+                if getattr(person, "tile_index", -1) in (18, 19):
+                    person.movement = "ATTACK_AVATAR"
         if self.asset_mgr is None:
             return
         from py_exodus.screens.combat_screen import CombatScreen

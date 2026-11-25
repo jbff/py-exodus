@@ -497,3 +497,126 @@ def test_monshoot_dragon_holds_fire_on_128(asset_mgr, monkeypatch):
     _rolls(monkeypatch, [128])
     res = arena._execute_single_monster_ai(dragon)
     assert res.action_type == "advance" and (dragon.x, dragon.y) == (5, 3)
+
+
+# --- B-15: any town fight turns the guards and Lord British hostile ---------
+
+def _town(map_id, start=(32, 62)):
+    import pygame
+
+    from py_exodus.autoplay import batch
+    from py_exodus.screens.town import TownScreen
+
+    pygame.init()
+    return TownScreen(party=batch.build_party(), asset_mgr=batch._assets(),
+                      map_id=map_id, start_x=start[0], start_y=start[1])
+
+
+def _guards_and_lb(town):
+    return [n for n in town.game_map.npcs if n.tile_index in (18, 19)]
+
+
+def test_combat_any_town_fight_turns_guards_and_lb_hostile():
+    """UltimaSpellCombat.c:873-876 (Combat, $7FB0), first thing in ANY fight:
+
+        for (mon = 31; mon >= 0; mon--) {
+            if (Monsters[mon] == 0x4C || Monsters[mon] == 0x48)
+                Monsters[mon + HPMON] = 0xC0;
+        }
+
+    0x48 is the guard (tile 18), 0x4C Lord British (tile 19); HPMON 0xC0 is
+    "attack". A fight with a plain townsperson in Lord British's castle
+    turns every guard and Lord British into hunters; nobody else changes."""
+    town = _town(1)
+    gm = town.game_map
+    assert any(n.tile_index == 19 for n in gm.npcs)
+    assert not all(n.movement == "ATTACK_AVATAR" for n in _guards_and_lb(town))
+    others = {id(n): n.movement for n in gm.npcs if n.tile_index not in (18, 19)}
+    foe = next(n for n in gm.npcs if n.tile_index not in (18, 19))
+    town._start_exodus_combat(foe)
+    assert all(n.movement == "ATTACK_AVATAR" for n in _guards_and_lb(town))
+    assert {id(n): n.movement for n in gm.npcs if n.tile_index not in (18, 19)} == others
+
+
+def test_combat_death_gulch_merchant_attack_turns_guards_hostile():
+    """UltimaSpellCombat.c:873-876 run for a fight the town starts too:
+    Death Gulch's merchants (tile 16, ctrl 0xC0) hunt the party from the
+    start, and when one reaches it MoveMonsters calls AttackCode
+    (UltimaMisc.c:1199-1203) -> Combat, which turns all 15 guards."""
+    town = _town(10)
+    gm = town.game_map
+    guards = [n for n in gm.npcs if n.tile_index == 18]
+    assert len(guards) == 15 and not any(g.movement == "ATTACK_AVATAR" for g in guards)
+    merchant = next(n for n in gm.npcs if n.tile_index == 16)
+    assert merchant.movement == "ATTACK_AVATAR"
+    gm.npcs = guards + [merchant]
+    town.avatar_x, town.avatar_y = merchant.x + 1, merchant.y
+    town._move_people()
+    assert town._combat_npc is merchant
+    assert all(g.movement == "ATTACK_AVATAR" for g in guards)
+
+
+def test_combat_hostile_guards_close_in_and_attack():
+    """UltimaMisc.c:1316-1320 (MoveMonsters, town branch): a 0xC0 person
+    `goto moveoutside`: GetMonsterDir steps it toward the party and, when the
+    step lands on the party, AttackCode starts the fight (1197-1203). After
+    a town fight a guard that stood still now closes in and attacks."""
+    town = _town(1)
+    gm = town.game_map
+    guard = next(n for n in gm.npcs if n.tile_index == 18 and n.movement == "FIXED")
+    foe = next(n for n in gm.npcs if n.tile_index not in (18, 19))
+    town._start_exodus_combat(foe)
+    town.end_combat(True)
+    gm.npcs = [guard]
+    floor = next(
+        (x, y) for y in range(1, gm.height - 1) for x in range(1, gm.width - 4)
+        if all(gm.get_tile(x + i, y).name == "floor" for i in range(4))
+    )
+    town.avatar_x, town.avatar_y = floor
+    guard.x, guard.y = floor[0] + 3, floor[1]
+    town._combat_npc = None
+    town._move_people()
+    assert (guard.x, guard.y) == (floor[0] + 2, floor[1])
+    town._move_people()
+    assert (guard.x, guard.y) == (floor[0] + 1, floor[1])
+    assert town._combat_npc is None
+    town._move_people()
+    assert town._combat_npc is guard
+
+
+def test_combat_fresh_visit_resets_hostile_guards():
+    """UltimaSpellCombat.c:873-876 only changes the loaded town's monster
+    table; every entry reloads it (towns reset on entry, user ruling), so
+    the hunt lasts one visit."""
+    town = _town(1)
+    before = [n.movement for n in _guards_and_lb(town)]
+    town._start_exodus_combat(next(n for n in town.game_map.npcs if n.tile_index not in (18, 19)))
+    assert all(n.movement == "ATTACK_AVATAR" for n in _guards_and_lb(town))
+    again = _town(1)
+    assert [n.movement for n in _guards_and_lb(again)] == before
+
+
+def test_steal_alert_uses_the_same_hostile_state():
+    """UltimaMain.c:2261-2271 (Steal): on a failure, `(RandNum(0, 255) &
+    0x03) != 0` prints "Failed." (3 in 4); otherwise every guard (0x48, not
+    Lord British) gets HPMON 0xC0, the state Combat sets, and they hunt
+    the party like any 0xC0 person (C-05)."""
+    from py_exodus.constants import Direction
+    from py_exodus.special_commands import WATCH_OUT, do_steal
+
+    town = _town(1)
+    gm = town.game_map
+
+    class _Rng:
+        def __init__(self, vals):
+            self.vals = list(vals)
+
+        def randrange(self, n):
+            return self.vals.pop(0)
+
+    thief = town.party.members[0]
+    assert do_steal(town.party, thief, 2, 2, Direction.NORTH, gm, rng=_Rng([255, 1])) != [WATCH_OUT]
+    assert not all(n.movement == "ATTACK_AVATAR" for n in gm.npcs if n.tile_index == 18)
+    assert do_steal(town.party, thief, 2, 2, Direction.NORTH, gm, rng=_Rng([255, 4])) == [WATCH_OUT]
+    assert all(n.movement == "ATTACK_AVATAR" for n in gm.npcs if n.tile_index == 18)
+    assert next(n for n in gm.npcs if n.tile_index == 19).movement != "ATTACK_AVATAR"
