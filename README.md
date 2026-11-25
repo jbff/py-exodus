@@ -176,7 +176,8 @@ About **1,700 tests** covering mechanics, LairWare/Java/GBC parity, vendors, dun
 2. **Fixed spell letters (A–P)**: spell menus keep the original A–P slots; an invalid cast refuses with `"Not Here!"` or the MP message.
 3. **Classic GBC/LairWare rulings**: slow/fast moongate table, party-wide ship cannon barrage. Druids regain 2 MP a tick to their maximum (the Book of Lore; LairWare gives 1 per half they are under).
 4. **Quality of life**: no quick-start party; `Q` saves only on the Sosaria overworld; `APPAR UNEM` opens the chest underfoot without a direction prompt; saves and rosters are JSON only; a shopkeeper's question is asked once, as the input prompt, with the answer on the same line (Java printed it and then prompted it again).
-5. **Wind display**: reads `Wind NORTH` etc. in words, without arrow glyphs (`Wind NORTH` blows from the north, as LairWare's NORTH WIND does).
+5. **LairWare oddities not ported**: a dungeon trap is avoided by a good DEX roll (LairWare's code springs it on a good roll and spares the party on a bad one); a force field lets the party through only when every living member has the Mark of Force (LairWare lets everyone through once a marked member comes before the one it strikes); cancelling Fal Divi's cleric prompt, or picking a cleric spell that can't be cast here, charges nothing more (LairWare could charge for a cancelled choice).
+6. **Wind display**: reads `Wind NORTH` etc. in words, without arrow glyphs (`Wind NORTH` blows from the north, as LairWare's NORTH WIND does).
 
 ## Known Open Items
 
