@@ -950,14 +950,14 @@ def test_fallback_monsters_no_assets(empty_dmap):
 
 
 def test_deepest_level_klimb_down_clamps(empty_dmap):
-    """Java DungeonScreen.java:973-981 — D on a down-ladder increments
-    currentLevel and only clamps when it exceeds DUNGEON_LVLS (8); a descent
-    off the deepest playable grid is accepted at 8 (world-audit #23)."""
+    """There is no ninth level: a down ladder on the deepest level is
+    refused (LairWare dDescend, UltimaDngn.c:410-422, has no bound, but no
+    shipped level 8 holds a down ladder; batch D guard, D-02)."""
     empty_dmap.set_tile(5, 5, 7, DungeonTile.LADDER_DOWN)
     state = DungeonState(empty_dmap, start_x=5, start_y=5, start_z=7)
     ev = state.klimb_down()
-    assert ev.type == DungeonEventType.LADDER_DOWN
-    assert state.z == 8
+    assert ev.type == DungeonEventType.BLOCKED
+    assert state.z == 7
 
 
 # --- Renderer geometry locks (2026-11-10 dungeon-render fix) ---

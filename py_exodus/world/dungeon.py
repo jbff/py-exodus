@@ -1184,12 +1184,22 @@ class DungeonState:
         return self.dmap.get_tile(x, y, z) == DungeonTile.NOTHING
 
     def _relocate_random(self, z: int) -> bool:
-        """Java's 32-try loop (SpellUtil.java:521-539 etc.): random x/y on the
-        level, position applied on the first valid NOTHING tile. Direction is
-        kept; Java only refreshes the minimap."""
-        for _ in range(32):
-            x = self.rng.randrange(self.dmap.width)
-            y = self.rng.randrange(self.dmap.height)
+        """LairWare RelocateDungeon (UltimaSpellCombat.c:576-586): roll
+        ``RandNum(0, 16)`` for x and y until GetXYDng reads 0 (an empty
+        tile). GetXYDng (758-768) wraps 16 to 0, so 16 lands on 0 (LW keeps
+        xpos 16, which every later read wraps the same way). Direction is
+        kept. A level with no empty tile would hang LW's loop; the port
+        then stays put (no shipped level has none)."""
+        if not any(
+            self.dmap.get_tile(x, y, z) == DungeonTile.NOTHING
+            for y in range(self.dmap.height)
+            for x in range(self.dmap.width)
+        ):
+            self.z = z
+            return False
+        while True:
+            x = self.rng.randint(0, 16) % 16
+            y = self.rng.randint(0, 16) % 16
             if self.valid_teleport_location(x, y, z):
                 self.x = x
                 self.y = y
@@ -1197,8 +1207,6 @@ class DungeonState:
                 if self.party:
                     self.party.dungeon_level = z
                 return True
-        self.z = z
-        return False
 
     def _sync_level(self) -> None:
         if self.party:
@@ -1230,21 +1238,21 @@ class DungeonState:
         )
 
     def spell_down(self) -> DungeonEvent:
-        """REC_DU / DOR_ACRON (Java SpellUtil.spellZdown, SpellUtil.java:546-581):
-        step a level down, clamped at the deepest level without relocation
-        there; otherwise relocate on a random valid spot of the new level."""
-        self.z += 1
-        if self.z > self.dmap.levels:
-            self.z = self.dmap.levels
-            self._sync_level()
+        """REC_DU / DOR_ACRON (LairWare DownLevel, UltimaSpellCombat.c:588-600):
+        step a level down and relocate on a random empty tile there; refused
+        on the deepest level."""
+        # LairWare DownLevel (UltimaSpellCombat.c:594-597): on the deepest
+        # level the spell fails and the party stays (`dungeonLevel > 6`).
+        if self.z >= self.dmap.levels - 1:
             return DungeonEvent(
-                type=DungeonEventType.LADDER_DOWN,
+                type=DungeonEventType.BLOCKED,
                 x=self.x,
                 y=self.y,
                 z=self.z,
                 tile=self.current_tile,
+                success=False,
             )
-        self._relocate_random(self.z)
+        self._relocate_random(self.z + 1)
         self._sync_level()
         return DungeonEvent(
             type=DungeonEventType.LADDER_DOWN,
@@ -1874,13 +1882,6 @@ class DungeonState:
         finishTurn, a real descent runs the same turn tick a normal move
         runs (mademove stays 1, so the encounter roll can fire while
         standing on the ladder).
-
-        Java truth otherwise kept: the D branch increments currentLevel and
-        only clamps when currentLevel exceeds DUNGEON_LVLS (Java's fixed
-        constant 8), so a descent off the deepest playable grid is
-        *accepted* and clamped one level past the last playable array
-        index, never refused. The clamp here is ``dmap.levels`` — 8 for
-        every shipped dungeon, matching Java's DUNGEON_LVLS constant.
         """
         tile = self.current_tile
         if tile not in (DungeonTile.LADDER_DOWN, DungeonTile.LADDER_UP_DOWN):
@@ -1894,9 +1895,19 @@ class DungeonState:
                 success=False,
             )
 
+        # LairWare dDescend (UltimaDngn.c:410-422) has no bound: no shipped
+        # level 8 holds a down ladder. Guard it anyway: there is no ninth level.
+        if self.z >= self.dmap.levels - 1:
+            return DungeonEvent(
+                type=DungeonEventType.BLOCKED,
+                message="No ladder down here!",
+                x=self.x,
+                y=self.y,
+                z=self.z,
+                tile=tile,
+                success=False,
+            )
         self.z += 1
-        if self.z > self.dmap.levels:
-            self.z = self.dmap.levels
         if self.party:
             self.party.dungeon_level = self.z
 

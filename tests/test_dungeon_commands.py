@@ -384,10 +384,9 @@ def test_deepest_ladder_down_clamps_at_dungeon_levels():
     state = DungeonState(dmap, start_x=5, start_y=5, start_z=7)
 
     ev = state.klimb_down()
-    assert ev.type == DungeonEventType.LADDER_DOWN
-    # Java clamps currentLevel at DUNGEON_LVLS (8): the descent from level 7
-    # is accepted, clamped one level past the last playable grid.
-    assert state.z == 8
+    # No ninth level: the descent from level 8 is refused (D-02 guard).
+    assert ev.type == DungeonEventType.BLOCKED
+    assert state.z == 7
 
 
 def test_ladder_up_at_surface_exits():
