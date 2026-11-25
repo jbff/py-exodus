@@ -193,7 +193,8 @@ def test_dungeon_tick_drains_food_and_never_ticks_moves(open_dmap, test_party):
     """Pending item 23 (USER-DIRECTED GBC-RULES DEVIATION, 2026-11-14): the
     dungeon tick runs the per-member meal pipeline at the underground
     cadence (GBC funcs5.c:1274; LW UltimaMisc.c:1428-1467 corroborates) —
-    45 x 10-drain ticks cross the freshly reset 400 pool exactly once —
+    45 calls are 12 ticks of 40: the 400 pool crosses once (tick 11), the
+    residual carried (LairWare EatFood, UltimaMisc.c:1472-1474) —
     while ``Party.endTurn`` is still never called: the move counter stays
     put (Java DungeonScreen.finishTurn, DungeonScreen.java:1124-1142)."""
     state = DungeonState(
@@ -209,9 +210,9 @@ def test_dungeon_tick_drains_food_and_never_ticks_moves(open_dmap, test_party):
     m.submorsels = 400
     m.food = 90
     moves_before = test_party.moves
-    for _ in range(45):  # 45 x 10-drain ticks cross the 400 pool once (tick 41)
+    for _ in range(45):  # ticks on calls 1, 5, ..., 45: 12 ticks
         state._tick_turn()
-    assert m.submorsels == 360  # reset 400 at the crossing, 4 more ticks of 10
+    assert m.submorsels == 400 - 12 * 40 + 396
     assert m.food == 89
     assert test_party.moves == moves_before
 

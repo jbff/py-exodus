@@ -1160,19 +1160,24 @@ class TestDungeonMealCadence:
             random_encounters=False,
         )
 
-    def test_meal_crosses_every_41_dungeon_moves(self, state):
+    def test_meal_cadence_underground_carries_the_residual(self, state):
         """Underground cadence: AgeChars acts on every 4th dungeon command
-        (the first included), 40 of the pool each: a fresh 400 pool sits at
-        0 after 40 commands (ten ticks) and crosses on the 41st (the 11th),
-        spending one unit of food."""
+        (the first included), 40 of the pool each. EatFood carries the
+        residual (UltimaMisc.c:1472-1474; a ration is 396 of the pool, 9.9
+        ticks), so after the first crossing (0 - 40 + 396 = 356) the next
+        comes 9 ticks (36 commands) later."""
         m = state.party.members[0]
-        for _ in range(40):
-            state._tick_turn()
-        assert m.submorsels == 0
-        assert m.food == 150
-        state._tick_turn()
-        assert m.submorsels == 400
+        m.submorsels = 0
+        state._tick_turn()  # tick 1 crosses: -40 + 396
+        assert m.submorsels == 356
         assert m.food == 149
+        for _ in range(35):  # calls 2-36: ticks on 5, 9, ..., 33
+            state._tick_turn()
+        assert m.submorsels == 356 - 8 * 40  # 36 left
+        assert m.food == 149
+        state._tick_turn()  # call 37 = tick 10: the next ration
+        assert m.submorsels == 36 - 40 + 396
+        assert m.food == 148
 
     def test_dungeon_tick_does_not_increment_party_moves(self, state):
         state._tick_turn()

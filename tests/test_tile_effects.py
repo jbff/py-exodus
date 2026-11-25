@@ -267,18 +267,18 @@ def test_ambrosia_eats_every_fourth_turn(pygame_setup, asset_mgr):
     ow, party = _screen_and_party(13)
     food_before = party.food
     ow._pass_turn()
-    assert all(m.submorsels == 400 for m in party.members)
+    assert all(m.submorsels == 30 - 40 + 396 for m in party.members)  # carried
     assert party.food == food_before - len(party.members)
     for _ in range(3):
         ow._pass_turn()
-    assert [m.submorsels for m in party.members] == [400, 400]  # no tick
+    assert [m.submorsels for m in party.members] == [386, 386]  # no tick
     for _ in range(1):
         ow._pass_turn()
-    assert all(m.submorsels == 360 for m in party.members)  # 5th turn ticks
+    assert all(m.submorsels == 346 for m in party.members)  # 5th turn ticks
 
     ow0, party0 = _screen_and_party(0)
     ow0._pass_turn()
-    assert all(m.submorsels == 400 for m in party0.members)  # 40 drain: crossed, reset
+    assert all(m.submorsels == 386 for m in party0.members)  # crossed, residual carried
     assert party0.food == food_before - len(party0.members)  # -1 food per member
 
 

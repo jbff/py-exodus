@@ -585,17 +585,18 @@ def test_eatfood_starving_every_fourth_turn_off_sosaria():
 
 def test_eatfood_last_ration_does_not_starve():
     """UltimaMisc.c:1470-1476 (EatFood): the borrow that takes the last unit
-    of food leaves a fraction (`[34] -= 157`), so that tick does no harm; the
-    starving starts when the fraction runs out too."""
+    of food leaves a fraction (`[34] -= 157`: 0 - 10 wraps to 89), so that
+    tick does no harm; the starving starts when the fraction runs out too,
+    on the 9th tick after (89 -> 9 in eight ticks)."""
     m = _member(hp=300)  # at max HP: the 10th-tick heal changes nothing
     party = _party(m)
     m.food, m.submorsels = 1, 0
     _turns(party, 1, sosaria=True)
     assert (m.food, m.hp) == (0, 300)
-    _turns(party, 10, sosaria=True)  # the fraction runs out
+    _turns(party, 8, sosaria=True)  # the fraction runs down
     assert m.hp == 300
     _turns(party, 1, sosaria=True)
-    assert m.hp == 295
+    assert m.hp == 300 - 5 + 1  # STARVING!, then the 10th tick's heal
 
 
 def test_agechars_quickness_does_not_stop_meals():
@@ -882,3 +883,44 @@ def test_validdir_forcefield_ignores_the_dead_and_ashes(asset_mgr):
     party.members[1].marks[3] = 0
     assert tile_effects.apply_force_field_strike(party, energy)
     assert [m.hp for m in party.members] == [0, 101, 200]
+
+
+# --- T-14: one food every 10 ticks, the residual carried (fix round 1) -------
+
+
+def _ticks_between_rations(sosaria: bool, rations: int = 21) -> list[int]:
+    m = _member()
+    m.food = 50
+    party = _party(m)
+    gaps, last, calls = [], None, 0
+    food = m.food
+    while len(gaps) < rations - 1:
+        party.age_chars(sosaria=sosaria)
+        calls += 1
+        if m.food != food:
+            food = m.food
+            if last is not None:
+                gaps.append(calls - last)
+            last = calls
+    return gaps
+
+
+def test_eatfood_carries_the_residual_99_ticks_per_10_rations():
+    """UltimaMisc.c:1468-1474 (EatFood) with AgeChars' `EatFood(x, 10)`:
+
+        Player[rosNum][34] -= amount;
+        if (Player[rosNum][34] > 127) {
+            Player[rosNum][34] -= 157;
+            Player[rosNum][33] -= 1;
+
+    The fraction byte keeps what is left over: a borrow adds 256 - 157 = 99
+    to it, so a ration is 99 fraction points, 9.9 ticks of 10. The borrow
+    gaps run 10, 10, ..., 9: 99 ticks per 10 rations on Sosaria and 396
+    turns indoors (AgeChars acts on every 4th call there). Resetting the
+    pool instead (the old port) made it 11.
+    """
+    sos = _ticks_between_rations(True)
+    assert set(sos) == {9, 10} and sum(sos[:10]) == 99
+    assert sum(sos) == 20 * 99 // 10
+    ind = _ticks_between_rations(False)
+    assert sum(ind) == 4 * sum(sos)

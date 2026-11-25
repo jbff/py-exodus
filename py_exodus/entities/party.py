@@ -16,6 +16,12 @@ from py_exodus.aura import Aura
 from py_exodus.entities.character import Character
 
 
+# LairWare EatFood (UltimaMisc.c:1468-1474): a borrow does `Player[34] -=
+# 157`, adding 256 - 157 = 99 to the fraction byte that AgeChars eats 10 of
+# a tick. In the port's pool (40 a tick = 10 fraction points x 4) one food
+# is 99 x 4 = 396, and the residual is carried: 9.9 ticks a ration.
+SUBMORSELS_PER_FOOD = 396
+
 class PartyDeathException(Exception):
     """Raised when non-combat damage leaves every party member dead.
 
@@ -689,8 +695,8 @@ class Party:
           status test comes after). Druid: +2 up to the greater half, the
           Book of Lore's "Druids regain two points per turn" (user ruling
           2026-11-25, over LW's +1 per half it is under);
-        - the dead and ashes stop there. Others eat 10 of 100 (the port's 40
-          of a 400 pool, T-14); a member with no food left (the fraction too)
+        - the dead and ashes stop there. Others eat 10 of a 99-point ration
+          (the port's 40 of 396, residual carried: 9.9 ticks, T-14); a member with no food left (the fraction too)
           starves for 5 HP every tick, the pool staying empty (LW zeroes all
           three food bytes);
         - poisoned: -1 HP;
@@ -715,8 +721,10 @@ class Party:
             m.submorsels -= 40
             if m.submorsels < 0:
                 if m.food > 0:
+                    # EatFood carries the residual (UltimaMisc.c:1472-1474,
+                    # `Player[34] -= 157`): 99 points a ration, 9.9 ticks.
                     m.food -= 1
-                    m.submorsels = 400
+                    m.submorsels += SUBMORSELS_PER_FOOD
                 else:
                     # EatFood underflow past 0: STARVING!, HPSubtract 5.
                     m.submorsels = 0

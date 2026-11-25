@@ -69,14 +69,15 @@ class TestSubmorselsTick:
         assert m.food == 500
         party.end_turn(sosaria=False)
         assert m.food == 499
-        assert m.submorsels == 400
+        assert m.submorsels == 396 - 40  # residual carried (EatFood)
 
-    def test_food_decrement_resets_submorsels_to_400(self):
+    def test_food_decrement_carries_the_residual(self):
+        """LairWare EatFood (UltimaMisc.c:1472-1474, `Player[34] -= 157`):
+        the borrow keeps the remainder; one food is 396 of the pool."""
         party = make_party(hero())
-        # Drive submorsels to the crossing point and confirm reset.
         party.members[0].submorsels = 5
         party.end_turn(sosaria=True)
-        assert party.members[0].submorsels == 400
+        assert party.members[0].submorsels == 5 - 40 + 396
         assert party.members[0].food == 149
 
     def test_moves_increment_once_per_tick(self):
@@ -95,11 +96,11 @@ class TestSubmorselsTick:
             party.end_turn(sosaria=True)
         # Member A started at 400 → crossed once on move 11.
         assert party.members[0].food == 149
-        # Member B started at 5 → crossed below 0 on the very first move,
-        # then reset; the remaining 10 moves run the fresh pool down to 0
-        # without another crossing.
-        assert party.members[1].food == 99899
-        assert party.members[1].submorsels == 0
+        # Member B started at 5 → crossed below 0 on the very first move
+        # (5 - 40 + 396 = 361); the remaining 10 moves take it to -39: a
+        # second crossing on move 11 (residual carried).
+        assert party.members[1].food == 99898
+        assert party.members[1].submorsels == 361 - 400 + 396
 
 
 class TestManaRegenTick:

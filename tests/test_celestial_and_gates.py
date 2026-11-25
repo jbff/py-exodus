@@ -462,7 +462,7 @@ class TestMoveDrivenMoons:
 
         party.aura.set(AuraType.QUICKNESS, 2)
         party.end_turn(sosaria=True)
-        assert m.submorsels == 400
+        assert m.submorsels == 39 - 40 + 396  # residual carried
         assert m.food == food_before - 1
 
     def test_save_round_trip_preserves_integer_phase(self, party, tmp_path):
