@@ -232,9 +232,9 @@ def monster_damage_bonus(context_map_id: int | None) -> int:
     return 32
 
 
-# USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): the GBC magic-creature tiles
-# get a no-LOS "magic poke". The tile set mirrors creatures.xml: man-o-war is
-# tile="squid" there, so both spellings are accepted (GBC battle3.c:856-866)
+# LairWare monster loop (UltimaSpellCombat.c:1125-1140): the casters that go
+# to monmagic, gMonType 0x1A serpent, 0x1C Man-O-War (tile "squid"), 0x2C
+# wizard, 0x36 daemon, 0x3A dragon, 0x3C balron.
 _MAGIC_POKE_TILES: frozenset[str] = frozenset(
     {"serpent", "man-o-war", "squid", "wizard", "daemon", "dragon", "balron"}
 )
@@ -260,8 +260,8 @@ def member_is_adjacent_to_monster(member: Any, monster: Any) -> bool:
 
 
 def monster_has_magic_attribute(monster: Any) -> bool:
-    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): whether the creature's
-    tile is one of the six GBC magic-poke tiles (GBC battle3.c:856-866)."""
+    """Whether the creature is one of LairWare's monmagic casters
+    (UltimaSpellCombat.c:1125-1140)."""
     tile = str(getattr(monster, "tile", "") or "").strip().lower()
     return tile in _MAGIC_POKE_TILES
 
@@ -271,33 +271,34 @@ def try_monster_magic_poke(
     members: list[Any] | None,
     context_map_id: int | None = None,
 ) -> AttackResolution | None:
-    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): the GBC no-LOS magic
-    poke — a magic-creature monster with NO living party member adjacent rolls
-    make_rnd(0xC1)&0x80 (random.randrange(193) & 0x80: ~34% success) and, on
-    success, blasts a RANDOM living member directly with the normal
-    single-target (melee) damage roll through the apply_damage chokepoint;
-    no LOS check and no bolt trace. Returns None (and consumes nothing if the
-    tile or the adjacency gate fails) when the caller must fire its normal
-    bolt instead (GBC battle3.c:856-866)"""
+    """LairWare monmagic ($864A, UltimaSpellCombat.c:1125-1153), for a caster
+    with no member next to it: ``RandNum(0, 0xC0) > 127`` (65 in 193; here
+    ``randrange(193) & 0x80``), then ``gChnum = RandNum(0, 255) & 3``, a
+    random party SLOT, cast at only if that member is Good; a poisoned,
+    dead or empty slot sends the monster to move instead (None). The cast is
+    afternext: Poison for a balron or Man-O-War, the armour roll and the
+    damage (the melee resolver). ``members`` is the party in slot order
+    (user ruling 2026-11-25, ledger B-14). Returns None when the caller must
+    move the monster.
+    """
     if not monster_has_magic_attribute(monster):
         return None
-    living = [m for m in (members or []) if not _member_is_dead(m)]
+    party = list(members or [])
+    living = [m for m in party if not _member_is_dead(m)]
     if not living or any(member_is_adjacent_to_monster(m, monster) for m in living):
         return None
     if (random.randrange(193) & 0x80) == 0:
-        return None  # failed the ~34% make_rnd(0xC1)&0x80 draw
-    victim = random.choice(living)
+        return None  # failed the 65-in-193 roll
+    slot = random.randint(0, 255) & 3
+    if slot >= len(party) or getattr(party[slot], "status", None) != Status.GOOD:
+        return None  # goto nextplr: the monster moves
+    victim = party[slot]
     res = resolve_monster_melee_attack(
         monster, victim, context_map_id=context_map_id
     )
-    # The blast went off whatever the victim's individual save said: the
-    # damage lands through the melee roll (0 on a miss), and the caller's
-    # bolt trace is skipped. Item 3 note: GBC prints no text on this branch
-    # (battle3.c:856-866 — magiceffect2(3) + damageplayer, no
-    # writegamemessage) and Java's ranged magic bolt logs nothing; the
-    # "Magic Blast!" line stays as the branch's player feedback per the
-    # item-3 ruling to keep GBC-adopted mechanic strings and note them.
-    return _dc_replace(res, hit=True, message="Magic Blast!")
+    # "Magic Blast!" stays as the branch's player feedback (item-3 ruling);
+    # a POISONED! from afternext takes its place.
+    return _dc_replace(res, hit=True, message=res.message or "Magic Blast!")
 
 
 def get_relative_direction_mask(width: int, height: int, to_x: int, to_y: int, from_x: int, from_y: int) -> int:
@@ -600,6 +601,72 @@ def _decrement_lowest_stack(counts: dict[Any, int] | None) -> bool:
     return False
 
 
+# LairWare afternext (UltimaSpellCombat.c:1196-1202): gMonType 0x1C (Man-O-War),
+# 0x38 (pincher) and 0x3C (balron) roll Poison; 0x2E (thief, a pirate's crew
+# too: 782-784) rolls Pilfer. As LW tile indices (gMonType / 2):
+_LW_POISONERS = frozenset({14, 28, 30})
+_LW_PILFERER = 23
+
+
+def _lw_type(monster: Any) -> int | None:
+    for attr in ("tile", "tile_name", "name"):
+        key = str(getattr(monster, attr, "") or "").lower().replace(" ", "_")
+        if key in LW_TILE_INDEX:
+            return LW_TILE_INDEX[key]
+    return None
+
+
+def lw_poison(target_player: Any) -> bool:
+    """LairWare Poison ($8881, UltimaSpellCombat.c:1447-1460): one in four
+    (``RandNum(0, 255) & 0x03``) a Good member becomes Poisoned."""
+    if (random.randint(0, 255) & 0x03) != 0:
+        return False
+    if getattr(target_player, "status", None) != Status.GOOD:
+        return False
+    target_player.status = Status.POISONED
+    return True
+
+
+def lw_pilfer(target_player: Any) -> str | None:
+    """LairWare Pilfer ($881F, UltimaSpellCombat.c:1418-1445): half the time
+    a weapon 1-15, else an armour 1-7; nothing for a 0, the readied/worn one
+    or one not owned; otherwise the WHOLE stack is taken. The port's stacks
+    hold the spares (the readied one is out of its stack), the same test."""
+    from py_exodus.constants import ArmorType, WeaponType
+
+    if random.randint(0, 255) < 128:
+        item = random.randint(0, 15)
+        kind, order, readied, stacks = (
+            "weapon", list(WeaponType), getattr(target_player, "weapon", None),
+            getattr(target_player, "weapons", None),
+        )
+    else:
+        item = random.randint(0, 7)
+        kind, order, readied, stacks = (
+            "armor", list(ArmorType), getattr(target_player, "armor", None),
+            getattr(target_player, "armors", None),
+        )
+    if item == 0 or stacks is None:
+        return None
+    pick = order[item]
+    if readied == pick or stacks.get(pick, 0) == 0:
+        return None
+    stacks[pick] = 0
+    return kind
+
+
+def lw_afternext_specials(monster: Any, target_player: Any) -> tuple[bool, str | None]:
+    """LairWare afternext (UltimaSpellCombat.c:1196-1202), before the armour
+    roll, so a miss can poison or pilfer too (user ruling 2026-11-25,
+    ledger B-12/B-13). Returns (poisoned, stolen kind)."""
+    kind = _lw_type(monster)
+    if kind in _LW_POISONERS:
+        return lw_poison(target_player), None
+    if kind == _LW_PILFERER:
+        return False, lw_pilfer(target_player)
+    return False, None
+
+
 def resolve_monster_melee_attack(
     monster: Any,
     target_player: Any,
@@ -614,12 +681,14 @@ def resolve_monster_melee_attack(
     ``PartyMember.applyDamage(_, True)`` chokepoint; a surviving target can be
     robbed (CombatScreen.java:733-743). Java logs nothing here (sounds only).
 
-    USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): on-hit specials follow the
-    GBC port — poisoner creatures roll 1-in-4 melee poison (battle3.c:267-277)
-    and the thief steals equipment (battle3.c:280-301) — instead of Java's
-    food/gold-only theft.
+    LairWare afternext (UltimaSpellCombat.c:1196-1202): Poison (pinchers,
+    balrons, Man-O-Wars) and Pilfer (thieves) roll first, hit or miss, then
+    the armour roll (user ruling 2026-11-25, ledger B-12/B-13).
     """
     import py_exodus.assets as assets
+
+    poisoned, stolen_item = lw_afternext_specials(monster, target_player)
+    special_msg = "PILFERED!" if stolen_item else ("POISONED!" if poisoned else "")
 
     # LairWare hit roll (user ruling 2026-11-22: LairWare monster attacks).
     is_hit = lw_monster_hits(target_player, context_map_id)
@@ -631,7 +700,9 @@ def resolve_monster_melee_attack(
             killed=False,
             result=AttackResult.MISS,
             target_pos=(getattr(target_player, "x", 0), getattr(target_player, "y", 0)),
-            message="",
+            poisoned=poisoned,
+            stolen_item=stolen_item,
+            message=special_msg,
         )
 
     # LairWare damage, location bonus included (UltimaSpellCombat.c:1221-1226).
@@ -650,35 +721,10 @@ def resolve_monster_melee_attack(
     applied = _deal_monster_damage_to_member(target_player, damage)
     killed = applied and getattr(target_player, "status", None) == Status.DEAD
 
-    poisoned = False
-    stolen_item: str | None = None
     stolen_food = 0
     stolen_gold = 0
 
     if applied and not killed:
-        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): poisoner melee hits
-        # roll 1-in-4 poison on a surviving, not-yet-poisoned target (GBC
-        # battle3.c:272-277); Java's melee branch has no poison path.
-        if (
-            getattr(monster, "poisons", False)
-            and random.randrange(4) == 0
-            and getattr(target_player, "status", None) != Status.POISONED
-        ):
-            target_player.status = Status.POISONED
-            poisoned = True
-        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): the thief steals
-        # equipment — a 50/50 pick then 1-in-8 armor slot or 1-in-16 weapon
-        # slot, decremented when owned (GBC battle3.c:280-303); Java robber is
-        # food/gold-only.
-        if getattr(monster, "steals", None) == "equipment" and random.randrange(2) == 0:
-            if (
-                random.randrange(8) == 0
-                and _decrement_lowest_stack(getattr(target_player, "armors", None))
-            ):
-                stolen_item = "armor"
-        elif getattr(monster, "steals", None) == "equipment" and random.randrange(16) == 0:
-            if _decrement_lowest_stack(getattr(target_player, "weapons", None)):
-                stolen_item = "weapon"
         # Java CombatScreen.java:733-743 — the Java melee theft branches, kept
         # for the food/gold robbers (rand.nextInt(8) == 0 gate).
         if getattr(monster, "steals", None) == "food" and random.randrange(8) == 0:
@@ -692,17 +738,8 @@ def resolve_monster_melee_attack(
             gold = getattr(target_player, "gold", 0)
             setattr(target_player, "gold", max(0, gold - stolen_gold))
 
-    # Java logs nothing for the creature melee ATTACK (sounds only). GBC does
-    # post the equipment theft for the player (USER-DIRECTED DEVIATION,
-    # 2026-11-14): writegamemessage(pilfered) — battle3.c:288/298 prints
-    # "PILFERED!", carried here so the arena log pipeline surfaces it. The
-    # matching poison feedback (pending item 22) rides the same pipeline:
-    # writegamemessage(poisoned) — battle3.c:257 prints "POISONED!" after the
-    # 1-in-4 melee poison lands; Java's melee branch is message-silent there
-    # too (its own "Poisoned!" log is ranged-only, CombatScreen.java:664), so
-    # GBC wording is adopted per the PILFERED! precedent. No roster creature
-    # both poisons and steals (creatures.xml), so the two lines can never
-    # collide on the single message slot of one hit.
+    # LairWare prints the member and PILFERED! (MoreMessages 148) or
+    # POISONED! (149); no monster both poisons and pilfers.
     msg = "PILFERED!" if stolen_item else ("POISONED!" if poisoned else "")
     return AttackResolution(
         hit=True,

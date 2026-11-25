@@ -966,11 +966,10 @@ class CombatArena:
                 return self._monster_shoot(monster, heading, from_pos)
 
         # UltimaSpellCombat.c:1125-1140, 1145-1153 (monmagic): RandNum(0,
-        # 0xC0) > 127 for a caster attacks a member anywhere. USER-DIRECTED
-        # GBC-RULES DEVIATION (2026-11-14): the GBC magic poke picks a random
-        # living member (LW: a random slot, only a Good member; ledger ask).
+        # 0xC0) > 127 for a caster attacks a random party slot, only a Good
+        # member (else it moves; ledger B-14).
         poke_res = try_monster_magic_poke(
-            monster, self._get_living_party_members(), context_map_id=self.context_map_id
+            monster, list(self.party.members), context_map_id=self.context_map_id
         )
         if poke_res is not None:
             poke_member = (

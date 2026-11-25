@@ -1,9 +1,10 @@
-"""Task 1 (GBC parity) — creature on-hit specials in monster melee resolution.
+"""Creature specials in monster attack resolution.
 
-USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): the thief steals equipment
-and poisoner creatures poison on melee hits, per the GBC port
-(battle3.c:279-301 theft, battle3.c:267-277 poison) instead of Java
-(CombatScreen.java:733-743 — food/gold only, no poison).
+LairWare afternext (UltimaSpellCombat.c:1196-1202; user ruling 2026-11-25,
+ledger B-12/B-13): Poison (pinchers, balrons, Man-O-Wars) and Pilfer
+(thieves) roll on every attack, before the armour roll, so a miss counts
+too. monmagic (1145-1153, B-14) picks a random party slot and casts only at
+a Good member. The Java food/gold robbers (CombatScreen.java:733-743) stay.
 """
 import random
 
@@ -72,8 +73,9 @@ def _stocked_member():
 
 
 def test_thief_steals_armor_or_weapon_from_inventory(monkeypatch):
-    """GBC battle3.c:280-303 — thief picks armor (1-in-8 slot) or weapon
-    (1-in-16 slot) by a 50/50 roll; a hit slot decrements one owned stack."""
+    """LairWare Pilfer (UltimaSpellCombat.c:1418-1445): half the time a
+    weapon 1-15, else an armour 1-7; when owned and not readied/worn the
+    WHOLE stack is taken."""
     _forced_hit(monkeypatch)
     random.seed(20261114)
     monster = CombatMonster(THIEF, 0, 0)
@@ -90,23 +92,21 @@ def test_thief_steals_armor_or_weapon_from_inventory(monkeypatch):
             assert armors_after == armors_before
         else:
             assert res.stolen_item in ("weapon", "armor")
-            if res.stolen_item == "weapon":
-                assert sum(weapons_after.values()) == sum(weapons_before.values()) - 1
-                assert armors_after == armors_before
-            else:
-                assert sum(armors_after.values()) == sum(armors_before.values()) - 1
-                assert weapons_after == weapons_before
+            stacks_before, stacks_after = (
+                (weapons_before, weapons_after) if res.stolen_item == "weapon"
+                else (armors_before, armors_after)
+            )
+            gone = [k for k in stacks_before if stacks_before[k] != stacks_after[k]]
+            assert len(gone) == 1 and stacks_after[gone[0]] == 0
             thefts.append(res.stolen_item)
-    # 200 trials at a combined ~1-in-16 rate: a dry run is astronomically unlikely.
     assert thefts
-    assert set(thefts) <= {"weapon", "armor"}
+    assert set(thefts) == {"weapon", "armor"}
 
 
 def test_thief_theft_carries_pilfered_message(monkeypatch):
-    """GBC battle3.c:288/298 — the writegamemessage(pilfered) text. The
-    resolution carries "PILFERED!" on an applied equipment theft so the
-    arena log pipeline surfaces it; every other melee outcome stays silent
-    (Java CombatScreen.java:723-743 logs nothing for the melee branch)."""
+    """LairWare Pilfer prints MoreMessages 148, PILFERED! (UltimaSpellCombat.c
+    :1440-1443). The resolution carries "PILFERED!" on a theft so the arena
+    log pipeline surfaces it; every other outcome stays silent."""
     _forced_hit(monkeypatch)
     random.seed(20261114)
     saw_theft = False
@@ -159,38 +159,44 @@ def test_non_thief_never_strips_equipment(monkeypatch):
 
 
 def test_pincher_melee_poisons_about_25_percent(monkeypatch):
-    """GBC battle3.c:272-277 — poisoners roll make_rnd(0)&3==0 (1-in-4) on a
-    surviving hit and set status POISONED."""
+    """LairWare Poison (UltimaSpellCombat.c:1447-1453): one RandNum(0, 255)
+    per attack, & 3 == 0 poisons a Good member (about 1 in 4)."""
     _forced_hit(monkeypatch)
     poison_rolls: list[int] = []
-    real_randrange = resolver_mod.random.randrange
+    real_randint = resolver_mod.random.randint
 
-    def spy(n):
-        value = real_randrange(n)
-        if n == 4:
+    def spy(a, b):
+        value = real_randint(a, b)
+        if (a, b) == (0, 255):
             poison_rolls.append(value)
         return value
 
-    monkeypatch.setattr(resolver_mod.random, "randrange", spy)
+    monkeypatch.setattr(resolver_mod.random, "randint", spy)
     monster = CombatMonster(PINCHER, 0, 0)
     poisoned_hits = 0
-    last_poisoned_member = None
     for _ in range(200):
         member = Character("Hero", "M", hp=999, max_hp=999)
         res = resolve_monster_attack(monster=monster, target_player=member)
         assert res.poisoned == (member.status == Status.POISONED)
-        if res.poisoned:
-            poisoned_hits += 1
-            last_poisoned_member = member
-    assert len(poison_rolls) == 200  # one 1-in-4 roll per surviving hit
-    assert 25 <= poisoned_hits <= 75  # ~25% of 200 (expected 50)
-    assert last_poisoned_member is not None
-    assert last_poisoned_member.status == Status.POISONED
+        poisoned_hits += res.poisoned
+    assert len(poison_rolls) == 200  # one roll per attack
+    assert poisoned_hits == sum(1 for r in poison_rolls if r & 3 == 0)
+    assert 25 <= poisoned_hits <= 75
 
 
-def test_melee_poison_only_from_poisoners_and_only_on_survivors(monkeypatch):
-    """Non-poisoner never poisons; a killing blow leaves no poison behind."""
+def _poison_roll(monkeypatch, value):
+    real_randint = resolver_mod.random.randint
+    monkeypatch.setattr(
+        resolver_mod.random, "randint",
+        lambda a, b: value if (a, b) == (0, 255) else real_randint(a, b),
+    )
+
+
+def test_melee_poison_only_from_poisoners_even_on_a_killing_blow(monkeypatch):
+    """Non-poisoner never poisons. LW rolls Poison before the blow, so a
+    poisoning blow that kills leaves the member dead."""
     _forced_hit(monkeypatch, damage=1)
+    _poison_roll(monkeypatch, 0)
     member = Character("Hero", "M", hp=999, max_hp=999)
     res = resolve_monster_attack(monster=CombatMonster(ORC, 0, 0), target_player=member)
     assert not res.poisoned
@@ -200,28 +206,16 @@ def test_melee_poison_only_from_poisoners_and_only_on_survivors(monkeypatch):
     victim = Character("Hero", "M", hp=5, max_hp=5)
     res = resolve_monster_attack(monster=CombatMonster(PINCHER, 0, 0), target_player=victim)
     assert res.killed
-    assert not res.poisoned
+    assert res.poisoned
     assert victim.status == Status.DEAD
 
 
-def test_poisoner_melee_hit_carries_poisoned_message(monkeypatch):
-    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14), pending item 22: after
-    the 1-in-4 melee poison lands GBC posts writegamemessage(poisoned)
-    printing "POISONED!" (battle3.c:257); Java's melee branch logs nothing
-    (CombatScreen.java:720-748), so the GBC line is adopted like PILFERED!.
-    Only an actual poisoning carries the text: a non-poisoner's hit and a
-    poison roll that did not fire stay silent."""
+def test_poisoner_hit_carries_poisoned_message(monkeypatch):
+    """LairWare Poison prints MoreMessages 149, POISONED!
+    (UltimaSpellCombat.c:1455-1458); a non-poisoner's hit stays silent."""
     _forced_hit(monkeypatch)
+    _poison_roll(monkeypatch, 0)
     monster = CombatMonster(PINCHER, 0, 0)
-    real_randrange = resolver_mod.random.randrange
-
-    def forced_poison(n):
-        # Zero out every roll the code makes on this path — for the
-        # poisoner/ordinary monsters under test that is only the 1-in-4
-        # poison roll, so poison lands on every surviving hit.
-        return 0 if n == 4 else real_randrange(n)
-
-    monkeypatch.setattr(resolver_mod.random, "randrange", forced_poison)
     member = Character("Hero", "M", hp=999, max_hp=999)
     res = resolve_monster_attack(monster=monster, target_player=member)
     assert res.poisoned
@@ -233,11 +227,22 @@ def test_poisoner_melee_hit_carries_poisoned_message(monkeypatch):
     assert res.message == ""
 
 
+def test_poison_on_a_miss(monkeypatch):
+    """Before the armour roll (UltimaSpellCombat.c:1196-1198, 1212-1214): a
+    miss poisons too."""
+    monkeypatch.setattr(resolver_mod, "lw_monster_hits", lambda *a, **k: False)
+    _poison_roll(monkeypatch, 4)
+    member = Character("Hero", "M", hp=999, max_hp=999)
+    res = resolve_monster_attack(monster=CombatMonster(PINCHER, 0, 0), target_player=member)
+    assert not res.hit and res.poisoned and member.hp == 999
+    assert res.message == "POISONED!"
+
+
 def test_already_poisoned_hit_stays_silent(monkeypatch):
-    """GBC battle3.c:272-277 suppresses the roll for an already-POISONED
-    target — no second poison, therefore no "POISONED!" line."""
+    """Poison (UltimaSpellCombat.c:1452-1453): `if (Player[rosNum][17] !=
+    'G') return;` - no second poison, no "POISONED!" line."""
     _forced_hit(monkeypatch)
-    monkeypatch.setattr(resolver_mod.random, "randrange", lambda n: 0)
+    _poison_roll(monkeypatch, 0)
     member = Character("Hero", "M", hp=999, max_hp=999)
     member.status = Status.POISONED
     res = resolve_monster_attack(monster=CombatMonster(PINCHER, 0, 0), target_player=member)
@@ -246,22 +251,10 @@ def test_already_poisoned_hit_stays_silent(monkeypatch):
     assert res.message == ""
 
 
-def test_poisoning_blow_that_kills_carries_no_message(monkeypatch):
-    """A killing blow skips the on-hit specials (no poison, no PILFERED! or
-    POISONED! text — GBC evaluates poison only on a surviving hit)."""
-    _forced_hit(monkeypatch, damage=9999)
-    monkeypatch.setattr(resolver_mod.random, "randrange", lambda n: 0)
-    victim = Character("Hero", "M", hp=5, max_hp=5)
-    res = resolve_monster_attack(monster=CombatMonster(PINCHER, 0, 0), target_player=victim)
-    assert res.killed and not res.poisoned
-    assert res.message == ""
-
-
 def test_roster_never_pairs_poison_with_theft():
     """Collision guard for the shared melee message slot: no creature in the
-    roster both poisons and steals, so POISONED! (battle3.c:257) and
-    PILFERED! (battle3.c:288/298) can never both fire on the same hit —
-    the single `message` field in AttackResolution is sound."""
+    roster both poisons and steals, so POISONED! and PILFERED! can never
+    both fire on the same attack."""
     import xml.etree.ElementTree as ET
     from pathlib import Path
 
@@ -275,7 +268,7 @@ def test_roster_never_pairs_poison_with_theft():
 
 
 def test_food_and_gold_theft_paths_still_behave(monkeypatch):
-    """Java CombatScreen.java:733-743 branches survive the GBC additions."""
+    """Java CombatScreen.java:733-743 branches survive the LW specials."""
     _forced_hit(monkeypatch)
     random.seed(11)
     food_dropped = gold_dropped = False
@@ -379,7 +372,7 @@ def test_melee_damage_applies_terrain_bonus(monkeypatch):
         assert member.hp == 999 - want, map_name
 
 
-# --- GBC no-LOS magic poke ----------------------------------------------------
+# --- LairWare monmagic (UltimaSpellCombat.c:1125-1153, ledger B-14) ---------
 
 
 def _placed_member(x, y, hp=999):
@@ -414,33 +407,37 @@ def _force_poke_success(monkeypatch, value=129):
     monkeypatch.setattr(resolver_mod.random, "randrange", spy)
 
 
+def _slot(monkeypatch, slot):
+    real_randint = resolver_mod.random.randint
+    monkeypatch.setattr(
+        resolver_mod.random, "randint",
+        lambda a, b: slot if (a, b) == (0, 255) else real_randint(a, b),
+    )
+
+
 def test_magic_wizard_pokes_distant_members(monkeypatch):
-    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): with no adjacent member a
-    magic creature rolls make_rnd(0xC1)&0x80 (~34%) and, on success, hits a
-    RANDOM living member with the normal single-target roll; no bolt trace
-    (GBC battle3.c:856-866)."""
+    """With no adjacent member a caster rolls RandNum(0, 0xC0) > 127 and, on
+    success, attacks the member in a random slot (RandNum(0, 255) & 3) with
+    the normal roll; no bolt trace."""
     _forced_hit_flat(monkeypatch, damage=9)
     _force_poke_success(monkeypatch)
-    random.seed(20261114)
-    for _ in range(25):
-        near_target = _placed_member(8, 8)
-        other = _placed_member(9, 9)
-        monster = CombatMonster(WIZARD, 0, 0)
+    for slot, hit_index in ((0, 0), (1, 1), (4, 0), (5, 1)):
+        _slot(monkeypatch, slot)
+        members = [_placed_member(8, 8), _placed_member(9, 9)]
         res = try_monster_magic_poke(
-            monster=monster, members=[near_target, other], context_map_id=None
+            monster=CombatMonster(WIZARD, 0, 0), members=members, context_map_id=None
         )
         assert res is not None
         assert res.message == "Magic Blast!"
-        assert res.hit
-        assert res.killed is False
-        # exactly one living member took the single-target 9 damage
-        damaged = [m for m in (near_target, other) if m.hp < m.max_hp]
-        assert len(damaged) == 1
-        assert damaged[0].hp == 999 - 9
+        assert res.hit and res.killed is False
+        assert [m.hp for m in members] == [
+            999 - 9 if i == hit_index else 999 for i in range(2)
+        ]
 
 
 def test_magic_poke_rate_is_34_percent_of_193(monkeypatch):
-    """blasts === the count of randrange(193) draws with bit 0x80 set ~34%."""
+    """blasts === the count of randrange(193) draws with bit 0x80 set ~34%
+    (a full party of four Good members, so every slot casts)."""
     _forced_hit(monkeypatch, damage=7)
     rolls = _randrange_spy(monkeypatch, 193)
     random.seed(4242)
@@ -448,7 +445,8 @@ def test_magic_poke_rate_is_34_percent_of_193(monkeypatch):
     for _ in range(200):
         res = try_monster_magic_poke(
             monster=CombatMonster(WIZARD, 0, 0),
-            members=[_placed_member(8, 8), _placed_member(9, 9)],
+            members=[_placed_member(8, 8), _placed_member(9, 9),
+                     _placed_member(9, 8), _placed_member(8, 9)],
         )
         blasts += res is not None
     assert len(rolls) == 200  # one 34% roll per no-adjacent ranged action
@@ -505,26 +503,25 @@ def test_adjacent_member_blocks_the_poke(monkeypatch):
     assert rolls == []
 
 
-def test_magic_poke_skips_dead_members(monkeypatch):
-    """Dead members never take the blast and never soak the random pick."""
+def test_magic_poke_at_a_slot_not_good_moves_instead(monkeypatch):
+    """UltimaSpellCombat.c:1146-1148: `if (Player[Party[7 + gChnum]][17] !=
+    'G') goto nextplr;` - a dead, poisoned or empty slot: no cast (None, the
+    caller moves the monster), nobody hurt."""
     _forced_hit_flat(monkeypatch, damage=9)
     _force_poke_success(monkeypatch)
-    random.seed(777)
-    for _ in range(25):
-        living_a = _placed_member(8, 8)
-        living_b = _placed_member(9, 9)
-        dead = _placed_member(3, 3, hp=0)
-        dead.status = Status.DEAD
-        res = try_monster_magic_poke(
+    living = _placed_member(8, 8)
+    dead = _placed_member(3, 3, hp=0)
+    dead.status = Status.DEAD
+    sick = _placed_member(9, 9)
+    sick.status = Status.POISONED
+    for slot in (1, 2, 3):  # dead, poisoned, empty
+        _slot(monkeypatch, slot)
+        assert try_monster_magic_poke(
             monster=CombatMonster(WIZARD, 0, 0),
-            members=[living_a, dead, living_b],
+            members=[living, dead, sick],
             context_map_id=None,
-        )
-        assert res is not None and res.message == "Magic Blast!"
-        assert dead.hp == 0 and dead.status == Status.DEAD
-        damaged = [m for m in (living_a, living_b) if m.hp < m.max_hp]
-        assert len(damaged) == 1
-        assert damaged[0].hp == 999 - 9
+        ) is None
+    assert (living.hp, dead.hp, sick.hp) == (999, 0, 999)
 
 
 # --- GBC ship-battle cannonfire -----------------------------------------------

@@ -818,3 +818,154 @@ def test_combat_monster_hp_rolls_to_monhpstart(asset_mgr, monkeypatch, tile, cap
     m = CombatMonster(arena.creature_def, 0, 0)
     assert rolls == [(0, cap)]
     assert m.hp == cap | 0x0F
+
+
+# --- B-12, B-13: Poison and Pilfer at afternext (user ruling 2026-11-25) ----
+
+
+class _Script:
+    """random.randint answering from a script (LW RandNum is inclusive);
+    records the bounds asked."""
+
+    def __init__(self, *values: int) -> None:
+        self.values = list(values)
+        self.asked: list[tuple[int, int]] = []
+
+    def __call__(self, a: int, b: int) -> int:
+        self.asked.append((a, b))
+        return self.values.pop(0) if self.values else a
+
+
+def _melee(monkeypatch, tile: str, target, *rolls: int, hits: bool = False):
+    from py_exodus.combat import resolver
+    from py_exodus.entities.defs import CreatureDef
+    from py_exodus.combat.arena import CombatMonster
+
+    monkeypatch.setattr(resolver, "lw_monster_hits", lambda *a, **k: hits)
+    mon = CombatMonster(CreatureDef(id=1, name=tile, tile=tile, basehp=48, hp=40), 0, 0)
+    script = _Script(*rolls)
+    monkeypatch.setattr(resolver.random, "randint", script)
+    return resolver.resolve_monster_melee_attack(mon, target), script
+
+
+def _fighter(status=None):
+    from py_exodus.constants import Status as _S
+    from py_exodus.entities.party import PartyMember
+
+    c = Character("Hero0", "M", hp=300, max_hp=300)
+    c.status = status or _S.GOOD
+    return PartyMember(c)
+
+
+@pytest.mark.parametrize("tile", ["pincher", "balron", "squid"])
+def test_poison_rolled_before_the_armour_roll(monkeypatch, tile):
+    """UltimaSpellCombat.c:1196-1198 (afternext) and 1447-1460 (Poison):
+
+        if (gMonType == 0x1C || gMonType == 0x3C || gMonType == 0x38) {
+            Poison(gChnum);
+        ...
+        if ((RandNum(0, 255) & 0x03) != 0)
+            return;
+        if (Player[rosNum][17] != 'G')
+            return;
+        Player[rosNum][17] = 'P';
+
+    Pinchers, balrons and Man-O-Wars roll 1 in 4 on every attack, before
+    the armour roll: a miss can poison.
+    """
+    from py_exodus.constants import Status as _S
+
+    target = _fighter()
+    res, script = _melee(monkeypatch, tile, target, 4)  # 4 & 3 = 0: poisoned
+    assert target.status == _S.POISONED and not res.hit and target.hp == 300
+    assert script.asked[0] == (0, 255)
+    target = _fighter()
+    _melee(monkeypatch, tile, target, 5)  # 5 & 3 = 1: no
+    assert target.status == _S.GOOD
+
+
+def test_poison_only_good_members_and_only_poisoners(monkeypatch):
+    """UltimaMisc Poison (UltimaSpellCombat.c:1452-1453): a member not Good is
+    left alone; an orc never rolls it."""
+    from py_exodus.constants import Status as _S
+
+    target = _fighter()
+    _melee(monkeypatch, "orc", target, 0, 0, 0)
+    assert target.status == _S.GOOD
+
+
+def test_pilfer_takes_the_whole_weapon_stack_hit_or_miss(monkeypatch):
+    """UltimaSpellCombat.c:1199-1201 and 1418-1430 (Pilfer):
+
+        if (RandNum(0, 255) < 128) {
+            item = RandNum(0, 15);
+            if (item == 0) return;
+            if (Player[rosNum][48] == item) return;
+            if (Player[rosNum][48 + item] == 0) return;
+            Player[rosNum][48 + item] = 0;
+
+    A thief (and a pirate's crew, thieves in LW: UltimaSpellCombat.c:782-784)
+    tries on every attack, before the armour roll: the whole stack goes.
+    """
+    from py_exodus.constants import WeaponType
+
+    target = _fighter()
+    target.weapons[WeaponType.SLING] = 5
+    res, script = _melee(monkeypatch, "thief", target, 0, 3)
+    assert target.weapons[WeaponType.SLING] == 0
+    assert res.stolen_item == "weapon" and not res.hit
+    assert script.asked[:2] == [(0, 255), (0, 15)]
+
+
+def test_pilfer_armour_branch_and_the_misses(monkeypatch):
+    """UltimaSpellCombat.c:1431-1439: otherwise an armour 1-7; nothing for a
+    0, the worn one or one not owned."""
+    from py_exodus.constants import ArmorType, WeaponType
+
+    target = _fighter()
+    target.armors[ArmorType.CHAIN] = 2
+    res, script = _melee(monkeypatch, "thief", target, 128, 3)
+    assert target.armors[ArmorType.CHAIN] == 0 and res.stolen_item == "armor"
+    assert script.asked[:2] == [(0, 255), (0, 7)]
+
+    target = _fighter()
+    target.weapons[WeaponType.DAGGER] = 4
+    target.weapon = WeaponType.DAGGER
+    res, _ = _melee(monkeypatch, "thief", target, 0, 1)  # the readied one
+    assert target.weapons[WeaponType.DAGGER] == 4 and res.stolen_item is None
+    res, _ = _melee(monkeypatch, "thief", target, 0, 0)  # item 0
+    assert res.stolen_item is None
+    res, _ = _melee(monkeypatch, "thief", target, 0, 9)  # not owned
+    assert res.stolen_item is None
+
+
+# --- B-14: monmagic picks a party slot, casts only at a Good member ----------
+
+
+def test_monmagic_random_slot_good_only(monkeypatch):
+    """UltimaSpellCombat.c:1145-1153 (monmagic):
+
+        gChnum = RandNum(0, 255) & 3;
+        if (Player[Party[7 + gChnum]][17] != 'G')
+            goto nextplr;
+
+    A random slot 0-3; a poisoned, dead or empty slot means the caster moves
+    instead. Then afternext: Poison (a balron), the armour roll, the damage.
+    """
+    from py_exodus.combat import resolver
+    from py_exodus.constants import Status as _S
+    from py_exodus.entities.defs import CreatureDef
+    from py_exodus.combat.arena import CombatMonster
+
+    good, sick = _fighter(), _fighter(_S.POISONED)
+    for m in (good, sick):
+        m.x, m.y = 9, 9
+    mon = CombatMonster(CreatureDef(id=1, name="balron", tile="balron", basehp=48, hp=40), 0, 0)
+    monkeypatch.setattr(resolver.random, "randrange", lambda n: 192)  # the 65/193 roll passes
+    monkeypatch.setattr(resolver, "lw_monster_hits", lambda *a, **k: False)
+    for slot in (1, 2, 3):  # poisoned, empty, empty
+        monkeypatch.setattr(resolver.random, "randint", _Script(slot))
+        assert resolver.try_monster_magic_poke(mon, [good, sick]) is None
+    monkeypatch.setattr(resolver.random, "randint", _Script(4, 0))  # slot 0, then Poison
+    res = resolver.try_monster_magic_poke(mon, [good, sick])
+    assert res is not None and good.status == _S.POISONED

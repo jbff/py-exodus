@@ -590,6 +590,11 @@ def test_exodus_monster_magic_auto_hits_non_exotic_defender(asset_mgr, conflict_
     monster attack, a caster's spell (monmagic -> afternext) included, hits
     a member without exotic armour."""
     monkeypatch.setattr(arena_mod.random, "randrange", lambda n: 129 if n == 193 else 0)
+    real_randint = resolver_mod.random.randint
+    monkeypatch.setattr(  # monmagic's slot roll (RandNum(0, 255) & 3): slot 0
+        resolver_mod.random, "randint",
+        lambda a, b: 0 if (a, b) == (0, 255) else real_randint(a, b),
+    )
     monkeypatch.setattr(resolver_mod, "lw_armor_roll", lambda *a, **k: False)
     monkeypatch.setattr(resolver_mod, "lw_monster_damage_roll", lambda *a, **k: 4)
     party = Party()

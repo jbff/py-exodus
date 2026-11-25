@@ -608,11 +608,15 @@ def test_ship_party_monster_ranged_is_single_target_projectile(asset_mgr, confli
 
 
 def test_wizard_with_distant_party_magic_blasts(asset_mgr, conflict_map, monkeypatch):
-    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): no adjacent member and a
-    magic tile — the poke branch fires on make_rnd(0xC1)&0x80 success and hits
-    a random living member through the melee chokepoint
-    (GBC battle3.c:856-866)."""
+    """LairWare monmagic (UltimaSpellCombat.c:1125-1153): no adjacent member
+    and a caster; RandNum(0, 0xC0) > 127 passes, the slot roll picks slot 0
+    (a Good member) and the attack goes through the melee chokepoint."""
     real_randrange = random.randrange
+    real_randint = random.randint
+    monkeypatch.setattr(
+        resolver_mod.random, "randint",
+        lambda a, b: 0 if (a, b) == (0, 255) else real_randint(a, b),
+    )
 
     def fake(n):
         value = real_randrange(n)
