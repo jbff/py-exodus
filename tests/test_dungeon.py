@@ -14,7 +14,6 @@ from py_exodus.world.dungeon import (
     DungeonCamera,
     DungeonEventType,
     DungeonState,
-    WanderingCreature,
     get_relative_offsets,
     turn_left_dir,
     turn_right_dir,
@@ -86,9 +85,11 @@ def test_dungeon_wireframe_render(asset_mgr, perinian_dmap):
 
 
 def _wc(level=0):
-    return WanderingCreature(
-        CreatureDef(id=10, name="Orc", tile="orc", basehp=30, level=level),
-        5, 4, 0,
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        creature=CreatureDef(id=10, name="Orc", tile="orc", basehp=30, level=level),
+        x=5, y=4, level=0,
     )
 
 
@@ -449,32 +450,6 @@ def test_ladder_no_turn_blocked_and_exit(empty_dmap, test_party):
     assert test_party.moon_turns == 0
 
 
-def test_ladder_climb_encounter_roll_fires(empty_dmap, test_party):
-    """GBC 1388-1429: mademove stays 1 through the climb, so the wandering
-    upkeep / encounter roll runs after the climb — a creature on the
-    destination level reaching the ladder tile raises the battle."""
-    empty_dmap.set_tile(5, 5, 0, DungeonTile.LADDER_DOWN)
-    state = DungeonState(
-        empty_dmap,
-        start_x=5,
-        start_y=5,
-        start_z=0,
-        party=test_party,
-        rng=ZeroRNG(),
-        random_encounters=False,
-    )
-    cr = CreatureDef(id=10, name="Orc", tile="orc", basehp=30, level=1)
-    # Destination level (1), adjacent north of the party's ladder tile.
-    state.wandering_creatures.append(WanderingCreature(cr, 5, 4, 1))
-
-    ev = state.klimb_down()
-    assert ev.type == DungeonEventType.COMBAT
-    assert ev.creature is cr
-    assert state.z == 1
-
-
-# --- Traps Tests (Pit, Wind, Gremlins) ---
-
 class RemainingRng:
     """Stub RNG whose randrange(n) always returns a fixed remainder."""
 
@@ -800,30 +775,6 @@ def test_open_chest(empty_dmap, test_party):
 
 # --- Combat Encounter & Torch Mechanics ---
 
-def test_random_combat_encounter(empty_dmap, asset_mgr, test_party):
-    """Task 13: the invented direct-ambush roll is replaced by persistent
-    wandering creatures (see tests/test_dungeon_specials.py); the creature
-    pool still honours the level/deepness rules."""
-    import random
-    rng = random.Random(42)
-    state = DungeonState(
-        empty_dmap,
-        start_x=5,
-        start_y=5,
-        start_z=3,
-        start_dir=Direction.NORTH,
-        party=test_party,
-        asset_manager=asset_mgr,
-        rng=rng,
-    )
-    for _ in range(30):
-        cr = state._pick_dungeon_creature()
-        assert cr is not None
-        assert cr.level > 0
-        assert cr.level <= state.z + 1
-        assert cr.name != ""
-
-
 def test_torch_boolean_toggle_model(empty_dmap, test_party):
     """Java DungeonScreen.java:81 + 988-1005 — the torch is one boolean.
 
@@ -940,13 +891,6 @@ def test_camera_validation_and_dng_alias(empty_dmap):
     # Error if neither dmap nor dng provided
     with pytest.raises(ValueError):
         cam.render_wireframe(surf)
-
-
-def test_fallback_monsters_no_assets(empty_dmap):
-    """Java getRandomDungeonInstance (CreatureSet.java:42-56) invents no
-    fallback table: nothing eligible means no spawn (None)."""
-    state = DungeonState(empty_dmap, start_x=5, start_y=5, start_z=0, asset_manager=None)
-    assert state._pick_dungeon_creature() is None
 
 
 def test_deepest_level_klimb_down_clamps(empty_dmap):

@@ -74,26 +74,12 @@ class DungeonEvent:
     tile: DungeonTile | None = None
     success: bool = True
     moved: bool = False
-    #: The wandering creature instance that raised this battle, when one did
-    #: (DungeonScreen.battleWandering / endCombat's currentEncounter).
-    wandering: WanderingCreature | None = None
 
 
-#: Java ``Constants.MAX_WANDERING_CREATURES_IN_DUNGEON`` (Constants.java:43).
-MAX_WANDERING_CREATURES = 2
-
-#: Java ``DungeonScreen.spawnDungeonCreature`` tries (DungeonScreen.java:1281).
-WANDERING_SPAWN_TRIES = 10
-
-
-@dataclass
-class WanderingCreature:
-    """A wandering monster loose on one dungeon level (DungeonScreen.java:1255+)."""
-
-    creature: CreatureDef
-    x: int
-    y: int
-    level: int
+#: LairWare dungeon monsters (UltimaDngn.c:201-205): gMonType
+#: ``(min(RandNum(0, level + 2), 6) + 0x18) * 2``, tiles 0x30-0x3C
+#: (Tiles.plist 24-30).
+DUNGEON_MONSTERS = ("orc", "skeleton", "giant", "daemon", "pincher", "dragon", "balron")
 
 
 def turn_left_dir(d: Direction) -> Direction:
@@ -1104,11 +1090,6 @@ class DungeonState:
         self.rng = rng or random.Random()
         self.random_encounters_enabled = random_encounters
 
-        # Wandering monsters loose on the current level
-        # (DungeonScreen.java:1255-1330): spawned by the finishTurn roll,
-        # moved toward the avatar, cleaned up on level change.
-        self.wandering_creatures: list[WanderingCreature] = []
-
         # Torch: Java DungeonScreen.java:81 `boolean isTorchOn` — a plain
         # toggle, default off when entering. There is no rounds counter and
         # no dim; the old torch_duration inheritance is gone.
@@ -1386,9 +1367,8 @@ class DungeonState:
         target_tile = self.dmap.get_tile(target_x, target_y, self.z)
 
         if target_tile in (DungeonTile.WALL, DungeonTile.FIELD_ENERGY):
-            # Java move() (DungeonScreen.java:1052-1076) runs finishTurn even
-            # for a blocked move — the party tick and the wandering-creature
-            # upkeep (and possibly a contact battle) still apply.
+            # A blocked move still ends in dungeonmech (UltimaDngn.c:348-359,
+            # 183-209): the party tick and the encounter roll still apply.
             combat_evt = self._tick_turn()
             return self._with_combat(
                 DungeonEvent(
@@ -1430,7 +1410,9 @@ class DungeonState:
                 # Java catches PartyDeathException around the move; the
                 # owning DungeonScreen's post-check routes the wipe.
                 pass
-            combat_evt = self._tick_turn()
+            # LW: the pass that springs the trap does not roll for a fight
+            # (UltimaDngn.c:196-198, 285-294).
+            combat_evt = self._tick_turn(roll_encounter=False)
 
             return self._with_combat(
                 DungeonEvent(
@@ -1483,7 +1465,8 @@ class DungeonState:
             if living:
                 victim = living[self.rng.randrange(len(living))]
                 victim.food = max(0, victim.food - 100)
-            combat_evt = self._tick_turn()
+            # LW: no fight roll on the gremlins' pass (UltimaDngn.c:319-333).
+            combat_evt = self._tick_turn(roll_encounter=False)
             return self._with_combat(
                 DungeonEvent(
                     type=DungeonEventType.GREMLINS,
@@ -1575,36 +1558,24 @@ class DungeonState:
     def _with_combat(
         evt: DungeonEvent, combat_evt: DungeonEvent | None
     ) -> DungeonEvent:
-        """Merge a wandering-creature battle into the move's tile event.
-
-        Java runs checkTileAffects and then finishTurn inside one move, so a
-        creature reaching the avatar raises the battle in the same turn as
-        the tile effect. The tile message is kept while the event becomes
-        the combat trigger — type, creature AND the wandering instance
-        (DungeonScreen.battleWandering's cr) are carried through, since
-        endCombat needs it to remove the encounter and drop any chest.
-        """
+        """Merge an encounter from the turn tick into the move's event: the
+        move's message is kept while the event becomes the combat trigger."""
         if combat_evt is None:
             return evt
         evt.type = combat_evt.type
         evt.creature = combat_evt.creature
-        evt.wandering = combat_evt.wandering
         return evt
 
     # --- Turn & Resource Management ---
 
-    def _tick_turn(self) -> DungeonEvent | None:
+    def _tick_turn(self, roll_encounter: bool = True) -> DungeonEvent | None:
         """Run the per-move finishTurn tick (DungeonScreen.java:1124-1142).
 
-        Java truth: finishTurn runs ``getAura().passTurn()`` +
-        creatureCleanup + the spawn roll + moveDungeonCreatures ONLY.
-        ``Party.endTurn`` is NEVER called while exploring a dungeon — it
-        runs only from GameScreen.java:712 and CombatScreen.java:472 — so
-        the move counter does not tick per dungeon
-        move, and the torch boolean needs no upkeep (no rounds to
-        decrement, no expiry ever). After the aura pass this runs the
-        wandering-creature upkeep and returns a COMBAT event when a
-        creature reaches the avatar (battleWandering), else None.
+        ``Party.endTurn`` is never called while exploring a dungeon, so the
+        move counter does not tick here. After the party upkeep this runs
+        LairWare's encounter roll (``_encounter_roll``, UltimaDngn.c:196-209)
+        and returns its COMBAT event, else None; ``roll_encounter=False``
+        skips it on the pass that sprang a pit or gremlins.
 
         USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): finite torch
         durations — every consumed dungeon turn burns one unit of `torchtime`
@@ -1638,8 +1609,7 @@ class DungeonState:
         if self.torchtime > 0:
             self.torchtime -= 1
         if self.party is not None:
-            # Java order: the aura pass precedes the wandering upkeep. It
-            # only decrements the aura counter, but a member death raised
+            # The aura pass precedes the encounter roll. It only decrements the aura counter, but a member death raised
             # from a future aura effect must not crash the move — mirror the
             # post-routing guard the other tick paths carry.
             try:
@@ -1660,164 +1630,40 @@ class DungeonState:
                 self.party.aura.pass_turn()
             except PartyDeathException:
                 pass
-        return self._update_wandering_creatures()
-
-    # --- Wandering monsters (DungeonScreen.java:1255-1330) ---
-
-    def _update_wandering_creatures(self) -> DungeonEvent | None:
-        """Java creatureCleanup + spawn roll + moveDungeonCreatures.
-
-        Returns a COMBAT event when any creature lands on the avatar's tile
-        (DungeonScreen.java:1338-1340 battleWandering), else None.
-        """
-        # creatureCleanup (DungeonScreen.java:1221-1228): only creatures on
-        # the current level survive a level change.
-        self.wandering_creatures = [
-            wc for wc in self.wandering_creatures if wc.level == self.z
-        ]
-
-        if self.random_encounters_enabled:
-            self._spawn_wandering_creature()
-
-        # Java finishTurn (DungeonScreen.java:1135-1141): the QUICKNESS aura
-        # skips moveDungeonCreatures for the turn (spawn still applies).
-        if self.party is not None and self.party.aura.get_type() == AuraType.QUICKNESS:
+        if not roll_encounter:
             return None
+        return self._encounter_roll()
 
-        combat_evt: DungeonEvent | None = None
-        for wc in list(self.wandering_creatures):
-            mask = self._wandering_moves_mask(wc)
-            dirs = mask & self._directions_toward(wc.x, wc.y)
-            if dirs:
-                d = self._random_direction(dirs)
-                wc.x = (wc.x + d.dx) % self.dmap.width
-                wc.y = (wc.y + d.dy) % self.dmap.height
+    # --- Encounters (LairWare dungeonmech, UltimaDngn.c:196-209) ---
 
-                # Java moveDungeonCreatures (DungeonScreen.java:1300-1302):
-                # when getPath returns null the creature is `continue`d past —
-                # the contact-battle check only runs on an actual step.
-                if wc.x == self.x and wc.y == self.y and combat_evt is None:
-                    combat_evt = DungeonEvent(
-                        type=DungeonEventType.COMBAT,
-                        x=self.x,
-                        y=self.y,
-                        z=self.z,
-                        creature=wc.creature,
-                        wandering=wc,
-                        tile=self.current_tile,
-                    )
-        return combat_evt
-
-    def _wandering_moves_mask(self, wc: WanderingCreature) -> int:
-        """Java DungeonScreen.getValidMovesMask/addToMask (1355-1392): the
-        creature may step onto a creature-walkable tile that no other
-        wandering creature occupies."""
-        mask = 0
-        for d in (Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST):
-            nx = (wc.x + d.dx) % self.dmap.width
-            ny = (wc.y + d.dy) % self.dmap.height
-            tile = self.dmap.get_tile(nx, ny, wc.level)
-            can_move = tile.creature_walkable
-            if can_move:
-                for other in self.wandering_creatures:
-                    if (
-                        other is not wc
-                        and other.x == nx
-                        and other.y == ny
-                        and other.level == wc.level
-                    ):
-                        can_move = False
-                        break
-            if can_move:
-                mask |= d.mask
-        return mask
-
-    def _directions_toward(self, from_x: int, from_y: int) -> int:
-        """Java Utils.getRelativeDirection with wrap (Utils.java:354-394): the
-        cardinal directions leading toward the avatar."""
-        width, height = self.dmap.width, self.dmap.height
-        fx, fy = from_x, from_y
-        if abs(fx - self.x) > abs(fx + width - self.x):
-            fx += width
-        elif abs(fx - self.x) > abs(fx - width - self.x):
-            fx -= width
-        if abs(fy - self.y) > abs(fy + height - self.y):
-            fy += height
-        elif abs(fy - self.y) > abs(fy - height - self.y):
-            fy -= height
-
-        mask = 0
-        if fy - self.y < 0:
-            mask |= Direction.SOUTH.mask
-        elif fy - self.y > 0:
-            mask |= Direction.NORTH.mask
-        if fx - self.x < 0:
-            mask |= Direction.EAST.mask
-        elif fx - self.x > 0:
-            mask |= Direction.WEST.mask
-        return mask
-
-    def _random_direction(self, mask: int) -> Direction:
-        """Java Direction.getRandomValidDirection: one of the masked dirs."""
-        valid = [
-            d
-            for d in (Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST)
-            if d.mask & mask
-        ]
-        return valid[self.rng.randrange(len(valid))]
-
-    def _spawn_wandering_creature(self) -> bool:
-        """Java DungeonScreen.spawnDungeonCreature (DungeonScreen.java:1272-1309)."""
-        if len(self.wandering_creatures) >= MAX_WANDERING_CREATURES:
-            return False
-
-        # checkRandomDungeonCreatures (DungeonScreen.java:1262-1266): spawn
-        # one time in 32 - currentLevel*2 while under the per-level cap.
-        spawn_value = max(1, 32 - self.z * 2)
-        if self.rng.randrange(spawn_value) != 0:
-            return False
-
-        creature = self._pick_dungeon_creature()
-        if creature is None:
-            return False
-
-        for _ in range(WANDERING_SPAWN_TRIES):
-            dx = self.rng.randrange(self.dmap.width)
-            dy = self.rng.randrange(self.dmap.height)
-            if self.dmap.get_tile(dx, dy, self.z).creature_walkable:
-                self.wandering_creatures.append(
-                    WanderingCreature(creature, dx, dy, self.z)
-                )
-                return True
-        return False
-
-    def _pick_dungeon_creature(self) -> CreatureDef | None:
-        """Java CreatureSet.getRandomDungeonInstance (CreatureSet.java:42-56).
-
-        Creatures without a ``level`` attribute default to 0 and are
-        excluded (Java ``Creature.level`` field default); so are sails/swims/
-        good/wont_attack creatures. Returns None — no spawn — when nothing is
-        eligible: Java invents no fallback monster table.
-        """
-        dungeon_level = self.z + 1
-
-        if self.asset_manager and self.asset_manager.creatures:
-            eligible: dict[int, CreatureDef] = {}
-            for cr in self.asset_manager.creatures.values():
-                if (
-                    cr.level > 0
-                    and cr.level <= dungeon_level
-                    and not cr.sails
-                    and not cr.swims
-                    and not cr.good
-                    and not cr.wont_attack
-                ):
-                    eligible[cr.id] = cr
-            eligible_list = list(eligible.values())
-            if eligible_list:
-                # Java: eligible.get(rand.nextInt(eligible.size()))
-                return eligible_list[self.rng.randrange(len(eligible_list))]
-        return None
+    def _encounter_roll(self) -> DungeonEvent | None:
+        """LairWare dungeonmech (UltimaDngn.c:196-209): on an empty tile
+        ``RandNum(0, 0x82 + dungeonLevel) < 128`` passes; otherwise the
+        monster is ``min(RandNum(0, dungeonLevel + 2), 6)`` into Orc..Balron,
+        a chest is put on the party's tile (``PutXYDng(0x40, ...)``) and the
+        fight starts. A tile holding anything never rolls. LW has no
+        wandering dungeon monsters (Java's were replaced)."""
+        if not self.random_encounters_enabled:
+            return None
+        if self.current_tile != DungeonTile.NOTHING:
+            return None
+        if self.rng.randint(0, 0x82 + self.z) < 128:
+            return None
+        value = min(self.rng.randint(0, self.z + 2), 6)
+        tile_name = DUNGEON_MONSTERS[value]
+        creatures = getattr(self.asset_manager, "creatures", None) or {}
+        creature = creatures.get(tile_name) or CreatureDef(
+            id=-1, name=tile_name.capitalize(), tile=tile_name
+        )
+        self.dmap.set_tile(self.x, self.y, self.z, DungeonTile.CHEST)
+        return DungeonEvent(
+            type=DungeonEventType.COMBAT,
+            x=self.x,
+            y=self.y,
+            z=self.z,
+            creature=creature,
+            tile=DungeonTile.NOTHING,
+        )
 
     # --- Fixture Interactions ---
 

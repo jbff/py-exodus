@@ -77,3 +77,75 @@ def test_downlevel_spell_down_never_steps_past_the_last_level():
     assert state.z == 7
     assert (state.x, state.y) == (3, 3)
     assert evt.success is False
+
+
+# --- D-05 dungeonmech encounters --------------------------------------------
+
+
+@pytest.mark.parametrize("roll, fights", [(127, False), (128, True)])
+def test_dungeonmech_encounter_roll_on_an_empty_tile(roll, fights):
+    """UltimaDngn.c:196-200: on an empty tile (GetXYDng == 0)
+        if (RandNum(0, 0x82 + dungeonLevel) < 128) goto dungstart;
+    so a fight comes (3 + level) times in (131 + level) per command. The
+    port ran Java's wandering monsters (spawn 1 in 32 - 2 * level, at most
+    two, walking toward the party)."""
+    rng = SeqRNG([roll, 0])
+    state = DungeonState(_dmap(), start_x=4, start_y=4, start_z=3, party=_party(), rng=rng)
+    evt = state._tick_turn()
+    assert rng.calls[0] == (0, 0x82 + 3)
+    assert (evt is not None and evt.type == DungeonEventType.COMBAT) is fights
+
+
+@pytest.mark.parametrize(
+    "z, roll, tile",
+    [(0, 0, "orc"), (0, 2, "giant"), (3, 4, "pincher"), (7, 6, "balron"), (7, 9, "balron")],
+)
+def test_dungeonmech_monster_by_level(z, roll, tile):
+    """UltimaDngn.c:201-205:
+        value = RandNum(0, dungeonLevel + 2);
+        if (value > 6) value = 6;
+        value += 0x18; gMonType = value * 2;
+    Tiles 0x30..0x3C: Orc, Skeleton, Giant, Daemon, Pincher, Dragon, Balron
+    (Tiles.plist 24-30). No Thief comes in a LairWare dungeon."""
+    rng = SeqRNG([200, roll])
+    state = DungeonState(_dmap(), start_x=4, start_y=4, start_z=z, party=_party(), rng=rng)
+    evt = state._tick_turn()
+    assert rng.calls[1] == (0, z + 2)
+    assert evt.creature.tile == tile
+
+
+def test_dungeonmech_chest_is_left_before_the_fight():
+    """UltimaDngn.c:206-207: `PutXYDng(0x40, xpos, ypos); Combat();` the
+    chest goes on the party's tile before the fight, whatever its end. The
+    port dropped one only after a won fight with a monster that carries one."""
+    rng = SeqRNG([200, 0])
+    dmap = _dmap()
+    state = DungeonState(dmap, start_x=4, start_y=4, start_z=0, party=_party(), rng=rng)
+    state._tick_turn()
+    assert dmap.get_tile(4, 4, 0) == DungeonTile.CHEST
+
+
+@pytest.mark.parametrize(
+    "tile", [DungeonTile.CHEST, DungeonTile.LADDER_UP, DungeonTile.MARK, DungeonTile.FOUNTAIN_HEAL]
+)
+def test_dungeonmech_no_fight_on_a_tile_that_holds_something(tile):
+    """UltimaDngn.c:196-198: `value = GetXYDng(xs, ys); if (value != 0)
+    goto dngnotcombat;` only an empty tile rolls for a fight."""
+    rng = SeqRNG([200, 0])
+    dmap = _dmap()
+    dmap.set_tile(4, 4, 0, tile)
+    state = DungeonState(dmap, start_x=4, start_y=4, start_z=0, party=_party(), rng=rng)
+    assert state._tick_turn() is None
+    assert rng.calls == []
+
+
+def test_dungeonmech_pit_tile_does_not_roll_a_fight_the_same_turn():
+    """UltimaDngn.c:196-198, 285-294: the pass that finds the trap (value 4)
+    clears it and springs it; it does not also roll for a fight."""
+    rng = SeqRNG([0] * 20)
+    dmap = _dmap()
+    dmap.set_tile(4, 3, 0, DungeonTile.PIT_TRAP)
+    state = DungeonState(dmap, start_x=4, start_y=4, start_z=0, party=_party(), rng=rng)
+    evt = state.move_forward()
+    assert evt.type == DungeonEventType.PIT_TRAP
+    assert (0, 0x82) not in rng.calls

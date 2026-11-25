@@ -105,11 +105,6 @@ class DungeonScreen(BaseScreen):
         # toggles it.
         self.show_minimap = True
 
-        # Java DungeonScreen.currentEncounter (DungeonScreen.java:737): the
-        # wandering creature that raised the current battle, cleared by
-        # endCombat.
-        self.current_encounter = None
-
         raw_id = getattr(self.dungeon_map, "id", None)
         if not was_injected and raw_id is None:
             raw_id = self.map_id
@@ -307,8 +302,8 @@ class DungeonScreen(BaseScreen):
 
     def _consume_turn(self) -> None:
         """Java DungeonScreen.finishTurn (DungeonScreen.java:1124) — the
-        keyUp tail for keys without an early return. A wandering creature
-        reaching the avatar raises the battle here too."""
+        keyUp tail for keys without an early return. The encounter roll can
+        raise a fight here too."""
         evt = self.state._tick_turn()
         if evt is not None:
             self._process_event(evt)
@@ -371,7 +366,7 @@ class DungeonScreen(BaseScreen):
                     c_name = evt.creature.tile
                 elif hasattr(evt.creature, "name"):
                     c_name = evt.creature.name.lower()
-            self._trigger_combat(c_name, encounter=evt.wandering)
+            self._trigger_combat(c_name)
 
     def _search(self) -> None:
         """Search dungeon tile for fountains, marks, or chests."""
@@ -428,8 +423,8 @@ class DungeonScreen(BaseScreen):
 
             # Java: dungeon S is routed through the G/R/W/C/S fall-through
             # branch (DungeonScreen.java:1011-1013) and every sip keypress
-            # ends in the sip tail finishTurn — valid or not. A wandering
-            # creature reaching the avatar in that tail raises the battle.
+            # ends in the sip tail finishTurn — valid or not. The encounter
+            # roll in that tail can raise a fight.
             tick_evt = self.state._tick_turn()
             if tick_evt is not None:
                 self._process_event(tick_evt)
@@ -480,14 +475,9 @@ class DungeonScreen(BaseScreen):
         except PartyDeathException:
             pass
 
-    def _trigger_combat(self, creature_name: str, encounter=None) -> None:
-        """Launch combat screen from dungeon encounter.
-
-        ``encounter`` is the wandering creature instance that raised the
-        battle (Java DungeonScreen.battleWandering keeps it in
-        ``currentEncounter`` until endCombat removes it and drops any chest).
-        """
-        self.current_encounter = encounter
+    def _trigger_combat(self, creature_name: str) -> None:
+        """Launch combat screen from dungeon encounter (LairWare dungeonmech,
+        UltimaDngn.c:205-207: the chest is already on the tile)."""
         if self.asset_mgr is None:
             return
 
@@ -520,31 +510,8 @@ class DungeonScreen(BaseScreen):
             pass
 
     def end_combat(self, is_won: bool) -> None:
-        """Java DungeonScreen.endCombat (DungeonScreen.java:740-769).
-
-        A victory leaves the encounter creature's chest on the avatar's tile
-        — only onto a NOTHING tile, and only when the creature is not
-        `nochest`. The encounter creature is then removed from the dungeon
-        level unconditionally, win or loss (dngMap.removeCreature), so the
-        battle cannot re-trigger on every following tick.
-        """
-        from py_exodus.world.map import DungeonTile
-
-        encounter = self.current_encounter
-        if encounter is not None:
-            if (
-                is_won
-                and not encounter.creature.no_chest
-                and self.dungeon_map.get_tile(self.state.x, self.state.y, self.state.z)
-                == DungeonTile.NOTHING
-            ):
-                self.dungeon_map.set_tile(
-                    self.state.x, self.state.y, self.state.z, DungeonTile.CHEST
-                )
-            self.state.wandering_creatures = [
-                wc for wc in self.state.wandering_creatures if wc is not encounter
-            ]
-            self.current_encounter = None
+        """Nothing to settle: LairWare put the chest on the party's tile
+        before the fight (UltimaDngn.c:206-207), whatever its end."""
 
     def _use_torch(self) -> None:
         """Toggle the torch (Java DungeonScreen.java:988-1004 Keys.I).
@@ -613,14 +580,6 @@ class DungeonScreen(BaseScreen):
         px = offset_x + self.state.x * cell
         py = offset_y + self.state.y * cell
         target.fill(EGA_BRIGHT_RED, (px, py, cell - 1, cell - 1))
-        # Wandering-creature dots: one marker per creature on the level so
-        # the dungeon monsters are visible next to the party dot.
-        for wc in self.state.wandering_creatures:
-            if wc.level != self.state.z:
-                continue
-            cx = offset_x + wc.x * cell
-            cy = offset_y + wc.y * cell
-            target.fill(EGA_YELLOW, (cx, cy, cell - 1, cell - 1))
 
     def render(self, surface: pygame.Surface) -> None:
         surface.fill(EGA_BLACK)
@@ -640,7 +599,6 @@ class DungeonScreen(BaseScreen):
                 z=self.state.z,
                 dir=self.state.dir,
                 torch_lit=torch_lit,
-                creatures=self.state.wandering_creatures,
             )
 
             font = get_hud_font(size=10)
@@ -675,7 +633,6 @@ class DungeonScreen(BaseScreen):
                 z=self.state.z,
                 dir=self.state.dir,
                 torch_lit=torch_lit,
-                creatures=self.state.wandering_creatures,
             )
 
             font = get_hud_font(size=10)
