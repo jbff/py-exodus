@@ -398,6 +398,16 @@ def choose_auto_combat_action(
         if ranged_dir is not None:
             return Action.attack(ranged_dir)
 
+    # LairWare UltimaAutocombat.c:177-180 (A-11, review 2026-11-25): a
+    # member under 50 HP doesn't advance. Having fled (or found no square)
+    # it attacks or shoots what it can from where it stands, and otherwise
+    # passes, instead of stepping straight back in. The last living member
+    # still closes in (nobody else can end the fight).
+    if getattr(member, "hp", 0) < NEARLY_DEAD_HP and any(
+        i != member_idx and not _is_member_dead(m) for i, m in enumerate(arena.party.members)
+    ):
+        return Action.pass_turn()
+
     # Advance toward nearest visible living monster.
     # For melee fighters, prefer BFS shortest path first so obstacles (like ship masts)
     # don't cause greedy-Manhattan orbiting loops.

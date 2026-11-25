@@ -309,3 +309,28 @@ def test_autocombat_never_throws_a_dagger(asset_mgr):
     arena.asset_mgr = asset_mgr
     action = choose_auto_combat_action(arena, 0, asset_mgr=asset_mgr)
     assert action.type == ActionType.MOVE and action.direction == Direction.NORTH
+
+
+def test_autocombat_nearly_dead_holds_instead_of_advancing(asset_mgr):
+    """UltimaAutocombat.c:177-180 (A-11): ``if (NearlyDead(chnum + 1) &&
+    CharY[chnum] < 10) { AddMacro(' '); return; } // don't advance!`` --
+    after the flee, a member under 50 HP never walks back toward a monster
+    that does not close in; it passes (review 2026-11-25)."""
+    arena = _melee(asset_mgr, hp=20, monsters=((5, 4),))
+    first = choose_auto_combat_action(arena, 0)
+    assert first.type == ActionType.MOVE and first.direction == Direction.SOUTH
+    arena.player_positions[0] = (5, 6)  # it fled; the monster stays put
+    for _ in range(3):
+        assert choose_auto_combat_action(arena, 0).type == ActionType.PASS
+
+
+def test_autocombat_nearly_dead_still_attacks_adjacent_when_cornered(asset_mgr):
+    arena = _melee(asset_mgr, hp=20, monsters=((5, 4), (5, 6), (4, 5), (6, 5)))
+    assert choose_auto_combat_action(arena, 0).type == ActionType.ATTACK
+
+
+def test_autocombat_nearly_dead_last_member_still_advances(asset_mgr):
+    arena = _melee(asset_mgr, hp=20, monsters=((5, 2),))
+    arena.party.members[1].hp = 0
+    arena.party.members[1].status = Status.DEAD
+    assert choose_auto_combat_action(arena, 0).type == ActionType.MOVE
