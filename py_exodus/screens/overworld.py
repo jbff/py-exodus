@@ -32,7 +32,6 @@ from py_exodus.screens.member_prompts import (
     prompt_whose_item,
 )
 from py_exodus.screens.final import (
-    apply_exodus_card_tiles,
     prompt_insert_card,
 )
 from py_exodus.ui.renderer import WorldRenderer, can_move_to
@@ -592,10 +591,6 @@ class OverworldScreen(BaseScreen):
         # starts its idle count afresh (UltimaMain.c:1040).
         self._idle_polls = 0
         self._play_overworld_music()
-        # Restore cleared machine panels from exodusCardsStatus (GameScreen.java:299-311)
-        apply_exodus_card_tiles(
-            self.game_map, self.asset_mgr, getattr(self.party, "exodus_cards_status", 0)
-        )
         # Purge any creature at the party's tile to prevent combat re-trigger loops
         self.creatures = [
             c for c in self.creatures

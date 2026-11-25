@@ -637,6 +637,104 @@ def test_insert_same_card_twice_kills():
     assert c.status == Status.DEAD
 
 
+# --- C-29 (user ruling 2026-11-25): Castle Exodus resets like every town -------
+
+
+def test_insert_progress_clears_on_entering_exodus(town):
+    """UltimaMain.c:1019 ``lastCard = 0x1E;`` -- the card order starts over;
+    user ruling C-29: Castle Exodus resets on entry like every town, so
+    cards inserted on an earlier visit no longer count."""
+    p, c = _card_party()
+    p.exodus_cards_status = 0x3  # Love and Sol in, last visit
+    scr = town(map_id=2, x=32, y=62, party=p)
+    scr.on_enter()
+    assert p.exodus_cards_status == 0
+    assert scr.game_map.get_tile(30, 11).name == "exodus"  # panel back
+
+
+def test_insert_progress_clears_on_leaving_exodus(town):
+    """User ruling C-29: leaving Castle Exodus drops the inserted cards."""
+    p, c = _card_party()
+    scr = town(map_id=2, x=32, y=62, party=p)
+    p.exodus_cards_status = 0x3
+    scr._exit_town()
+    assert p.exodus_cards_status == 0
+
+
+def test_insert_progress_kept_inside_exodus(town):
+    """Back from a fight or the Book inside the castle (on_enter again) is
+    the same visit: the inserted cards still count."""
+    p, c = _card_party()
+    scr = town(map_id=2, x=32, y=62, party=p)
+    p.exodus_cards_status = 0x3
+    scr.on_enter()
+    assert p.exodus_cards_status == 0x3
+
+
+def test_leaving_another_town_keeps_nothing_of_exodus(town):
+    """Only Castle Exodus holds card progress; another town's exit does
+    not touch exodus_defeated."""
+    p, c = _card_party()
+    p.exodus_defeated = 1
+    scr = town(map_id=3, party=p)
+    scr._exit_town()
+    assert p.exodus_defeated == 1
+
+
+def test_insert_progress_never_saved(tmp_path):
+    """User ruling C-29: card progress is not written to a save; an old
+    save that carries it loads as 0. ``exodus_defeated`` is still saved."""
+    import json
+
+    from py_exodus.save_system import SaveSystem
+
+    p, c = _card_party()
+    p.exodus_cards_status = 0x5
+    p.exodus_defeated = 1
+    assert "exodus_cards_status" not in p.to_dict()
+    path = tmp_path / "party.json"
+    SaveSystem.save_game(p, path)
+    assert "exodus_cards_status" not in path.read_text()
+    loaded = SaveSystem.load_game(path)
+    assert loaded.exodus_cards_status == 0
+    assert loaded.exodus_defeated == 1
+
+    # An old save written with the field loads it as 0.
+    data = json.loads(path.read_text())
+    target = data.get("party", data)
+    target["exodus_cards_status"] = 0x7
+    path.write_text(json.dumps(data))
+    assert SaveSystem.load_game(path).exodus_cards_status == 0
+
+
+def test_autoplay_inserts_all_four_cards_in_one_visit(pygame_setup, asset_mgr):
+    """User ruling C-29: with progress reset on entry, autoplay must still
+    finish the cards in one visit: a stale 0x3 from an old visit is dropped
+    and autoplay inserts Love, Sol, Moons, Death in order, nobody dying."""
+    from py_exodus.autoplay import AutoPlayController
+    from py_exodus.screens.final import FinalScreen
+    from py_exodus.screens.town import TownScreen
+    from py_exodus.state_machine import StateMachine
+
+    p, c = _card_party()
+    p.exodus_cards_status = 0x3
+    sm = StateMachine(asset_mgr=asset_mgr)
+    scr = TownScreen(party=p, map_id=2, asset_mgr=asset_mgr, start_x=30, start_y=12)
+    scr.avatar_x, scr.avatar_y = 30, 12
+    scr.game_map.npcs = []  # insertion only, no fights
+    sm.push_screen(scr)
+    assert p.exodus_cards_status == 0
+    ctrl = AutoPlayController(enabled=True, step_interval=0.01)
+    for _ in range(200):
+        if isinstance(sm.current_screen, FinalScreen):
+            break
+        ctrl.step(sm)
+    assert isinstance(sm.current_screen, FinalScreen)
+    assert p.exodus_cards_status == 0xF
+    assert p.exodus_defeated == 1
+    assert all(not m.is_dead() for m in p.members)
+
+
 # --- Hand -----------------------------------------------------------------------
 
 

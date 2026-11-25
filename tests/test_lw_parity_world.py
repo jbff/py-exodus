@@ -240,8 +240,8 @@ def test_insert_last_card_runs_safeexodus(town):
     from py_exodus.screens import final
 
     p, _ = _exodus_party()
-    p.exodus_cards_status = 0x7  # Love, Sol, Moons in
     scr = town(map_id=2, x=33, y=12, party=p)
+    p.exodus_cards_status = 0x7  # Love, Sol, Moons in (this visit, C-29)
     final.prompt_insert_card(scr, 33, 12)
     _key(scr, pygame.K_1, "1")
     _key(scr, pygame.K_d, "d")

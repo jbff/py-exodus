@@ -323,8 +323,9 @@ def test_overworld_lethal_insert_routes_game_over(pygame_setup, asset_mgr):
 def test_town_insert_flow(pygame_setup, asset_mgr):
     """TownScreen on the EXODUS map: INSERT at a panel inserts the card."""
     party = card_party()
-    party.exodus_cards_status = 0x3  # Love and Sol in: Moons is next (LW lastCard)
     town = TownScreen(party=party, map_id=2, start_x=32, start_y=12, asset_mgr=asset_mgr)
+    # Set after entry: entering Castle Exodus clears the progress (C-29).
+    party.exodus_cards_status = 0x3  # Love and Sol in: Moons is next (LW lastCard)
 
     town.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_o))
     type_prompt(town.text_log, "INSERT")
@@ -352,13 +353,15 @@ def test_town_insert_rejects_other_town(pygame_setup, asset_mgr):
 # --- Persist / reload (GameScreen.java:299-311) ---
 
 
-def test_exodus_cards_status_persists(tmp_path):
+def test_exodus_cards_status_not_saved(tmp_path):
+    """User ruling C-29 (2026-11-25): card progress lasts one castle visit
+    and is never saved."""
     party = Party(members=[])
     party.exodus_cards_status = 0x5
     path = tmp_path / "party.json"
     SaveSystem.save_game(party, path)
     loaded = SaveSystem.load_game(path)
-    assert loaded.exodus_cards_status == 0x5
+    assert loaded.exodus_cards_status == 0
 
 
 def test_reload_sets_cleared_panel_tiles(pygame_setup, asset_mgr):
@@ -372,15 +375,11 @@ def test_reload_sets_cleared_panel_tiles(pygame_setup, asset_mgr):
 
 
 def test_screens_apply_card_tiles_on_enter(pygame_setup, asset_mgr):
-    party = card_party()
-    party.exodus_cards_status = 0x8
-    ow = OverworldScreen(party=party, map_id=2, asset_mgr=asset_mgr)
-    ow.on_enter()
-    assert ow.game_map.get_tile(33, 11).name == "floor"
-
+    """Back from a fight inside the castle (on_enter, same visit) the panels
+    this visit cleared stay floor. A new visit starts with none (C-29)."""
     party2 = card_party()
-    party2.exodus_cards_status = 0x1
     town = TownScreen(party=party2, map_id=2, start_x=30, start_y=12, asset_mgr=asset_mgr)
+    party2.exodus_cards_status = 0x1
     town.on_enter()
     assert town.game_map.get_tile(30, 11).name == "floor"
 

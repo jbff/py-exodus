@@ -852,7 +852,9 @@ class Party:
             "moon_turns": self.moon_turns,
             "torch_duration": self.torch_duration,
             "active_member_index": self.active_member_index,
-            "exodus_cards_status": self.exodus_cards_status,
+            # exodus_cards_status is not saved (user ruling C-29, 2026-11-25):
+            # Castle Exodus resets on entry like every town, as LW's lastCard
+            # restarts at Love each game (UltimaMain.c:1019).
             "exodus_defeated": self.exodus_defeated,
             "members": [m.to_dict() for m in self.members],
             # LairWare PutSosaria (UltimaMisc.c:838-843) writes the whole map
@@ -910,7 +912,8 @@ class Party:
             moon_turns=p_data.get("moon_turns", 0),
             torch_duration=p_data.get("torch_duration", 0),
             active_member_index=p_data.get("active_member_index", 0),
-            exodus_cards_status=p_data.get("exodus_cards_status", 0),
+            # An old save's exodus_cards_status is ignored and loads as 0
+            # (user ruling C-29: card progress lasts one castle visit).
             exodus_defeated=p_data.get("exodus_defeated", 0),
             dynamic_objects=data.get("dynamic_objects", p_data.get("dynamic_objects", [])),
             dynamic_monsters=data.get("dynamic_monsters", p_data.get("dynamic_monsters", [])),

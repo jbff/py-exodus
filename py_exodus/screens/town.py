@@ -28,6 +28,7 @@ from py_exodus.screens.member_prompts import (
 )
 from py_exodus.screens.final import (
     apply_exodus_card_tiles,
+    is_exodus_map,
     prompt_insert_card,
     safe_exodus,
 )
@@ -92,6 +93,10 @@ class TownScreen(BaseScreen):
 
         self.game_map: GameMap | None = None
         self._load_town_map()
+        # User ruling C-29 (2026-11-25): Castle Exodus resets on entry like
+        # every town, so card progress starts over (LW lastCard = Love at
+        # UltimaMain.c:1019). The member keeps the card (W-16).
+        self._clear_exodus_cards()
 
         # Coordinates
         self.avatar_x = start_x if start_x is not None else 32
@@ -153,7 +158,9 @@ class TownScreen(BaseScreen):
         # starts its idle count afresh (UltimaMain.c:1040).
         self._idle_polls = 0
         self._play_town_music()
-        # Restore cleared machine panels from exodusCardsStatus (GameScreen.java:299-311)
+        # Back from a fight inside the castle: redraw the panels this visit
+        # cleared (GameScreen.java:299-311). The status holds this visit
+        # only (C-29), so a fresh entry finds every panel in place.
         apply_exodus_card_tiles(
             self.game_map, self.asset_mgr, getattr(self.party, "exodus_cards_status", 0)
         )
@@ -700,6 +707,15 @@ class TownScreen(BaseScreen):
                     if (cx, cy) != (px, py):
                         npc.x, npc.y = cx, cy
                     break
+
+    def _clear_exodus_cards(self) -> None:
+        if is_exodus_map(self.map_id, self.game_map):
+            self.party.exodus_cards_status = 0
+
+    def exit_screen(self) -> None:
+        # User ruling C-29: leaving Castle Exodus drops the inserted cards.
+        self._clear_exodus_cards()
+        super().exit_screen()
 
     def _exit_town(self) -> None:
         self.text_log.add_message("Leaving city...")
