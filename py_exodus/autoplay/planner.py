@@ -559,6 +559,78 @@ def next_mark_level(party: Party) -> int | None:
     return max(MARK_LEVEL[i] for i, d in MARK_DUNGEON.items() if d == dungeon and i != 0)
 
 
+# Turn-back thresholds (autoplay round 1, item 5). Going down to level z
+# needs every living member to hold DESCEND_HITS maximum hits of the
+# hardest monster there (ceiling + 1 + 16): about one worst fight's share
+# on a front member at the top of the damage roll, and the flee line
+# (50 HP) still under it. Capped at two thirds of max HP, under the 70%
+# at which the surface rests indoors, so a party that rested (to 85%)
+# always may go down and the surface and the dungeon never disagree.
+# Staying on a level needs half the bar of going down to it (the band
+# between is the hysteresis: a member in it goes on, but no deeper).
+DESCEND_HITS = 6
+DUNGEON_STAY_DIVISOR = 2
+# Once turning back, the party only goes deeper again with this much more
+# than the target level's bar (1/20 of max HP): a few HP of natural
+# healing can't flip it back and forth on a ladder.
+RESUME_MARGIN_DIVISOR = 20
+# A cleric-book healer going down keeps two Sanctus (10 MP each, the only
+# combat heal, A-06) for the fight that can start on the first step. MP
+# comes back off the surface (every 4th turn), so short of it the party
+# waits on the ladder (no encounter roll on a ladder, UltimaDngn.c:196),
+# while every living member has this much food.
+DESCEND_MP = 20
+LADDER_WAIT_FOOD = 30
+_COMBAT_HEALERS = (Profession.CLERIC, Profession.PALADIN, Profession.ILLUSIONIST,
+                   Profession.DRUID, Profession.RANGER)
+
+
+def dungeon_hp_need(member, z: int) -> int:
+    """HP a member needs to go down to level z (0-based)."""
+    max_hit = dungeon_hit_ceiling(z, member.max_hp) + 1 + 16
+    return min(member.max_hp * 2 // 3, DESCEND_HITS * max_hit)
+
+
+def dungeon_hp_stay(member, z: int) -> int:
+    """HP a member needs to stay on level z."""
+    return dungeon_hp_need(member, z) // DUNGEON_STAY_DIVISOR
+
+
+def dungeon_turn_back(party: Party, z: int, target_z: int) -> bool:
+    """Turn back (go up, to a heal or out): a living member is under the bar
+    for staying on level z, or for the next level down on the way to
+    ``target_z``."""
+    for m in party.members:
+        if m.is_dead():
+            continue
+        if m.hp < dungeon_hp_stay(m, z):
+            return True
+        if z < target_z and m.hp < dungeon_hp_need(m, z + 1):
+            return True
+    return False
+
+
+def dungeon_may_resume(party: Party, target_z: int) -> bool:
+    """After turning back: every living member holds the target level's bar
+    plus the margin (or full HP)."""
+    return all(
+        m.hp >= min(m.max_hp, dungeon_hp_need(m, target_z) + m.max_hp // RESUME_MARGIN_DIVISOR)
+        for m in party.members if not m.is_dead()
+    )
+
+
+def descend_mp_short(party: Party) -> bool:
+    """The best cleric-book healer (pool 10+) has under min(pool, 20) MP and
+    the food allows a wait on the ladder."""
+    living = [m for m in party.members if not m.is_dead()]
+    healers = [m for m in living if m.profession in _COMBAT_HEALERS and m.max_mp >= 10]
+    if not healers:
+        return False
+    if any(m.food < LADDER_WAIT_FOOD for m in living):
+        return False
+    return not any(m.mp >= min(m.max_mp, DESCEND_MP) for m in healers)
+
+
 def mark_reachable(party: Party, mark_idx: int) -> bool:
     """Some living member lacks the mark and can be made safe for the rod:
     now, by a heal or a wait on the rod, or by the heal fountain near it

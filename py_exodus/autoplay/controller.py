@@ -39,6 +39,10 @@ from py_exodus.autoplay.planner import (
     needs_heal,
     prefer_ranged_weapons,
     raid_gold_target,
+    descend_mp_short,
+    dungeon_hp_need,
+    dungeon_may_resume,
+    dungeon_turn_back,
     mark_reachable,
     next_mark_dungeon,
     rod_plan,
@@ -300,6 +304,9 @@ class AutoPlayController:
         self._fleeing = False
         # A member lacking a wanted mark is not safe for its rod (dungeon).
         self._rod_heal_wanted = False
+        # Turning back in a dungeon (item 5), latched per dungeon visit.
+        self._retreating = False
+        self._retreat_state = None
 
     def toggle(self) -> bool:
         """Flip autoplay enabled state and clear any queued keystrokes."""
@@ -646,6 +653,28 @@ class AutoPlayController:
                 self._queue_text(f"{cleric[0]}d", enter=False)
                 return self._emit_key(state_machine, pygame.K_c)
 
+        # Item 5: turn back when a living member is under the bar for this
+        # level or the next one down on the way to the mark (planner
+        # dungeon_turn_back); go on again only past the mark level's bar
+        # plus a margin (dungeon_may_resume), so it never see-saws on a
+        # ladder. The latch belongs to this dungeon visit.
+        starving = any(not m.is_dead() and m.food <= 0 for m in party.members)
+        if self._retreat_state is not screen.state:
+            self._retreat_state = screen.state
+            self._retreating = False
+        mark_z = None
+        if wanted_marks and not starving:
+            mark_z = min(
+                z for *_xy, z in self._find_dungeon_tiles(dmap, {mark_tiles[i] for i in wanted_marks})
+            )
+            if self._retreating:
+                if dungeon_may_resume(party, mark_z):
+                    self._retreating = False
+            elif dungeon_turn_back(party, screen.state.z, mark_z):
+                self._retreating = True
+        else:
+            self._retreating = False
+
         # A heal or cure fountain on this level or the next one up or down
         # comes before leaving: free, and no MP spent (autoplay round 1,
         # item 1). Not while anyone starves (that leaves at once, below).
@@ -676,8 +705,21 @@ class AutoPlayController:
         # the planner's loop guard (planner.mark_reachable) keeps it from
         # walking straight back in. The mark stays a goal until every
         # living member has it, so the party comes back for it.
+        # Turning back with no fountain near: a healer with MP heals the
+        # member furthest under the mark level's bar on the spot; otherwise
+        # the party leaves, if the surface can heal it (it rests indoors).
+        # A party that can't be healed out there gains nothing by leaving
+        # and walking back in: it goes on.
+        leaving = False
+        if self._retreating and mark_z is not None:
+            cast = self._dungeon_heal_cast(party, mark_z)
+            if cast is not None:
+                self._queue_text(cast, enter=False)
+                return self._emit_key(state_machine, pygame.K_c)
+            leaving = self._can_rest_indoors(party, goal)
+
         target_tiles: set[tuple[int, int, int]] = set()
-        if wanted_marks:
+        if wanted_marks and not leaving:
             target_tiles = self._find_dungeon_tiles(dmap, {mark_tiles[i] for i in wanted_marks})
 
         # Anyone at 0 food is starving every step: leave now, Mark or not
@@ -704,6 +746,10 @@ class AutoPlayController:
             target_tiles,
             penalty_tiles=self._find_dungeon_tiles(dmap, {DungeonTile.GREMLINS}),
         )
+        # Down a ladder only with the healer's two Sanctus: short, wait on
+        # the ladder (no encounter roll there) while the food allows.
+        if key == pygame.K_d and descend_mp_short(party):
+            return self._emit_key(state_machine, pygame.K_SPACE)
         if key is not None:
             return self._emit_key(state_machine, key)
         return self._emit_key(state_machine, pygame.K_k)
@@ -1986,6 +2032,23 @@ class AutoPlayController:
                 if (px, py) == _DAWN_PORTAL:
                     return self._emit_key(state_machine, pygame.K_e)
                 return self._move_toward(state_machine, gmap, party, (px, py), {_DAWN_PORTAL})
+
+        # Item 5: never walk into a mark dungeon under the bar for its
+        # first level down (it would turn straight back): rest indoors
+        # first when that heals the party.
+        if (
+            cur_map_id == _MAP_SOSARIA
+            and goal in (Goal.GET_MARK_KINGS, Goal.GET_REMAINING_MARKS)
+            and any(m.hp < dungeon_hp_need(m, 1) for m in living)
+            and self._can_rest_indoors(party, goal)
+        ):
+            dest, on_arrive = self._rest_destination(state_machine, screen, gmap)
+            if dest is not None:
+                key = self._trip_drive(state_machine, screen, gmap, party, px, py, cur_map_id, dest)
+                if key is _ARRIVED:
+                    return on_arrive()
+                if key is not None:
+                    return key
 
         dest, on_arrive = self._destination_for(state_machine, screen, gmap, party, px, py, goal, living, cur_map_id)
         if dest is not None:
@@ -3560,9 +3623,29 @@ class AutoPlayController:
         return None
 
     def _wants_heal_fountain(self, party) -> bool:
-        """The party would drink from a heal fountain on its way: hurt, or
-        a member who lacks a wanted mark is not safe for its rod (item 2)."""
-        return needs_heal(party) or self._rod_heal_wanted
+        """The party would drink from a heal fountain on its way: hurt, a
+        member who lacks a wanted mark is not safe for its rod (item 2), or
+        turning back (item 5)."""
+        return needs_heal(party) or self._rod_heal_wanted or self._retreating
+
+    def _dungeon_heal_cast(self, party, mark_z: int) -> str | None:
+        """Keys after C to heal the living member furthest under the mark
+        level's resume bar: Sanctu Mani (Cleric, Druid, 50 MP) for a gap
+        over Sanctu's 30, else Sanctu (Cleric, Druid, Paladin, 10 MP)."""
+        short = [
+            (min(m.max_hp, dungeon_hp_need(m, mark_z) + m.max_hp // 20) - m.hp, i + 1)
+            for i, m in enumerate(party.members) if not m.is_dead()
+        ]
+        gap, n = max(short, default=(0, 0))
+        if gap <= 0:
+            return None
+        mani = self._find_caster(party, (Profession.CLERIC, Profession.DRUID), min_mp=50)
+        if gap > 30 and mani is not None:
+            return self._cleric_cast(party, mani[0], f"k{n}")
+        sanctu = self._find_caster(party, (Profession.CLERIC, Profession.DRUID, Profession.PALADIN), min_mp=10)
+        if sanctu is not None:
+            return self._cleric_cast(party, sanctu[0], f"c{n}")
+        return None
 
     def _fountain_goals(self, party, dmap, z: int) -> set[tuple[int, int, int]]:
         """Heal fountains (when the party wants healing) and cure fountains

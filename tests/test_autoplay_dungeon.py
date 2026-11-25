@@ -296,3 +296,123 @@ def test_mark_order_fire_and_force_then_snake():
     for m in party.members:
         m.marks = [1, 1, 1, 1]
     assert next_mark_dungeon(party) is None
+
+
+# --- Item 5: turn-back thresholds -------------------------------------------------
+
+SNAKE = 19  # no heal fountain above level 6 (z 5)
+
+
+def test_turn_back_bars():
+    """6 maximum hits of the hardest monster at the level, capped at 2/3 of
+    max HP; staying needs half. Level 9 (950 HP) at z 7: Balron ceiling
+    (30 + 9) | 1 = 39, max hit 39 + 1 + 16 = 56, x 6 = 336."""
+    from types import SimpleNamespace
+
+    from py_exodus.autoplay.planner import dungeon_hp_need, dungeon_hp_stay
+
+    m9 = SimpleNamespace(max_hp=950)
+    assert dungeon_hp_need(m9, 7) == 336 and dungeon_hp_stay(m9, 7) == 168
+    m1 = SimpleNamespace(max_hp=150)
+    assert dungeon_hp_need(m1, 0) == 100  # the 2/3 cap
+    # Every bar sits under the 70% at which the surface rests indoors.
+    for level in range(1, 26):
+        m = SimpleNamespace(max_hp=level * 100 + 50)
+        assert all(dungeon_hp_need(m, z) * 10 < m.max_hp * 7 for z in range(8))
+
+
+def test_turn_back_hysteresis():
+    """Under the next level's bar: turn back. Once turned back, a few HP
+    more do not send the party down again; only the mark level's bar plus
+    1/20 of max HP does."""
+    from py_exodus.autoplay.planner import dungeon_may_resume, dungeon_turn_back
+
+    party = _party()
+    fighter = party.members[1]
+    fighter.hp = 335  # need(z 4) at 950 max HP is 336
+    assert dungeon_turn_back(party, 3, 7)
+    fighter.hp = 336
+    assert not dungeon_turn_back(party, 3, 7)
+    assert not dungeon_may_resume(party, 7)  # 336 + 47 = 383 to go back down
+    fighter.hp = 383
+    assert dungeon_may_resume(party, 7)
+    # On the mark's own level only the stay bar (half) counts.
+    fighter.hp = 168
+    assert not dungeon_turn_back(party, 7, 7)
+    fighter.hp = 167
+    assert dungeon_turn_back(party, 7, 7)
+
+
+def test_hurt_party_turns_back_and_never_climbs_down_again(am):
+    """Snake dungeon level 2 (z 1), every member under the bar for level 3,
+    the Cleric out of MP, no heal fountain within a level: the party heads
+    up and out, and never goes down a ladder on the way."""
+    party = _party(marks=(1, 1, 0, 1))
+    for m in party.members:
+        m.hp = 250  # need(z 2) = 300
+        m.mp = 0
+    party.food = 500
+    sm, ds = _dungeon(am, party, SNAKE, (11, 11, 1))
+    ctrl = AutoPlayController(enabled=True)
+    keys = []
+    for _ in range(10):
+        key = ctrl.step(sm)
+        keys.append(key)
+        if ds.state.z == 0:
+            break
+    assert pygame.K_d not in keys
+    assert ds.state.z == 0
+
+
+def test_turning_back_heals_on_the_spot_with_mp(am):
+    party = _party(marks=(1, 1, 0, 1))
+    fighter = party.members[1]
+    fighter.hp = 250
+    party.members[2].mp = 99
+    sm, ds = _dungeon(am, party, SNAKE, (11, 11, 1))
+    ctrl = AutoPlayController(enabled=True)
+    for _ in range(10):
+        ctrl.step(sm)
+        if fighter.hp > 250:
+            break
+    assert fighter.hp > 250 and ds.state.z == 1
+
+
+def test_healer_short_of_mp_waits_on_the_ladder_down(am):
+    """Snake z 0, on the ladder down at (11, 11) with the Cleric at 5 MP:
+    pass (no encounter roll on a ladder) until it holds two Sanctus."""
+    party = _party(marks=(1, 1, 0, 1))
+    cleric = party.members[2]
+    assert cleric.max_mp >= 20
+    cleric.mp = 5
+    sm, ds = _dungeon(am, party, SNAKE, (11, 11, 0))
+    ds.state.torchtime = 255  # lit: no Ignite first
+    ctrl = AutoPlayController(enabled=True)
+    for _ in range(3):
+        assert ctrl.step(sm) == pygame.K_SPACE and ds.state.z == 0
+    cleric.mp = 20
+    for _ in range(4):
+        ctrl.step(sm)
+    assert ds.state.z == 1
+
+
+def test_surface_rests_before_entering_a_mark_dungeon_under_the_bar(am, monkeypatch):
+    from py_exodus.autoplay.planner import Goal
+    from py_exodus.screens.overworld import OverworldScreen
+
+    party = _surface(_party(marks=(1, 0, 0, 0)))
+    party.x, party.y = 44, 20
+    for m in party.members:
+        m.hp = m.max_hp * 3 // 4  # over the 70% rest line ...
+    party.members[1].hp = 250  # ... but the Fighter is under need(z 1) = 276
+    sm = StateMachine(asset_mgr=am, audio=None)
+    ow = OverworldScreen(party=party, asset_mgr=am, random_encounters=False)
+    ow.creatures = []
+    sm.set_screen(ow)
+    ctrl = AutoPlayController(enabled=True)
+    rested = []
+    monkeypatch.setattr(ctrl, "_rest_destination",
+                        lambda *_a: rested.append(1) or (None, None))
+    monkeypatch.setattr(ctrl, "_evade_or_rest", lambda *_a, **_k: None)
+    ctrl._step_overworld(sm, ow, party, 44, 20, Goal.GET_REMAINING_MARKS)
+    assert rested
