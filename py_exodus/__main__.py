@@ -20,6 +20,13 @@ from py_exodus.constants import (
 from py_exodus.state_machine import StateMachine
 
 
+# The longest frame the game clocks may see. Wind, the whirlpool and the idle
+# pass count game time (world/realtime.py), so a stalled frame would
+# otherwise move the whirlpool many times or pass a turn at once. Headless
+# batches step 1/60 s (autoplay/batch.py FRAME_DT) and never reach it.
+MAX_FRAME_DT = 0.25
+
+
 class GameApp:
     """Main game application running the 60 FPS loop with integer 3x scaling."""
 
@@ -129,7 +136,7 @@ class GameApp:
         frame = 0
 
         while self.running:
-            dt = self.clock.tick(60) / 1000.0
+            dt = min(self.clock.tick(60) / 1000.0, MAX_FRAME_DT)
 
             # 1. Input Event Handling
             for event in pygame.event.get():

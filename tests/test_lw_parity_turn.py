@@ -1266,3 +1266,117 @@ def test_main_loop_idle_pass_held_under_autoplay(overworld):
     for _ in range(200):
         ow.update(_POLL)
     assert _passes(ow) == 0
+
+
+# --- Fix round 1: Ztats is modal, as LairWare's DoStats ---------------------------
+#
+# UltimaMacIF.c:1385-1395 (DoStats):
+#
+#     gUpdateWhere = 9;
+#     ...
+#     gStatsActive = TRUE;
+#     while (gStatsActive && !gDone) {
+#         GetKeyMouse(1);
+#         if (gKeyPress)
+#             gStatsActive = FALSE;
+#     }
+#
+# The stats screen waits in its own loop: the key that ends it is swallowed,
+# nothing moves in the world, and with gUpdateWhere 9 FullUpdate (DoWind)
+# and the main loop (WhirlPool, the idle count) do not run.
+
+
+def test_dostats_ztats_swallows_a_move_and_freezes_the_clocks(overworld):
+    ow = overworld(40, 40)
+    ow.party.wind_direction = Direction.NORTH
+    ow.party.wind_ctr = 5
+    _key(ow, pygame.K_z)
+    assert ow.stats_panel.inspect_index == 0
+    moves = ow.party.moves
+    whirl = ow._whirl_ctr
+    for _ in range(200):
+        ow.update(_POLL)
+    assert ow.party.wind_ctr == 5 and ow.party.wind_direction == Direction.NORTH
+    assert ow._whirl_ctr == whirl
+    assert _passes(ow) == 0
+    _key(ow, pygame.K_UP)  # ends Ztats; does not move
+    assert (ow.party.x, ow.party.y) == (40, 40)
+    assert ow.stats_panel.inspect_index is None
+    assert ow.party.moves == moves
+    _key(ow, pygame.K_UP)
+    assert (ow.party.x, ow.party.y) == (40, 39)
+
+
+def test_dostats_ztats_keeps_z_paging_members(overworld):
+    """The port pages members with Z (Java's cycle); that key stays."""
+    p = _party(_member("A"), _member("B"))
+    ow = overworld(40, 40, party=p)
+    _key(ow, pygame.K_z)
+    _key(ow, pygame.K_z)
+    assert ow.stats_panel.inspect_index == 1
+
+
+def test_dostats_ztats_modal_in_towns_and_dungeons(pygame_setup, asset_mgr, town):
+    from py_exodus.screens.dungeon_screen import DungeonScreen
+    from py_exodus.world.dungeon import DungeonMap, DungeonTile
+
+    tw = town(1, 10, 10)
+    tw.avatar_x, tw.avatar_y = 10, 10
+    _key(tw, pygame.K_z)
+    assert tw.stats_panel.inspect_index == 0
+    wind = tw.party.wind_ctr
+    for _ in range(100):
+        tw.update(_POLL)
+    assert tw.party.wind_ctr == wind
+    _key(tw, pygame.K_RIGHT)
+    assert (tw.avatar_x, tw.avatar_y) == (10, 10)
+    assert tw.stats_panel.inspect_index is None
+
+    dmap = DungeonMap(id=98, name="Test", width=16, height=16, levels=8)
+    dmap.tiles = [[[DungeonTile.NOTHING] * 16 for _y in range(16)] for _z in range(8)]
+    ds = DungeonScreen(party=_party(), dungeon_map=dmap, asset_mgr=asset_mgr)
+    _key(ds, pygame.K_z)
+    assert ds.stats_panel.inspect_index == 0
+    pos = (ds.state.x, ds.state.y, ds.state.dir)
+    _key(ds, pygame.K_UP)
+    assert (ds.state.x, ds.state.y, ds.state.dir) == pos
+    assert ds.stats_panel.inspect_index is None
+
+
+def test_main_loop_idle_count_restarts_when_a_screen_resumes(overworld, pygame_setup, asset_mgr, town):
+    """The Book (F1) is its own wait; back at the map the main loop starts
+    a fresh count of 60 (UltimaMain.c:1040), as after any key."""
+    ow = overworld(40, 40)
+    for _ in range(59):
+        ow.update(_POLL)
+    ow.on_enter()
+    ow.update(_POLL)
+    assert _passes(ow) == 0
+    tw = town(1, 10, 10)
+    for _ in range(59):
+        tw.update(_POLL)
+    tw.on_enter()
+    tw.update(_POLL)
+    assert _passes(tw) == 0
+
+
+def test_main_loop_clamps_a_stalled_frame(pygame_setup):
+    """The clocks count game time; a stalled frame (a 3 s hiccup) must not
+    move the whirlpool a dozen times or fire the idle pass at once. The
+    live loop clamps dt to 0.25 s. Headless batches step 1/60 s frames
+    (autoplay/batch.py FRAME_DT), well under the cap."""
+    from py_exodus.__main__ import MAX_FRAME_DT, GameApp
+    from py_exodus.autoplay import batch
+
+    app = GameApp(headless=True, sound_enabled=False)
+
+    class _Clock:
+        def tick(self, _fps):
+            return 3000
+
+    seen: list[float] = []
+    app.clock = _Clock()
+    app.state_machine.update = lambda dt: seen.append(dt)
+    app.run(max_frames=1)
+    assert seen == [MAX_FRAME_DT] and MAX_FRAME_DT == 0.25
+    assert batch.FRAME_DT < MAX_FRAME_DT

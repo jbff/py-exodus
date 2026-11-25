@@ -141,6 +141,9 @@ class DungeonScreen(BaseScreen):
 
     def on_enter(self) -> None:
         super().on_enter()
+        # Back from another screen (the Book, a fight): the command wait
+        # starts its idle count afresh (UltimaMain.c:1040).
+        self._idle_time = 0.0
         if self.audio is not None:
             self.audio.play_music("dungeon")
 
@@ -156,6 +159,14 @@ class DungeonScreen(BaseScreen):
         # Any key ends DungeonStart's wait; the next one sets nextPassTime
         # afresh (UltimaDngn.c:110, 126-127).
         self._idle_time = 0.0
+
+        # LairWare DoStats (UltimaMacIF.c:1385-1395): Ztats waits in its own
+        # loop (``while (gStatsActive) { GetKeyMouse(1); if (gKeyPress)
+        # gStatsActive = FALSE; }``), so nothing in the world acts while it
+        # is up and the key that ends it is swallowed. Z still pages members.
+        if self.stats_panel.inspect_index is not None and event.key != pygame.K_z:
+            self.stats_panel.inspect_index = None
+            return
 
         if self.text_log.is_waiting_for_input:
             self.text_log.handle_event(event)

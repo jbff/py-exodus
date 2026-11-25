@@ -149,6 +149,9 @@ class TownScreen(BaseScreen):
 
     def on_enter(self) -> None:
         super().on_enter()
+        # Back from another screen (the Book, a fight): the command wait
+        # starts its idle count afresh (UltimaMain.c:1040).
+        self._idle_polls = 0
         self._play_town_music()
         # Restore cleared machine panels from exodusCardsStatus (GameScreen.java:299-311)
         apply_exodus_card_tiles(
@@ -237,6 +240,14 @@ class TownScreen(BaseScreen):
         # with no turn passing.
         if self.gem_view_active:
             self.gem_view_active = False
+            return
+
+        # LairWare DoStats (UltimaMacIF.c:1385-1395): Ztats waits in its own
+        # loop (``while (gStatsActive) { GetKeyMouse(1); if (gKeyPress)
+        # gStatsActive = FALSE; }``), so nothing in the world acts while it
+        # is up and the key that ends it is swallowed. Z still pages members.
+        if self.stats_panel.inspect_index is not None and event.key != pygame.K_z:
+            self.stats_panel.inspect_index = None
             return
 
         if self.text_log.is_waiting_for_input:

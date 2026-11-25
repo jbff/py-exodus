@@ -200,6 +200,11 @@ def test_dungeon_screen_z_and_m_take_the_turn(asset_mgr):
     screen.state.torchtime = 50
     screen.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_z))
     assert screen.state.torchtime == 49
+    # Ztats is modal (DoStats, UltimaMacIF.c:1390-1394): the next key only
+    # closes it, and takes no turn.
+    screen.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_ESCAPE))
+    assert screen.stats_panel.inspect_index is None
+    assert screen.state.torchtime == 49
     screen.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_m))
     screen.text_log.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_1, unicode="1"))
     screen.text_log.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_2, unicode="2"))
