@@ -698,3 +698,36 @@ def test_damagemonster_lord_british_takes_no_weapon_damage(monkeypatch):
     res = resolve_player_attack(hero, None, lb)
     assert res.hit and res.damage == 0 and not res.killed
     assert lb.hp == 60
+
+
+# --- B-09: a town fight with anyone but the guards is one on one ------------
+
+def _town_fight_count(map_id, tile, monkeypatch):
+    import random as _random
+
+    town = _town(map_id)
+    foe = next(n for n in town.game_map.npcs if n.tile_index == tile)
+    monkeypatch.setattr(_random, "randint", lambda a, b: b)  # a 1-8 roll would give 8
+    town._start_exodus_combat(foe)
+    scr = town.next_screen
+    return sum(1 for m in scr.arena.monsters)
+
+
+def test_howmany_town_merchant_and_lord_british_come_alone(monkeypatch):
+    """UltimaSpellCombat.c:812-824 (HowMany, $80DE):
+
+        if (gMonType == 0x26) return 0;          // Lord British: 1
+        if (gMonType == 0x24) return 7;          // guards: 8
+        if (ExodusCastle() == 0) return 7;
+        if (Party[3] < 2) return RandNum(0, 7);  // Sosaria, dungeon
+        if (Party[3] > 3) return RandNum(0, 7);
+        return 0;                                // any other town fight: 1
+
+    User ruling 2026-11-25: a merchant or Lord British is exactly 1."""
+    assert _town_fight_count(1, 19, monkeypatch) == 1   # Lord British
+    assert _town_fight_count(1, 16, monkeypatch) == 1   # a merchant
+
+
+def test_howmany_town_guards_still_come_eight(monkeypatch):
+    """HowMany: `if (gMonType == 0x24) return 7;` -- 8 guards (ruling 13)."""
+    assert _town_fight_count(1, 18, monkeypatch) == 8

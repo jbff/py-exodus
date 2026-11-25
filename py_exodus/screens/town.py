@@ -508,6 +508,14 @@ class TownScreen(BaseScreen):
         c_map = MapLoader(self.asset_mgr).load_conflict_map(
             town_combat_map_id(c_def or cname, (self.avatar_x, self.avatar_y), self.game_map)
         )
+        # LairWare HowMany ($80DE, UltimaSpellCombat.c:812-824): guards come 8
+        # (`gMonType == 0x24`), Castle Exodus fights 8, and any other town or
+        # castle fight -- a merchant, Lord British -- is one on one (returns
+        # 0). User ruling 2026-11-25 (ledger B-09).
+        from py_exodus.combat.arena import EXODUS_MAP_ID
+
+        map_id = getattr(self.game_map, "id", 2)
+        one_on_one = cname != "guard" and map_id != EXODUS_MAP_ID
         combat_scr = CombatScreen(
             party=self.party,
             combat_map=c_map,
@@ -516,7 +524,8 @@ class TownScreen(BaseScreen):
             audio=self.audio,
             return_screen=self,
             manager=self.manager,
-            context_map_id=getattr(self.game_map, "id", 2),
+            context_map_id=map_id,
+            monster_count=1 if one_on_one else None,
         )
         if self.manager is not None:
             self.manager.push_screen(combat_scr)
