@@ -1353,9 +1353,9 @@ class OverworldScreen(BaseScreen):
         # (UltimaMain.c North()/ValidTrans): no turn-to-face press, no heading.
 
         # Frigate sailing rules: LairWare ValidTrans (UltimaMain.c:3222-3236).
-        # LW's ``if (Party[16]) return TRUE;`` (no wind once Exodus falls) is
-        # not followed: user ruling 2026-11-25 (W-18), the wind always
-        # governs a ship. A becalmed ship (WindDir 0) cannot sail at all, and sailing into the wind's own heading is
+        # LW's ``if (Party[16]) return TRUE;`` (no wind once Exodus falls)
+        # never applies: the game ends when Exodus falls (user ruling
+        # 2026-11-25; W-18). A becalmed ship (WindDir 0) cannot sail at all, and sailing into the wind's own heading is
         # refused. Like any refused step the turn still passes (North()
         # NoGo, then the main loop's Routine6E35, UltimaMain.c:1057-1091,
         # 1203-1207).
@@ -1786,12 +1786,10 @@ class OverworldScreen(BaseScreen):
                 "x": sx,
                 "y": sy,
                 # Java Creature.sailDir defaults to EAST (Creature.java:63).
+                # LW SpawnMonster's after-the-fall wanderer (HPMON 0x40,
+                # UltimaMisc.c:1177-1184) is gone: the game ends when Exodus
+                # falls (user ruling 2026-11-25). Every monster hunts.
                 **({"sail_dir": "EAST"} if c_name == "pirate" else {}),
-                # LairWare SpawnMonster (UltimaMisc.c:1177-1184): once Exodus
-                # has fallen a new monster wanders (HPMON 0x40), except the
-                # pirate (0x3C), which still hunts (0xC0).
-                **({"wander": True}
-                   if self.party.exodus_defeated and c_name != "pirate" else {}),
             })
             return
 
@@ -1939,20 +1937,6 @@ class OverworldScreen(BaseScreen):
             # keeps every monster on the map until it dies (USER-DIRECTED
             # DEVIATION, original-game spawning, 2026-11-21).
             dist = movement_distance(width, height, cx, cy, self.party.x, self.party.y)
-
-            # LairWare MoveMonsters, HPMON 0x40 (UltimaMisc.c:1280-1294,
-            # 1325-1326): a wanderer (spawned after Exodus fell) steps at
-            # random half the turns and never attacks; pirates and dragons
-            # among them still fire after the step (move7AAA -> moveshoot).
-            if c.get("wander"):
-                if random.randint(0, 255) >= 128:
-                    step = self._lw_wander_step(c, width, height)
-                    if isinstance(step, tuple):
-                        c["x"], c["y"] = step
-                    if step not in ("skip", "party") and tile_name in self.LW_SHOOTERS:
-                        self._lw_monster_shoot(c)
-                survivors.append(c)
-                continue
 
             # 3. Hostile creatures: engage at distance <= 1 (BaseMap.java:540-558).
             if dist <= 1 and not wontattack:
@@ -2175,44 +2159,6 @@ class OverworldScreen(BaseScreen):
                     self.text_log.add_message("A ship was destroyed!")
                     continue
             c["dir"] = list(self.WHIRL_HEADINGS[random.randint(0, 7)])
-
-    def _lw_wander_step(self, c: dict[str, Any], width: int, height: int):
-        """LairWare MoveMonsters 0x40 step (UltimaMisc.c:1283-1289, then
-        move7AAA 1209-1236): each axis takes GetHeading(RandNum(0, 255))
-        (0 -> stay, 1..127 -> +1, 128..255 -> -1); a step onto row or
-        column 0 is given up ("skip": no move, no shot). Then the diagonal,
-        the vertical and the horizontal step are tried in turn: the first
-        open one is returned as (x, y), or "party" when the party stands
-        there (no move, no shot); None when all three are closed (no move,
-        but a pirate or dragon still fires)."""
-
-        def heading(roll: int) -> int:
-            return 0 if roll == 0 else (1 if roll <= 127 else -1)
-
-        cx, cy = c["x"], c["y"]
-        dx = heading(random.randint(0, 255))
-        xs = (cx + dx) % width
-        if xs == 0:
-            return "skip"
-        dy = heading(random.randint(0, 255))
-        ys = (cy + dy) % height
-        if ys == 0:
-            return "skip"
-        kind = str(c.get("tile_name", "")).lower()
-        for tx, ty in ((xs, ys), (cx, ys), (xs, cy)):
-            if (tx, ty) == (cx, cy):
-                continue
-            if not self._lw_monster_terrain_ok(kind, tx, ty):
-                continue
-            if any(
-                o is not c and o.get("x") == tx and o.get("y") == ty
-                for o in self.creatures
-            ):
-                continue
-            if (tx, ty) == (self.party.x, self.party.y):
-                return "party"
-            return (tx, ty)
-        return None
 
     def _creature_can_enter(self, c: dict[str, Any], cr_def, tx: int, ty: int) -> bool:
         """One tile of the valid-moves test: terrain (LairWare
@@ -2493,10 +2439,9 @@ class OverworldScreen(BaseScreen):
                 # map resource's (+1, +1).
                 d = m.get("dir")
                 creature["dir"] = [int(d[0]), int(d[1])] if d else [1, 1]
-            if m.get("wander"):
-                # LairWare HPMON 0x40 (spawned after Exodus fell). Saves
-                # without the flag hunt, as LairWare's monsters out before.
-                creature["wander"] = True
+            # An old save's "wander" flag (LW HPMON 0x40, after the fall)
+            # is ignored: the game ends when Exodus falls (user ruling
+            # 2026-11-25), so every monster hunts.
             self.creatures.append(creature)
         if not has_whirlpool:
             self.creatures.insert(0, self._lw_start_whirlpool())
@@ -2546,8 +2491,6 @@ class OverworldScreen(BaseScreen):
                         entry["hp"] = int(c["hp"])
                     if c.get("variant"):
                         entry["variant"] = int(c["variant"])
-                    if c.get("wander"):
-                        entry["wander"] = True
                     if c.get("dir"):
                         entry["dir"] = [int(v) for v in c["dir"]]  # WhirlDX/DY
                     saved_monsters.append(entry)

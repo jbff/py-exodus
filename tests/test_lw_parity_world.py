@@ -208,46 +208,148 @@ def _exodus_party() -> tuple[Party, PartyMember]:
     return _party(m), m
 
 
-def test_safeexodus_on_entry_after_exodus_falls(town):
-    """UltimaMain.c:1515-1517: entering Castle Exodus with ``Party[16] ==
-    1`` runs SafeExodus (UltimaMisc.c:2512-2527): every monster there is
-    removed and x 0x1E..0x21, y 1..11 become floor (0x20), opening the way
-    north past the machine. The port kept the castle's people and walls."""
+def _castle_at_last_panel(asset_mgr, p):
+    """A state machine on Castle Exodus at the Death panel, Love, Sol and
+    Moons already in (this visit, C-29)."""
+    from py_exodus.screens.town import TownScreen
+    from py_exodus.state_machine import StateMachine
+
+    sm = StateMachine(asset_mgr=asset_mgr)
+    scr = TownScreen(party=p, map_id=2, asset_mgr=asset_mgr, start_x=33, start_y=12)
+    scr.avatar_x, scr.avatar_y = 33, 12
+    sm.set_screen(scr)
+    p.exodus_cards_status = 0x7
+    return sm, scr
+
+
+def test_the_game_ends_when_exodus_falls(pygame_setup, asset_mgr):
+    """User ruling 2026-11-25: the game ends when Exodus falls, as the 8-bit
+    originals did. The fourth card (UltimaMisc.c:2357-2359) still shows the
+    ending; its closing key returns to the title screen the way a dead
+    party's game over does, and play never goes on in the castle."""
+    from py_exodus.screens import final
+    from py_exodus.screens.start import StartScreen
+
     p, _ = _exodus_party()
-    p.exodus_defeated = 1
-    p.exodus_cards_status = 0xF
-    scr = town(map_id=2, x=32, y=62, party=p)
-    scr.on_enter()
-    assert scr.game_map.npcs == []
-    for x in range(30, 34):
-        for y in range(1, 12):
-            assert scr.game_map.get_tile(x, y).name == "floor", (x, y)
-    assert scr.game_map.get_tile(29, 9).name == "moongate"
+    sm, scr = _castle_at_last_panel(asset_mgr, p)
+    final.prompt_insert_card(scr, 33, 12)
+    _key(scr, pygame.K_1, "1")
+    _key(scr, pygame.K_d, "d")
+    assert isinstance(sm.current_screen, final.FinalScreen)
+    assert sm.current_screen.victory and p.exodus_defeated == 1
+    _key(sm.current_screen, pygame.K_SPACE)
+    sm.update(0.0)
+    assert isinstance(sm.current_screen, StartScreen)
+    assert sm.screen_stack == [sm.current_screen]  # the castle is gone
+    assert sm.current_screen.party is p
 
 
-def test_safeexodus_not_before_exodus_falls(town):
-    """UltimaMain.c:1515: SafeExodus only once ``Party[16] == 1``."""
+@pytest.mark.parametrize("k", [pygame.K_RETURN, pygame.K_ESCAPE])
+def test_every_closing_key_of_the_ending_goes_to_the_title(pygame_setup, asset_mgr, k):
+    """Enter and Escape close the ending as Space does: to the title."""
+    from py_exodus.screens import final
+    from py_exodus.screens.start import StartScreen
+
     p, _ = _exodus_party()
-    scr = town(map_id=2, x=32, y=62, party=p)
-    scr.on_enter()
-    assert scr.game_map.npcs
-    assert scr.game_map.get_tile(31, 3).name == "water"
+    sm, scr = _castle_at_last_panel(asset_mgr, p)
+    final.prompt_insert_card(scr, 33, 12)
+    _key(scr, pygame.K_1, "1")
+    _key(scr, pygame.K_d, "d")
+    _key(sm.current_screen, k)
+    sm.update(0.0)
+    assert isinstance(sm.current_screen, StartScreen)
 
 
-def test_insert_last_card_runs_safeexodus(town):
-    """UltimaMisc.c:2357-2359, 2424: the fourth card sets ``Party[16] = 1``
-    and, after the ending, ``SafeExodus();`` clears the castle at once."""
+def _castle_screen_factory(asset_mgr):
+    from py_exodus.screens.town import TownScreen
+
+    def make(party, **_kw):
+        scr = TownScreen(party=party, map_id=2, asset_mgr=asset_mgr, start_x=30, start_y=12)
+        scr.avatar_x, scr.avatar_y = 30, 12
+        scr.game_map.npcs = []  # insertion only, no fights
+        return scr
+
+    return make
+
+
+def _card_party4() -> Party:
+    members = [_pm(n) for n in ("Carder", "B", "C", "D")]
+    members[0].player.cards = [1, 1, 1, 1]
+    return _party(*members)
+
+
+def test_batch_counts_the_new_ending_as_a_win(pygame_setup, asset_mgr, monkeypatch, tmp_path):
+    """User ruling 2026-11-25 (the game ends when Exodus falls): a headless
+    batch (autoplay/batch.py run_seed) still stops at the fourth card with
+    WON, and writes no save."""
+    from py_exodus.autoplay import batch
+    from py_exodus.screens import overworld as overworld_mod
+
+    monkeypatch.chdir(tmp_path)
+    party = _card_party4()
+    monkeypatch.setattr(batch, "build_party", lambda: party)
+    monkeypatch.setattr(batch, "_assets", lambda: asset_mgr)
+    monkeypatch.setattr(overworld_mod, "OverworldScreen", _castle_screen_factory(asset_mgr))
+    res = batch.run_seed(1, tmp_path / "traces", max_steps=400)
+    assert res["outcome"].startswith("WON@"), res
+    assert party.exodus_defeated == 1
+    assert not (tmp_path / "saves").exists()
+
+
+def test_live_autoplay_stops_cleanly_at_the_ending(pygame_setup, asset_mgr, monkeypatch, tmp_path):
+    """Live autoplay inserts the cards, leaves the ending alone, and once
+    the closing key brings the title it switches itself off instead of
+    pressing Journey Onward (which would resume the pre-castle save)."""
+    from py_exodus.autoplay import AutoPlayController
+    from py_exodus.screens.final import FinalScreen
+    from py_exodus.screens.start import StartScreen
+    from py_exodus.state_machine import StateMachine
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "saves").mkdir()
+    (tmp_path / "saves" / "party.json").write_text("{}")  # a pre-castle save
+    party = _card_party4()
+    sm = StateMachine(asset_mgr=asset_mgr)
+    sm.set_screen(_castle_screen_factory(asset_mgr)(party))
+    ctrl = AutoPlayController(enabled=True, step_interval=0.01)
+    for _ in range(300):
+        if isinstance(sm.current_screen, FinalScreen):
+            break
+        ctrl.step(sm)
+    assert isinstance(sm.current_screen, FinalScreen)
+    assert ctrl.step(sm) is None  # the ending is left to the player
+    _key(sm.current_screen, pygame.K_SPACE)
+    sm.update(0.0)
+    assert isinstance(sm.current_screen, StartScreen)
+    assert ctrl.step(sm) is None
+    assert not ctrl.enabled and not sm.autoplay_enabled
+    assert isinstance(sm.current_screen, StartScreen)
+
+
+def test_no_safeexodus_the_castle_is_never_cleared(town):
+    """W-15 removed (user ruling 2026-11-25, the game ends when Exodus
+    falls): SafeExodus (UltimaMisc.c:2512-2527) cleared Castle Exodus for
+    play after the fall. The last card leaves the castle as it stands, and
+    an old save that has the flag set enters the castle as it stands too."""
     from py_exodus.screens import final
 
+    assert not hasattr(final, "safe_exodus")
     p, _ = _exodus_party()
     scr = town(map_id=2, x=33, y=12, party=p)
-    p.exodus_cards_status = 0x7  # Love, Sol, Moons in (this visit, C-29)
+    p.exodus_cards_status = 0x7
     final.prompt_insert_card(scr, 33, 12)
     _key(scr, pygame.K_1, "1")
     _key(scr, pygame.K_d, "d")
     assert p.exodus_defeated == 1
-    assert scr.game_map.npcs == []
-    assert scr.game_map.get_tile(31, 3).name == "floor"
+    assert scr.game_map.npcs
+    assert scr.game_map.get_tile(31, 3).name == "water"
+
+    old, _ = _exodus_party()
+    old.exodus_defeated = 1  # an old save, won under play-on
+    scr2 = town(map_id=2, x=32, y=62, party=old)
+    scr2.on_enter()
+    assert scr2.game_map.npcs
+    assert scr2.game_map.get_tile(31, 3).name == "water"
 
 
 def test_insert_card_stays_with_member():

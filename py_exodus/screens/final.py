@@ -105,23 +105,6 @@ def apply_exodus_card_tiles(
             game_map.set_tile(x, 11, floor)
 
 
-def safe_exodus(game_map: GameMap | None, asset_mgr: AssetManager | None) -> None:
-    """LairWare SafeExodus (UltimaMisc.c:2512-2527): once Exodus has fallen,
-    every monster in Castle Exodus is removed and x 0x1E..0x21, y 1..11
-    become floor (0x20), the machine and the water north of it included.
-    Runs on entering the castle with ``Party[16] == 1`` (UltimaMain.c:
-    1515-1517) and right after the last card (UltimaMisc.c:2424)."""
-    if game_map is None or asset_mgr is None or not is_exodus_map(None, game_map):
-        return
-    floor = asset_mgr.get_tile_by_name("floor")
-    if floor is None:
-        return
-    game_map.npcs.clear()
-    for y in range(1, 12):
-        for x in range(0x1E, 0x22):
-            game_map.set_tile(x, y, floor)
-
-
 def prompt_insert_card(screen: BaseScreen, x: int, y: int) -> None:
     """Typed INSERT flow: gate, member prompt, card-letter prompt, insertion.
 
@@ -166,7 +149,6 @@ def prompt_insert_card(screen: BaseScreen, x: int, y: int) -> None:
             status = screen.party.exodus_cards_status
             apply_exodus_card_tiles(screen.game_map, screen.asset_mgr, status)
             if all_cards_inserted(status):
-                safe_exodus(screen.game_map, screen.asset_mgr)
                 if screen.manager is not None:
                     screen.manager.push_screen(final_scr)
                 else:
@@ -323,8 +305,9 @@ class FinalScreen(BaseScreen):
         """Activate victory fanfare, screen shake, and epilogue narration."""
         self.victory = True
         # LW truth: landing the final card sets the beat-Exodus flag
-        # (UltimaMisc.c:2359 — Party[16] = 1), which the shrine reads to
-        # lift race caps (UltimaMisc.c:1091).
+        # (UltimaMisc.c:2359 — Party[16] = 1). No rule reads it any more
+        # (the game ends here, user ruling 2026-11-25); autoplay, batches
+        # and the trace read it as the win.
         self.party.exodus_defeated = 1
         self.screen_shake = True
         self.shake_timer = 6.0
@@ -350,31 +333,35 @@ class FinalScreen(BaseScreen):
         if event.type != pygame.KEYDOWN:
             return
 
+        if self.victory:
+            # User ruling 2026-11-25: the game ends when Exodus falls, as
+            # the 8-bit originals did. The closing key returns to the title,
+            # the dead party's way (check_party_death); nothing is saved, so
+            # the last save stays the one made before entering the castle.
+            if event.key in (pygame.K_SPACE, pygame.K_RETURN, pygame.K_ESCAPE):
+                self.return_to_title()
+            return
+
         if event.key == pygame.K_ESCAPE:
             self.exit_screen()
             return
 
-        if not self.victory:
-            # Keyboard shortcuts for inserting cards (Java: L/S/M/D keys,
-            # SecondaryInputProcessor.java:664-668)
-            key_name = None
-            if event.key == pygame.K_l:
-                key_name = "love"
-            elif event.key == pygame.K_s:
-                key_name = "sol"
-            elif event.key == pygame.K_m:
-                key_name = "moons"
-            elif event.key == pygame.K_d:
-                key_name = "death"
-            if key_name is not None:
-                try:
-                    self.insert_card(key_name)
-                except PartyDeathException:
-                    self.check_party_death()
-        else:
-            # During epilogue, space or enter skips to end / exits
-            if event.key in (pygame.K_SPACE, pygame.K_RETURN):
-                self.exit_screen()
+        # Keyboard shortcuts for inserting cards (Java: L/S/M/D keys,
+        # SecondaryInputProcessor.java:664-668)
+        key_name = None
+        if event.key == pygame.K_l:
+            key_name = "love"
+        elif event.key == pygame.K_s:
+            key_name = "sol"
+        elif event.key == pygame.K_m:
+            key_name = "moons"
+        elif event.key == pygame.K_d:
+            key_name = "death"
+        if key_name is not None:
+            try:
+                self.insert_card(key_name)
+            except PartyDeathException:
+                self.check_party_death()
 
     def update(self, dt: float) -> None:
         """Update screen shake, particle physics, and scrolling text."""

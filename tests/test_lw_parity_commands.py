@@ -498,16 +498,14 @@ def test_lord_british_does_not_cure_or_raise():
     assert c.status == Status.POISONED
 
 
-def test_lord_british_past_25_only_after_exodus():
+def test_lord_british_stops_at_25():
     """UltimaMain.c:2361-2366: ``if (hpmax >= 25 && Party[16] == 0) "NO
-    MORE!"`` -- once Exodus is destroyed the max HP keeps rising (to 9950)."""
+    MORE!"``. The after-the-fall rise is gone (user ruling 2026-11-25: the
+    game ends when Exodus falls), so 25 is the top, old won saves too."""
     c = _lb_char(25, 9999)
     assert c.meet_lord_british() is False
-    assert c.meet_lord_british(exodus_defeated=True) is True
-    assert (c.level, c.max_hp) == (26, 2650)
-    c.level, c.max_hp = 99, 9950
-    assert c.meet_lord_british(exodus_defeated=True) is True
-    assert c.max_hp == 9950
+    assert c.lord_british_refusal() == "no_more"
+    assert (c.level, c.max_hp) == (25, 2550)
 
 
 def test_lord_british_needs_experience_and_mark():
@@ -907,18 +905,20 @@ def test_get_variants_move_monsters_once(overworld, keys):
     "level, exp, kings, exodus, reason, text",
     [
         (3, 299, True, False, "experience", "Experience more!"),
-        (3, 299, True, True, "thanks", "Sosaria thanks you!"),
+        (3, 299, True, True, "experience", "Experience more!"),
         (25, 9999, True, False, "no_more", "No more!"),
+        (25, 9999, True, True, "no_more", "No more!"),
         (5, 900, False, False, "mark", "Seek ye, the mark of kings!"),
     ],
 )
 def test_lord_british_refusal_messages(town, level, exp, kings, exodus, reason, text):
     """UltimaMain.c:2357-2380: each refusal has its own message -- 91
-    "Experience more!" (263 "Sosaria thanks you!" once Exodus has fallen),
-    92 "No more!" at 25 while Exodus stands, 93 "Seek ye, the mark of
-    kings!" past level 4 without the Mark."""
+    "Experience more!", 92 "No more!" at 25, 93 "Seek ye, the mark of
+    kings!" past level 4 without the Mark. LW's after-the-fall 263 "Sosaria
+    thanks you!" is gone (user ruling 2026-11-25: the game ends when Exodus
+    falls); an old won save (``exodus``) gets the same answers."""
     c = _lb_char(level, exp, kings)
-    assert c.lord_british_refusal(exodus) == reason
+    assert c.lord_british_refusal() == reason
     m = PartyMember(c)
     scr = town(map_id=1, party=_party(m))
     scr.party.exodus_defeated = 1 if exodus else 0

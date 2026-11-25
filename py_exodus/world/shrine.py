@@ -28,9 +28,11 @@ def welcome(stat: str) -> str:
 
 def offer(party, member, stat: str, amount: int) -> str:
     """Take ``amount`` hundred gold from the member and raise ``stat`` by
-    ``amount``: capped at 99, then at the race's maximum until Exodus is
-    beaten (UltimaMisc.c:1071-1093; the full offering is charged even when
-    the cap grants less). Returns the message to show."""
+    ``amount``: capped at 99, then at the race's maximum (UltimaMisc.c:
+    1071-1093; the full offering is charged even when the cap grants less).
+    LW lifts the race cap once Exodus falls (``Party[16]``, :1091); the game
+    ends there now (user ruling 2026-11-25), so the cap always holds.
+    Returns the message to show."""
     if amount <= 0:
         return MSG_BEGONE
     char = getattr(member, "player", member)
@@ -40,7 +42,6 @@ def offer(party, member, stat: str, amount: int) -> str:
     char.adjust_gold(-cost)
     value = min(99, getattr(char, stat) + amount)
     cap = getattr(char.race, _RACE_CAP[stat])
-    if value > cap and getattr(party, "exodus_defeated", 0) == 0:
-        value = cap
+    value = min(value, cap)
     setattr(char, stat, value)
     return MSG_SHAZAM

@@ -97,15 +97,15 @@ def test_race_cap_and_over_debit(amb):
     assert hero.gold == 2000 - 900  # LairWare charges the whole offering
 
 
-def test_after_exodus_the_race_cap_lifts_but_99_holds(amb):
+def test_the_race_cap_never_lifts(amb):
+    """LW lifted the race cap once Exodus fell (UltimaMisc.c:1091). User
+    ruling 2026-11-25: the game ends when Exodus falls, so the cap always
+    holds, for an old won save too."""
     hero = amb.party.members[0]
     amb.party.exodus_defeated = 1
     hero.strength = Race.HUMAN.max_str - 1
     _visit(amb, "strength", amount="5")
-    assert hero.strength == Race.HUMAN.max_str + 4
-    hero.strength = 98
-    _visit(amb, "strength", amount="5")
-    assert hero.strength == 99
+    assert hero.strength == Race.HUMAN.max_str
 
 
 def test_the_map_stays_in_view_while_offering(amb):

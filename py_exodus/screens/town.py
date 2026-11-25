@@ -30,7 +30,6 @@ from py_exodus.screens.final import (
     apply_exodus_card_tiles,
     is_exodus_map,
     prompt_insert_card,
-    safe_exodus,
 )
 from py_exodus.screens.vendor_dialog import start_vendor_dialog
 from py_exodus import special_commands
@@ -56,7 +55,6 @@ if TYPE_CHECKING:
 # Lord British's refusals (LairWare Messages 91, 263, 92, 93).
 _LB_REFUSALS = {
     "experience": "Experience more!",
-    "thanks": "Sosaria thanks you!",
     "no_more": "No more!",
     "mark": "Seek ye, the mark of kings!",
 }
@@ -164,10 +162,6 @@ class TownScreen(BaseScreen):
         apply_exodus_card_tiles(
             self.game_map, self.asset_mgr, getattr(self.party, "exodus_cards_status", 0)
         )
-        # LairWare Enter (UltimaMain.c:1515-1517): Castle Exodus after the
-        # fall is SafeExodus'd on every entry.
-        if getattr(self.party, "exodus_defeated", 0):
-            safe_exodus(self.game_map, self.asset_mgr)
 
     def _play_town_music(self) -> None:
         if self.audio is None:
@@ -608,8 +602,10 @@ class TownScreen(BaseScreen):
         Exodus falls, time stop is cancelled and a ball lands on a random tile
         of the 12x12 view (RandNum(0, 11) twice); on the party's own (5,5) it
         is BombTrap (UltimaMain.c:1728-1740): each living member loses
-        (RandNum(0, 255) & 0x77) + 8 (zp[0x13] is never set, so +8)."""
-        if self.map_id != 2 or self.party.exodus_defeated:
+        (RandNum(0, 255) & 0x77) + 8 (zp[0x13] is never set, so +8).
+        LW's "until Exodus falls" is not read: the game ends when Exodus
+        falls (user ruling 2026-11-25)."""
+        if self.map_id != 2:
             return
         if self.party.aura.get_type() == AuraType.QUICKNESS:
             self.party.aura.set(AuraType.NONE, 0)  # gTimeNegate = 0
@@ -839,9 +835,8 @@ class TownScreen(BaseScreen):
             self.text_log.add_message("Lord British says:\n'Welcome my child..\nExperience more!'")
             return
 
-        exodus_defeated = bool(getattr(self.party, "exodus_defeated", 0))
-        reason = target.character.lord_british_refusal(exodus_defeated)
-        if reason is None and target.character.meet_lord_british(exodus_defeated):
+        reason = target.character.lord_british_refusal()
+        if reason is None and target.character.meet_lord_british():
             self.text_log.add_message("Lord British says:\n'Thou hast been advanced!'")
             if self.audio is not None:
                 self.audio.play_sfx("magic")

@@ -345,10 +345,10 @@ class Party:
         self.exodus_cards_status = exodus_cards_status & 0xF
 
         # Beat-Exodus flag (LW Party[16]): set to 1 when the final Exodus
-        # card lands (LW UltimaMisc.c:2359); gates the post-Exodus shrine
-        # race-cap lift (UltimaMisc.c:1091 — the maxval clamp runs only
-        # while Party[16] == 0). Persisted with the party like LW's
-        # own-save Party array.
+        # card lands (LW UltimaMisc.c:2359). The game ends there (user
+        # ruling 2026-11-25), so no rule reads it: it marks the win for
+        # autoplay, batches and the trace. Still saved and loaded, so an
+        # old save won under LW's play-on loads and plays as any other.
         self.exodus_defeated = exodus_defeated
 
         # Dynamic overworld delta: up to 24 mutable objects on Sosaria (e.g. docked ships, horses, chests)

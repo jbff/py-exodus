@@ -381,15 +381,26 @@ def test_routine6e35_castle_exodus_bomb(town, monkeypatch):
     _key(tw, pygame.K_SPACE)
     assert [m.hp for m in tw.party.members] == hp
 
-    # No balls once Exodus is beaten, nor in another castle.
+    # No balls in another castle. (LW's "until Exodus falls" is gone: the
+    # game ends when Exodus falls, user ruling 2026-11-25.)
     rolls.value = 5
-    tw.party.exodus_defeated = 1
-    _key(tw, pygame.K_SPACE)
-    assert [m.hp for m in tw.party.members] == hp
     lb = town(1, 32, 60, party=tw.party)
-    tw.party.exodus_defeated = 0
     _key(lb, pygame.K_SPACE)
     assert [m.hp for m in tw.party.members] == hp
+
+
+def test_castle_exodus_bomb_for_an_old_won_save(town, monkeypatch):
+    """UltimaMisc.c:1379 stopped the balls once Exodus fell
+    (``ExodusCastle()``). User ruling 2026-11-25: the game ends when Exodus
+    falls, so the flag no longer matters: an old won save still gets them."""
+    from py_exodus.screens import town as town_module
+
+    monkeypatch.setattr(town_module.random, "randint", _Rolls(5))
+    tw = town(2, 32, 60)
+    tw.party.exodus_defeated = 1
+    hp = [m.hp for m in tw.party.members]
+    _key(tw, pygame.K_SPACE)
+    assert [m.hp for m in tw.party.members] == [h - ((5 & 0x77) + 8) for h in hp]
 
 
 # --- T-06 (fix round 1): lava spares ashes -----------------------------------

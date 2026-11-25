@@ -170,93 +170,37 @@ def test_validmonsterdir_land_and_sea_terrain(overworld, asset_mgr):
     assert ow._creature_can_enter(pirate, p_def, 10, 55) is False  # parked ship
 
 
-# --- M-08: after Exodus falls new wanderers are harmless ------------------------
+# --- M-08 removed: the game ends when Exodus falls (user ruling 2026-11-25) ----
 
 
-def test_spawnmonster_after_exodus_spawns_wanderers(overworld, monkeypatch):
-    """UltimaMisc.c:1177-1184 (SpawnMonster):
-
-        Monsters[offset + HPMON] = 0xC0;
-        ...
-        if (Party[16] != 0 && Monsters[offset] != 0x3C)
-            Monsters[offset + HPMON] = 0x40;
-
-    Once Exodus has fallen a new monster wanders (0x40), except the pirate
-    (0x3C), which still hunts (0xC0).
-    """
+def test_spawnmonster_never_makes_wanderers(overworld, monkeypatch):
+    """LW SpawnMonster (UltimaMisc.c:1177-1184) gave a monster spawned after
+    the fall HPMON 0x40 (wander). User ruling 2026-11-25: the game ends when
+    Exodus falls (8-bit originals), so there is no after; even an old save
+    with the flag set spawns hunters (0xC0)."""
     ow = overworld(20, 20)
-    ow.party.exodus_defeated = True
-    # Orc (type 0) on grass at (49, 36).
+    ow.party.exodus_defeated = 1  # an old save, won under play-on
     monkeypatch.setattr(random, "randint", _Rolls(
         {(0, 134): [134], (0, 63): [49, 36], (0, 12): [0], (0, 1): [0]}))
     ow._spawn_wandering_creature()
     assert ow.creatures[-1]["tile_name"] == "orc"
-    assert ow.creatures[-1].get("wander") is True
-    # Pirate (type 10) on water at (10, 56).
-    monkeypatch.setattr(random, "randint", _Rolls(
-        {(0, 134): [134], (0, 63): [10, 56], (0, 12): [10], (0, 1): [0]}))
-    ow._spawn_wandering_creature()
-    assert ow.creatures[-1]["tile_name"] == "pirate"
-    assert not ow.creatures[-1].get("wander")
+    assert "wander" not in ow.creatures[-1]
 
 
-def test_movemonsters_wanderer_never_attacks(overworld, monkeypatch):
-    """UltimaMisc.c:1280-1294, 1325-1326 and 1213-1217 (MoveMonsters):
-
-        if (value == 0x40) {
-            if (RandNum(0, 255) < 128)
-                goto movemon;
-            xs = MapConstrain(Monsters[offset + XMON] + GetHeading(RandNum(0, 255)));
-            ...
-            goto move7AAA;
-        ...
-        if (xpos == xs && ypos == ys)
-            goto movemon;
-
-    A wandering monster takes a random step half the turns and never steps
-    onto the party, so it never starts a fight; a hunter (0xC0, any monster
-    out before Exodus fell) still attacks from the next tile.
-    """
-    ow = overworld(49, 36, encounters=False)
-    ow.party.exodus_defeated = True
+def test_old_save_wanderer_loads_as_a_hunter(overworld, monkeypatch):
+    """An old save's ``wander`` flag (HPMON 0x40, M-08, now removed) is
+    ignored on load: the monster hunts and attacks from the next tile."""
+    ow = overworld(49, 36, encounters=False, clear=False)
+    ow._restore_world_state({"monsters": [
+        {"name": "Orc", "tile_name": "orc", "tile": "orc", "x": 50, "y": 36, "wander": True},
+    ]})
+    orc = next(c for c in ow.creatures if c["tile_name"] == "orc")
+    assert "wander" not in orc
     fights: list[str] = []
     monkeypatch.setattr(ow, "_trigger_combat", lambda name, c=None: fights.append(name))
-    # A wanderer due east of the party; its roll would step west onto the party.
-    ow.creatures = [_monster("orc", 50, 36, wander=True)]
-    monkeypatch.setattr(random, "randint", _Rolls({(0, 255): [200, 200, 0]}))
-    ow._update_creatures()
-    assert fights == []
-    assert (ow.creatures[0]["x"], ow.creatures[0]["y"]) == (50, 36)
-    # The same orc as a hunter attacks.
-    ow.creatures = [_monster("orc", 50, 36)]
+    ow.creatures = [orc]
     ow._update_creatures()
     assert fights == ["orc"]
-
-
-def test_moveshoot_fires_after_exodus_falls(overworld, monkeypatch):
-    """UltimaMisc.c:1195-1201, 1240-1248, 1324-1328 (MoveMonsters):
-
-        if (Party[3] == 0 && Party[16] == 0) {    // Player hasn't beaten Exodus.
-        moveoutside:
-        ...
-        if (Monsters[offset] == 0x3C || Monsters[offset] == 0x74)
-            goto moveshoot;
-        ...
-        if (value != 0x40 && value != 0x80)
-            goto moveoutside;
-
-    After Exodus falls a hunting monster (0xC0) still takes the moveoutside
-    path, so pirates and dragons still fire; the port stopped every shot.
-    """
-    party = _party()
-    party.transport = Transport.SHIP
-    ow = overworld(20, 1, party=party, encounters=False)
-    ow.party.exodus_defeated = True
-    ow.creatures = [_monster("pirate", 23, 1)]
-    monkeypatch.setattr(random, "randint", _Rolls({(0, 255): [0]}))
-    ow._update_creatures()
-    assert (ow.creatures[0]["x"], ow.creatures[0]["y"]) == (22, 1)
-    assert party.members[0].hp == 200 - 8  # BombTrap: (0 & 0x77) + 8
 
 
 # --- M-11: stopped time freezes town people -------------------------------------
@@ -538,7 +482,7 @@ def test_putsosaria_saves_every_monster(overworld, monkeypatch, tmp_path):
     ow = overworld(20, 20)
     ow.creatures = [_monster("whirlpool", 47, 17, dir=[-1, 0], wontattack=True)]
     ow.creatures += [_monster("orc", 30 + i, 40, variant=1) for i in range(11)]
-    ow.creatures.append(_monster("thief", 5, 5, wander=True))
+    ow.creatures.append(_monster("thief", 5, 5))
     saved: dict = {}
     monkeypatch.setattr(save_system.SaveSystem, "save_game",
                         staticmethod(lambda party, path, extra=None: saved.update(extra or {})))
@@ -546,13 +490,12 @@ def test_putsosaria_saves_every_monster(overworld, monkeypatch, tmp_path):
     block = saved["overworld"]["monsters"]
     assert len(block) == 13
     assert block[0]["dir"] == [-1, 0]
-    assert block[-1]["wander"] is True
+    assert all("wander" not in m for m in block)  # M-08 removed
 
     ow2 = overworld(20, 20, clear=False)
     ow2._restore_world_state({"monsters": block})
     assert len(ow2.creatures) == 13
     assert tuple(_whirlpools(ow2)[0]["dir"]) == (-1, 0)
-    assert ow2.creatures[-1].get("wander") is True
 
 
 def test_restore_old_save_block_with_two_java_whirlpools(overworld):

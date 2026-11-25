@@ -391,15 +391,16 @@ def test_spell_dag_acron_aboard_ship_before_exodus_is_refused(asset_mgr):
     assert party.members[0].mp == 99 and (party.x, party.y) == (10, 10)
 
 
-def test_spell_dag_acron_aboard_ship_after_exodus_lands_on_water(asset_mgr, monkeypatch):
-    """UltimaSpellCombat.c:216: `matchValue = (Party[1] == 0x16) ? 0 : 4;` -
-    once Exodus has fallen the ship jumps to random open water (value 0)."""
+def test_spell_dag_acron_aboard_ship_always_refused(asset_mgr):
+    """UltimaSpellCombat.c:212, 216 let a ship jump to open water once
+    Exodus had fallen. User ruling 2026-11-25: the game ends when Exodus
+    falls (8-bit originals), so aboard ship Dag Acron is always refused,
+    even for an old save with the flag set."""
     gmap = _sosaria(asset_mgr)
     party = _surface_party(Transport.SHIP, exodus_defeated=1)
-    water, grass = _first(gmap, "water"), _first(gmap, "grass")
-    _coords(monkeypatch, [grass, water])
-    cast_spell(Spell.DAG_ACRON, party.members[0], world_map=gmap, party=party)
-    assert (party.x, party.y) == water
+    res = cast_spell(Spell.DAG_ACRON, party.members[0], world_map=gmap, party=party)
+    assert not res.executed and res.message == "Not Here!"
+    assert party.members[0].mp == 99 and (party.x, party.y) == (10, 10)
 
 
 def test_spell_dag_acron_overworld_marks_monsters_and_objects(asset_mgr):

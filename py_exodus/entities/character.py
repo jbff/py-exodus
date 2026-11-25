@@ -340,31 +340,32 @@ class Character(metaclass=CharacterMeta):
         self.gold = max(0, min(9999, self.gold + pts))
         return self.gold
 
-    def lord_british_refusal(self, exodus_defeated: bool = False) -> str | None:
+    def lord_british_refusal(self) -> str | None:
         """Why Lord British refuses this member, or None (UltimaMain.c:2357-2380):
-        "experience" (message 91), "thanks" (263, the same check once Exodus
-        has fallen), "no_more" (92, at 25 while Exodus stands), "mark" (93,
-        past level 4 without the Mark of Kings)."""
+        "experience" (message 91), "no_more" (92, at 25), "mark" (93, past
+        level 4 without the Mark of Kings). LW's after-the-fall branch
+        (263 "Sosaria thanks you!", no cap at 25) is gone: the game ends
+        when Exodus falls (user ruling 2026-11-25)."""
         # The port keeps LW's max-HP level as ``level`` (max HP = level * 100 + 50).
         hp_level = int(self.level)
         if self.exp // 100 < hp_level:
-            return "thanks" if exodus_defeated else "experience"
-        if hp_level >= 25 and not exodus_defeated:
+            return "experience"
+        if hp_level >= 25:
             return "no_more"
         if hp_level > 4 and (not self.marks or self.marks[0] == 0):
             return "mark"
         return None
 
-    def meet_lord_british(self, exodus_defeated: bool = False) -> bool:
+    def meet_lord_british(self) -> bool:
         """LairWare Transact, Lord British (UltimaMain.c:2345-2386).
 
         The max-HP hundreds (an old x50 max counts as the hundred below) are
         the level: experience hundreds below it -> "Experience more"; at 25
-        while Exodus stands -> "No more"; past 4 without the Mark of Kings
+        -> "No more"; past 4 without the Mark of Kings
         -> "Seek ye the Mark of Kings". Otherwise max HP rises by 100 (cap
         9950) -- one level per visit, with no healing and no cure.
         """
-        if self.lord_british_refusal(exodus_defeated) is not None:
+        if self.lord_british_refusal() is not None:
             return False
         hp_level = int(self.level)
         self.level = min(99, hp_level + 1)

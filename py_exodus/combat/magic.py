@@ -415,11 +415,11 @@ def cast_spell(
 
     # LairWare UltimaSpellCombat.c:212: `(Party[1] == 0x16 && Party[16] == 0)`
     # fails Dag Acron aboard ship while Exodus stands; refused at the attempt
-    # (user ruling 3), no MP spent.
+    # (user ruling 3), no MP spent. Exodus never stands fallen in play (the
+    # game ends there, user ruling 2026-11-25), so aboard ship it always fails.
     if (
         resolved_spell == Spell.DAG_ACRON
         and getattr(active_party, "transport", None) == Transport.SHIP
-        and not getattr(active_party, "exodus_defeated", 0)
     ):
         return SpellResult(success=False, message="Not Here!", spell=resolved_spell, executed=False)
 
@@ -1200,8 +1200,10 @@ def _apply_spell_blink(
         }
         xpos = xs; ypos = ys;
 
-    Random tiles anywhere on the map until one is grass (open water aboard
-    ship, allowed only once Exodus has fallen: the cast_spell gate). LW keeps
+    Random tiles anywhere on the map until one is grass. LW's open water
+    aboard ship (only once Exodus has fallen) is gone: the game ends when
+    Exodus falls (user ruling 2026-11-25), and the cast_spell gate refuses
+    the spell aboard ship. LW keeps
     its monsters in the map, so their tiles never match; ``occupied`` stands
     in for that. Off the Sosaria surface the location mask refuses the spell
     before it gets here (Ambrosia is a CITY map)."""
@@ -1209,7 +1211,7 @@ def _apply_spell_blink(
         MapType.WORLD, MapType.WORLD.value,
     ):
         return SpellResult(success=False, message="FAILED", spell=Spell.DAG_ACRON)
-    wanted = "water" if getattr(party, "transport", None) == Transport.SHIP else "grass"
+    wanted = "grass"
     size_x = getattr(world_map, "width", 64)
     size_y = getattr(world_map, "height", 64)
     if not any(getattr(t, "name", "") == wanted for t in getattr(world_map, "tiles", ())):
