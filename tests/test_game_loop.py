@@ -1065,13 +1065,12 @@ def test_overworld_commands_cast_ztats_get_chest_pass(pygame_setup, asset_mgr, s
     # 2. Ztats command (Z)
     assert overworld.stats_panel.inspect_index is None
     evt_z = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_z)
+    # LairWare Stats asks whose Ztats (UltimaMain.c:2592-2602); any key
+    # then closes them (no paging, user ruling 2026-11-25).
     overworld.handle_event(evt_z)
-    assert overworld.stats_panel.inspect_index == 0
-    overworld.handle_event(evt_z)
+    overworld.text_log.submit_input("2")
     assert overworld.stats_panel.inspect_index == 1
-    overworld.handle_event(evt_z)  # 2
-    overworld.handle_event(evt_z)  # 3
-    overworld.handle_event(evt_z)  # None
+    overworld.handle_event(evt_z)
     assert overworld.stats_panel.inspect_index is None
 
     # 3. Get Chest command (G): member digit opens the chest at the PARTY'S
@@ -1496,6 +1495,7 @@ def test_town_pass_and_ztats(pygame_setup, asset_mgr, sample_party):
     assert town.stats_panel.inspect_index is None
     evt_z = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_z)
     town.handle_event(evt_z)
+    town.text_log.submit_input("1")  # Ztats for #- (UltimaMain.c:2595)
     assert town.stats_panel.inspect_index == 0
 
 
@@ -1769,6 +1769,7 @@ def test_zstats_displays_inventory(pygame_setup, asset_mgr, sample_party):
 
     # Toggle Zstats to inspect member 1
     ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_z))
+    ow.text_log.submit_input("1")  # Ztats for #- (UltimaMain.c:2595)
     assert ow.stats_panel.inspect_index == 0
     assert any("BOW:2" in msg for msg in ow.text_log.history)
     assert any("CHAIN:1" in msg for msg in ow.text_log.history)

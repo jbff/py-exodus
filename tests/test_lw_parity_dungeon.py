@@ -199,6 +199,8 @@ def test_dungeon_screen_z_and_m_take_the_turn(asset_mgr):
     screen.state.random_encounters_enabled = False
     screen.state.torchtime = 50
     screen.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_z))
+    # Stats asks whose Ztats (UltimaMain.c:2595); dungeonmech follows it.
+    screen.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_1, unicode="1"))
     assert screen.state.torchtime == 49
     # Ztats is modal (DoStats, UltimaMacIF.c:1390-1394): the next key only
     # closes it, and takes no turn.
@@ -809,6 +811,7 @@ def test_dungeonmech_fountain_asks_after_every_command(asset_mgr):
     assert not screen.text_log.is_waiting_for_input
     assert screen.state.torchtime == torch
     _press(screen, pygame.K_z, "z")  # Z: Stats (modal), then dungeonmech
+    _press(screen, pygame.K_1, "1")  # Ztats for #-
     assert not screen.text_log.is_waiting_for_input
     _press(screen, pygame.K_ESCAPE)  # closes Ztats: asked again
     assert screen.text_log.is_waiting_for_input

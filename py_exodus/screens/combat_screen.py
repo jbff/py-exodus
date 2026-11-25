@@ -50,6 +50,11 @@ if TYPE_CHECKING:
     from py_exodus.world.map import ConflictMap
 
 
+# UltimaSpellCombat.c:938-955: ``count = 0x2F`` counted down once per key
+# poll; the 47th pass of keyloop presses Space after 46 polls.
+COMBAT_PASS_POLLS = 0x2F - 1
+
+
 class CombatScreen(BaseScreen):
     """Interactive screen for 11x11 tactical turn-based combat encounters."""
 
@@ -120,6 +125,13 @@ class CombatScreen(BaseScreen):
         self.auto_combat: bool = False
         self.auto_combat_interval: float = 0.12
         self._auto_combat_timer: float = 0.0
+        # The member command wait's idle count (UltimaSpellCombat.c:938-970),
+        # in game time: polls waited, and whose wait it is.
+        from py_exodus.world.realtime import PollClock
+
+        self._idle_clock = PollClock()
+        self._idle_polls = 0
+        self._idle_member: int | None = None
 
     def on_enter(self) -> None:
         """Sync auto-combat flag from manager when entering combat."""
@@ -169,6 +181,15 @@ class CombatScreen(BaseScreen):
             return
 
         if event.type != pygame.KEYDOWN:
+            return
+        # Any key ends the member's command wait (GetKeyMouse, then the
+        # next wait starts at count = 0x2F again; UltimaSpellCombat.c:938).
+        self._reset_idle()
+
+        # LairWare DoStats (UltimaMacIF.c:1385-1395): Ztats is modal; the
+        # key that ends it, any key, is swallowed.
+        if self.stats_panel.inspect_index is not None:
+            self.stats_panel.inspect_index = None
             return
 
         if self._anim_stage is not None:
@@ -230,15 +251,19 @@ class CombatScreen(BaseScreen):
             return
 
         if event.key == pygame.K_z:
-            member_count = len(self.party.members)
-            if member_count > 0:
-                cur = self.stats_panel.inspect_index
-                if cur is None:
-                    self.stats_panel.inspect_index = 0
-                elif cur + 1 < member_count:
-                    self.stats_panel.inspect_index = cur + 1
-                else:
-                    self.stats_panel.inspect_index = None
+            # LairWare combat Z (UltimaSpellCombat.c:1066-1069): ``Stats(1,
+            # chnum + 1)`` shows the active member (no question), then
+            # ``goto plrdone``: that member's turn is over.
+            idx = self.arena.active_party_member_idx
+            if self.party.get_member(idx) is None:
+                return
+            from py_exodus.screens.member_prompts import show_ztats
+
+            try:
+                self._execute_action(Action.pass_turn())
+            except PartyDeathException:
+                self.check_party_death()
+            show_ztats(self.text_log, self.stats_panel, self.party, idx)
             return
 
         # Standard combat keys
@@ -820,6 +845,7 @@ class CombatScreen(BaseScreen):
             and self._anim_stage is None
             and not self.arena.is_finished
             and not self.text_log.is_waiting_for_input
+            and self.stats_panel.inspect_index is None
         ):
             self._auto_combat_timer -= dt
             if self._auto_combat_timer <= 0:
@@ -831,6 +857,44 @@ class CombatScreen(BaseScreen):
                     self._execute_action(action)
                 except PartyDeathException:
                     self.check_party_death()
+
+    def _reset_idle(self) -> None:
+        self._idle_clock = type(self._idle_clock)()
+        self._idle_polls = 0
+
+    def _combat_idle(self, dt: float) -> None:
+        """LairWare's member command wait (UltimaSpellCombat.c:938-970)::
+
+            count = 0x2F;
+            keyloop: ... count--;
+            if (count == 0) { gKeyPress = ' '; }
+            else { if (GetKeyMouse(0) == FALSE) goto keyloop; }
+
+        46 polls of 5/60 s (about 3.8 s of game time) with no key and the
+        active member passes (user ruling 2026-11-25, ledger B-22). Never
+        inside a prompt (direction, spell, target, ready/wear), under Ztats,
+        during an animation, with auto-combat or under autoplay."""
+        from py_exodus.world import realtime
+
+        idx = self.arena.active_party_member_idx
+        waiting = (
+            self._anim_stage is None
+            and not self.arena.is_finished
+            and not self.text_log.is_waiting_for_input
+            and self.stats_panel.inspect_index is None
+            and not self.auto_combat
+            and not realtime.autoplay_on(self)
+            and self.active_party_member is not None
+        )
+        if not waiting or idx != self._idle_member:
+            self._idle_member = idx if waiting else None
+            self._reset_idle()
+            if not waiting:
+                return
+        self._idle_polls += self._idle_clock.polls(dt)
+        if self._idle_polls >= COMBAT_PASS_POLLS:
+            self._reset_idle()
+            self.handle_event(realtime.space_event())
 
     def render(self, surface: pygame.Surface) -> None:
         surface.fill(EGA_BLACK)

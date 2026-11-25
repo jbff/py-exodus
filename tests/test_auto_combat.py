@@ -498,7 +498,7 @@ def test_sea_monster_advances_to_closest_water_tile_near_ship():
 
 
 def test_combat_screen_default_party_view_and_z_toggle():
-    """CombatScreen shows party view with active member highlighted unless Z is pressed."""
+    """CombatScreen shows party view with active member highlighted unless Z shows the active member."""
     import pygame
     from py_exodus.assets import AssetManager
     from py_exodus.screens.combat_screen import CombatScreen
@@ -519,8 +519,8 @@ def test_combat_screen_default_party_view_and_z_toggle():
     assert cs.stats_panel.inspect_index is None
     assert cs.party.active_member_index == 1
 
-    cs.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_z, unicode="z"))
-    assert cs.stats_panel.inspect_index == 0
+    # LairWare combat Z (UltimaSpellCombat.c:1066-1069): Stats(1, chnum + 1)
+    # shows the active member only; any key closes it.
     cs.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_z, unicode="z"))
     assert cs.stats_panel.inspect_index == 1
     cs.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_z, unicode="z"))

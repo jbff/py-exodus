@@ -110,6 +110,7 @@ class TestOverworldSmoke:
         assert session.active_member is None  # not a combat screen
 
         session.press_seq("Z")
+        session.press("1")  # Ztats for #- (LairWare Stats, UltimaMain.c:2595)
         assert any(
             line.startswith("[msg] Zstats:") for line in session.transcript
         ), session.transcript
@@ -118,13 +119,8 @@ class TestOverworldSmoke:
             session.party.members[0].name in line for line in session.transcript
         )
 
-        # Close the view the way the flow requires: Z cycles each member,
-        # then back to the normal view.
-        for _ in range(len(session.party.members) + 2):
-            session.press("Z")
-            if any("Zstats: Normal view" in line for line in session.transcript):
-                break
-        assert any("Zstats: Normal view" in line for line in session.transcript)
+        # Any key closes the view (DoStats, UltimaMacIF.c:1390-1394).
+        session.press("Z")
         assert session.screen.stats_panel.inspect_index is None
 
     def test_drain_captures_messages_before_screen_transition(self, asset_mgr):
@@ -136,10 +132,11 @@ class TestOverworldSmoke:
         session = PlaySession(asset_mgr).start(party=party)
         assert isinstance(session.screen, OverworldScreen)
 
+        # Z asks whose Ztats (LairWare Stats, UltimaMain.c:2595); the wiped
+        # party leaves for the start screen on that press, and the prompt
+        # line is drained before the transition.
         session.press("Z")
-        assert any(
-            line.startswith("[msg] Zstats:") for line in session.transcript
-        ), session.transcript
+        assert "[prompt] Ztats for #-" in session.transcript, session.transcript
         assert isinstance(session.screen, StartScreen)
         assert session.screen.game_over is True
 

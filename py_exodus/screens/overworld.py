@@ -24,6 +24,7 @@ from py_exodus.entities.party import PartyDeathException, headwind, objects_on
 from py_exodus import special_commands
 from py_exodus.screens.base import BaseScreen
 from py_exodus.screens.member_prompts import (
+    prompt_ztats,
     prompt_hand,
     prompt_modify_order,
     prompt_ready_weapon,
@@ -634,8 +635,8 @@ class OverworldScreen(BaseScreen):
         # LairWare DoStats (UltimaMacIF.c:1385-1395): Ztats waits in its own
         # loop (``while (gStatsActive) { GetKeyMouse(1); if (gKeyPress)
         # gStatsActive = FALSE; }``), so nothing in the world acts while it
-        # is up and the key that ends it is swallowed. Z still pages members.
-        if self.stats_panel.inspect_index is not None and event.key != pygame.K_z:
+        # is up and the key that ends it, any key, is swallowed.
+        if self.stats_panel.inspect_index is not None:
             self.stats_panel.inspect_index = None
             return
 
@@ -786,33 +787,10 @@ class OverworldScreen(BaseScreen):
         self._update_creatures()
 
     def _toggle_zstats(self) -> None:
-        """Cycle Ztats inspect mode through party members."""
-        current = self.stats_panel.inspect_index
-        member_count = len(self.party.members)
-        if member_count == 0:
-            return
-        if current is None:
-            self.stats_panel.inspect_index = 0
-        elif current + 1 < member_count:
-            self.stats_panel.inspect_index = current + 1
-        else:
-            self.stats_panel.inspect_index = None
-
-        if self.stats_panel.inspect_index is not None:
-            m = self.party.members[self.stats_panel.inspect_index]
-            self.text_log.add_message(f"Zstats: {m.name} ({m.profession.name})")
-            cur_w = m.weapon.name if hasattr(m.weapon, "name") else str(m.weapon)
-            cur_a = m.armor.name if hasattr(m.armor, "name") else str(m.armor)
-            self.text_log.add_message(f"Readied: {cur_w}  Worn: {cur_a}")
-            wpn_list = [f"{wt.name}:{cnt}" for wt, cnt in m.weapons.items() if cnt > 0]
-            arm_list = [f"{at.name}:{cnt}" for at, cnt in m.armors.items() if cnt > 0]
-            if wpn_list:
-                self.text_log.add_message("Weapons: " + ", ".join(wpn_list))
-            if arm_list:
-                self.text_log.add_message("Armors: " + ", ".join(arm_list))
-        else:
-            self.text_log.add_message("Zstats: Normal view")
-        # Java GameScreen.java:564-572 — Z has no early return; consumes a turn.
+        """Z: LairWare Stats (UltimaMain.c:2592-2602) asks whose Ztats and
+        shows that member only; the letter's turn follows (Routine6E35,
+        through _settle_letter_turn). User ruling 2026-11-25: no paging."""
+        prompt_ztats(self.text_log, self.stats_panel, self.party)
         self._consume_pass_turn()
 
     def _prompt_cast(self) -> None:

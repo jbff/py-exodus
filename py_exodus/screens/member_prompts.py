@@ -309,3 +309,42 @@ def prompt_hand(text_log: TextLog, party: Party) -> None:
         text_log.prompt("HAND> To plr- (1-4):", callback=_on_to, single_char=True)
 
     text_log.prompt("HAND> From plr- (1-4):", callback=_on_from, single_char=True)
+
+
+def show_ztats(text_log: TextLog, stats_panel, party: Party, index: int) -> None:
+    """DoStats (UltimaMacIF.c:1385-1395): the member's stats, modal; the
+    next key closes them (each screen swallows it)."""
+    member = party.get_member(index)
+    if member is None:
+        return
+    stats_panel.inspect_index = index
+    text_log.add_message(f"Zstats: {member.name} ({member.profession.name})")
+    cur_w = member.weapon.name if hasattr(member.weapon, "name") else str(member.weapon)
+    cur_a = member.armor.name if hasattr(member.armor, "name") else str(member.armor)
+    text_log.add_message(f"Readied: {cur_w}  Worn: {cur_a}")
+    wpn_list = [f"{wt.name}:{cnt}" for wt, cnt in member.weapons.items() if cnt > 0]
+    arm_list = [f"{at.name}:{cnt}" for at, cnt in member.armors.items() if cnt > 0]
+    if wpn_list:
+        text_log.add_message("Weapons: " + ", ".join(wpn_list))
+    if arm_list:
+        text_log.add_message("Armors: " + ", ".join(arm_list))
+
+
+def prompt_ztats(
+    text_log: TextLog, stats_panel, party: Party, on_done: Callable[[], None] = _noop
+) -> None:
+    """LairWare Stats(0, 0) (UltimaMain.c:2592-2602): ``UPrintMessage(105);
+    chnum = GetChar(); if (chnum < 1 || chnum > 4) { UPrintWin("\\p\\n");
+    return; }`` then DoStats for that member only. ``on_done`` runs once the
+    question is answered or refused (the dungeon's dungeonmech turn)."""
+
+    def _on_member(raw: str) -> None:
+        try:
+            n = int(raw.strip())
+        except ValueError:
+            n = 0
+        if 1 <= n <= 4:
+            show_ztats(text_log, stats_panel, party, n - 1)
+        on_done()
+
+    text_log.prompt("Ztats for #-", callback=_on_member, single_char=True, on_cancel=on_done)

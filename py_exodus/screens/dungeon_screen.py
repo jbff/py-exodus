@@ -20,6 +20,7 @@ from py_exodus.screens.base import BaseScreen
 from py_exodus.screens.member_prompts import (
     prompt_hand,
     prompt_modify_order,
+    prompt_ztats,
     prompt_whose_item,
     prompt_ready_weapon,
     prompt_wear_armor,
@@ -169,8 +170,8 @@ class DungeonScreen(BaseScreen):
         # LairWare DoStats (UltimaMacIF.c:1385-1395): Ztats waits in its own
         # loop (``while (gStatsActive) { GetKeyMouse(1); if (gKeyPress)
         # gStatsActive = FALSE; }``), so nothing in the world acts while it
-        # is up and the key that ends it is swallowed. Z still pages members.
-        if self.stats_panel.inspect_index is not None and event.key != pygame.K_z:
+        # is up and the key that ends it, any key, is swallowed.
+        if self.stats_panel.inspect_index is not None:
             self.stats_panel.inspect_index = None
             # Stats returns, then dungeonmech (UltimaDngn.c:159-161).
             self._run_fixture()
@@ -283,10 +284,10 @@ class DungeonScreen(BaseScreen):
         elif event.key == pygame.K_g:
             self._get_chest()
         elif event.key == pygame.K_z:
-            # LairWare Stats ends in dungeonmech (UltimaDngn.c:159, 161,
-            # 183): Z takes the turn, as on the overworld.
-            self._toggle_zstats()
-            self._consume_turn()
+            # LairWare Stats (UltimaMain.c:2592-2602) asks whose Ztats, then
+            # dungeonmech (UltimaDngn.c:159, 161, 183) takes the turn,
+            # answered or not.
+            prompt_ztats(self.text_log, self.stats_panel, self.party, on_done=self._consume_turn)
         elif event.key in _NOT_DNG_CMD_KEYS:
             # LairWare NotDngCmd (UltimaDngn.c:134-157, 492-495): A, B, E,
             # F, L, Q, S, T, U and X print message 172 and the error tone,
@@ -497,19 +498,6 @@ class DungeonScreen(BaseScreen):
         if evt is not None:
             self._process_event(evt)
         self.check_party_death()
-
-    def _toggle_zstats(self) -> None:
-        """Cycle Ztats inspect mode through party members."""
-        current = self.stats_panel.inspect_index
-        member_count = len(self.party.members)
-        if member_count == 0:
-            return
-        if current is None:
-            self.stats_panel.inspect_index = 0
-        elif current + 1 < member_count:
-            self.stats_panel.inspect_index = current + 1
-        else:
-            self.stats_panel.inspect_index = None
 
     def _process_event(self, evt: DungeonEvent) -> None:
         # Task 2 death flow: pit traps, fountains, and marks apply

@@ -43,6 +43,11 @@ def _key(screen, k: int) -> None:
     screen.handle_event(pygame.event.Event(pygame.KEYDOWN, key=k, unicode=""))
 
 
+def _ch(screen, ch: str) -> None:
+    k = ord(ch) if ch.isalnum() else pygame.K_ESCAPE
+    screen.handle_event(pygame.event.Event(pygame.KEYDOWN, key=k, unicode=ch))
+
+
 @pytest.fixture
 def overworld(pygame_setup, asset_mgr):
     from py_exodus.screens.overworld import OverworldScreen
@@ -1248,7 +1253,7 @@ def test_main_loop_idle_pass_in_towns_not_in_combat(pygame_setup, asset_mgr, tow
     cm = MapLoader(asset_mgr).load_conflict_map("CNFLCT_A.ULT")
     cs = CombatScreen(party=party, combat_map=cm, creature_tile="orc", asset_mgr=asset_mgr)
     before = list(cs.text_log.history)
-    for _ in range(200):
+    for _ in range(40):
         cs.update(_POLL)
     assert not any(m == "Pass" for m in cs.text_log.history[len(before):])
 
@@ -1291,6 +1296,7 @@ def test_dostats_ztats_swallows_a_move_and_freezes_the_clocks(overworld):
     ow.party.wind_direction = Direction.NORTH
     ow.party.wind_ctr = 5
     _key(ow, pygame.K_z)
+    _ch(ow, "1")  # Stats asks whose Ztats (UltimaMain.c:2595-2600)
     assert ow.stats_panel.inspect_index == 0
     moves = ow.party.moves
     whirl = ow._whirl_ctr
@@ -1307,15 +1313,6 @@ def test_dostats_ztats_swallows_a_move_and_freezes_the_clocks(overworld):
     assert (ow.party.x, ow.party.y) == (40, 39)
 
 
-def test_dostats_ztats_keeps_z_paging_members(overworld):
-    """The port pages members with Z (Java's cycle); that key stays."""
-    p = _party(_member("A"), _member("B"))
-    ow = overworld(40, 40, party=p)
-    _key(ow, pygame.K_z)
-    _key(ow, pygame.K_z)
-    assert ow.stats_panel.inspect_index == 1
-
-
 def test_dostats_ztats_modal_in_towns_and_dungeons(pygame_setup, asset_mgr, town):
     from py_exodus.screens.dungeon_screen import DungeonScreen
     from py_exodus.world.dungeon import DungeonMap, DungeonTile
@@ -1323,6 +1320,7 @@ def test_dostats_ztats_modal_in_towns_and_dungeons(pygame_setup, asset_mgr, town
     tw = town(1, 10, 10)
     tw.avatar_x, tw.avatar_y = 10, 10
     _key(tw, pygame.K_z)
+    _ch(tw, "1")
     assert tw.stats_panel.inspect_index == 0
     wind = tw.party.wind_ctr
     for _ in range(100):
@@ -1336,6 +1334,7 @@ def test_dostats_ztats_modal_in_towns_and_dungeons(pygame_setup, asset_mgr, town
     dmap.tiles = [[[DungeonTile.NOTHING] * 16 for _y in range(16)] for _z in range(8)]
     ds = DungeonScreen(party=_party(), dungeon_map=dmap, asset_mgr=asset_mgr)
     _key(ds, pygame.K_z)
+    _ch(ds, "1")
     assert ds.stats_panel.inspect_index == 0
     pos = (ds.state.x, ds.state.y, ds.state.dir)
     _key(ds, pygame.K_UP)
@@ -1380,3 +1379,108 @@ def test_main_loop_clamps_a_stalled_frame(pygame_setup):
     app.run(max_frames=1)
     assert seen == [MAX_FRAME_DT] and MAX_FRAME_DT == 0.25
     assert batch.FRAME_DT < MAX_FRAME_DT
+
+
+# --- Stats asks whose Ztats (user ruling 2026-11-25) ------------------------------
+#
+# UltimaMain.c:2592-2602 (Stats):
+#
+#     if (mode == 0) {
+#         UPrintMessage(105);            // "Ztats for #-"
+#         chnum = GetChar();
+#         if (chnum < 1 || chnum > 4) { UPrintWin("\p\n"); return; }
+#     }
+#     ... DoStats(chnum);                // that member only, modal
+#
+# In combat (UltimaSpellCombat.c:1066-1069) ``Stats(1, chnum + 1)`` shows the
+# active member with no question, then ``goto plrdone``: the member's turn ends.
+
+
+def test_stats_asks_whose_ztats_and_shows_only_that_member(overworld):
+    p = _party(_member("A"), _member("B"))
+    ow = overworld(40, 40, party=p)
+    moves = ow.party.moves
+    _key(ow, pygame.K_z)
+    assert ow.text_log.is_waiting_for_input
+    assert "Ztats for #" in ow.text_log.current_prompt
+    assert ow.stats_panel.inspect_index is None
+    _ch(ow, "2")
+    assert ow.stats_panel.inspect_index == 1
+    assert ow.party.moves == moves + 1  # one turn per Z command
+    _key(ow, pygame.K_z)  # any key closes it: no paging
+    assert ow.stats_panel.inspect_index is None
+    assert ow.party.moves == moves + 1
+
+
+@pytest.mark.parametrize("answer", ["0", "5", "x"])
+def test_stats_invalid_member_shows_nothing(overworld, answer):
+    """``if (chnum < 1 || chnum > 4) { UPrintWin("\\p\\n"); return; }`` --
+    no stats; the letter's turn still passes (Routine6E35)."""
+    ow = overworld(40, 40)
+    moves = ow.party.moves
+    _key(ow, pygame.K_z)
+    _ch(ow, answer)
+    assert not ow.text_log.is_waiting_for_input
+    assert ow.stats_panel.inspect_index is None
+    assert ow.party.moves == moves + 1
+
+
+def test_stats_prompt_holds_the_idle_pass(overworld):
+    """GetChar (UltimaMain.c:2596) waits for a key: the member prompt never
+    passes the turn by itself."""
+    ow = overworld(40, 40)
+    _key(ow, pygame.K_z)
+    for _ in range(200):
+        ow.update(_POLL)
+    assert _passes(ow) == 0
+    assert ow.text_log.is_waiting_for_input
+
+
+def test_stats_asks_in_towns_and_dungeons(pygame_setup, asset_mgr, town):
+    from py_exodus.screens.dungeon_screen import DungeonScreen
+    from py_exodus.world.dungeon import DungeonMap, DungeonTile
+
+    tw = town(1, 10, 10, party=_party(_member("A"), _member("B")))
+    _key(tw, pygame.K_z)
+    assert "Ztats for #" in tw.text_log.current_prompt
+    _ch(tw, "2")
+    assert tw.stats_panel.inspect_index == 1
+
+    dmap = DungeonMap(id=98, name="Test", width=16, height=16, levels=8)
+    dmap.tiles = [[[DungeonTile.NOTHING] * 16 for _y in range(16)] for _z in range(8)]
+    ds = DungeonScreen(party=_party(_member("A"), _member("B")), dungeon_map=dmap, asset_mgr=asset_mgr)
+    ds.state.random_encounters_enabled = False
+    ds.state.torchtime = 50
+    _key(ds, pygame.K_z)
+    assert "Ztats for #" in ds.text_log.current_prompt
+    _ch(ds, "2")
+    assert ds.stats_panel.inspect_index == 1
+    assert ds.state.torchtime == 49  # Stats then dungeonmech: one turn
+    _key(ds, pygame.K_z)
+    assert ds.stats_panel.inspect_index is None
+    assert ds.state.torchtime == 49
+    _key(ds, pygame.K_z)
+    _ch(ds, "\x1b")
+    assert ds.state.torchtime == 48  # a refused answer still takes the turn
+
+
+def _combat(asset_mgr, party=None):
+    from py_exodus.screens.combat_screen import CombatScreen
+    from py_exodus.world.loader import MapLoader
+
+    cm = MapLoader(asset_mgr).load_conflict_map("CNFLCT_A.ULT")
+    return CombatScreen(party=party or _party(_member("A"), _member("B")), combat_map=cm,
+                        creature_tile="orc", asset_mgr=asset_mgr, monster_count=1)
+
+
+def test_combat_z_shows_the_active_member_and_ends_its_turn(pygame_setup, asset_mgr):
+    """UltimaSpellCombat.c:1066-1069: ``case 'Z': UPrintMessage(139);
+    Stats(1, chnum + 1); break;`` then ``goto plrdone``."""
+    cs = _combat(asset_mgr)
+    first = cs.arena.active_party_member_idx
+    _key(cs, pygame.K_z)
+    assert cs.stats_panel.inspect_index == first
+    assert not cs.text_log.is_waiting_for_input
+    _key(cs, pygame.K_z)  # any key closes it, swallowed
+    assert cs.stats_panel.inspect_index is None
+    assert cs.arena.active_party_member_idx != first or cs.arena.is_finished
