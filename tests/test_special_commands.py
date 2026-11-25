@@ -274,14 +274,17 @@ class TestSteal:
         )
         assert lines == ["Failed."]
 
-    def test_alchemist_gets_no_bonus(self):
-        # USER RULING (2026-11-14 fix round): no Alchemist steal bonus; LW
-        # adds one (UltimaMisc.c:519-521) -- ledger ask row C-12.
-        alch = make_member(prof=Profession.ALCHEMIST, dex=10)
+    def test_alchemist_in_the_plus_64_set(self, monkeypatch):
+        # LairWare StealDisarmFail (UltimaMisc.c:521-523) and the Book of
+        # Lore ("some S&D"): user ruling 2026-11-25, ledger C-27.
+        from py_exodus.world import chests
+
+        monkeypatch.setattr(chests, "random", SeqRandom(10, 200))
+        alch = make_member(prof=Profession.ALCHEMIST, dex=10)  # factor 74
         lines = special_commands.do_steal(
-            make_party(alch), alch, 10, 10, Direction.EAST, self._shop(), rng=SeqRandom(74, 1)
+            make_party(alch), alch, 10, 10, Direction.EAST, self._shop(), rng=SeqRandom(74)
         )
-        assert lines == ["Failed."]
+        assert lines == ["The Chest Holds: 40 Gold"]
 
 
 class TestDig:

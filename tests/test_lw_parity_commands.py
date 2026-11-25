@@ -812,3 +812,24 @@ def test_town_attack_takes_no_turn_under_the_fight(pygame_setup, asset_mgr):
     sm.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RIGHT))
     assert _stack_combats(sm) == 1
     assert party.moves == before
+
+
+def test_steal_alchemist_gets_the_disarm_bonus(asset_mgr):
+    """UltimaMisc.c:521-523 (StealDisarmFail):
+
+        // Alchemists now get steal&disarm bonus also. Apple II version does not.
+        if (classType == careerTable[9])
+            factor += 0x40;
+
+    User ruling 2026-11-25 (ledger C-27), by the Book of Lore (Alchemist
+    "Half Int., some S&D", assets/data/ultima3.txt:160): the Alchemist's
+    steal factor is DEX + 64, as for disarming. A roll of DEX + 64 steals.
+    """
+    from py_exodus import special_commands as sc
+    from py_exodus.constants import Direction
+
+    gm = _lcb(asset_mgr)
+    alch = _pm("Alch", Profession.ALCHEMIST, dexterity=25, gold=0)
+    sc.do_steal(_party(alch), alch, 54, 20, Direction.NORTH, gm, rng=Script([25 + 64]))
+    assert gm.get_tile(54, 17).name == "floor"
+    assert chests.disarm_factor(alch) == 25 + 64

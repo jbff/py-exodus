@@ -43,17 +43,15 @@ EXOTICS = "Exotics."  # exoticdat (menucmd3.c:1105-1117)
 CARD_MESSAGE = "You found a Card with Strange Marks."  # card1..3 (menucmd3.c:1142-1152)
 VISION = "A vision appears: Yell 'EVOCARE'!"  # yellevo (menucmd3.c:1011-1013)
 
-# GBC dosteal skill bonus: ``players[pnum].skill`` is the class index and
-# grants +0x80 to the thief (index 9) and +0x40 to other classes (menucmd2.c:
-# 1489-1500). USER RULING (2026-11-14, coordinator fix round): the +64 set is
-# the ORIGINAL U3 roster per the Apple-II-derived table (LW UltimaMisc.c:
-# 500-526, which marks the Alchemist non-Apple-II at :523-530) mapped to the
-# py Profession enum — thief +128; BARBARIAN, ILLUSIONIST, RANGER +64; the
-# Alchemist takes NO steal bonus.
+# LairWare StealDisarmFail (UltimaMisc.c:510-529): +0x80 Thief; +0x40
+# Barbarian, Illusionist, Ranger and the Alchemist (521-523: "Apple II version
+# does not"). User ruling 2026-11-25 (ledger C-27), by the Book of Lore
+# (Alchemist "Half Int., some S&D"): the Alchemist gets it for stealing too.
 _STEAL_PLUS_64: tuple[Profession, ...] = (
     Profession.BARBARIAN,
     Profession.ILLUSIONIST,
     Profession.RANGER,
+    Profession.ALCHEMIST,
 )
 
 # GBC weapon/armor lists index their stacks 1..7 / 1..3; py list(...) order
@@ -351,9 +349,8 @@ def _matches_map(map_id, map_name: str, name: str) -> bool:
 
 
 def _steal_skill_bonus(member) -> int:
-    """StealDisarmFail's class bonus (UltimaMisc.c:513-521): +0x80 Thief,
-    +0x40 Barbarian/Illusionist/Ranger; not the Alchemist (user ruling
-    2026-11-14; LW adds it -- ledger ask row)."""
+    """StealDisarmFail's class bonus (UltimaMisc.c:513-523): +0x80 Thief,
+    +0x40 Barbarian/Illusionist/Ranger/Alchemist (ledger C-27)."""
     if getattr(member, "profession", None) == Profession.THIEF:
         return 0x80
     if getattr(member, "profession", None) in _STEAL_PLUS_64:
