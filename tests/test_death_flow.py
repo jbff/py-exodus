@@ -86,14 +86,21 @@ def test_apply_damage_kills_member():
     assert member.status == Status.DEAD
 
 
-def test_apply_damage_exact_zero_hp_stays_alive():
-    """Java: newHp == 0 is not death — only newHp < 0 sets DEAD."""
+def test_apply_damage_exact_zero_hp_is_dead():
+    """LairWare HPSubtract (UltimaMain.c:3254, `if (hp < 1)`): newHp == 0 is
+    death too (user ruling Q18; Java killed only below 0). 1 HP lives."""
     member = PartyMember(
         Character("Hero", "M", Race.HUMAN, Profession.FIGHTER, hp=5, max_hp=100)
     )
     member.apply_damage(5)
     assert member.hp == 0
-    assert member.status != Status.DEAD
+    assert member.status == Status.DEAD
+    survivor = PartyMember(
+        Character("Hero", "M", Race.HUMAN, Profession.FIGHTER, hp=5, max_hp=100)
+    )
+    survivor.apply_damage(4)
+    assert survivor.hp == 1
+    assert survivor.status == Status.GOOD
 
 
 def test_apply_damage_raises_on_party_wipe():
@@ -706,9 +713,10 @@ def test_combat_defeat_transitions_to_start_screen_without_revival(sm, asset_mgr
     assert all(m.status == Status.DEAD for m in party.members)
 
 
-def test_combat_exact_zero_hp_stays_in_fight_and_subsequent_hit_ends_game(sm, asset_mgr):
-    """Exact 0 HP stays alive (0-hp-GOOD convention); only < 0 HP kills and
-    routes combat defeat to StartScreen game over (Item 46)."""
+def test_combat_one_hp_stays_in_fight_and_hit_to_zero_ends_game(sm, asset_mgr):
+    """1 HP stays alive; a blow to 0 HP kills (LairWare HPSubtract `hp < 1`,
+    UltimaMain.c:3254, user ruling Q18) and routes combat defeat to
+    StartScreen game over (Item 46)."""
     from py_exodus.screens.start import StartScreen
     from py_exodus.world.loader import MapLoader
 
@@ -726,10 +734,10 @@ def test_combat_exact_zero_hp_stays_in_fight_and_subsequent_hit_ends_game(sm, as
     )
     sm.push_screen(combat)
 
-    member.apply_damage(5, combat_related_damage=True)
+    member.apply_damage(4, combat_related_damage=True)
     combat.arena._evaluate_party_status()
 
-    assert member.hp == 0
+    assert member.hp == 1
     assert not member.is_dead()
     assert not combat.arena.is_finished
     assert not combat.arena.is_defeat

@@ -150,8 +150,9 @@ def test_acid_trap_damages_opener(monkeypatch):
     assert other.hp == 100  # acid hits only the opening member
 
 
-def test_apply_fire_lava_exact_zero_hp_stays_alive(monkeypatch):
-    """Item 45: _apply_fire_lava routes through apply_damage, so exact 0 HP stays GOOD."""
+def test_apply_fire_lava_exact_zero_hp_is_dead(monkeypatch):
+    """Item 45: _apply_fire_lava routes through apply_damage, so exact 0 HP
+    is dead (LairWare HPSubtract `hp < 1`, UltimaMain.c:3254; user ruling Q18)."""
     member = make_member("Fighter", hp=21, max_hp=100)
     make_party([member])
     # 21 & 0x37 == 21 exact damage
@@ -160,8 +161,8 @@ def test_apply_fire_lava_exact_zero_hp_stays_alive(monkeypatch):
     chests._apply_fire_lava(member)
 
     assert member.hp == 0
-    assert member.status == Status.GOOD
-    assert not member.is_dead()
+    assert member.status == Status.DEAD
+    assert member.is_dead()
 
 
 def test_apply_fire_lava_below_zero_kills_without_raising_out_of_open_chest(monkeypatch):

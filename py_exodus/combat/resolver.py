@@ -453,7 +453,7 @@ def _deal_monster_damage_to_member(target_player: Any, damage: int) -> bool:
     if callable(apply_damage):
         return bool(apply_damage(damage, True))
     new_hp = target_player.hp - damage
-    if new_hp < 0:
+    if new_hp < 1:  # LairWare HPSubtract (UltimaMain.c:3254): hp < 1 is dead
         target_player.status = Status.DEAD
         new_hp = 0
     target_player.hp = new_hp

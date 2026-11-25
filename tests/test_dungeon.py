@@ -722,11 +722,14 @@ def test_generic_mark_x0_is_force_on_every_level(empty_dmap, test_party):
         assert m.marks[3] == 1, f"level {z}: marks={m.marks}"
 
 
-def test_touch_mark_exact_zero_hp_stays_alive(empty_dmap):
-    """Item 45: touch_mark routes damage through apply_damage, so exact 0 HP stays GOOD."""
+def test_touch_mark_exact_zero_hp_is_dead(empty_dmap):
+    """Item 45: touch_mark routes damage through apply_damage, so exact 0 HP
+    is dead (LairWare HPSubtract `hp < 1`, UltimaMain.c:3254; user ruling Q18)."""
     party = Party(food=200, gold=100)
     c = Character("Hero", "M", Race.HUMAN, Profession.FIGHTER, hp=50, max_hp=100)
     party.add_member(c)
+    # A second member lives, so the death is not a party wipe.
+    party.add_member(Character("Two", "M", Race.HUMAN, Profession.FIGHTER, hp=50, max_hp=100))
     empty_dmap.set_tile(5, 5, 0, DungeonTile.MARK_KINGS)
     state = DungeonState(empty_dmap, start_x=5, start_y=5, start_z=0, party=party)
 
@@ -735,8 +738,8 @@ def test_touch_mark_exact_zero_hp_stays_alive(empty_dmap):
     assert ev.type == DungeonEventType.MARK
     assert party.members[0].marks[0] == 1
     assert party.members[0].hp == 0
-    assert party.members[0].status == Status.GOOD
-    assert not party.members[0].is_dead()
+    assert party.members[0].status == Status.DEAD
+    assert party.members[0].is_dead()
 
 
 def test_touch_mark_kills_solo_below_zero_raises_party_death(empty_dmap):

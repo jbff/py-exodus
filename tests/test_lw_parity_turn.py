@@ -409,3 +409,51 @@ def test_validdir_lava_spares_ashes(overworld):
     assert party.members[0].hp == 150
     assert ash.status == Status.ASHES
     assert ash.hp == 0
+
+
+def test_hpsubtract_exactly_zero_hp_is_dead():
+    """UltimaMain.c:3250-3258 (HPSubtract), user ruling Q18 (follow LairWare):
+
+        hp -= amount;
+        if (hp < 1) {
+            Player[rosNum][26] = 0;
+            Player[rosNum][27] = 0;
+            Player[rosNum][17] = 'D';
+
+    A blow that leaves a member at exactly 0 HP kills them (the port, after
+    Java, killed only below 0). One that leaves 1 HP does not. Both the
+    party chokepoint and the combat fallback for bare characters follow it.
+    """
+    from py_exodus.combat.resolver import _deal_monster_damage_to_member
+
+    party = Party()
+    party.add_member(_member("A", hp=20))
+    party.add_member(_member("B", hp=20))
+    a, b = party.members
+    a.apply_damage(20, True)
+    assert a.hp == 0 and a.status == Status.DEAD
+    b.apply_damage(19, True)
+    assert b.hp == 1 and b.status == Status.GOOD
+
+    bare = _member("C", hp=7)
+    _deal_monster_damage_to_member(bare, 7)
+    assert bare.hp == 0 and bare.status == Status.DEAD
+
+
+def test_hpsubtract_raised_member_at_zero_hp_lives_until_hit():
+    """UltimaMisc.c:1766-1767 (healer resurrection) and
+    UltimaSpellCombat.c:353 (Surmandum) set only 'D' -> 'G': the member
+    is raised with the 0 HP they died with and counts as alive (CheckAlive
+    reads the status byte), so they can walk, act and be healed. The next
+    HPSubtract on them, even for 0, finds ``hp < 1`` and kills them again
+    (UltimaMain.c:3254-3258)."""
+    party = Party()
+    party.add_member(_member("A", hp=0, status=Status.DEAD))
+    party.add_member(_member("B", hp=50))
+    a = party.members[0]
+    assert a.heal("RESURRECT")
+    assert a.status == Status.GOOD and a.hp == 0
+    assert not a.is_dead() and not a.is_disabled()
+    assert party.is_anyone_alive()
+    a.apply_damage(0, True)
+    assert a.status == Status.DEAD

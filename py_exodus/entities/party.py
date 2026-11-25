@@ -72,15 +72,16 @@ class PartyMember:
             setattr(self.character, name, value)
 
     def apply_damage(self, damage: int, combat_related_damage: bool = False) -> bool:
-        """Apply damage to this member; DEAD only when damage drives hp below 0.
+        """Apply damage to this member; DEAD when damage leaves hp below 1.
 
         Java truth: ``exodus/Party.java:556-577`` ``PartyMember.applyDamage``.
         This is the single damage-application chokepoint for the party death
         flow — Tasks 5 (tick engine), 6, 12, and 13 must route every direct
         damage path (starvation, tile effects, traps, monster attacks,
         spells) through it. A member whose hp is driven below 0 by damage is
-        set DEAD with hp clamped to 0 — exactly 0 hp after a blow stays
-        alive (Java: ``if (newHp < 0)``). A non-combat blow that leaves the
+        set DEAD with hp clamped to 0 — exactly 0 hp after a blow is dead too
+        (LairWare HPSubtract ``if (hp < 1)``; Java's ``newHp < 0`` let it
+        live). A non-combat blow that leaves the
         whole party dead raises ``PartyDeathException`` (only when the member
         belongs to an owned ``Party``); the screen that applied the damage
         catches it and calls ``BaseScreen.check_party_death()`` to route to
@@ -100,7 +101,10 @@ class PartyMember:
             return False
 
         new_hp = self.hp - damage
-        if new_hp < 0:
+        # LairWare HPSubtract (UltimaMain.c:3250-3258): `if (hp < 1)` the
+        # member is dead, so a blow to exactly 0 kills (Java: < 0). User
+        # ruling Q18. A member raised at 0 HP is alive until the next blow.
+        if new_hp < 1:
             self.status = Status.DEAD
             new_hp = 0
         self.hp = new_hp
