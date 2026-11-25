@@ -171,3 +171,54 @@ def test_grey_guild_reached_with_the_thief_near_its_counter():
         assert sum(m.torches for m in p.members) > 0, (ts.avatar_x, ts.avatar_y)
     finally:
         random.setstate(rng)
+
+
+def test_moon_healer_stand_skips_a_spot_someone_stands_on():
+    """Live trace 2026-11-25 (steps 13451-21645): two members dead, the
+    party entered Moon for the healer, took two steps and walked out, about
+    8000 steps in a row. The healer follows the party along his counter
+    to (48,52); the spot facing him across it, (48,50), is a fixed
+    townsperson's tile, so no route reached it and autoplay left. A
+    counter spot someone stands on is never the stand."""
+    pygame.init()
+    gm = TownScreen(party=batch.build_party(), asset_mgr=batch._assets(),
+                    map_id=5, start_x=1, start_y=32).game_map
+    healer = next(n for n in gm.npcs if (n.x, n.y) == (50, 52))
+    healer.x = 48
+    assert any((n.x, n.y) == (48, 50) for n in gm.npcs)  # the fixed cleric
+    spot = AutoPlayController._shop_spot(gm, (3, 32), (50, 50))
+    assert spot != (48, 50)
+    assert not any((n.x, n.y) == spot for n in gm.npcs)
+
+
+def test_moon_resurrection_trip_does_not_walk_back_out():
+    """The same trace end to end: a party with two dead members at Moon's
+    gate keeps heading for the healer instead of leaving after two steps."""
+    from py_exodus.constants import Status
+    from py_exodus.screens.overworld import OverworldScreen
+    from py_exodus.world import portal_entry
+
+    pygame.init()
+    rng = random.getstate()
+    random.seed(1)
+    try:
+        p = batch.build_party()
+        for m, hp in zip(p.members, (550, 550, 0, 0)):
+            m.level, m.max_hp, m.hp, m.food, m.gold = 5, 550, hp, 300, 515
+        p.members[2].status = p.members[3].status = Status.DEAD
+        am = batch._assets()
+        sm = StateMachine(asset_mgr=am, audio=None)
+        sm.set_screen(OverworldScreen(party=p, asset_mgr=am))
+        p.x, p.y = 6, 13
+        assert portal_entry.enter_portal(sm.current_screen, 6, 13)
+        sm.update(batch.FRAME_DT)
+        ctrl = AutoPlayController(enabled=True)
+        sm.autoplay_enabled = True
+        for _ in range(12):
+            ctrl.step(sm)
+            for _ in range(3):
+                sm.update(0.1)
+            assert isinstance(sm.current_screen, TownScreen), "walked out of Moon"
+        assert sm.current_screen.avatar_x > 5
+    finally:
+        random.setstate(rng)

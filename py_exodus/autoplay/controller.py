@@ -1056,8 +1056,18 @@ class AutoPlayController:
                     self._food_shop_target = None
 
         if map_id in _HEALER_TOWNS and goal in (Goal.RESURRECT_DEAD, Goal.CURE_POISON):
-            _, _, healer_xy = _HEALER_TOWNS[map_id]
-            healer_xy = self._shop_spot(gmap, (px, py), healer_xy)
+            _, _, healer_stand = _HEALER_TOWNS[map_id]
+            healer_xy = self._shop_spot(gmap, (px, py), healer_stand)
+            if healer_xy != healer_stand and find_2d_step(
+                gmap, (px, py), healer_xy, Transport.FOOT, party=party, avoid_tiles=npc_tiles,
+            ) is None:
+                # The healer follows the party along his counter; a spot
+                # facing him can be a nook no route reaches (Moon's (47,50),
+                # behind a fixed cleric). Go to his stand and let him come
+                # (trace 2026-11-25: Moon entered and left ~8000 steps).
+                healer_xy = healer_stand
+                if (px, py) == healer_stand:
+                    return self._emit_key(state_machine, pygame.K_SPACE)
             living = [(i + 1, m) for i, m in enumerate(party.members) if not m.is_dead()]
             if goal == Goal.RESURRECT_DEAD:
                 patient = next(
@@ -3159,6 +3169,11 @@ class AutoPlayController:
                 if not is_sign(x + dx, y + dy):
                     break  # end of this counter
                 if (x + 2 * dx, y + 2 * dy) in merchants:
+                    if (x, y) in anyone and (x, y) != tuple(pos):
+                        # Someone stands on this spot (Moon's fixed cleric
+                        # at (48,50)): no route reaches it, and autoplay
+                        # left town and came back forever (trace 2026-11-25).
+                        break
                     if best is None or (
                         abs(x - pos[0]) + abs(y - pos[1]) < abs(best[0] - pos[0]) + abs(best[1] - pos[1])
                     ):
