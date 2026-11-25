@@ -2126,3 +2126,93 @@ def test_autoplay_does_not_light_a_torch_on_the_strange_wind(pygame_setup, monke
     ctrl._step_dungeon(sm, ds)
     assert keys and keys[-1] not in (pygame.K_i, pygame.K_c)
     assert sum(m.torches for m in party.members) == torches
+
+
+# --- The red-hot rod only when it's safe (user 2026-11-25) -----------------------
+#
+# LairWare dungeonmech case 5 (UltimaDngn.c:300-318): the member who touches
+# the rod gets the mark and ``HPSubtract(chnum, 50)``. Autoplay touches only
+# with a member left at half health or better after the burn
+# (hp - 50 >= max_hp // 2); a Cleric/Druid (or Paladin, for Sanctu) heals a
+# member who falls short first; with no safe member and no heal it steps off
+# and leaves the mark for later (rest first, then come back).
+
+
+def _rod_setup(monkeypatch, hps, cleric_mp=0):
+    from py_exodus.autoplay import batch
+    from py_exodus.autoplay import controller as ctl
+    from py_exodus.world.map import DungeonTile
+
+    party = batch.build_party()
+    for m, hp in zip(party.members, hps):
+        m.food = 300
+        m.max_hp = 400
+        m.hp = hp
+        m.mp = 0
+    party.members[2].max_mp = 99
+    party.members[2].mp = cleric_mp
+    ds, dmap = _room_dungeon(party, x=5, y=2)
+    dmap.set_tile(5, 2, 0, DungeonTile.MARK_FIRE)  # 5 & 3 == 1: Fire
+    ds.state.random_encounters_enabled = False
+    monkeypatch.setattr(ctl, "evaluate_goal", lambda *_a, **_k: Goal.GET_REMAINING_MARKS)
+    sm = StateMachine(asset_mgr=None, audio=None)
+    sm.set_screen(ds)
+    ctrl = AutoPlayController(enabled=True)
+    return party, ds, sm, ctrl
+
+
+def _run_rod(party, ds, sm, ctrl, steps):
+    """Step autoplay; return (positions, burns) where a burn records the
+    member's HP just before the rod marked it."""
+    positions, burns = [], []
+    for _ in range(steps):
+        before = [(m.marks[1], m.hp) for m in party.members]
+        ctrl.step(sm)
+        positions.append((ds.state.x, ds.state.y, ds.state.z))
+        for m, (mark, hp) in zip(party.members, before):
+            if m.marks[1] and not mark:
+                burns.append((m.name, hp, m.max_hp))
+    return positions, burns
+
+
+def test_autoplay_never_burns_a_member_below_half_health(pygame_setup, monkeypatch):
+    """Safe members are touched; the one at 240/400 (190 after the burn,
+    under half) is not, with no healer's MP to fix it."""
+    party, ds, sm, ctrl = _rod_setup(monkeypatch, [400, 400, 400, 240])
+    _, burns = _run_rod(party, ds, sm, ctrl, 40)
+    assert all(hp - 50 >= mx // 2 for _n, hp, mx in burns), burns
+    assert [m.marks[1] > 0 for m in party.members] == [True, True, True, False]
+    assert party.members[3].hp == 240
+
+
+def test_autoplay_steps_off_an_unsafe_rod_and_does_not_come_back(pygame_setup, monkeypatch):
+    """No safe member and no heal: leave the rod and carry on, without
+    stepping back on to be refused again (no loop)."""
+    party, ds, sm, ctrl = _rod_setup(monkeypatch, [120, 120, 120, 120])
+    positions, burns = _run_rod(party, ds, sm, ctrl, 30)
+    assert burns == []
+    assert positions[-1] != (5, 2, 0)
+    first_off = next(i for i, p in enumerate(positions) if p != (5, 2, 0))
+    assert (5, 2, 0) not in positions[first_off:]
+    assert [m.hp for m in party.members] == [120, 120, 120, 120]
+
+
+def test_autoplay_heals_with_sanctu_then_touches(pygame_setup, monkeypatch):
+    """A Cleric with the MP heals the short member first (Sanctu, C), then
+    the member touches; nobody is ever burnt below half."""
+    import random
+
+    random.seed(7)
+    party, ds, sm, ctrl = _rod_setup(monkeypatch, [400, 400, 400, 240], cleric_mp=40)
+    _, burns = _run_rod(party, ds, sm, ctrl, 60)
+    assert all(hp - 50 >= mx // 2 for _n, hp, mx in burns), burns
+    assert all(m.marks[1] for m in party.members)
+    assert any("casts Sanctu!" in line for line in ds.text_log.history)
+
+
+def test_autoplay_uses_sanctu_mani_for_a_big_gap(pygame_setup, monkeypatch):
+    """A big gap (over Sanctu's 30) with 50 MP: Sanctu Mani (K) first."""
+    party, ds, sm, ctrl = _rod_setup(monkeypatch, [400, 400, 400, 100], cleric_mp=60)
+    _, burns = _run_rod(party, ds, sm, ctrl, 60)
+    assert any("casts Sanctu Mani!" in line for line in ds.text_log.history)
+    assert all(hp - 50 >= mx // 2 for _n, hp, mx in burns), burns

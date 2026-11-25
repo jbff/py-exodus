@@ -6,7 +6,7 @@ import sys
 import random
 from collections import deque
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pygame
 
@@ -522,13 +522,11 @@ class AutoPlayController:
             DungeonTile.MARK_FORCE: 3,
         }
         cur_tile = getattr(screen.state, "current_tile", None)
-        need_idx = None
-        if cur_tile in mark_map:
-            mark_idx = mark_map[cur_tile]
-            need_idx = next(
-                (i + 1 for i, m in enumerate(party.members) if not m.is_dead() and m.marks[mark_idx] == 0),
-                None,
-            )
+        # On a mark: touch it with a member who is safe to burn, heal one
+        # first, or (neither) step off. ``rod`` is None off a mark or when
+        # nobody living needs this one.
+        rod = self._rod_plan(party, mark_map[cur_tile]) if cur_tile in mark_map else None
+        need_idx = rod[1] if rod is not None and rod[0] == "touch" else None
 
         if screen.text_log.is_waiting_for_input:
             # LairWare dungeonmech (UltimaDngn.c:300-318, ledger D-12): every
@@ -547,6 +545,11 @@ class AutoPlayController:
         # rod asks again (S is not a dungeon command, UltimaDngn.c:152).
         if need_idx is not None:
             return self._emit_key(state_machine, pygame.K_SPACE)
+        # A member who needs the mark but would be left under half health:
+        # heal on the spot first (the rod asks again after the cast).
+        if rod is not None and rod[0] == "heal":
+            self._queue_text(rod[1], enter=False)
+            return self._emit_key(state_machine, pygame.K_c)
 
         # A chest underfoot: open it the safe way (APPAR UNEM, or G with no
         # caster alive in a party strong enough for a trap). Never waits for
@@ -580,17 +583,24 @@ class AutoPlayController:
                 self._queue_text(f"{cleric[0]}d", enter=False)
                 return self._emit_key(state_machine, pygame.K_c)
 
+        # A mark nobody can touch safely and no heal can fix is not walked
+        # to (or back onto): the party leaves, rests (an unsafe member is
+        # always under needs_heal's 85%, since max HP >= 150) and returns.
+        def _reachable(mark_idx: int) -> bool:
+            plan = self._rod_plan(party, mark_idx)
+            return plan is not None and plan[0] != "off"
+
         target_tiles: set[tuple[int, int, int]] = set()
         if goal == Goal.GET_MARK_KINGS:
-            target_tiles = self._find_dungeon_tiles(dmap, {DungeonTile.MARK_KINGS})
+            if _reachable(0):
+                target_tiles = self._find_dungeon_tiles(dmap, {DungeonTile.MARK_KINGS})
         elif goal == Goal.GET_REMAINING_MARKS:
             wanted: set[DungeonTile] = set()
-            living = [m for m in party.members if not m.is_dead()]
-            if not all(m.marks[1] > 0 for m in living):
+            if _reachable(1):
                 wanted.add(DungeonTile.MARK_FIRE)
-            if not all(m.marks[2] > 0 for m in living):
+            if _reachable(2):
                 wanted.add(DungeonTile.MARK_SNAKE)
-            if not all(m.marks[3] > 0 for m in living):
+            if _reachable(3):
                 wanted.add(DungeonTile.MARK_FORCE)
             if wanted:
                 target_tiles = self._find_dungeon_tiles(dmap, wanted)
@@ -3325,6 +3335,44 @@ class AutoPlayController:
         prof = party.members[idx - 1].profession
         book = "c" if len(get_castable_spell_types(prof)) > 1 else ""
         return f"{idx}{book}{rest}"
+
+    # LairWare dungeonmech case 5 (UltimaDngn.c:300-318): the rod burns
+    # ``HPSubtract(chnum, 50)``.
+    _ROD_BURN = 50
+
+    @classmethod
+    def _rod_safe(cls, m) -> bool:
+        """Safe to touch the rod: half health or better after the burn
+        (user 2026-11-25)."""
+        return not m.is_dead() and m.hp - cls._ROD_BURN >= m.max_hp // 2
+
+    @classmethod
+    def _rod_plan(cls, party, mark_idx: int) -> tuple[str, Any] | None:
+        """What to do about the rod of mark ``mark_idx``.
+
+        ``("touch", n)``: member n (1-based) needs it and is safe to burn.
+        ``("heal", keys)``: none is safe; a Cleric or Druid (Sanctu Mani, K,
+        50 MP, for a gap over Sanctu's 30) or a Cleric, Druid or Paladin
+        (Sanctu, C, 10 MP) heals the needer closest to safe first.
+        ``("off", None)``: none is safe and nobody has the MP to heal.
+        None: no living member needs this mark."""
+        needers = [
+            (i + 1, m) for i, m in enumerate(party.members) if not m.is_dead() and m.marks[mark_idx] == 0
+        ]
+        if not needers:
+            return None
+        for n, m in needers:
+            if cls._rod_safe(m):
+                return ("touch", n)
+        n, m = min(needers, key=lambda nm: nm[1].max_hp // 2 + cls._ROD_BURN - nm[1].hp)
+        gap = m.max_hp // 2 + cls._ROD_BURN - m.hp
+        mani = cls._find_caster(party, (Profession.CLERIC, Profession.DRUID), min_mp=50)
+        if gap > 30 and mani is not None:
+            return ("heal", cls._cleric_cast(party, mani[0], f"k{n}"))
+        sanctu = cls._find_caster(party, (Profession.CLERIC, Profession.DRUID, Profession.PALADIN), min_mp=10)
+        if sanctu is not None:
+            return ("heal", cls._cleric_cast(party, sanctu[0], f"c{n}"))
+        return ("off", None)
 
     @staticmethod
     def _find_caster(
