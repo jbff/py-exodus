@@ -54,7 +54,7 @@ def _dungeon(am, party, map_id: int, at: tuple[int, int, int]):
     random.seed(7)
     dmap = load_map(map_id, am)
     sm = StateMachine(asset_mgr=am, audio=None)
-    ds = DungeonScreen(party=party, dungeon_map=dmap, asset_mgr=am)
+    ds = DungeonScreen(party=party, dungeon_map=dmap, asset_mgr=am, map_id=map_id)
     ds.state.random_encounters_enabled = False
     ds.state.rng.seed(7)
     ds.state.x, ds.state.y, ds.state.z = at
@@ -567,6 +567,7 @@ def test_poisoned_party_cures_instead_of_pacing_to_a_heal_fountain(am):
 def test_poison_cured_by_alcort_when_the_cleric_has_35_mp(am):
     party = _party(marks=(1, 1, 0, 0))
     party.members[0].status = Status.POISONED
+    party.members[0].hp = 300  # dire: need(z 4) at 950 max HP is 336
     party.members[2].mp = 35
     sm, ds = _dungeon(am, party, FIRE, (1, 4, 4))
     ds.state.torchtime = 255
@@ -635,19 +636,87 @@ def test_a_turning_back_poisoned_party_never_goes_down_for_a_cure(am):
     assert all(m.status == Status.GOOD for m in party.members)
 
 
-def test_a_cure_trip_down_a_ladder_waits_for_the_healers_mp(am):
-    """Review #2: poisoned on Snake z 0 with z 0's cure fountain gone, on
-    the ladder down (11, 11), the Cleric at 5 MP: the walk to a cure below
-    waits on the ladder for the healer's MP like any descent."""
+def test_a_fountain_trip_down_a_ladder_waits_for_the_healers_mp(am):
+    """Review #2: under the bar on Fires of Hell z 0, on the ladder down
+    (11, 11), the heal fountain one level down (13, 5, 1), the Cleric at 5
+    MP: the walk to the fountain waits on the ladder for the healer's MP
+    like any descent. (A cure trip never goes down any more: poison is
+    dire only under this level's bar, which is under the next level's.)"""
     party = _party(marks=(1, 1, 0, 1))
-    party.members[0].status = Status.POISONED
+    party.members[0].hp = 200  # need(z 0) at 950 max HP is 240
     party.members[2].mp = 5
-    sm, ds = _dungeon(am, party, SNAKE, (11, 11, 0))
-    ds.state.dmap.set_tile(3, 3, 0, DungeonTile.NOTHING)  # z 0's cure gone
+    sm, ds = _dungeon(am, party, FIRE, (11, 11, 0))
     ds.state.torchtime = 255
     ctrl = AutoPlayController(enabled=True)
     for _ in range(3):
         assert ctrl.step(sm) == pygame.K_SPACE and ds.state.z == 0
+
+
+# --- Poison carried until dire (user ruling 2026-11-25) -----------------------
+
+
+def _poisoned_at_z4(hp: int, mp: int):
+    party = _party(marks=(1, 1, 0, 0))
+    for m in party.members:
+        m.status = Status.POISONED
+        m.hp = hp
+    party.members[2].mp = mp
+    return party
+
+
+def test_a_poisoned_party_at_high_hp_keeps_heading_for_the_mark(am):
+    """Fires of Hell z 4, everyone poisoned at full HP, the Cleric with
+    ALCORT's 35 MP and more: no ALCORT and no cure trip; it walks on to
+    Force (4, 10, 7) still poisoned. (Its way there climbs to z 0 and
+    passes the cure fountain (3, 4, 0) within reach, a detour it would
+    take, so that one is removed here.)"""
+    party = _poisoned_at_z4(950, 60)
+    sm, ds = _dungeon(am, party, FIRE, (1, 4, 4))
+    ds.state.dmap.set_tile(3, 4, 0, DungeonTile.NOTHING)
+    ds.state.torchtime = 255
+    ctrl = AutoPlayController(enabled=True)
+    for _ in range(500):
+        ctrl.step(sm)
+        ds.state.torchtime = 255
+        if (ds.state.x, ds.state.y, ds.state.z) == (4, 10, 7):
+            break
+    assert (ds.state.x, ds.state.y, ds.state.z) == (4, 10, 7)
+    assert all(m.status == Status.POISONED for m in party.members)
+    assert party.members[2].mp == 60
+
+
+def test_a_poisoned_party_under_the_bar_goes_to_a_cure(am):
+    """The same party under z 4's bar (336 at 950 max HP), the Cleric dry:
+    the nearest cure at or above z 4 (no heal fountain left on z 4)."""
+    party = _poisoned_at_z4(300, 0)
+    sm, ds = _dungeon(am, party, FIRE, (1, 4, 4))
+    for xy in ((1, 1), (9, 9)):
+        ds.state.dmap.set_tile(*xy, 4, DungeonTile.NOTHING)
+    ds.state.torchtime = 255
+    ctrl = AutoPlayController(enabled=True)
+    for _ in range(400):
+        ctrl.step(sm)
+        ds.state.torchtime = 255
+        if all(m.status == Status.GOOD for m in party.members):
+            break
+    assert all(m.status == Status.GOOD for m in party.members)
+
+
+def test_a_cure_fountain_two_steps_off_the_route_gets_used(am):
+    """Poison not yet dire, a cure fountain two moves away (2, 3, 4): the
+    party detours to it and every member drinks."""
+    party = _poisoned_at_z4(950, 0)
+    sm, ds = _dungeon(am, party, FIRE, (1, 4, 4))
+    ds.state.dmap.set_tile(2, 3, 4, DungeonTile.FOUNTAIN_CURE)
+    ds.state.torchtime = 255
+    ctrl = AutoPlayController(enabled=True)
+    for _ in range(40):
+        ctrl.step(sm)
+        ds.state.torchtime = 255
+        if all(m.status == Status.GOOD for m in party.members):
+            break
+    assert all(m.status == Status.GOOD for m in party.members)
+    assert ds.state.z == 4
 
 
 # --- Live stall 2026-11-25: light spells during the ladder MP wait ------------

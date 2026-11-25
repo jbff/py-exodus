@@ -22,6 +22,7 @@ from py_exodus.entities.party import headwind, objects_on
 from py_exodus.autoplay.nav import (
     find_2d_step,
     find_2d_step_and_cost,
+    dungeon_tiles_within,
     find_dungeon_step,
     locked_door_passable,
     reachable_2d,
@@ -664,7 +665,7 @@ class AutoPlayController:
             (i + 1 for i, m in enumerate(party.members) if not m.is_dead() and m.status == Status.POISONED),
             None,
         )
-        if poisoned is not None:
+        if poisoned is not None and self._poison_dire(party, screen.state.z):
             alcort = self._find_caster(party, (Profession.CLERIC, Profession.DRUID), min_mp=35)
             if alcort is not None:
                 self._queue_text(self._cleric_cast(party, alcort[0], f"h{poisoned}"), enter=False)
@@ -675,7 +676,9 @@ class AutoPlayController:
         # before leaving: free, and no MP spent (autoplay round 1, item 1).
         # Not while anyone starves (that leaves at once, below).
         if not any(not m.is_dead() and m.food <= 0 for m in party.members):
-            fountains = self._fountain_goals(party, dmap, screen.state.z)
+            fountains = self._fountain_goals(
+                party, dmap, screen.state.z, (screen.state.x, screen.state.y)
+            )
             here = (screen.state.x, screen.state.y, screen.state.z)
             if here in fountains and self._fountain_drinker(party, cur_tile) is not None:
                 # On it with someone to drink: a pass, and the fixture asks.
@@ -3678,6 +3681,24 @@ class AutoPlayController:
     # Fountains this many levels up or down count as near (item 1).
     _FOUNTAIN_LEVELS = 1
 
+    # A cure fountain this many moves away (same level) is used for poison
+    # that isn't dire yet: at most 4 out and 4 back, under a dozen turns
+    # with the turns, no MP and no ladder; any further and the poison is
+    # carried (user ruling 2026-11-25).
+    _CURE_DETOUR = 4
+
+    @staticmethod
+    def _poison_dire(party, z: int) -> bool:
+        """A poisoned living member is under item 5's bar for this level
+        (dungeon_hp_need): only then is poison worth a cure trip or an
+        ALCORT (user ruling 2026-11-25: a poisoned party walked back to a
+        cure fountain every time and was poisoned again, many round trips
+        in the Fires of Hell)."""
+        return any(
+            not m.is_dead() and m.status == Status.POISONED and m.hp < dungeon_hp_need(m, z)
+            for m in party.members
+        )
+
     @staticmethod
     def _fountain_drinker(party, tile) -> int | None:
         """Who drinks (1-based) from the fountain ``tile``, or None.
@@ -3723,7 +3744,9 @@ class AutoPlayController:
             return self._cleric_cast(party, sanctu[0], f"c{n}")
         return None
 
-    def _fountain_goals(self, party, dmap, z: int) -> set[tuple[int, int, int]]:
+    def _fountain_goals(
+        self, party, dmap, z: int, xy: tuple[int, int] | None = None
+    ) -> set[tuple[int, int, int]]:
         """Fountains worth walking to (the loader types each by x & 3, so
         autoplay knows them all).
 
@@ -3734,7 +3757,9 @@ class AutoPlayController:
 
         Poison wants a CURE fountain: a heal fountain never cures (live
         trace 2026-11-25, trace_20261125-173226: a poisoned party at 97%
-        walked to and from a heal fountain for ~5,000 steps). The route
+        walked to and from a heal fountain for ~5,000 steps). Poison is
+        carried until dire (_poison_dire): before that only a cure fountain
+        within _CURE_DETOUR moves on this level counts. Once dire the route
         search takes the nearest by steps, ladders counted, on any level,
         except while turning back or under the bar for the next level down
         (item 5): then only cure fountains on this level or above, so a
@@ -3751,6 +3776,12 @@ class AutoPlayController:
         if not any(m.status == Status.POISONED for m in living):
             return set()
         cure = self._find_dungeon_tiles(dmap, {DungeonTile.FOUNTAIN_CURE})
+        if not self._poison_dire(party, z):
+            # Poison is carried until dire (user ruling 2026-11-25): only a
+            # cure fountain a few steps away, nearly free, is worth it.
+            if xy is None:
+                return set()
+            return cure & dungeon_tiles_within(dmap, xy[0], xy[1], z, self._CURE_DETOUR)
         weak = self._retreating or any(
             not m.is_dead() and m.hp < dungeon_hp_need(m, z + 1) for m in party.members
         )

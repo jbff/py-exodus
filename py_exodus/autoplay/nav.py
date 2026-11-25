@@ -405,3 +405,21 @@ def _find_dungeon_step_weighted(
                 order += 1
                 heapq.heappush(heap, (ncost, order, nx, ny, nz, nfacing, first_key if first_key is not None else key))
     return None
+
+
+def dungeon_tiles_within(dmap: DungeonMap, x: int, y: int, z: int, steps: int) -> set[tuple[int, int, int]]:
+    """Tiles on level z that ``steps`` or fewer moves reach from (x, y),
+    walls respected, no ladders (a detour budget, not a route)."""
+    seen = {(x, y)}
+    frontier = [(x, y)]
+    for _ in range(steps):
+        nxt = []
+        for cx, cy in frontier:
+            for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+                n = ((cx + dx) % dmap.width, (cy + dy) % dmap.height)
+                if n in seen or dmap.get_tile(n[0], n[1], z) in _BLOCKED_DUNGEON_TILES:
+                    continue
+                seen.add(n)
+                nxt.append(n)
+        frontier = nxt
+    return {(tx, ty, z) for tx, ty in seen}
