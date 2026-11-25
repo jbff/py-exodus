@@ -569,8 +569,9 @@ class OverworldScreen(BaseScreen):
         leaves its ship (AttackCode, UltimaMain.c:1355-1357) — the only way
         off Ambrosia (the whirlpool takes only a ship). The port loaded them
         as frozen town people (Ambrosia is a "city" map in maps.xml); they
-        move to the creature list here. Horse and jester keep the port's
-        creature definitions (non-attacking).
+        move to the creature list here. The horses and the jester carry 0xC0
+        too, so they hunt and fight like the rest ("hunts" overrides their
+        creatures.xml wontattack; user ruling Q29).
         """
         if self.game_map is None:
             return
@@ -587,6 +588,9 @@ class OverworldScreen(BaseScreen):
                 "tile": key,
                 "x": npc.x,
                 "y": npc.y,
+                # MONS 421 control byte 0xC0 for every entry (UltimaMisc.c:
+                # 1276-1330 goto moveoutside): close in and attack.
+                "hunts": True,
             })
         self.game_map.npcs = keep
 
@@ -2025,7 +2029,7 @@ class OverworldScreen(BaseScreen):
             )
             wontattack = (
                 cr_def.wontattack if cr_def is not None else bool(c.get("wontattack"))
-            )
+            ) and not c.get("hunts")  # Ambrosia's 0xC0 horses/jester (Q29)
 
             # 1. Java despawns beyond MAX_CREATURE_DISTANCE; the original
             # keeps every monster on the map until it dies (USER-DIRECTED
@@ -2417,7 +2421,9 @@ class OverworldScreen(BaseScreen):
             return
 
         c_tile = creature_name.lower()
-        if c_tile not in ("orc", "skeleton", "giant", "thief", "daemon", "fighter", "wizard", "pincher", "dragon", "balron", "pirate", "serpent", "squid"):
+        # Ambrosia's horses and jester fight as themselves: AttackCode takes
+        # gMonType from the monster's tile (UltimaMain.c:1342; user ruling Q29).
+        if c_tile not in ("orc", "skeleton", "giant", "thief", "daemon", "fighter", "wizard", "pincher", "dragon", "balron", "pirate", "serpent", "squid", "horse", "jester"):
             c_tile = "orc"
 
         creature_x = int(creature.get("x", self.party.x)) if creature else self.party.x

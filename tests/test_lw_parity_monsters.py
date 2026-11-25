@@ -547,3 +547,44 @@ def test_resetsosaria_new_game_starts_with_no_monsters(pygame_setup, asset_mgr):
         random.seed(seed)
         ow = OverworldScreen(party=_party(), map_id=0, asset_mgr=asset_mgr, random_encounters=True)
         assert [c["tile_name"] for c in ow.creatures] == ["whirlpool"], seed
+
+
+# --- M-12 (user ruling Q29): Ambrosia's horses and jester hunt the party ------
+
+
+@pytest.mark.parametrize("tile", ["horse", "jester"])
+def test_movemonsters_ambrosia_horse_and_jester_hunt(pygame_setup, asset_mgr, monkeypatch, tile):
+    """Ambrosia's monster table (MAPS/MONS 421) gives every entry the control
+    byte 0xC0, the two horses (tile 10) and the jester (tile 17) included.
+    MoveMonsters (UltimaMisc.c:1276-1330) sends 0xC0 to ``goto moveoutside``:
+    the monster steps toward the party and a step onto it starts the fight
+    (AttackCode). User ruling Q29: follow LairWare (the port, after Java, let
+    them wander without ever attacking)."""
+    from py_exodus.screens.overworld import OverworldScreen
+
+    ow = OverworldScreen(party=_party(), map_id=13, asset_mgr=asset_mgr, random_encounters=False)
+    mon = next(c for c in ow.creatures if c["tile_name"] == tile)
+    ow.creatures = [mon]
+    ow.party.x, ow.party.y = mon["x"] + 1, mon["y"]
+    fights = []
+    monkeypatch.setattr(ow, "_trigger_combat", lambda name, c=None: fights.append(name))
+    ow._update_creatures()
+    assert fights == [tile]
+
+
+@pytest.mark.parametrize("tile", ["horse", "jester"])
+def test_attackcode_ambrosia_horse_and_jester_are_fought_as_themselves(pygame_setup, asset_mgr, tile):
+    """UltimaMain.c:1342 (AttackCode) sets gMonType from the monster's own
+    tile, and Combat (UltimaSpellCombat.c:864) fills the board with that
+    type: a horse brings horses to the fight, the jester jesters (Q29). The
+    port turned any name outside its Sosaria list into orcs."""
+    from py_exodus.screens.overworld import OverworldScreen
+    from py_exodus.state_machine import StateMachine
+
+    sm = StateMachine(asset_mgr=asset_mgr, audio=None)
+    ow = OverworldScreen(party=_party(), map_id=13, asset_mgr=asset_mgr, random_encounters=False)
+    sm.set_screen(ow)
+    mon = next(c for c in ow.creatures if c["tile_name"] == tile)
+    ow._trigger_combat(tile, mon)
+    arena = sm.current_screen.arena
+    assert arena.monsters and {m.tile for m in arena.monsters} == {tile}
