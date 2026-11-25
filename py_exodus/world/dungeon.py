@@ -856,13 +856,7 @@ class DungeonCamera:
             self._draw_ladder(surface, cx, bottom, top, w, h, up=True, down=True)
         elif tile == DungeonTile.CHEST:
             self._draw_chest(surface, cx, bottom, w, h)
-        elif tile in (
-            DungeonTile.FOUNTAIN_PLAIN,
-            DungeonTile.FOUNTAIN_HEAL,
-            DungeonTile.FOUNTAIN_ACID,
-            DungeonTile.FOUNTAIN_CURE,
-            DungeonTile.FOUNTAIN_POISON,
-        ):
+        elif tile in FOUNTAIN_TILES:
             self._draw_fountain(surface, cx, bottom, w, h, tile)
         elif tile == DungeonTile.PIT_TRAP:
             self._draw_pit_trap(surface, cx, bottom, w, h)

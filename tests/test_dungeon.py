@@ -1337,3 +1337,19 @@ def test_spell_exit_uses_java_map_label(asset_mgr, test_party):
     custom_state = DungeonState(dmap=custom_map, party=test_party)
     custom_ev = custom_state.spell_exit()
     assert custom_ev.message == "Leaving Custom!"
+
+
+@pytest.mark.parametrize("tile", sorted(
+    __import__("py_exodus.world.dungeon", fromlist=["FOUNTAIN_TILES"]).FOUNTAIN_TILES, key=lambda t: t.value
+))
+def test_every_fountain_tile_is_drawn_as_a_fountain(monkeypatch, empty_dmap, tile):
+    """One fountain set (dungeon.FOUNTAIN_TILES, fix round 1): the camera
+    draws each of them as a fountain, FOUNTAIN_UNTYPED included."""
+    pygame.init()
+    surf = pygame.Surface((176, 176))
+    cam = DungeonCamera()
+    drawn = []
+    monkeypatch.setattr(cam, "_draw_fountain", lambda *a, **k: drawn.append(a[-1]))
+    empty_dmap.set_tile(5, 4, 0, tile)
+    cam.render_wireframe(surf, empty_dmap, 5, 5, 0, Direction.NORTH, torch_lit=True)
+    assert tile in drawn
