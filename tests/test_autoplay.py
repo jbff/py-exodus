@@ -343,8 +343,9 @@ def test_evaluate_goal_progression():
     assert evaluate_goal(ambrosia_done) == Goal.EXIT_AMBROSIA
 
     # On Sosaria with exotics, missing Fire/Snake/Force -> GET_REMAINING_MARKS
+    # (every member at level 9 or more: the deep-mark gate, item 3)
     need_marks = _make_party(
-        level=6, exp=600, marks=[1, 0, 0, 0], map_id=0, cards=[1, 1, 1, 1],
+        level=9, exp=900, marks=[1, 0, 0, 0], map_id=0, cards=[1, 1, 1, 1],
         weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC, gold=0,
     )
     assert evaluate_goal(need_marks) == Goal.GET_REMAINING_MARKS

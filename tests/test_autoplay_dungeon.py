@@ -29,7 +29,7 @@ def am():
     yield mgr
 
 
-def _party(level: int = 8, marks=(1, 0, 0, 0)):
+def _party(level: int = 9, marks=(1, 0, 0, 0)):
     """The canonical party (Thief, Fighter, Cleric, Wizard), exotics, fed,
     at full HP; ``marks`` for every member."""
     party = build_party()
@@ -211,7 +211,7 @@ def test_weak_member_heals_at_a_fountain_and_comes_back_for_the_mark(am):
     party = _party(marks=(1, 1, 0, 1))
     fighter = party.members[1]
     fighter.marks[3] = 0
-    fighter.hp = 300  # of 850: 250 after the burn, under 425
+    fighter.hp = 300  # of 950: 250 after the burn, under 475
     for m in party.members:
         m.mp = 0
         m.marks[2] = 1  # nothing else wanted
@@ -225,3 +225,74 @@ def test_weak_member_heals_at_a_fountain_and_comes_back_for_the_mark(am):
             break
     assert healed and fighter.marks[3] > 0
     assert fighter.hp == fighter.max_hp - 50
+
+
+# --- Item 3: deep-mark gate and the mark order ----------------------------------
+
+
+def test_mark_table_matches_the_maps(am):
+    """planner.MARK_DUNGEON / MARK_LEVEL are the maps' own mark tiles, and
+    each mark has a heal fountain within one level (item 2's fallback)."""
+    from py_exodus.autoplay.planner import MARK_DUNGEON, MARK_LEVEL
+
+    tiles = {0: DungeonTile.MARK_KINGS, 1: DungeonTile.MARK_FIRE,
+             2: DungeonTile.MARK_SNAKE, 3: DungeonTile.MARK_FORCE}
+    for idx, dungeon in MARK_DUNGEON.items():
+        dmap = load_map(dungeon, am)
+        marks = AutoPlayController._find_dungeon_tiles(dmap, {tiles[idx]})
+        assert min(z for *_xy, z in marks) == MARK_LEVEL[idx]
+        heals = AutoPlayController._find_dungeon_tiles(dmap, {DungeonTile.FOUNTAIN_HEAL})
+        assert any(abs(hz - MARK_LEVEL[idx]) <= 1 for *_xy, hz in heals)
+
+
+def test_every_deep_mark_is_on_level_8(am):
+    """Fire, Force and Snake sit on level 8 (z 7) in every dungeon that has
+    them, so depth can't order them (user ruling: Fire and Force, then
+    Snake)."""
+    deep = {DungeonTile.MARK_FIRE, DungeonTile.MARK_FORCE, DungeonTile.MARK_SNAKE}
+    for dungeon in range(14, 21):
+        found = AutoPlayController._find_dungeon_tiles(load_map(dungeon, am), deep)
+        assert all(z == 7 for *_xy, z in found)
+
+
+def test_deep_mark_gate_is_level_9_for_level_8():
+    """24 average Balron hits at z 7 (37 each at 950 max HP: ceiling
+    (240 / 8 + 9) | 1 = 39, / 2 rounded up + 1 + 16) plus the 50 HP flee
+    line is 938: level 9 (950 HP) holds it, level 8 (850) does not."""
+    from py_exodus.autoplay.planner import deep_mark_min_level, dungeon_avg_hit
+
+    assert dungeon_avg_hit(7, 950) == 37
+    assert deep_mark_min_level(7) == 9
+    assert all(deep_mark_min_level(z) >= 5 for z in range(8))
+
+
+def test_deep_marks_wait_for_the_weakest_member():
+    from py_exodus.autoplay.planner import Goal, evaluate_goal
+
+    party = _surface(_party(level=9, marks=(1, 0, 0, 0)))
+    assert evaluate_goal(party, 0) == Goal.GET_REMAINING_MARKS
+    cleric = party.members[2]
+    cleric.level, cleric.max_hp = 8, 850  # the laggard (the user's wipe: 5/5/3/5)
+    cleric.hp = cleric.max_hp
+    assert evaluate_goal(party, 0) == Goal.GRIND_AND_LEVEL
+
+
+def test_mark_order_fire_and_force_then_snake():
+    """User ruling 2026-11-25: the Fires of Hell (17) while any living
+    member lacks Fire or Force, then Snake (19); an old save missing only
+    Snake goes straight to 19."""
+    from py_exodus.autoplay.planner import next_mark_dungeon
+
+    party = _party(marks=(1, 0, 0, 0))
+    assert next_mark_dungeon(party) == 17
+    for m in party.members:
+        m.marks = [1, 1, 0, 1]
+    party.members[3].marks[3] = 0  # the Wizard lacks Force
+    assert next_mark_dungeon(party) == 17
+    party.members[3].marks[3] = 1
+    assert next_mark_dungeon(party) == 19
+    party.members[0].marks = [1, 0, 1, 1]  # Snake but no Fire: back to 17
+    assert next_mark_dungeon(party) == 17
+    for m in party.members:
+        m.marks = [1, 1, 1, 1]
+    assert next_mark_dungeon(party) is None

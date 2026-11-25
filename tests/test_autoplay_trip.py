@@ -1736,6 +1736,7 @@ def test_a_member_with_no_food_and_no_gold_grinds_instead_of_a_dungeon():
     party = batch.build_party()
     for m in party.members:
         m.level, m.food, m.gold = 15, 86, 0
+        m.max_hp = m.hp = 1550  # the deep-mark gate reads max HP too (item 3)
         m.marks, m.cards = [1, 0, 0, 0], [0, 0, 0, 0]
         m.weapon, m.armor = WeaponType.EXOTIC, ArmorType.EXOTIC
         m.gems, m.torches = 8, 4

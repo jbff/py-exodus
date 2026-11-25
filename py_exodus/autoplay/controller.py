@@ -40,6 +40,7 @@ from py_exodus.autoplay.planner import (
     prefer_ranged_weapons,
     raid_gold_target,
     mark_reachable,
+    next_mark_dungeon,
     rod_plan,
     rod_safe,
     ROD_BURN,
@@ -2330,9 +2331,11 @@ class AutoPlayController:
             return self._portal_dest(sm, screen, {(46, 7)}, "dungeon_kings")
 
         if goal == Goal.GET_REMAINING_MARKS:
-            if not all(m.marks[1] > 0 and m.marks[3] > 0 for m in living):
-                return self._portal_dest(sm, screen, {(49, 34)}, "dungeon_fire_force")
-            return self._portal_dest(sm, screen, {(58, 44)}, "dungeon_snake")
+            # User ruling 2026-11-25: Fire and Force together in the Fires
+            # of Hell, then Snake (planner.next_mark_dungeon).
+            if next_mark_dungeon(party) == 19:
+                return self._portal_dest(sm, screen, {(58, 44)}, "dungeon_snake")
+            return self._portal_dest(sm, screen, {(49, 34)}, "dungeon_fire_force")
 
         if goal == Goal.BUY_FOOD:
             dawn = self._dawn_open(screen)

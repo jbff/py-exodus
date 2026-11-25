@@ -484,6 +484,81 @@ MARK_DUNGEON = {0: 15, 1: 17, 2: 19, 3: 17}
 MARK_LEVEL = {0: 1, 1: 7, 2: 7, 3: 7}
 
 
+# Deep marks (autoplay round 1, item 3). Every mark beyond Kings is on a
+# dungeon's level 8 (z 7). LairWare dungeonmech (UltimaDngn.c:196-209):
+# a fight's monster is ``min(RandNum(0, z + 2), 6)`` into Orc, Skeleton,
+# Giant, Daemon, Pincher, Dragon, Balron, so from z 4 on a Balron can come
+# and at z 7 four rolls in ten are one. A hit does ``RandNum(0,
+# (monhpstart / 8 + max HP / 100) | 1) + 1`` plus 16 in a dungeon
+# (UltimaSpellCombat.c:1221-1226, combat/resolver.py).
+_DUNGEON_MONSTERS = ("orc", "skeleton", "giant", "daemon", "pincher", "dragon", "balron")
+# The gate: a front member takes about 8 hits in a worst fight (eight
+# monsters, ~6 rounds, a third of the swings landing on exotic armour, two
+# or three of them next to it), and the walk from one heal fountain to the
+# next on the deep levels has about 3 fights (7% a step at z 7). It must
+# hold 3 x 8 average hits of the hardest monster there and still stand
+# above the 50 HP flee line.
+DEEP_GATE_HITS = 24
+DEEP_GATE_FLOOR = 50
+DEEP_GATE_MIN_LEVEL = 5
+
+
+def dungeon_hit_ceiling(z: int, max_hp: int) -> int:
+    """The random part's ceiling of the hardest monster's hit at level z."""
+    from py_exodus.combat.resolver import LW_MONHPSTART, LW_TILE_INDEX
+
+    hardest = _DUNGEON_MONSTERS[min(z + 2, 6)]
+    return (LW_MONHPSTART[LW_TILE_INDEX[hardest] & 0x0F] // 8 + max_hp // 100) | 1
+
+
+def dungeon_avg_hit(z: int, max_hp: int) -> int:
+    """Average hit of the hardest monster at level z on a member with
+    ``max_hp`` (rounded up): ceiling / 2 + 1 + 16."""
+    return -(-dungeon_hit_ceiling(z, max_hp) // 2) + 1 + 16
+
+
+def deep_mark_min_level(z: int) -> int:
+    """The lowest level (at least 5) whose max HP (level * 100 + 50) holds
+    DEEP_GATE_HITS average hits at level z plus the flee line. z 7: 9."""
+    for level in range(DEEP_GATE_MIN_LEVEL, 26):
+        max_hp = level * 100 + 50
+        if max_hp >= DEEP_GATE_HITS * dungeon_avg_hit(z, max_hp) + DEEP_GATE_FLOOR:
+            return level
+    return 25
+
+
+def deep_mark_ready(party: Party, z: int) -> bool:
+    """Every living member is at least deep_mark_min_level(z), with the
+    max HP that level gives."""
+    level = deep_mark_min_level(z)
+    return all(
+        m.level >= level and m.max_hp >= level * 100 + 50
+        for m in party.members if not m.is_dead()
+    )
+
+
+def next_mark_dungeon(party: Party) -> int | None:
+    """User ruling 2026-11-25: after Kings, the Fires of Hell (17) for Fire
+    and Force together, then Snake (19): the first dungeon that still gives
+    a mark some living member lacks. None when every living member has
+    them all."""
+    for dungeon in (MARK_DUNGEON[1], MARK_DUNGEON[2]):
+        if any(
+            not every_living_has_mark(party, i)
+            for i, d in MARK_DUNGEON.items() if d == dungeon and i != 0
+        ):
+            return dungeon
+    return None
+
+
+def next_mark_level(party: Party) -> int | None:
+    """The level (z) of the marks the next mark dungeon gives."""
+    dungeon = next_mark_dungeon(party)
+    if dungeon is None:
+        return None
+    return max(MARK_LEVEL[i] for i, d in MARK_DUNGEON.items() if d == dungeon and i != 0)
+
+
 def mark_reachable(party: Party, mark_idx: int) -> bool:
     """Some living member lacks the mark and can be made safe for the rod:
     now, by a heal or a wait on the rod, or by the heal fountain near it
@@ -654,6 +729,10 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
         # made safe for its rod, walking in only walks out again; earn
         # food and gold instead.
         if not any(mark_reachable(party, i) for i in (1, 2, 3)):
+            return Goal.GRIND_AND_LEVEL
+        # Item 3: the deep marks wait until the weakest living member is
+        # strong enough for the level they are on (z 7: level 9).
+        if not deep_mark_ready(party, next_mark_level(party)):
             return Goal.GRIND_AND_LEVEL
         return Goal.GET_REMAINING_MARKS
 
