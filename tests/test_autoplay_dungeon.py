@@ -605,3 +605,46 @@ def test_food_bought_at_the_ambrosia_gate_keeps_the_trip_on(am):
     assert all(m.food >= 200 for m in party.members)
     assert party.gold >= ambrosia_trip_gold(party)
     assert evaluate_goal(party, 4) == Goal.SAIL_WHIRLPOOL
+
+
+def test_a_turning_back_poisoned_party_never_goes_down_for_a_cure(am):
+    """Review #2: Fires of Hell z 4, every member poisoned and under the bar
+    for z 5 (turning back), the Cleric dry, z 4's heal fountains gone: the
+    cure is found at or above z 4 (L2 (15, 5) or L1 (3, 4)), never down at
+    L8 (11, 7)."""
+    party = _party(marks=(1, 1, 0, 0))
+    for m in party.members:
+        m.status = Status.POISONED
+        m.hp = 300  # need(z 5) at 950 max HP is 336
+        m.mp = 0
+    sm, ds = _dungeon(am, party, FIRE, (9, 9, 4))
+    for xy in ((1, 1), (9, 9)):
+        ds.state.dmap.set_tile(*xy, 4, DungeonTile.NOTHING)
+    ds.state.torchtime = 255
+    ctrl = AutoPlayController(enabled=True)
+    deepest = 4
+    for _ in range(400):
+        ctrl.step(sm)
+        if sm.current_screen is not ds:
+            break
+        deepest = max(deepest, ds.state.z)
+        ds.state.torchtime = 255
+        if all(m.status == Status.GOOD for m in party.members):
+            break
+    assert deepest == 4
+    assert all(m.status == Status.GOOD for m in party.members)
+
+
+def test_a_cure_trip_down_a_ladder_waits_for_the_healers_mp(am):
+    """Review #2: poisoned on Snake z 0 with z 0's cure fountain gone, on
+    the ladder down (11, 11), the Cleric at 5 MP: the walk to a cure below
+    waits on the ladder for the healer's MP like any descent."""
+    party = _party(marks=(1, 1, 0, 1))
+    party.members[0].status = Status.POISONED
+    party.members[2].mp = 5
+    sm, ds = _dungeon(am, party, SNAKE, (11, 11, 0))
+    ds.state.dmap.set_tile(3, 3, 0, DungeonTile.NOTHING)  # z 0's cure gone
+    ds.state.torchtime = 255
+    ctrl = AutoPlayController(enabled=True)
+    for _ in range(3):
+        assert ctrl.step(sm) == pygame.K_SPACE and ds.state.z == 0

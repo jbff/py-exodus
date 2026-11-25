@@ -704,6 +704,10 @@ class AutoPlayController:
                     fountains,
                     penalty_tiles=self._find_dungeon_tiles(dmap, {DungeonTile.GREMLINS}),
                 )
+                # A fountain trip down a ladder waits for the healer's MP
+                # like any other descent (item 5).
+                if key == pygame.K_d and descend_mp_short(party):
+                    return self._emit_key(state_machine, pygame.K_SPACE)
                 if key is not None:
                     return self._emit_key(state_machine, key)
 
@@ -3672,25 +3676,36 @@ class AutoPlayController:
         """Fountains worth walking to (the loader types each by x & 3, so
         autoplay knows them all).
 
-        Poison wants a CURE fountain, on any level: the route search takes
-        the nearest by steps, ladders counted. A heal fountain never cures,
-        so poison alone never sends the party to one (live trace
-        2026-11-25, trace_20261125-173226: a poisoned party at 97% walked
-        back and forth to a heal fountain for ~5,000 steps). A HEAL fountain
-        on this level or the next one up or down only for a real HP need
-        (_wants_heal_fountain); drinking fills HP far over that bar, so the
-        fountain and the mark never take turns."""
+        A HEAL fountain on this level or the next one up or down, for a real
+        HP need only (_wants_heal_fountain); when HP is the need it comes
+        first, before any cure. Drinking fills HP far over that bar, so the
+        fountain and the mark never take turns.
+
+        Poison wants a CURE fountain: a heal fountain never cures (live
+        trace 2026-11-25, trace_20261125-173226: a poisoned party at 97%
+        walked to and from a heal fountain for ~5,000 steps). The route
+        search takes the nearest by steps, ladders counted, on any level,
+        except while turning back or under the bar for the next level down
+        (item 5): then only cure fountains on this level or above, so a
+        cure never takes a weak party deeper (review 2026-11-25)."""
         living = [m for m in party.members if not m.is_dead()]
-        goals: set[tuple[int, int, int]] = set()
-        if any(m.status == Status.POISONED for m in living):
-            goals |= self._find_dungeon_tiles(dmap, {DungeonTile.FOUNTAIN_CURE})
         if self._wants_heal_fountain(party, z):
-            goals |= {
+            heal = {
                 (x, y, fz)
                 for x, y, fz in self._find_dungeon_tiles(dmap, {DungeonTile.FOUNTAIN_HEAL})
                 if abs(fz - z) <= self._FOUNTAIN_LEVELS
             }
-        return goals
+            if heal:
+                return heal
+        if not any(m.status == Status.POISONED for m in living):
+            return set()
+        cure = self._find_dungeon_tiles(dmap, {DungeonTile.FOUNTAIN_CURE})
+        weak = self._retreating or any(
+            not m.is_dead() and m.hp < dungeon_hp_need(m, z + 1) for m in party.members
+        )
+        if weak:
+            cure = {(x, y, fz) for x, y, fz in cure if fz <= z}
+        return cure
 
     @staticmethod
     def _find_dungeon_tiles(dmap, tiles: set[DungeonTile]) -> set[tuple[int, int, int]]:
