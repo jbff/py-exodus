@@ -1049,25 +1049,27 @@ def test_player_attack_miss_and_range_strings(monkeypatch):
     assert res.message == ""
 
 
-def test_guard_hit_cites_wound_tier(monkeypatch):
-    """The 0-damage guard/LB branch (GBC battle.c:646-648) has NO GBC text —
-    battle.c:640 only plays showmonsterhit's "HIT" sprite — so Java governs:
-    damageCreature's wound-status line (Utils.java:650, HP write skipped)."""
+def test_lord_british_hit_cites_wound_tier(monkeypatch):
+    """The 0-damage Lord British branch (LairWare DamageMonster,
+    UltimaSpellCombat.c:738, `gMonType != 0x26`) prints nothing in GBC
+    (battle.c:640 only plays showmonsterhit's "HIT" sprite), so Java governs:
+    damageCreature's wound-status line (Utils.java:650, HP write skipped).
+    Guards are no longer spared (B-11)."""
     from py_exodus.combat.resolver import resolve_player_attack
 
-    guard = CombatMonster(
-        CreatureDef(id=98, name="Guard", tile="guard", basehp=40, exp=10), 0, 0
+    lb = CombatMonster(
+        CreatureDef(id=98, name="Lord British", tile="lord_british", basehp=40, exp=10), 0, 0
     )
-    guard.hp = max_hp = 40
+    lb.hp = max_hp = 40
     hero = Character("Hero", "M", hp=100, max_hp=100)
     hero.dex = 30
     monkeypatch.setattr(resolver_mod, "roll_hit", lambda *a, **k: True)
     res = resolve_player_attack(
-        character=hero, weapon_def=None, target_monster=guard
+        character=hero, weapon_def=None, target_monster=lb
     )
     assert res.hit and res.damage == 0 and not res.killed
-    assert res.message == "Guard Barely Wounded!"
-    assert guard.hp == max_hp
+    assert res.message == "Lord British Barely Wounded!"
+    assert lb.hp == max_hp
 
 
 def test_arena_pass_string(asset_mgr, conflict_map):

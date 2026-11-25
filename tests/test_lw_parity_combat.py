@@ -620,3 +620,81 @@ def test_steal_alert_uses_the_same_hostile_state():
     assert do_steal(town.party, thief, 2, 2, Direction.NORTH, gm, rng=_Rng([255, 4])) == [WATCH_OUT]
     assert all(n.movement == "ATTACK_AVATAR" for n in gm.npcs if n.tile_index == 18)
     assert next(n for n in gm.npcs if n.tile_index == 19).movement != "ATTACK_AVATAR"
+
+
+# --- B-11: guards take damage; only Lord British is spared ------------------
+
+
+def _town_person(tile: str, hp: int):
+    from py_exodus.combat.arena import CombatMonster
+    from py_exodus.entities.defs import CreatureDef
+
+    m = CombatMonster(CreatureDef(id=98, name=tile.title(), tile=tile, basehp=hp, exp=10), 0, 0)
+    m.hp = m.max_hp = hp
+    return m
+
+
+def test_damagemonster_party_weapon_hurts_and_kills_a_guard(monkeypatch):
+    """UltimaSpellCombat.c:734-756 (DamageMonster):
+
+        if (gMonType != 0x26) { /* not Lord British, har har */
+            if ((MonsterHP[which] - damage) < 1) {
+                ...
+                AddExp(chnum, Experience[expnum]);
+                ...
+                MonsterHP[which] = 0;
+            } else {
+                MonsterHP[which] -= damage;
+
+    A town fight sets `gMonType = Monsters[whichMon] / 2` (UltimaMain.c:1352),
+    so a guard (0x48) is 0x24, not 0x26: weapon hits wound and kill it and pay
+    its experience. User ruling 2026-11-25 (B-11): follow LairWare.
+    """
+    from py_exodus.combat.resolver import resolve_player_attack
+
+    hero = Character("Hero0", "M", hp=100, max_hp=100, strength=20)
+    guard = _town_person("guard", 60)
+    _scripted(monkeypatch, [200, 0])  # no DEX check; 0 + 10 + 0 + 4 = 14
+    res = resolve_player_attack(hero, None, guard)
+    assert res.hit and res.damage == 14 and not res.killed
+    assert guard.hp == 46
+    exp_before = hero.exp
+    guard.hp = 10
+    _scripted(monkeypatch, [200, 0])
+    res = resolve_player_attack(hero, None, guard)
+    assert res.killed and guard.hp == 0
+    assert hero.exp == exp_before + 10
+
+
+def test_damagemonster_spells_hurt_guards_but_not_lord_british():
+    """UltimaSpellCombat.c:734-738: spells reach monsters through the same
+    DamageMonster, `if (gMonType != 0x26) { /* not Lord British, har har */`.
+    A guard (gMonType 0x24) takes the spell damage and dies; Lord British
+    (0x4C / 2 = 0x26) takes nothing."""
+    from types import SimpleNamespace
+
+    from py_exodus.combat.magic import _lw_damage_monster
+
+    caster = Character("Hero0", "M", hp=100, max_hp=100)
+    arena = SimpleNamespace(last_monster_death_pos=None)
+    guard = _town_person("guard", 60)
+    assert _lw_damage_monster(arena, guard, 25, caster) is False
+    assert guard.hp == 35
+    assert _lw_damage_monster(arena, guard, 255, caster) is True
+    lb = _town_person("lord_british", 60)
+    assert _lw_damage_monster(arena, lb, 255, caster) is False
+    assert lb.hp == 60
+
+
+def test_damagemonster_lord_british_takes_no_weapon_damage(monkeypatch):
+    """UltimaSpellCombat.c:738: `if (gMonType != 0x26) { /* not Lord
+    British, har har */` - Lord British (0x4C, gMonType 0x26) is the one
+    monster DamageMonster never touches: a landed hit does nothing."""
+    from py_exodus.combat.resolver import resolve_player_attack
+
+    hero = Character("Hero0", "M", hp=100, max_hp=100, strength=99)
+    lb = _town_person("lord_british", 60)
+    _scripted(monkeypatch, [200, 99])
+    res = resolve_player_attack(hero, None, lb)
+    assert res.hit and res.damage == 0 and not res.killed
+    assert lb.hp == 60

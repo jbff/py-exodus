@@ -301,42 +301,42 @@ def test_food_and_gold_theft_paths_still_behave(monkeypatch):
 # --- guard / Lord British attack immunity -------------------------------------
 
 
-def test_guard_and_lord_british_take_zero_damage(monkeypatch):
-    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): a landed player hit vs
-    the guard tile (0x18) or Lord British tile (0x19) deals damage 0 and never
-    kills — the guard exemption applies in normal mode too, since py-exodus
-    has no GBC extragame hard-mode flag (GBC battle.c:646-648)."""
+def test_lord_british_takes_zero_damage(monkeypatch):
+    """LairWare DamageMonster (UltimaSpellCombat.c:738): `if (gMonType !=
+    0x26) { /* not Lord British, har har */` - a landed player hit on Lord
+    British deals 0 and never kills."""
     monkeypatch.setattr(resolver_mod, "roll_hit", lambda *a, **k: True)
-    for definition in (GUARD, LORD_BRITISH):
-        monster = CombatMonster(definition, 0, 0)
-        res = resolve_player_attack(
-            character=_attacker(), weapon_def=None, target_monster=monster
-        )
-        assert res.hit and res.damage == 0 and not res.killed
-        assert res.result.name == "HIT"
-        assert monster.hp == monster.max_hp
-        assert not monster.is_dead
-        assert res.message  # 0-damage immunity still reports a message
+    monster = CombatMonster(LORD_BRITISH, 0, 0)
+    res = resolve_player_attack(
+        character=_attacker(), weapon_def=None, target_monster=monster
+    )
+    assert res.hit and res.damage == 0 and not res.killed
+    assert res.result.name == "HIT"
+    assert monster.hp == monster.max_hp
+    assert not monster.is_dead
+    assert res.message  # 0-damage immunity still reports a message
 
 
-def test_guard_never_takes_damage_across_seeded_rolls():
-    """Unpatched hit rolls: a guard never loses a single HP over many attacks,
-    while an ordinary monster beside it still takes damage."""
+def test_guard_takes_damage_across_seeded_rolls():
+    """LairWare DamageMonster (UltimaSpellCombat.c:734-756) spares only Lord
+    British; a guard (gMonType 0x24) loses HP to landed hits (B-11, user
+    ruling 2026-11-25), while Lord British never does."""
     guard = CombatMonster(GUARD, 0, 0)
-    orc = CombatMonster(ORC, 0, 0)
+    lb = CombatMonster(LORD_BRITISH, 0, 0)
     random.seed(4242)
+    hits = 0
     for _ in range(50):
+        if guard.is_dead:
+            break
         res = resolve_player_attack(
             character=_attacker(), weapon_def=None, target_monster=guard
         )
-        assert guard.hp == guard.max_hp
-        assert not res.killed
-    # Regression: a mundane enemy is still hurt by the same attack.
-    res_orc = resolve_player_attack(
-        character=_attacker(), weapon_def=None, target_monster=orc
-    )
-    assert res_orc.damage > 0 or not res_orc.hit
-    assert orc.hp < orc.max_hp or not res_orc.hit
+        if res.hit:
+            hits += 1
+            assert res.damage > 0
+        resolve_player_attack(character=_attacker(), weapon_def=None, target_monster=lb)
+        assert lb.hp == lb.max_hp
+    assert hits and guard.hp < guard.max_hp
 
 
 # --- terrain damage bonus -----------------------------------------------------

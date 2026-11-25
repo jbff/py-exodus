@@ -529,12 +529,13 @@ def resolve_player_attack(
             message="Missed!",
         )
 
-    # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): a landed player hit vs
-    # the guard tile (0x18) or Lord British tile (0x19) deals damage 0 and
-    # never kills; the guard exemption applies in normal mode too, since
-    # py-exodus has no GBC extragame hard-mode flag (GBC battle.c:646-648).
+    # LairWare DamageMonster (UltimaSpellCombat.c:734-738): `if (gMonType !=
+    # 0x26) { /* not Lord British, har har */`. Only Lord British (0x4C / 2 =
+    # 0x26, UltimaMain.c:1352) is spared; guards (0x48 / 2 = 0x24) take damage
+    # and die like anyone else (B-11, user ruling 2026-11-25, replacing the
+    # 2026-11-14 GBC battle.c:646-648 guard immunity).
     target_tile = (getattr(target_monster, "tile", "") or "").lower()
-    if target_tile in ("guard", "lord_british"):
+    if target_tile == "lord_british":
         # Message parity (item 3): GBC prints no text on that zero-damage
         # branch (battle.c:640-657 shows showmonsterhit → "HIT" and the
         # damage=0 write with no writegamemessage), so Java governs: a landed
