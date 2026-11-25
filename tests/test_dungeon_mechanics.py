@@ -51,8 +51,9 @@ def test_dungeon_touch_mark_kings(asset_mgr, party, test_dmap):
     initial_hp = m1.hp
     assert m1.marks[0] == 0
 
-    # Press 'S' to search / touch
-    screen.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_s, unicode="s"))
+    # Any command (Space) runs dungeonmech, which asks who touches the rod
+    # (LairWare UltimaDngn.c:300-318; S is not a dungeon command, D-12).
+    screen.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_SPACE, unicode=" "))
     assert screen.text_log.is_waiting_for_input
     # Choose member 1
     screen.text_log.handle_char("1")
@@ -77,7 +78,7 @@ def test_dungeon_drink_fountain_heal(asset_mgr, party, test_dmap):
     for m in party.members:
         m.food = 100
 
-    screen.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_s, unicode="s"))
+    screen.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_SPACE, unicode=" "))
     screen.text_log.handle_char("1")
 
     assert m1.hp == m1.max_hp
@@ -99,7 +100,7 @@ def test_dungeon_drink_fountain_acid(asset_mgr, party, test_dmap):
         m.food = 100
     initial_hp = m1.hp
 
-    screen.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_s, unicode="s"))
+    screen.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_SPACE, unicode=" "))
     screen.text_log.handle_char("1")
 
     assert m1.hp == initial_hp - 25
@@ -114,14 +115,18 @@ def test_dungeon_drink_fountain_poison_and_cure(asset_mgr, party, test_dmap):
     screen.state = state
 
     m1 = party.members[0]
-    screen.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_s, unicode="s"))
+    screen.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_SPACE, unicode=" "))
     screen.text_log.handle_char("1")
 
     assert m1.status in (Status.POISON, Status.POISONED)
 
+    # The fountain asks again (UltimaDngn.c:262 goto fountain): leave it.
+    screen.text_log.handle_escape()
+    assert not screen.text_log.is_waiting_for_input
+
     # Now change tile to Cure fountain
     test_dmap.set_tile(1, 1, 0, DungeonTile.FOUNTAIN_CURE)
-    screen.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_s, unicode="s"))
+    screen.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_SPACE, unicode=" "))
     screen.text_log.handle_char("1")
 
     assert m1.status == Status.GOOD
@@ -137,7 +142,8 @@ def test_dungeon_hazard_wind_trap_and_gremlins(asset_mgr, party, test_dmap):
 
     # Step forward onto (1, 2) WIND_TRAP — Java DungeonScreen.java:1080-1085
     # sets the torch boolean off (no torchduration bookkeeping in Java).
-    evt1 = state.move_forward()
+    state.move_forward()
+    evt1 = state.take_fixture()  # LW dungeonmech after the step (D-12)
     assert evt1.type == DungeonEventType.WIND_TRAP
     assert state.is_torch_on is False
     assert not hasattr(state, "torch_rounds")

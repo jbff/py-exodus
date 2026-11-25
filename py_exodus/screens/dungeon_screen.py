@@ -166,10 +166,13 @@ class DungeonScreen(BaseScreen):
         # is up and the key that ends it is swallowed. Z still pages members.
         if self.stats_panel.inspect_index is not None and event.key != pygame.K_z:
             self.stats_panel.inspect_index = None
+            # Stats returns, then dungeonmech (UltimaDngn.c:159-161).
+            self._run_fixture()
             return
 
         if self.text_log.is_waiting_for_input:
             self.text_log.handle_event(event)
+            self._run_fixture()
             return
 
         # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): debug cheat
@@ -178,6 +181,13 @@ class DungeonScreen(BaseScreen):
         if debug.DEBUG_MODE and event.key == pygame.K_F10:
             debug.open_cheat_menu(self.text_log, self.party)
             return
+
+        self._dispatch_command(event)
+        self._run_fixture()
+
+    def _dispatch_command(self, event: pygame.event.Event) -> None:
+        """One dungeon command (LairWare DungeonStart's switch,
+        UltimaDngn.c:130-182); each one ends in dungeonmech."""
 
         # PageUp/PageDown always scroll the text log back (arrow keys scroll
         # only inside the log's own prompt handling, when they cannot act as
@@ -264,10 +274,6 @@ class DungeonScreen(BaseScreen):
             # turn before the prompt opens.
             self._consume_turn()
             self._prompt_other()
-        elif event.key == pygame.K_s:
-            # S and G take their one turn once the prompt is answered or
-            # cancelled (inside _search / _get_chest).
-            self._search()
         elif event.key == pygame.K_g:
             self._get_chest()
         elif event.key == pygame.K_z:
@@ -277,7 +283,10 @@ class DungeonScreen(BaseScreen):
             self._consume_turn()
         else:
             # Java DungeonScreen.java:1045-1049 + 1049-1050 — any key without
-            # a handler logs "Pass" and falls through to finishTurn.
+            # a handler logs "Pass" and falls through to finishTurn. LairWare
+            # refuses A, B, E, F, L, Q, S, T, U and X here (NotDngCmd,
+            # UltimaDngn.c:134-157) and then runs dungeonmech (161): the
+            # turn passes the same way (ledger D-22; S since C-23/D-12).
             # USER RULING 2026-11-10: the dungeon Q-save (Java
             # DungeonScreen.java:976-986 — Keys.Q calls context.saveGame from
             # any dungeon level and logs "Saved Game." with the dungeon
@@ -288,6 +297,83 @@ class DungeonScreen(BaseScreen):
             # a turn. The dungeon `extra` save block was removed with it.
             self.text_log.add_message("Pass")
             self._consume_turn()
+
+    def _run_fixture(self) -> None:
+        """dungeonmech's fixture (UltimaDngn.c:211-341), once the command and
+        its own prompts are done: every command while the party stands on
+        a fixture (user ruling 2026-11-25, ledger D-12)."""
+        if self.text_log.is_waiting_for_input or self.is_finished:
+            return
+        if self.stats_panel.inspect_index is not None:
+            return  # Ztats is modal; the fixture follows when it closes
+        if self.manager is not None and self.manager.current_screen is not self:
+            return
+        evt = self.state.take_fixture()
+        if evt is None:
+            return
+        if evt.type == DungeonEventType.FOUNTAIN:
+            self._ask_fountain()
+        elif evt.type == DungeonEventType.MARK:
+            self._ask_rod()
+        else:
+            self._process_event(evt)
+
+    def _ask_fountain(self) -> None:
+        """UltimaDngn.c:228-279: ``fountain: UPrintMessage(152); chnum =
+        GetChar(); if (chnum < 1 || chnum > 4) { ... goto dungstart; }`` --
+        a member drinks (the dead and ashes "Can't") and the question comes
+        again; any other key leaves. The answers take no turn."""
+
+        def _on_who(who: str) -> None:
+            try:
+                n = int(who.strip())
+            except ValueError:
+                return
+            if not 1 <= n <= 4:
+                return
+            member = self.party.get_member(n - 1)
+            if member is None or member.is_disabled():
+                self.text_log.add_message("Can't")
+            else:
+                try:
+                    evt = self.state.drink_fountain(n - 1)
+                except PartyDeathException:
+                    evt = None
+                if evt is not None:
+                    self._process_event(evt)
+                if self.check_party_death():
+                    return
+            self._ask_fountain()  # goto fountain
+
+        self.text_log.prompt(
+            "A fountain, who will drink? (1-4):", callback=_on_who, single_char=True
+        )
+
+    def _ask_rod(self) -> None:
+        """UltimaDngn.c:300-318: ``UPrintMessage(161); chnum = GetChar();`` --
+        one member touches the red-hot rod (the mark, then HPSubtract 50;
+        no CheckAlive), or any other key leaves. Either way the prompt is
+        done until the next command."""
+
+        def _on_who(who: str) -> None:
+            try:
+                n = int(who.strip())
+            except ValueError:
+                return
+            if not 1 <= n <= 4 or self.party.get_member(n - 1) is None:
+                return
+            try:
+                evt = self.state.touch_mark(n - 1)
+            except PartyDeathException:
+                evt = None
+            if evt is not None:
+                self._process_event(evt)
+            self.check_party_death()
+
+        self.text_log.prompt(
+            "A red hot rod in the wall, who will touch? (1-4):",
+            callback=_on_who, single_char=True,
+        )
 
     def _prompt_other(self) -> None:
         """Other command from a dungeon (GBC menucmd3.c:1019-1236 subset).
@@ -457,67 +543,6 @@ class DungeonScreen(BaseScreen):
                 elif hasattr(evt.creature, "name"):
                     c_name = evt.creature.name.lower()
             self._trigger_combat(c_name)
-
-    def _search(self) -> None:
-        """Search dungeon tile for fountains, marks, or chests."""
-        from py_exodus.world.map import DungeonTile
-
-        tile = self.state.current_tile
-        fountains = (
-            DungeonTile.FOUNTAIN_PLAIN,
-            DungeonTile.FOUNTAIN_HEAL,
-            DungeonTile.FOUNTAIN_ACID,
-            DungeonTile.FOUNTAIN_CURE,
-            DungeonTile.FOUNTAIN_POISON,
-        )
-        marks = (
-            DungeonTile.MARK,
-            DungeonTile.MARK_KINGS,
-            DungeonTile.MARK_FIRE,
-            DungeonTile.MARK_SNAKE,
-            DungeonTile.MARK_FORCE,
-        )
-
-        if tile in fountains:
-            prompt_msg = "You find a Fountain. Who drinks? (1-4): "
-            action = self.state.drink_fountain
-        elif tile in marks:
-            prompt_msg = "You find a mystical Mark. Who touches? (1-4): "
-            action = self.state.touch_mark
-        elif tile == DungeonTile.CHEST:
-            prompt_msg = "Who gets the chest? (1-4): "
-            action = lambda idx: self.state.open_chest(idx, disarm=False)
-        else:
-            prompt_msg = "Who searches? (1-4): "
-            action = None
-
-        def _on_who(who_str: str) -> None:
-            try:
-                idx = int(who_str.strip()) - 1
-            except ValueError:
-                idx = 0
-
-            if not (0 <= idx < len(self.party.members)):
-                self.text_log.add_message("Invalid member #!")
-            elif action is not None:
-                try:
-                    evt = action(idx)
-                except PartyDeathException:
-                    # Java: catch → partyDeath(); the event's post-check routes it
-                    evt = None
-                if evt is not None:
-                    self._process_event(evt)
-                self.check_party_death()
-            else:
-                self.text_log.add_message("Search: Thou searchest the damp corridor... Nothing here!")
-
-            # One turn tick per command, answered or not (dungeonmech,
-            # UltimaDngn.c:183-209); its encounter roll can raise a fight.
-            self._consume_turn()
-
-        self.text_log.prompt(
-            prompt_msg, callback=_on_who, single_char=True, on_cancel=self._consume_turn
-        )
 
     def _get_chest(self) -> None:
         """Open a treasure chest on the party's own tile."""

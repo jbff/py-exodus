@@ -760,6 +760,10 @@ def test_dungeon_screen_backstep_and_ladders(pygame_setup, asset_mgr, sample_par
     dungeon.dungeon_map.set_tile(dungeon.state.x, dungeon.state.y, dungeon.state.z, DungeonTile.LADDER_DOWN)
     dungeon.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_d))
     assert dungeon.state.z == 1
+    # Level 2 of this map has a fountain at (1, 1): dungeonmech asks who
+    # drinks after the descent (LairWare UltimaDngn.c:224-234, D-12).
+    assert "drink" in dungeon.text_log.current_prompt.lower()
+    dungeon.text_log.handle_escape()
 
     # 3. Ladder up on ladder tile
     dungeon.dungeon_map.set_tile(dungeon.state.x, dungeon.state.y, dungeon.state.z, DungeonTile.LADDER_UP)

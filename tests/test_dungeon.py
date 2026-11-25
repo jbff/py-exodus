@@ -515,12 +515,14 @@ def test_pit_trap(empty_dmap, test_party):
 
 def test_wind_trap(empty_dmap, test_party):
     """Java DungeonScreen.java:1080-1085 — wind sets isTorchOn = False and
-    nothing else (torchduration is unused in Java)."""
+    nothing else (torchduration is unused in Java). LairWare dungeonmech
+    (UltimaDngn.c:280-283) runs it after the step's command (D-12)."""
     empty_dmap.set_tile(5, 4, 0, DungeonTile.WIND_TRAP)
     state = DungeonState(empty_dmap, start_x=5, start_y=5, start_z=0, start_dir=Direction.NORTH, party=test_party)
     state.is_torch_on = True
 
-    ev = state.move_forward()
+    state.move_forward()
+    ev = state.take_fixture()
     assert ev.type == DungeonEventType.WIND_TRAP
     assert state.is_torch_on is False
     assert not hasattr(state, "torch_rounds")
@@ -818,11 +820,15 @@ def test_misty_writings_and_time_lord(empty_dmap):
 
     state = DungeonState(empty_dmap, start_x=5, start_y=5, start_z=0, start_dir=Direction.NORTH, random_encounters=False)
 
-    ev_writings = state.move_forward()
+    # LairWare dungeonmech (UltimaDngn.c:211-223, 334-338): the fixture
+    # speaks after the command that put the party there (D-12).
+    state.move_forward()
+    ev_writings = state.take_fixture()
     assert ev_writings.type == DungeonEventType.MESSAGE
     assert "Misty Writings" in ev_writings.message
 
-    ev_tl = state.move_forward()
+    state.move_forward()
+    ev_tl = state.take_fixture()
     assert ev_tl.type == DungeonEventType.MESSAGE
     assert "Time Lord" in ev_tl.message
 
@@ -1114,7 +1120,8 @@ def test_wind_trap_sets_torchtime_to_0(empty_dmap, test_party):
     empty_dmap.set_tile(5, 4, 0, DungeonTile.WIND_TRAP)
     state = _torch_state(empty_dmap, test_party, heading=Direction.NORTH)
     state.torchtime = 140
-    ev = state.move_forward()
+    state.move_forward()
+    ev = state.take_fixture()  # dungeonmech after the step (D-12)
     assert ev.type == DungeonEventType.WIND_TRAP
     assert state.torchtime == 0
     assert state.is_torch_on is False

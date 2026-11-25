@@ -298,7 +298,8 @@ def test_dungeon_wind_trap_extinguishes_boolean(pygame_setup):
     state = DungeonState(dmap, start_x=5, start_y=5, start_z=0, start_dir=Direction.NORTH, party=party)
     state.is_torch_on = True
 
-    ev = state.move_forward()
+    state.move_forward()
+    ev = state.take_fixture()  # dungeonmech after the step (LW D-12)
     assert ev.type == DungeonEventType.WIND_TRAP
     assert state.is_torch_on is False
     assert not hasattr(state, "torch_rounds")
@@ -543,9 +544,9 @@ def test_dungeon_g_c_s_press_consumes_turn(pygame_setup):
     scr = make_screen()
     ticks = turn_meter(scr.party)
     press(scr, pygame.K_s)
-    # S takes its one turn when the prompt is answered or cancelled.
-    assert ticks() == 99
-    scr.text_log.handle_escape()
+    # S is not a dungeon command (LairWare NotDngCmd, UltimaDngn.c:152):
+    # no prompt, and dungeonmech takes the turn at once.
+    assert not scr.text_log.is_waiting_for_input
     assert ticks() == 98
     ticks = turn_meter(scr.party)
     press(scr, pygame.K_c)

@@ -83,6 +83,21 @@ class DungeonEvent:
 #: (LairWare Right/Left, UltimaDngn.c:386, 400).
 _DOORWAY_TILES = frozenset({DungeonTile.SECRET_DOOR, DungeonTile.DOOR, DungeonTile.LOCKED_DOOR})
 
+# LairWare dungeonmech's standing fixtures (UltimaDngn.c:211-341): they act
+# after EVERY dungeon command while the party stands on them (the trap and
+# the gremlins clear their tile, so they act once, on the step).
+FOUNTAIN_TILES = frozenset({
+    DungeonTile.FOUNTAIN_PLAIN, DungeonTile.FOUNTAIN_HEAL, DungeonTile.FOUNTAIN_ACID,
+    DungeonTile.FOUNTAIN_CURE, DungeonTile.FOUNTAIN_POISON, DungeonTile.FOUNTAIN_UNTYPED,
+})
+MARK_TILES = frozenset({
+    DungeonTile.MARK, DungeonTile.MARK_KINGS, DungeonTile.MARK_FIRE,
+    DungeonTile.MARK_SNAKE, DungeonTile.MARK_FORCE,
+})
+FIXTURE_TILES = FOUNTAIN_TILES | MARK_TILES | frozenset({
+    DungeonTile.TIME_LORD, DungeonTile.WIND_TRAP, DungeonTile.MISTY_WRITINGS,
+})
+
 DUNGEON_MONSTERS = ("orc", "skeleton", "giant", "daemon", "pincher", "dragon", "balron")
 
 
@@ -1105,6 +1120,10 @@ class DungeonState:
         # consumed dungeon turn in `_tick_turn`; `is_torch_on` stays as a
         # boolean alias so the screen lighting reads keep working.
         self.torchtime: int = 0
+        # Set by each dungeonmech pass (``_tick_turn``) that finds the party
+        # on a standing fixture; the screen runs it once the command's own
+        # prompts are done (``take_fixture``).
+        self.fixture_due: bool = False
 
     # --- Torch counter (GBC torchtime; user-directed 2026-11-14 deviation) ---
 
@@ -1444,29 +1463,6 @@ class DungeonState:
                 combat_evt,
             )
 
-        # Wind trap: extinguishes the torch (Java DungeonScreen.java:1080-1085
-        # — log "Wind extinguished your torch!", Sounds.WIND, isTorchOn =
-        # false; no torchduration change — that field is dead in Java).
-        #
-        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): the strange winds
-        # kill the counter outright (GBC dungfunc.c:719-734 — torchtime = 0;
-        # the dark check and the decrement follow on the same tick).
-        if target_tile == DungeonTile.WIND_TRAP:
-            self.torchtime = 0
-            combat_evt = self._tick_turn()
-            return self._with_combat(
-                DungeonEvent(
-                    type=DungeonEventType.WIND_TRAP,
-                    message="Wind extinguished your torch!",
-                    x=self.x,
-                    y=self.y,
-                    z=self.z,
-                    tile=target_tile,
-                    moved=True,
-                ),
-                combat_evt,
-            )
-
         # LairWare gremlins (UltimaDngn.c:319-333), user ruling 2026-11-25
         # (ledger D-14): the tile clears; a random slot RandNum(0, Party[2] -
         # 1), nothing if that member is dead or ashes; else the hundreds of
@@ -1512,47 +1508,6 @@ class DungeonState:
                 tile_effects.apply_effect(self.party, TileEffect.LAVA, rng=self.rng)
             except PartyDeathException:
                 pass
-
-        # Misty writings: read inscription
-        if target_tile == DungeonTile.MISTY_WRITINGS:
-            inscription = (
-                self.dmap.level_texts[self.z]
-                if self.z < len(self.dmap.level_texts)
-                else ""
-            )
-            combat_evt = self._tick_turn()
-            return self._with_combat(
-                DungeonEvent(
-                    type=DungeonEventType.MESSAGE,
-                    message=f"Misty Writings: {inscription}",
-                    x=self.x,
-                    y=self.y,
-                    z=self.z,
-                    tile=target_tile,
-                    moved=True,
-                ),
-                combat_evt,
-            )
-
-        # Time Lord vision
-        if target_tile == DungeonTile.TIME_LORD:
-            combat_evt = self._tick_turn()
-            msg = (
-                "You see a vision of the Time Lord. He says... "
-                "There is only one way. Love, Sol, Moons and Death. All else fails."
-            )
-            return self._with_combat(
-                DungeonEvent(
-                    type=DungeonEventType.MESSAGE,
-                    message=msg,
-                    x=self.x,
-                    y=self.y,
-                    z=self.z,
-                    tile=target_tile,
-                    moved=True,
-                ),
-                combat_evt,
-            )
 
         # Normal successful step
         combat_evt = self._tick_turn()
@@ -1622,7 +1577,62 @@ class DungeonState:
                 pass
         if not roll_encounter:
             return None
+        # dungeonmech (UltimaDngn.c:196-199): ``if (value != 0) goto
+        # dngnotcombat;`` -- a fixture under the party acts instead of the
+        # encounter roll, on every command (ledger D-12).
+        if self.current_tile in FIXTURE_TILES:
+            self.fixture_due = True
+            return None
         return self._encounter_roll()
+
+    def take_fixture(self) -> DungeonEvent | None:
+        """Run the pending dungeonmech fixture (UltimaDngn.c:211-341) for
+        the tile the party stands on now, or None.
+
+        The Time Lord (case 1) and the writing (case 8) speak; the strange
+        wind (case 3) puts the torch out (``gTorch = 0``). A fountain (case
+        2) or the red-hot rod (case 5) returns a FOUNTAIN / MARK event with
+        ``success=False``: the screen asks who drinks or touches, and the
+        answers go to ``drink_fountain`` / ``touch_mark``.
+        """
+        if not self.fixture_due:
+            return None
+        self.fixture_due = False
+        tile = self.current_tile
+        here = {"x": self.x, "y": self.y, "z": self.z, "tile": tile}
+        if tile == DungeonTile.TIME_LORD:
+            return DungeonEvent(
+                type=DungeonEventType.MESSAGE,
+                message=(
+                    "You see a vision of the Time Lord. He says... "
+                    "There is only one way. Love, Sol, Moons and Death. All else fails."
+                ),
+                **here,
+            )
+        if tile == DungeonTile.MISTY_WRITINGS:
+            inscription = (
+                self.dmap.level_texts[self.z]
+                if self.z < len(self.dmap.level_texts)
+                else ""
+            )
+            return DungeonEvent(
+                type=DungeonEventType.MESSAGE,
+                message=f"Misty Writings: {inscription}",
+                **here,
+            )
+        if tile == DungeonTile.WIND_TRAP:
+            # UltimaDngn.c:280-283: ``UPrintMessage(158); gTorch = 0;``
+            self.torchtime = 0
+            return DungeonEvent(
+                type=DungeonEventType.WIND_TRAP,
+                message="Strange wind! Your torch goes out!",
+                **here,
+            )
+        if tile in FOUNTAIN_TILES:
+            return DungeonEvent(type=DungeonEventType.FOUNTAIN, success=False, **here)
+        if tile in MARK_TILES:
+            return DungeonEvent(type=DungeonEventType.MARK, success=False, **here)
+        return None
 
     # --- Encounters (LairWare dungeonmech, UltimaDngn.c:196-209) ---
 

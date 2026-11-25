@@ -108,8 +108,9 @@ def test_orbs_removed(open_dmap, test_party):
     assert "ORB" not in [e.name for e in DungeonEventType]
 
 
-def test_dungeon_search_never_mentions_orbs(asset_mgr, open_dmap, test_party):
-    """Searching an ORB tile falls to the generic search, no orb prompt/line."""
+def test_dungeon_orb_tile_never_mentions_orbs(asset_mgr, open_dmap, test_party):
+    """A command on an ORB tile gives no orb prompt or line (S is no longer
+    a dungeon command, LW D-12)."""
     from py_exodus.screens.dungeon_screen import DungeonScreen
 
     pygame.init()

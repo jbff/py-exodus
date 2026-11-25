@@ -568,7 +568,8 @@ def test_dungeon_fountain_acid_death_transitions_to_start_screen(sm, asset_mgr):
     )
     sm.set_screen(dungeon)
 
-    dungeon.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_s, unicode="s"))
+    # Any command runs dungeonmech, which asks at the fixture (LW D-12).
+    dungeon.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_SPACE, unicode=" "))
     assert dungeon.text_log.is_waiting_for_input
     dungeon.text_log.handle_char("1")
     dungeon.text_log.handle_enter()
@@ -612,7 +613,8 @@ def test_dungeon_touch_mark_wipe_transitions_to_start_screen(sm, asset_mgr):
     )
     sm.set_screen(dungeon)
 
-    dungeon.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_s, unicode="s"))
+    # Any command runs dungeonmech, which asks at the fixture (LW D-12).
+    dungeon.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_SPACE, unicode=" "))
     assert dungeon.text_log.is_waiting_for_input
     dungeon.text_log.handle_char("1")
 

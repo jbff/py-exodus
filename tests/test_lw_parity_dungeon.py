@@ -749,3 +749,198 @@ def test_dungeonstart_passes_after_six_idle_seconds(pygame_setup, asset_mgr):
     for _ in range(20 * 60):
         screen.update(1 / 60)
     assert passes(screen) == 0
+
+
+# --- D-12 dungeonmech fixtures after every command (user ruling 2026-11-25) ---
+
+
+def _fixture_screen(asset_mgr, tile, x=5, y=5, party=None):
+    import pygame
+
+    from py_exodus.screens.dungeon_screen import DungeonScreen
+
+    pygame.init()
+    dmap = _dmap()
+    dmap.set_tile(x, y, 0, tile)
+    screen = DungeonScreen(party=party or _party(), dungeon_map=dmap, asset_mgr=asset_mgr,
+                           start_x=x, start_y=y)
+    screen.state.random_encounters_enabled = False
+    screen.state.torchtime = 100
+    return screen
+
+
+def _press(screen, key, uni=""):
+    import pygame
+
+    screen.handle_event(pygame.event.Event(pygame.KEYDOWN, key=key, unicode=uni))
+
+
+def test_dungeonmech_fountain_asks_after_every_command(asset_mgr):
+    """UltimaDngn.c:224-279 (dungeonmech, after every command):
+
+        case 2: /* fountain */ ...
+        fountain:
+            UPrintMessage(152);            // "A fountain, who will drink?"
+            chnum = GetChar();
+            if (chnum < 1 || chnum > 4) { ...; goto dungstart; }
+            ...
+            case 1:    // Heal fountain
+                Player[rosNum][26] = Player[rosNum][28]; ... goto fountain;
+
+    Standing on a fountain, any command (here Space) asks who drinks, asks
+    again after each drink, and leaves on an invalid key. The answers take
+    no turn. The port asked only through S (search), once."""
+    import pygame
+
+    screen = _fixture_screen(asset_mgr, DungeonTile.FOUNTAIN_HEAL)
+    hero, mage = screen.party.members[0], screen.party.members[1]
+    hero.hp, mage.hp = 10, 20
+    _press(screen, pygame.K_SPACE, " ")
+    assert screen.text_log.is_waiting_for_input
+    assert "drink" in screen.text_log.current_prompt.lower()
+    torch = screen.state.torchtime
+    _press(screen, pygame.K_1, "1")
+    assert hero.hp == hero.max_hp
+    assert screen.text_log.is_waiting_for_input  # goto fountain: asked again
+    _press(screen, pygame.K_2, "2")
+    assert mage.hp == mage.max_hp
+    assert screen.text_log.is_waiting_for_input
+    _press(screen, pygame.K_x, "x")  # invalid key: goto dungstart
+    assert not screen.text_log.is_waiting_for_input
+    assert screen.state.torchtime == torch
+    _press(screen, pygame.K_z, "z")  # Z: Stats (modal), then dungeonmech
+    assert not screen.text_log.is_waiting_for_input
+    _press(screen, pygame.K_ESCAPE)  # closes Ztats: asked again
+    assert screen.text_log.is_waiting_for_input
+    assert "drink" in screen.text_log.current_prompt.lower()
+
+
+def test_dungeonmech_fountain_dead_drinker_cant_and_asks_again(asset_mgr):
+    """UltimaDngn.c:237-241: ``if (CheckAlive(chnum - 1) == FALSE) {
+    UPrintMessage(153); ErrorTone(); goto fountain; }`` -- "Can't", and the
+    question comes again."""
+    import pygame
+
+    screen = _fixture_screen(asset_mgr, DungeonTile.FOUNTAIN_HEAL)
+    dead = screen.party.members[0]
+    dead.status, dead.hp = Status.DEAD, 0
+    _press(screen, pygame.K_SPACE, " ")
+    _press(screen, pygame.K_1, "1")
+    assert dead.hp == 0
+    assert "Can't" in screen.text_log.history
+    assert "drink" in screen.text_log.current_prompt.lower()
+
+
+def test_dungeonmech_fountain_on_the_step_onto_it(asset_mgr):
+    """UltimaDngn.c:170-183: Forward() then ``dungeonmech``: the step onto a
+    fountain asks at once."""
+    import pygame
+
+    screen = _fixture_screen(asset_mgr, DungeonTile.FOUNTAIN_HEAL, x=6, y=5)
+    screen.state.x = 5
+    screen.state.dir = Direction.EAST
+    _press(screen, pygame.K_UP)
+    assert (screen.state.x, screen.state.y) == (6, 5)
+    assert "drink" in screen.text_log.current_prompt.lower()
+
+
+def test_dungeonmech_rod_one_mark_per_command(asset_mgr):
+    """UltimaDngn.c:300-318:
+
+        case 5: /* brand */
+            UPrintMessage(161);            // "...who will touch?"
+            chnum = GetChar();
+            if (chnum < 1 || chnum > 4) { mark: ...; goto dungstart; }
+            Player[rosNum][14] = Player[rosNum][14] | bits[(xpos & 3) + 4];
+            ...
+            HPSubtract(rosNum, 50);
+            UPrintMessage(162);            // "It left a mark!"
+            goto mark;
+
+    One member is marked per command (then the prompt is gone); the next
+    command asks again."""
+    import pygame
+
+    screen = _fixture_screen(asset_mgr, DungeonTile.MARK_KINGS, x=7)
+    hero, mage = screen.party.members[0], screen.party.members[1]
+    _press(screen, pygame.K_SPACE, " ")
+    assert "touch" in screen.text_log.current_prompt.lower()
+    torch = screen.state.torchtime
+    _press(screen, pygame.K_1, "1")
+    assert hero.marks[0] == 1 and hero.hp == hero.max_hp - 50
+    assert not screen.text_log.is_waiting_for_input
+    assert screen.state.torchtime == torch
+    _press(screen, pygame.K_SPACE, " ")
+    _press(screen, pygame.K_2, "2")
+    assert mage.marks[0] == 1
+
+
+def test_dungeonmech_rod_invalid_key_marks_nobody(asset_mgr):
+    """UltimaDngn.c:305-311: ``if (chnum < 1 || chnum > 4) { mark: ...
+    goto dungstart; }`` -- no mark, no damage."""
+    import pygame
+
+    screen = _fixture_screen(asset_mgr, DungeonTile.MARK_KINGS, x=7)
+    _press(screen, pygame.K_SPACE, " ")
+    _press(screen, pygame.K_ESCAPE)
+    assert not screen.text_log.is_waiting_for_input
+    assert all(m.marks[0] == 0 and m.hp == m.max_hp for m in screen.party.members)
+
+
+def test_dungeonmech_strange_wind_every_command(asset_mgr):
+    """UltimaDngn.c:280-283: ``case 3: /* strange wind */ UPrintMessage(158);
+    gTorch = 0;`` -- on every command while the party stands there, not just
+    on the step onto it."""
+    import pygame
+
+    screen = _fixture_screen(asset_mgr, DungeonTile.WIND_TRAP)
+    _press(screen, pygame.K_SPACE, " ")
+    assert screen.state.torchtime == 0
+    screen.state.torchtime = 255
+    _press(screen, pygame.K_SPACE, " ")
+    assert screen.state.torchtime == 0
+
+
+@pytest.mark.parametrize("tile, words", [
+    (DungeonTile.TIME_LORD, "Time Lord"),
+    (DungeonTile.MISTY_WRITINGS, "Misty Writing"),
+])
+def test_dungeonmech_time_lord_and_writing_speak_every_command(asset_mgr, tile, words):
+    """UltimaDngn.c:213-223, 334-338: the Time Lord (case 1) and the writing
+    (case 8) speak after every command while the party stands there."""
+    import pygame
+
+    screen = _fixture_screen(asset_mgr, tile)
+    _press(screen, pygame.K_SPACE, " ")
+    _press(screen, pygame.K_SPACE, " ")
+    assert sum(1 for m in screen.text_log.history if words in m) == 2
+
+
+def test_fixture_prompt_holds_the_idle_pass(asset_mgr):
+    """UltimaDngn.c:110-121: the idle pass (PASSTIME) waits only at the
+    command prompt; the fountain's GetChar (230) waits for a key."""
+    import pygame
+
+    screen = _fixture_screen(asset_mgr, DungeonTile.FOUNTAIN_HEAL)
+    _press(screen, pygame.K_SPACE, " ")
+    torch = screen.state.torchtime
+    passes = sum(1 for m in screen.text_log.history if m == "Pass")
+    for _ in range(20 * 60):
+        screen.update(1 / 60)
+    assert screen.text_log.is_waiting_for_input
+    assert screen.state.torchtime == torch
+    assert sum(1 for m in screen.text_log.history if m == "Pass") == passes
+
+
+def test_dungeon_s_and_l_are_not_dungeon_commands(asset_mgr):
+    """UltimaDngn.c:145, 152: ``case 'L': NotDngCmd(); break;`` and ``case
+    'S': NotDngCmd(); break;``, then ``goto dungeonmech`` (161): no prompt,
+    the turn passes. The port's dungeon S was Java's search."""
+    import pygame
+
+    screen = _fixture_screen(asset_mgr, DungeonTile.NOTHING)
+    screen.state.torchtime = 50
+    for k, ch in ((pygame.K_s, "s"), (pygame.K_l, "l")):
+        _press(screen, k, ch)
+        assert not screen.text_log.is_waiting_for_input
+    assert screen.state.torchtime == 48
