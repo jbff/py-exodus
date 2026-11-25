@@ -550,6 +550,11 @@ class AutoPlayController:
         if rod is not None and rod[0] == "heal":
             self._queue_text(rod[1], enter=False)
             return self._emit_key(state_machine, pygame.K_c)
+        # Nobody safe, no MP yet, but standing here gets there (a healer's
+        # MP or HP regen): pass the turn on the rod (no encounter roll on a
+        # fixture, UltimaDngn.c:183-341); the rod asks, Esc answers.
+        if rod is not None and rod[0] == "wait":
+            return self._emit_key(state_machine, pygame.K_SPACE)
 
         # A chest underfoot: open it the safe way (APPAR UNEM, or G with no
         # caster alive in a party strong enough for a trap). Never waits for
@@ -583,9 +588,13 @@ class AutoPlayController:
                 self._queue_text(f"{cleric[0]}d", enter=False)
                 return self._emit_key(state_machine, pygame.K_c)
 
-        # A mark nobody can touch safely and no heal can fix is not walked
-        # to (or back onto): the party leaves, rests (an unsafe member is
-        # always under needs_heal's 85%, since max HP >= 150) and returns.
+        # A mark nobody can touch safely, no heal can fix and no wait on the
+        # rod will help ("off": no Cleric, Druid or Paladin with a 10-MP
+        # pool, and the needer poisoned or the food short, or someone under
+        # 10 rations) is not walked to or back onto: the party leaves. Such
+        # a party can't rest indoors either (_can_rest_indoors needs that
+        # same healer, and 100 food); the mark waits until food is bought
+        # or the poison cured, which the planner's own goals see to.
         def _reachable(mark_idx: int) -> bool:
             plan = self._rod_plan(party, mark_idx)
             return plan is not None and plan[0] != "off"
@@ -3354,7 +3363,13 @@ class AutoPlayController:
         ``("heal", keys)``: none is safe; a Cleric or Druid (Sanctu Mani, K,
         50 MP, for a gap over Sanctu's 30) or a Cleric, Druid or Paladin
         (Sanctu, C, 10 MP) heals the needer closest to safe first.
-        ``("off", None)``: none is safe and nobody has the MP to heal.
+        ``("wait", None)``: no MP to heal now, but passing turns on the rod
+        helps: a living Cleric, Druid or Paladin whose MP pool reaches 10
+        will regain it (+1 a tick, Druid +2) while everyone has 10 rations
+        or more, or the needer, not poisoned,
+        regains the gap at +1 HP per 10 ticks before anyone's food (about a
+        ration a tick-tenth: one ration per HP) runs low.
+        ``("off", None)``: none is safe and none of that applies.
         None: no living member needs this mark."""
         needers = [
             (i + 1, m) for i, m in enumerate(party.members) if not m.is_dead() and m.marks[mark_idx] == 0
@@ -3372,6 +3387,20 @@ class AutoPlayController:
         sanctu = cls._find_caster(party, (Profession.CLERIC, Profession.DRUID, Profession.PALADIN), min_mp=10)
         if sanctu is not None:
             return ("heal", cls._cleric_cast(party, sanctu[0], f"c{n}"))
+        living = [x for x in party.members if not x.is_dead()]
+        # Never wait while someone is about to starve (the walk leaves the
+        # dungeon at 0 food).
+        if any(x.food < 10 for x in living):
+            return ("off", None)
+        if any(
+            x.profession in (Profession.CLERIC, Profession.DRUID, Profession.PALADIN) and x.max_mp >= 10
+            for x in living
+        ):
+            return ("wait", None)
+        # Party.age: +1 HP every 10th tick, a ration every 9.9 ticks: about
+        # one ration per HP regained; keep a margin of 20.
+        if m.status != Status.POISONED and all(x.food >= gap + 20 for x in living):
+            return ("wait", None)
         return ("off", None)
 
     @staticmethod

@@ -2138,18 +2138,20 @@ def test_autoplay_does_not_light_a_torch_on_the_strange_wind(pygame_setup, monke
 # and leaves the mark for later (rest first, then come back).
 
 
-def _rod_setup(monkeypatch, hps, cleric_mp=0):
+def _rod_setup(monkeypatch, hps, cleric_mp=0, cleric_max_mp=99, food=300, healer=None):
     from py_exodus.autoplay import batch
     from py_exodus.autoplay import controller as ctl
     from py_exodus.world.map import DungeonTile
 
     party = batch.build_party()
     for m, hp in zip(party.members, hps):
-        m.food = 300
+        m.food = food
         m.max_hp = 400
         m.hp = hp
         m.mp = 0
-    party.members[2].max_mp = 99
+    if healer is not None:
+        party.members[2].profession = healer
+    party.members[2].max_mp = cleric_max_mp
     party.members[2].mp = cleric_mp
     ds, dmap = _room_dungeon(party, x=5, y=2)
     dmap.set_tile(5, 2, 0, DungeonTile.MARK_FIRE)  # 5 & 3 == 1: Fire
@@ -2161,11 +2163,13 @@ def _rod_setup(monkeypatch, hps, cleric_mp=0):
     return party, ds, sm, ctrl
 
 
-def _run_rod(party, ds, sm, ctrl, steps):
+def _run_rod(party, ds, sm, ctrl, steps, until_marked=False):
     """Step autoplay; return (positions, burns) where a burn records the
     member's HP just before the rod marked it."""
     positions, burns = [], []
     for _ in range(steps):
+        if until_marked and all(m.marks[1] for m in party.members):
+            break
         before = [(m.marks[1], m.hp) for m in party.members]
         ctrl.step(sm)
         positions.append((ds.state.x, ds.state.y, ds.state.z))
@@ -2186,9 +2190,10 @@ def test_autoplay_never_burns_a_member_below_half_health(pygame_setup, monkeypat
 
 
 def test_autoplay_steps_off_an_unsafe_rod_and_does_not_come_back(pygame_setup, monkeypatch):
-    """No safe member and no heal: leave the rod and carry on, without
-    stepping back on to be refused again (no loop)."""
-    party, ds, sm, ctrl = _rod_setup(monkeypatch, [120, 120, 120, 120])
+    """No safe member, no heal, and waiting can't help (no healer's MP
+    to regain; 130 HP short is about 130 rations of regen, with 30): leave
+    the rod and carry on, without stepping back on (no loop)."""
+    party, ds, sm, ctrl = _rod_setup(monkeypatch, [120, 120, 120, 120], cleric_max_mp=0, food=30)
     positions, burns = _run_rod(party, ds, sm, ctrl, 30)
     assert burns == []
     assert positions[-1] != (5, 2, 0)
@@ -2216,3 +2221,59 @@ def test_autoplay_uses_sanctu_mani_for_a_big_gap(pygame_setup, monkeypatch):
     _, burns = _run_rod(party, ds, sm, ctrl, 60)
     assert any("casts Sanctu Mani!" in line for line in ds.text_log.history)
     assert all(hp - 50 >= mx // 2 for _n, hp, mx in burns), burns
+
+
+# --- Fix round (review of 5d31f3f..6a80656): wait on the rod when it helps ------
+#
+# Party.age (LairWare Routine6E35 mana/heal ticks): off Sosaria every 4th
+# turn is a tick: mana +1 (Druid +2) to the cap, and every 10th tick +1 HP.
+# Standing on the rod rolls no encounter (dungeonmech acts instead), so a
+# party that can recover in place waits there (Space, Esc the rod).
+
+
+def test_autoplay_waits_on_the_rod_for_the_healers_mp(pygame_setup, monkeypatch):
+    party, ds, sm, ctrl = _rod_setup(monkeypatch, [400, 400, 400, 230], cleric_mp=0)
+    positions, burns = _run_rod(party, ds, sm, ctrl, 300, until_marked=True)
+    assert set(positions) == {(5, 2, 0)}
+    assert all(hp - 50 >= mx // 2 for _n, hp, mx in burns), burns
+    assert all(m.marks[1] for m in party.members)
+
+
+def test_autoplay_waits_on_the_rod_for_hp_regen(pygame_setup, monkeypatch):
+    """No healer at all, 1 HP short and well fed: regen gets there."""
+    party, ds, sm, ctrl = _rod_setup(monkeypatch, [400, 400, 400, 249], cleric_max_mp=0)
+    positions, burns = _run_rod(party, ds, sm, ctrl, 300, until_marked=True)
+    assert set(positions) == {(5, 2, 0)}
+    assert all(hp - 50 >= mx // 2 for _n, hp, mx in burns), burns
+    assert all(m.marks[1] for m in party.members)
+
+
+def test_autoplay_druid_heals_through_wizard_or_cleric(pygame_setup, monkeypatch):
+    """A Druid is asked "Wizard or Cleric?" (UltimaSpellCombat.c:73-76,
+    125-136) and answers C, then Sanctu."""
+    party, ds, sm, ctrl = _rod_setup(
+        monkeypatch, [400, 400, 400, 240], cleric_mp=40, healer=Profession.DRUID
+    )
+    _, burns = _run_rod(party, ds, sm, ctrl, 60)
+    assert any("casts Sanctu!" in line for line in ds.text_log.history)
+    assert all(hp - 50 >= mx // 2 for _n, hp, mx in burns), burns
+    assert all(m.marks[1] for m in party.members)
+
+
+def test_autoplay_paladin_heals_with_sanctu(pygame_setup, monkeypatch):
+    party, ds, sm, ctrl = _rod_setup(
+        monkeypatch, [400, 400, 400, 240], cleric_mp=40, healer=Profession.PALADIN
+    )
+    _, burns = _run_rod(party, ds, sm, ctrl, 60)
+    assert any("casts Sanctu!" in line for line in ds.text_log.history)
+    assert all(hp - 50 >= mx // 2 for _n, hp, mx in burns), burns
+    assert all(m.marks[1] for m in party.members)
+
+
+def test_autoplay_does_not_wait_on_the_rod_while_starving(pygame_setup, monkeypatch):
+    """A healer's MP would come back, but a member at 5 rations leaves."""
+    party, ds, sm, ctrl = _rod_setup(monkeypatch, [400, 400, 400, 230], cleric_mp=0, food=5)
+    positions, burns = _run_rod(party, ds, sm, ctrl, 24)
+    assert all(hp - 50 >= mx // 2 for _n, hp, mx in burns), burns
+    assert not party.members[3].marks[1]
+    assert positions[-1] != (5, 2, 0)
