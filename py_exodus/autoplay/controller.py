@@ -642,13 +642,13 @@ class AutoPlayController:
         if dead_idx is not None:
             caster = self._find_caster(party, (Profession.CLERIC, Profession.DRUID), min_mp=65)
             if caster is not None:
-                self._queue_text(f"{caster[0]}n{dead_idx}", enter=False)
+                self._queue_text(self._cleric_cast(party, caster[0], f"n{dead_idx}"), enter=False)
                 return self._emit_key(state_machine, pygame.K_c)
         ash_idx = next((i + 1 for i, m in enumerate(party.members) if m.status == Status.ASH), None)
         if ash_idx is not None:
             caster = self._find_caster(party, (Profession.CLERIC, Profession.DRUID), min_mp=75)
             if caster is not None:
-                self._queue_text(f"{caster[0]}p{ash_idx}", enter=False)
+                self._queue_text(self._cleric_cast(party, caster[0], f"p{ash_idx}"), enter=False)
                 return self._emit_key(state_machine, pygame.K_c)
 
         # Cast ALCORT to cure poison on the spot if a Cleric/Druid has >= 35 MP
@@ -656,7 +656,7 @@ class AutoPlayController:
         if poison_idx is not None:
             caster = self._find_caster(party, (Profession.CLERIC, Profession.DRUID), min_mp=35)
             if caster is not None:
-                self._queue_text(f"{caster[0]}h{poison_idx}", enter=False)
+                self._queue_text(self._cleric_cast(party, caster[0], f"h{poison_idx}"), enter=False)
                 return self._emit_key(state_machine, pygame.K_c)
 
         # Heal detour if hurt (skip during BUY_FOOD/starvation, and skip/save MP during CURE_POISON unless <= 25 HP)
@@ -696,7 +696,7 @@ class AutoPlayController:
                     if hurt_candidates
                     else 1
                 )
-                self._queue_text(f"{caster[0]}c{hurt_idx}", enter=False)
+                self._queue_text(self._cleric_cast(party, caster[0], f"c{hurt_idx}"), enter=False)
                 return self._emit_key(state_machine, pygame.K_c)
 
         # TownScreen / City maps
@@ -1959,7 +1959,7 @@ class AutoPlayController:
             )
             if healer is not None:
                 patient = min(hurt, key=lambda im: im[1].hp / max(1, im[1].max_hp))[0]
-                self._queue_text(f"{healer}c{patient}", enter=False)
+                self._queue_text(self._cleric_cast(party, healer, f"c{patient}"), enter=False)
                 return self._emit_key(state_machine, pygame.K_c)
             return self._emit_key(state_machine, pygame.K_SPACE)
         if any(m.mp < m.max_mp for _, m in living):
@@ -3103,7 +3103,7 @@ class AutoPlayController:
         highest-dex member when nobody is safe)."""
         opener = self._chest_opener(party)
         if opener is not None and opener[0] == "cast":
-            self._queue_text(f"{opener[1]}b", enter=False)
+            self._queue_text(self._cleric_cast(party, opener[1], "b"), enter=False)
             return self._emit_key(state_machine, pygame.K_c, guarded=guarded)
         if opener is not None:
             idx = opener[1]
@@ -3115,6 +3115,18 @@ class AutoPlayController:
             )
         self._queue_text(str(idx), enter=False)
         return self._emit_key(state_machine, pygame.K_g, guarded=guarded)
+
+    @staticmethod
+    def _cleric_cast(party, idx: int, rest: str) -> str:
+        """Keys after C for a cleric spell cast by member ``idx`` (1-based):
+        a two-discipline caster (Druid, Ranger) is first asked "Wizard or
+        Cleric?" and answers C (LairWare UltimaSpellCombat.c:73-76 EitherChoose,
+        125-136; user ruling Q56)."""
+        from py_exodus.combat.magic import get_castable_spell_types
+
+        prof = party.members[idx - 1].profession
+        book = "c" if len(get_castable_spell_types(prof)) > 1 else ""
+        return f"{idx}{book}{rest}"
 
     @staticmethod
     def _find_caster(

@@ -397,3 +397,49 @@ def test_downlevel_refused_on_the_deepest_level(spell):
     res = cast_spell(spell, caster, world_map=state)
     assert not res.executed and res.message == "Not Here!"
     assert state.z == 7 and caster.mp == 99
+
+
+def test_autoplay_druid_cast_answers_wizard_or_cleric(pygame_setup, asset_mgr):
+    """User ruling Q56 (fix it). LairWare's Cast asks a Druid (and any
+    two-discipline caster) which book to cast from before the spell letter
+    (UltimaSpellCombat.c:73-76, 125-136):
+
+        if (classType == careerTable[8])
+            spellnum = EitherChoose();
+        ...
+        if (value == 'W') result = WizardChoose();
+        if (value == 'C') result = ClericChoose();
+
+    (the port's prompt is "Spell Type? [W]izard or [C]leric"). ALCORT, SURMANDUM, ANJU SERMANI, SANCTU and APPAR UNEM are
+    cleric spells, so autoplay must answer C before the letter; without it the
+    letter lands on the type prompt and the cast fails.
+    """
+    from py_exodus.autoplay.controller import AutoPlayController
+    from py_exodus.screens.overworld import OverworldScreen
+    from py_exodus.state_machine import StateMachine
+
+    party = Party(transport=Transport.FOOT)
+    party.add_member(Character("Fight", "M", profession=Profession.FIGHTER,
+                               hp=300, max_hp=300, food=500, gold=500))
+    druid = Character("Druid", "M", profession=Profession.DRUID,
+                      intelligence=50, wisdom=50, hp=300, max_hp=300,
+                      food=500, gold=500, mp=60, max_mp=60)
+    party.add_member(druid)
+    party.members[0].status = Status.POISONED
+    sm = StateMachine(asset_mgr=asset_mgr, audio=None)
+    ow = OverworldScreen(party=party, map_id=0, asset_mgr=asset_mgr, random_encounters=False)
+    sm.set_screen(ow)
+    ctrl = AutoPlayController(enabled=True)
+    assert ctrl.step(sm) == pygame_key("c")
+    for _ in range(6):
+        if not ctrl._key_queue:
+            break
+        ctrl.step(sm)
+    assert party.members[0].status == Status.GOOD
+    assert druid.mp < 60
+
+
+def pygame_key(ch: str) -> int:
+    import pygame
+
+    return getattr(pygame, f"K_{ch}")
