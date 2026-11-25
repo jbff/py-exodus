@@ -772,3 +772,49 @@ def test_combat_agechars_every_fourth_round_no_moves(asset_mgr, transport):
         arena.execute_monster_turns()
     assert wiz.mp == 3  # calls 1, 5 and 9 of nine
     assert party.moves == 0
+
+
+# --- B-10: combat monster HP from monhpstart (user ruling 2026-11-25) -------
+
+
+_MONHPSTART_CAPS = {
+    "orc": 48, "skeleton": 80, "thief": 128, "pirate": 128, "giant": 112,
+    "daemon": 160, "wizard": 160, "fighter": 192, "ranger": 192, "pincher": 192,
+    "dragon": 224, "serpent": 224, "balron": 240, "squid": 240, "guard": 240,
+    "cleric": 96, "merchant": 32, "jester": 32, "lord_british": 240,
+    "horse": 112, "grass": 32, "floor": 48, "chest": 80,
+}
+
+
+@pytest.mark.parametrize("tile,cap", sorted(_MONHPSTART_CAPS.items()))
+def test_combat_monster_hp_rolls_to_monhpstart(asset_mgr, monkeypatch, tile, cap):
+    """UltimaSpellCombat.c:867 and 901-905 (Combat):
+
+        unsigned char monhpstart[16] = {0x20, 0x20, 0xF0, 0xF0, 0xC0, 0x60,
+            0xA0, 0x80, 0x30, 0x50, 0x70, 0xA0, 0xC0, 0xE0, 0xF0, 0xF0};
+        ...
+            health = (gMonType / 2) & 0x0F;
+            MonsterHP[mon] = RandNum(0, monhpstart[health]) | 0x0F;
+
+    Each monster's HP is RandNum(0, monhpstart[type]) | 0x0F (a pirate
+    fight's crew are thieves). It replaces creatures.xml basehp as the cap.
+    """
+    import random as _random
+
+    rolls: list[tuple[int, int]] = []
+
+    def fake(a, b):
+        rolls.append((a, b))
+        return b
+
+    party = _party(Transport.FOOT)
+    arena = CombatArena(
+        party, MapLoader(asset_mgr).load_conflict_map("CNFLCT_A.ULT"),
+        creature_tile=tile, asset_mgr=asset_mgr, monster_count=1,
+    )
+    from py_exodus.combat.arena import CombatMonster
+
+    monkeypatch.setattr(_random, "randint", fake)
+    m = CombatMonster(arena.creature_def, 0, 0)
+    assert rolls == [(0, cap)]
+    assert m.hp == cap | 0x0F

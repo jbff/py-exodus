@@ -14,6 +14,7 @@ A Python 3 / Pygame-CE reimplementation of *Ultima III: Exodus*, with **Auto-Com
   - **The dead leave the combat board** and no longer block the living.
   - **Wind** steers ships on Ambrosia as on Sosaria, and is shown there too. A wind is named for where it blows from, as sailors name them: a NORTH wind stops a ship sailing north.
   - **Monster attacks**: hit chance by armor (`RandNum(0, armor+16) < 8`), damage that grows with the target's max HP, and a location bonus (+16 dungeon, +32 town, +48 castles and Ambrosia). Castle Exodus is a real fight now. Dragon fire always hits.
+  - **Monster HP** in battle: 15 up to a cap set by the monster's kind (orcs 63, skeletons 95, clerics 111, giants 127, thieves and pirate crews 143, daemons and wizards 175, fighters and pinchers 207, dragons and serpents 239, balrons, Man-O-Wars and guards 255; merchants and jesters 47).
   - **Party attacks**: half of all swings face a DEX check (a 0-99 roll above DEX misses), the rest land; a landed blow does 0 to STR (odd) + STR/2 + 3 per weapon rank (Dagger 1 .. Exotic 15) + 4.
   - **Missiles** (sling, bows, a thrown dagger) fly over walls and water to the edge of the board, stopping only at a monster.
   - **The battlefield** is chosen by the ground the party stands on (grass, brush, forest or floor; anything else is grass), in towns too, not by the monster's tile.

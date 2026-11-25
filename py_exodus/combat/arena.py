@@ -23,6 +23,7 @@ from py_exodus.combat.resolver import (
     resolve_monster_attack,
     resolve_player_attack,
     trace_projectile_path,
+    lw_monhpstart,
     try_monster_magic_poke,
 )
 from py_exodus.entities.defs import CreatureDef
@@ -143,21 +144,19 @@ class CombatMonster:
         self.tile = definition.tile
         self.variant = 0  # LairWare VARMON: 0 plain, 1/2 named variant
         self.basehp = definition.basehp if definition.basehp > 0 else 48
-        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): per-battle HP is
-        # make_rnd(cap)|0x0F — the roll's low nibble is forced, so HP floors
-        # at 15 and can exceed basehp when basehp's low nibble is not 0x0F
-        # (cap 32 rolls 0x20|0x0F = 47). creatures.xml basehp doubles as the
-        # per-tile GBC HP cap (the shared data source); a fixed hp set
-        # explicitly on the CreatureDef (hp != the post_init basehp default)
-        # is still honored. (GBC funcs5.c:1546-1554)
+        # LairWare Combat (UltimaSpellCombat.c:867, 901-905): per-battle HP
+        # is RandNum(0, monhpstart[(gMonType / 2) & 0x0F]) | 0x0F, the type's
+        # monhpstart cap (orc 48 .. balron 240) in place of creatures.xml
+        # basehp (user ruling 2026-11-25, ledger B-10). A fixed hp set
+        # explicitly on the CreatureDef (hp != basehp) is still honored.
         if definition.hp > 0 and definition.hp != self.basehp:
             self.hp = definition.hp
         else:
-            # randint(0, cap) rolls 0..cap inclusive, exactly GBC
-            # make_rnd(cap + 1). randint (not randrange) on purpose: the
-            # module-level randrange is the attribute RNG-scripted tests
-            # stub, and spawn HP must not consume their sequences.
-            self.hp = random.randint(0, self.basehp) | 0x0F
+            # randint(0, cap) rolls 0..cap inclusive, LW RandNum. randint
+            # (not randrange) on purpose: the module-level randrange is the
+            # attribute RNG-scripted tests stub, and spawn HP must not
+            # consume their sequences.
+            self.hp = random.randint(0, lw_monhpstart(self)) | 0x0F
         self.max_hp = self.hp
         self.exp = definition.exp
         self.x = x

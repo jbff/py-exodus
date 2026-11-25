@@ -537,16 +537,14 @@ def test_dying_monster_visible_during_attack_burst(asset_mgr, conflict_map):
     assert len(combat.dying_monsters) == 0
 
 
-# --- USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): rolled per-battle HP -----
+# --- Rolled per-battle HP: LairWare Combat (UltimaSpellCombat.c:867, 901-905)
+# RandNum(0, monhpstart[type]) | 0x0F (user ruling 2026-11-25, ledger B-10) ---
 
 
-def test_monster_hp_rolled_per_battle_gbc():
-    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): per-battle monster HP is
-    make_rnd(cap)|0x0F — the roll's low nibble is forced, so HP always ends in
-    0x0F (floor 15 by construction) and may exceed basehp when basehp's low
-    nibble is not 0x0F (cap 32 rolls 0x20|0x0F = 47). creatures.xml basehp
-    doubles as the per-tile GBC HP cap (the shared data source)
-    (GBC funcs5.c:1546-1554)."""
+def test_monster_hp_rolled_per_battle():
+    """Per-battle monster HP is RandNum(0, monhpstart[type]) | 0x0F: the low
+    nibble is forced, so HP always ends in 0x0F (floor 15) and tops out at
+    the orc's 48 | 0x0F = 63, whatever creatures.xml says (basehp 32)."""
     low_cap_def = CreatureDef(id=30, name="Snapper", tile="orc", basehp=32)
     seen: set[int] = set()
     for i in range(200):
@@ -554,28 +552,29 @@ def test_monster_hp_rolled_per_battle_gbc():
         monster = CombatMonster(low_cap_def, 3, 3)
         assert monster.hp >= 15  # |0x0F floor
         assert monster.hp & 0x0F == 0x0F  # low nibble forced
-        assert monster.hp <= low_cap_def.basehp | 0x0F  # cap is basehp|0x0F, not basehp
+        assert monster.hp <= 48 | 0x0F  # the orc's monhpstart, not basehp
         assert monster.max_hp == monster.hp
         seen.add(monster.hp)
-    # Rolls above basehp happen: 32 | 0x0F = 47 (old fixed HP was exactly 32).
-    assert 47 in seen
+    assert 63 in seen
     # The distribution varies per instance, not one fixed value.
     assert len(seen) > 1
 
 
-def test_monster_hp_roll_cap_is_basehp_or_0x0f():
-    """USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): for every tile the HP
-    roll never exceeds basehp | 0x0F (GBC funcs5.c:1546-1554)."""
+def test_monster_hp_roll_cap_is_monhpstart_or_0x0f():
+    """For a guard (monhpstart 0xF0) the roll never exceeds 240 | 0x0F."""
     guard_def = CreatureDef(id=6, name="Guard", tile="guard", basehp=128)
+    seen = set()
     for i in range(200):
         random.seed(8100 + i)
         monster = CombatMonster(guard_def, 3, 3)
-        assert 15 <= monster.hp <= guard_def.basehp | 0x0F
+        assert 15 <= monster.hp <= 240 | 0x0F
+        seen.add(monster.hp)
+    assert max(seen) > 128 | 0x0F  # past the old basehp cap
 
 
 def test_monster_hp_explicit_definition_override_kept():
     """The CreatureDef fixed-hp override path (hp set explicitly, i.e. hp
-    differing from the post_init default hp=basehp) survives the GBC roll."""
+    differing from the post_init default hp=basehp) survives the roll."""
     fixed = CreatureDef(id=31, name="Bound Wisp", tile="wisp", basehp=48, hp=100)
     monster = CombatMonster(fixed, 3, 3)
     assert monster.hp == 100
