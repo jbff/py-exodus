@@ -163,24 +163,17 @@ class TestCombatRoundEndTurn:
 
 
 class TestWindRules:
-    """Task 20: GBC wind rules — becalmed blocks sailing, headwind blocks
-    sailing, and the wind re-rolls to a DIFFERENT outcome every 20th
-    consumed move.
-
-    USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): wind blocks when
-    becalmed/against headwind; forced re-roll per 20 moves (GBC
-    postexo1.c:1848-1852; menucmd3.c:1449-1467). Supersedes py's
-    "Sailing against headwinds slows thee!" and the 4-second wall-clock
-    wind timer (wind is move-driven now, like the moons since Task 19).
-
-    The move-driven counter is Party.moves itself (GBC's ``moves`` modulo,
-    Party.end_turn's counter), checked on the overworld turn end.
+    """LairWare wind rules: becalmed blocks sailing, the headwind blocks
+    sailing (ValidTrans, UltimaMain.c:3222-3236), and the wind re-rolls to a
+    DIFFERENT outcome on its own real-time clock (DoWind, :3284-3300: every
+    33 polls of 5/60 s, 2.75 s of game time; user ruling 2026-11-25, which
+    replaced the GBC every-20th-move re-roll). Supersedes py's "Sailing
+    against headwinds slows thee!".
     """
 
     def _sailing_party(self, sample_party):
         sample_party.transport = Transport.SHIP
         sample_party.ship_hull = 50
-        sample_party.moves = 7  # clear of the 20-move re-roll slots
         return sample_party
 
     def test_becalmed_blocks_sailing(self, overworld, sample_party):
@@ -213,23 +206,22 @@ class TestWindRules:
         key(overworld, pygame.K_UP)
         assert (sample_party.x, sample_party.y) == (10, 9)
 
-    def test_wind_rerolls_every_20th_move_never_repeating(self, overworld, sample_party):
+    def test_wind_rerolls_every_33_polls_never_repeating(self, overworld, sample_party):
         import random as _random
 
         _random.seed(319)
+        sample_party.wind_ctr = 32  # just reset
         changes = []
         before = sample_party.wind_direction
-        for _ in range(100):
-            overworld._finish_turn()
+        for poll in range(1, 5 * 33 + 1):
+            overworld.update(5 / 60)
             wind = sample_party.wind_direction
             if wind != before:
-                changes.append(sample_party.moves)
-                # Forced re-roll: never repeats the outgoing value.
-                assert wind != before
+                changes.append(poll)
                 before = wind
-        # 100 moves → exactly the multiples of 20 re-roll.
-        assert len(changes) == 5
-        assert all(m % 20 == 0 for m in changes)
+        # DoWind re-rolls until the value differs, so every 33rd poll is a
+        # change: 5 x 33 polls (13.75 s of game time) give exactly 5.
+        assert changes == [33, 66, 99, 132, 165]
 
     def test_display_sites_tolerate_calm(self, asset_mgr, sample_party):
         from py_exodus.screens.overworld import sky_strip_texts

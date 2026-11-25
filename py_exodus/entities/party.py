@@ -286,10 +286,9 @@ class Party:
 
         self.active_member_index = active_member_index
 
-        # Wind direction resolution. None is the becalmed/calm state —
-        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): sailing is BLOCKED
-        # while becalmed (GBC postexo1.c:1848-1852; menucmd3.c:1449-1467),
-        # and the re-roll can land on calm as one of the 5 outcomes.
+        # Wind direction resolution. None is the becalmed/calm state
+        # (LairWare WindDir 0): ValidTrans refuses every heading while calm
+        # (UltimaMain.c:3228), and DoWind's re-roll can land on it.
         if wind_direction is None:
             self.wind_direction: Direction | None = None
         elif isinstance(wind_direction, Direction):
@@ -303,6 +302,14 @@ class Party:
                 self.wind_direction = Direction[w_str]
             else:
                 self.wind_direction = Direction.NORTH
+
+        # LairWare DoWind's WindCtr (UltimaMain.c:69, 3288-3291): a plain
+        # global, not saved, so it starts at 0 on every load. The poll clock
+        # turns game time into 5/60 s GetKeyMouse polls (world/realtime.py).
+        from py_exodus.world.realtime import PollClock  # world imports party
+
+        self.wind_ctr = 0
+        self.wind_clock = PollClock()
 
         # Gold and food live on each member (Java CharacterRecord); these
         # optional constructor arguments RE-SEED the party's total via the

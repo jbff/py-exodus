@@ -41,6 +41,7 @@ from py_exodus.ui.text_log import (
 from py_exodus.world import doors as door_module
 from py_exodus.world import portal_entry
 from py_exodus.world import search as search_module
+from py_exodus.world import realtime
 from py_exodus.world import tile_effects
 
 if TYPE_CHECKING:
@@ -1346,6 +1347,11 @@ class TownScreen(BaseScreen):
         self.avatar_y = oy
 
     def update(self, dt: float) -> None:
+        # LairWare DoWind (UltimaMain.c:3284-3300) keeps time in towns too:
+        # gUpdateWhere is 3 there, so every 5/60 s GetKeyMouse poll runs
+        # FullUpdate (:3469-3470). The Peer Gem picture stops it.
+        if not self.gem_view_active:
+            realtime.advance_wind(self.party, dt)
         self.anim_timer += dt
         if self.anim_timer >= 0.2:
             self.anim_timer = 0.0

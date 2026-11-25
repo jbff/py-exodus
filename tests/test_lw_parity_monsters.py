@@ -382,29 +382,83 @@ def test_whirlpool_drifts_on_its_heading(overworld, monkeypatch):
 # --- M-14: the whirlpool is not part of FinishAll ---------------------------------
 
 
-def test_whirlpool_moves_every_turn_aboard_ship_and_in_stopped_time(overworld, monkeypatch):
-    """UltimaMain.c:1042-1043 (main loop) and 2959-3013 (WhirlPool):
+_POLL = 5 / 60
+
+
+def test_whirlpool_moves_every_4th_poll_aboard_ship_and_in_stopped_time(overworld, monkeypatch):
+    """UltimaMain.c:1042-1045 (main loop) and 2963-2967 (WhirlPool, user
+    ruling M-01, 2026-11-25):
 
         while (count > 0) {
             WhirlPool();
+            key = GetKeyMouse(0);
+        ...
+        gWhirlCtr--;
+        if (gWhirlCtr > 0)
+            return;
+        gWhirlCtr = 4;
 
-    WhirlPool runs from the key-wait loop, not from FinishAll
-    (UltimaMisc.c:1112-1126), so neither the mounted every-other-turn flip
-    nor stopped time holds it, and its engulf check (Whirl3) runs whenever it
-    moves. The port moves it once per turn.
+    Each pass of the key wait is one GetKeyMouse poll of 5/60 s, so the
+    whirlpool moves every 4th poll (1/3 s of game time) while the party
+    waits for a command. It runs from the key-wait loop, not from FinishAll
+    (UltimaMisc.c:1112-1126), so neither the ship's every-other-turn flip
+    nor stopped time holds it.
     """
     party = _party()
     party.transport = Transport.SHIP
     ow = overworld(20, 1, party=party)
     moves: list[int] = []
     monkeypatch.setattr(ow, "_move_whirlpool", lambda: moves.append(1))
+    ow._whirl_ctr = 4  # just reset
+    for _ in range(4 * 5 - 1):  # 1/60 s frames: 19 frames = 3.8 polls
+        ow.update(1 / 60)
+    assert moves == []
+    ow.update(1 / 60)  # frame 20 = poll 4
+    assert len(moves) == 1
+    ow.party.aura.set(AuraType.QUICKNESS, 10)
+    for _ in range(8):
+        ow.update(_POLL)
+    assert len(moves) == 3
+
+
+def test_whirlpool_does_not_move_with_turns(overworld, monkeypatch):
+    """UltimaMain.c:1042-1043: WhirlPool is called from the key wait only,
+    never from the turn (Routine6E35, FinishAll). Ten turns with no time
+    passing leave it where it was; the port used to move it once a turn."""
+    ow = overworld(20, 1)
+    moves: list[int] = []
+    monkeypatch.setattr(ow, "_move_whirlpool", lambda: moves.append(1))
     for _ in range(10):
         _key(ow, pygame.K_SPACE)
-    assert len(moves) == 10
-    ow.party.aura.set(AuraType.QUICKNESS, 10)
-    for _ in range(3):
-        _key(ow, pygame.K_SPACE)
-    assert len(moves) == 13
+    assert moves == []
+
+
+def test_whirlpool_waits_while_a_prompt_is_open(overworld, monkeypatch):
+    """UltimaMain.c:1042-1043: only the main loop's command wait calls
+    WhirlPool. A command's own prompt waits in GetKeyMouse alone (e.g.
+    Attack's direction, GetDirection), so the whirlpool stands still until
+    the party is back at the command prompt."""
+    ow = overworld(20, 1)
+    moves: list[int] = []
+    monkeypatch.setattr(ow, "_move_whirlpool", lambda: moves.append(1))
+    _key(ow, pygame.K_a)
+    assert ow.text_log.is_waiting_for_input
+    for _ in range(12):
+        ow.update(_POLL)
+    assert moves == []
+
+
+def test_whirlpool_only_moves_on_sosaria(overworld, monkeypatch):
+    """UltimaMain.c:2969-2972: ``if (Party[3] != 0) { DrawMap(xpos, ypos);
+    return; }`` -- the counter runs, but the whirlpool moves only on
+    Sosaria."""
+    ow = overworld(20, 1)
+    moves: list[int] = []
+    monkeypatch.setattr(ow, "_move_whirlpool", lambda: moves.append(1))
+    ow.map_id = 13
+    for _ in range(12):
+        ow.update(_POLL)
+    assert moves == []
 
 
 def test_whirlpool_engulfs_ship_in_stopped_time_and_on_its_own_move(overworld, monkeypatch):
@@ -417,8 +471,8 @@ def test_whirlpool_engulfs_ship_in_stopped_time_and_on_its_own_move(overworld, m
         if (temp == 48)
             GoWhirlPool();
 
-    The whirlpool takes the ship when it drifts onto it, and stopped time
-    does not stop it.
+    The whirlpool takes the ship when it drifts onto it on its real-time
+    move, with no key pressed, and stopped time does not stop it.
     """
     party = _party()
     party.transport = Transport.SHIP
@@ -426,7 +480,8 @@ def test_whirlpool_engulfs_ship_in_stopped_time_and_on_its_own_move(overworld, m
     ow.creatures = [_monster("whirlpool", 47, 17, dir=[1, 1], wontattack=True)]
     ow.party.aura.set(AuraType.QUICKNESS, 10)
     monkeypatch.setattr(random, "randint", _Rolls({(0, 7): [3]}))
-    ow._update_creatures()
+    ow._whirl_ctr = 1
+    ow.update(_POLL)
     assert ow.map_id == 13
     assert party.whirlpool_return == (48, 18)
 

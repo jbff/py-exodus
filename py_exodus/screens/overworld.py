@@ -53,6 +53,7 @@ from py_exodus.world import doors as door_module
 from py_exodus.world import portal_entry
 from py_exodus.world import search as search_module
 from py_exodus.world import tile_effects
+from py_exodus.world import realtime
 
 if TYPE_CHECKING:
     from py_exodus.assets import AssetManager
@@ -244,16 +245,7 @@ def has_ship_object_at(party, x: int, y: int) -> bool:
 # stats panel transport row already carries "SHIP (HULL:n)".
 # User ruling 2026-11-22: the wind reads "Wind NORTH" etc., no arrow glyph.
 
-# The 5 wind outcomes of a re-roll (4 directions + the becalmed None):
-# GBC menucmd3.c:1449-1467 picks among directions plus calm and never
-# repeats the outgoing value.
-WIND_OUTCOMES: list["Direction | None"] = [
-    Direction.NORTH,
-    Direction.SOUTH,
-    Direction.EAST,
-    Direction.WEST,
-    None,
-]
+# The wind's re-roll and clock live in world/realtime.py (LairWare DoWind).
 
 
 def sky_strip_texts(
@@ -359,10 +351,11 @@ class OverworldScreen(BaseScreen):
         # Peer Gem (P) view state (Java PeerGemInputAdapter, see gem_view).
         self.gem_view_active = False
         self.anim_timer = 0.0
-        # The wind is move-driven now (Task 20, USER-DIRECTED GBC-RULES
-        # DEVIATION 2026-11-14: re-roll per 20 consumed moves) — like the
-        # moon clock the wall-clock timer block is gone from here; see
-        # _finish_turn / _reroll_wind.
+        # LairWare's real-time clocks run from update(dt): the wind (DoWind,
+        # on party.wind_clock) and the whirlpool (WhirlPool, gWhirlCtr:
+        # a plain global, not saved, starting at 0).
+        self._whirl_ctr = 0
+        self._whirl_clock = realtime.PollClock()
 
         self.world_renderer = (
             WorldRenderer(asset_mgr) if asset_mgr is not None else None
@@ -1409,16 +1402,14 @@ class OverworldScreen(BaseScreen):
         # LairWare ships sail straight off in any direction the wind allows
         # (UltimaMain.c North()/ValidTrans): no turn-to-face press, no heading.
 
-        # Frigate sailing rules
-        if self.party.transport == Transport.SHIP:
-            # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): wind blocks when
-            # becalmed/against headwind; forced re-roll per 20 moves (GBC
-            # postexo1.c:1848-1852; menucmd3.c:1449-1467). LW is silent on
-            # blocking and NES slows-but-moves, so GBC governs: a becalmed
-            # ship cannot sail at all, and sailing into the wind's reverse is
-            # refused — both supersede the old slow-down behavior. Like any
-            # refused step the turn still passes (LairWare North() NoGo, then
-            # the main loop's Routine6E35, UltimaMain.c:1057-1091, 1203-1207).
+        # Frigate sailing rules: LairWare ValidTrans (UltimaMain.c:3222-3236).
+        # ``if (Party[16]) return TRUE;``: once Exodus has fallen the wind
+        # never stops a ship (W-18). Otherwise a becalmed ship (WindDir 0)
+        # cannot sail at all, and sailing into the wind's own heading is
+        # refused. Like any refused step the turn still passes (North()
+        # NoGo, then the main loop's Routine6E35, UltimaMain.c:1057-1091,
+        # 1203-1207).
+        if self.party.transport == Transport.SHIP and not self.party.exodus_defeated:
             wind = self.party.wind_direction
             if wind is None:
                 self.text_log.add_message("The ship is becalmed!")
@@ -1504,18 +1495,6 @@ class OverworldScreen(BaseScreen):
             pass
         self.check_party_death()
 
-    def _reroll_wind(self) -> None:
-        """Re-roll the wind to a DIFFERENT outcome every 20th consumed move
-        (Party.moves modulo — see _finish_turn for the citation comments).
-
-        GBC's dowinds re-rolls per ~20 moves among the 4 directions plus
-        becalmed and never repeats the outgoing value, so the candidate pool
-        excludes whatever the wind currently is (a Direction or None).
-        """
-        current = self.party.wind_direction
-        choices = [o for o in WIND_OUTCOMES if o != current]
-        self.party.wind_direction = random.choice(choices)
-
     def _finish_turn(self, effect_tile=None) -> None:
         """End the movement turn: Routine6E35's IncMoves, moons and AgeChars, tile
         effect, then the whirlpool engulf scan.
@@ -1545,16 +1524,8 @@ class OverworldScreen(BaseScreen):
             # MoonGateUpdate (Sosaria only) and AgeChars, which ticks every
             # turn on Sosaria and every 4th on Ambrosia (Party[3] > 0).
             self.party.end_turn(sosaria=sosaria)
-            # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): wind blocks
-            # when becalmed/against headwind; forced re-roll per 20 moves
-            # (GBC postexo1.c:1848-1852; menucmd3.c:1449-1467). Move-driven
-            # like the moon clock (the 4-second wall-clock timer is gone):
-            # every 20th consumed move — Party.moves, the counter end_turn
-            # just advanced, GBC's ``moves`` modulo — the wind re-rolls to a
-            # DIFFERENT outcome among the 4 directions plus becalmed (GBC
-            # dowinds avoids repeating).
-            if self.party.moves % 20 == 0:
-                self._reroll_wind()
+            # The wind does not turn with the turn: LairWare's DoWind runs
+            # on its own real-time clock (see update()).
             tile_effects.apply_rule_effect(self.party, effect_tile)
         except PartyDeathException:
             pass
@@ -1963,16 +1934,8 @@ class OverworldScreen(BaseScreen):
            when the intended dir equals ``sail_dir``, else the turn consumes
            the tick.
         """
-        # LairWare WhirlPool (UltimaMain.c:1042-1043, 2959-3013) runs from the
-        # key-wait loop, not from FinishAll: neither the mounted flip nor
-        # stopped time holds it. The port moves it once per turn (LairWare:
-        # every 4th poll of the wait, in real time; ledger M-01). When it
-        # drifts onto the ship, GoWhirlPool takes the party (Whirl3).
-        if str(self.map_id) == "0":
-            self._move_whirlpool()
-            self._check_whirlpool_engulf()
-            if str(self.map_id) != "0":
-                return
+        # The whirlpool is not moved here: LairWare WhirlPool runs from the
+        # key-wait loop on its own real-time clock (see _whirlpool_poll).
 
         # LairWare FinishAll (UltimaMisc.c:1112-1126): on horseback or aboard
         # ship the monsters act only every other turn (zp[0xCD] flips
@@ -2196,6 +2159,26 @@ class OverworldScreen(BaseScreen):
     WHIRL_HEADINGS: tuple[tuple[int, int], ...] = (
         (0, 1), (1, 1), (1, 0), (1, -1), (0, -1), (-1, -1), (-1, 0), (-1, 1),
     )
+
+    def _whirlpool_poll(self) -> None:
+        """One call of LairWare WhirlPool from the main loop's key wait
+        (UltimaMain.c:1042-1043, 2963-2972)::
+
+            gWhirlCtr--;
+            if (gWhirlCtr > 0) return;
+            gWhirlCtr = 4;
+            if (Party[3] != 0) { DrawMap(xpos, ypos); return; }
+
+        so it moves every 4th 5/60 s poll, Sosaria only. When it drifts onto
+        the ship, GoWhirlPool takes the party (Whirl3, :3010-3012)."""
+        self._whirl_ctr -= 1
+        if self._whirl_ctr > 0:
+            return
+        self._whirl_ctr = realtime.WHIRL_CTR_RESET
+        if str(self.map_id) != "0":
+            return
+        self._move_whirlpool()
+        self._check_whirlpool_engulf()
 
     def _move_whirlpool(self) -> None:
         """LairWare WhirlPool (UltimaMain.c:2959-3013), one step.
@@ -2637,10 +2620,34 @@ class OverworldScreen(BaseScreen):
             self.anim_frame = (self.anim_frame + 1) % 16  # LW scrolls water in 16 steps
 
         # The moon phase is move-driven — Party.advance_moons runs from
-        # _finish_turn per consumed turn (GBC funcs5.c:1272-1279) — and the
-        # wind is move-driven too (Task 20: re-roll per 20 consumed moves
-        # out of _finish_turn), so both wall-clock timer blocks are gone.
+        # _finish_turn per consumed turn (GBC funcs5.c:1272-1279).
         self.party.moons = self.moons
+
+        # LairWare GetKeyMouse (UltimaMain.c:3456-3471) runs FullUpdate, and
+        # so DoWind (:3284-3300), on every 5/60 s poll while gUpdateWhere is
+        # 3, idle or not, prompts included. The Peer Gem picture
+        # (UltimaGraphics.c:1496-1497, gUpdateWhere 20) and the shrine
+        # picture (ImageDisplay, UltimaMacIF.c:1998-2001) stop it.
+        if not self.gem_view_active and self.shrine_member is None:
+            realtime.advance_wind(self.party, dt)
+
+        # LairWare main loop (UltimaMain.c:1040-1050): while the party waits
+        # for a command, each pass calls WhirlPool once and then waits one
+        # 5/60 s GetKeyMouse poll. A command's own prompt waits in
+        # GetKeyMouse alone, so the whirlpool stands still meanwhile.
+        polls = self._whirl_clock.polls(dt)
+        if (
+            polls
+            and not self.gem_view_active
+            and self.shrine_member is None
+            and not self.text_log.is_waiting_for_input
+            and not self.is_finished
+            and self.party.is_anyone_alive()
+        ):
+            for _ in range(polls):
+                self._whirlpool_poll()
+                if str(self.map_id) != "0":
+                    break
 
         if self.cannon_fx:
             remaining_fx: list[dict[str, Any]] = []

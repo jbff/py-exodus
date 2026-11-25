@@ -287,3 +287,31 @@ def test_putsosaria_keeps_every_parked_object(tmp_path):
     path = tmp_path / "party.json"
     SaveSystem.save_game(p, path)
     assert SaveSystem.load_game(path).dynamic_objects == objs
+
+
+# --- W-18 (user ruling 2026-11-25): no wind after Exodus falls -------------------
+
+
+def test_validtrans_after_exodus_the_wind_never_stops_a_ship(overworld):
+    """UltimaMain.c:3222-3225 (ValidTrans):
+
+        Boolean ValidTrans(char value) {
+            if (Party[16]) {
+                return TRUE;
+            }
+
+    Once Exodus has fallen (Party[16], the port's exodus_defeated), neither
+    a calm nor a headwind stops a ship."""
+    from py_exodus.constants import Direction
+
+    ow = overworld(50, 13)
+    ow.party.transport = Transport.SHIP
+    ow.party.exodus_defeated = 1
+    ow.party.wind_direction = None
+    _key(ow, pygame.K_UP)
+    assert (ow.party.x, ow.party.y) == (50, 12)
+    ow.party.wind_direction = Direction.NORTH
+    _key(ow, pygame.K_UP)
+    assert (ow.party.x, ow.party.y) == (50, 11)
+    assert "The ship is becalmed!" not in ow.text_log.history
+    assert "Headwinds block thy ship!" not in ow.text_log.history

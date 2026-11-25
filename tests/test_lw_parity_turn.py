@@ -924,3 +924,146 @@ def test_eatfood_carries_the_residual_99_ticks_per_10_rations():
     assert sum(sos) == 20 * 99 // 10
     ind = _ticks_between_rations(False)
     assert sum(ind) == 4 * sum(sos)
+
+
+# --- T-08 timing and odds (user ruling 2026-11-25): the wind's own clock ------
+#
+# UltimaMain.c:3284-3300 (DoWind, $4C3C), run by FullUpdate ($4A13, :3345):
+#
+#     if (Party[3] == 1) return;
+#     WindCtr--;
+#     if (WindCtr < 0) {
+#         WindCtr = 32; /* SUPPOSED TO BE 8! */
+#         newdir = WindDir;
+#         while (newdir == WindDir) {
+#             newdir = RandNum(0, 8);
+#             if (newdir > 4) newdir -= 4;
+#         }
+#         WindDir = newdir;
+#     }
+#
+# GetKeyMouse (:3441-3475) waits ``constrain * 5`` ticks for an event and, on
+# each null event while gUpdateWhere == 3, calls FullUpdate: one DoWind every
+# 5/60 s whether or not a key comes. 33 polls (32 down to -1) make 2.75 s.
+
+_POLL = 5 / 60
+
+
+class _WindRolls:
+    """random.randint stand-in for RandNum(0, 8): pops from a list."""
+
+    def __init__(self, rolls: list[int]) -> None:
+        self.rolls = list(rolls)
+        self.bounds: list[tuple[int, int]] = []
+
+    def __call__(self, a: int, b: int) -> int:
+        self.bounds.append((a, b))
+        return self.rolls.pop(0)
+
+
+def test_dowind_changes_every_33_polls_of_real_time_while_idle(overworld, monkeypatch):
+    """UltimaMain.c:3288-3291: ``WindCtr--; if (WindCtr < 0) { WindCtr = 32;``
+    with one DoWind per 5/60 s poll (GetKeyMouse, :3456-3471): the wind
+    changes every 33 polls, 2.75 s of game time, with no key pressed."""
+    import random
+
+    ow = overworld(40, 40)
+    ow.party.wind_direction = Direction.NORTH
+    ow.party.wind_ctr = 32  # just reset
+    monkeypatch.setattr(random, "randint", _WindRolls([3] * 10))
+    for _ in range(32 * 5):  # 32 polls in 1/60 s frames
+        ow.update(1 / 60)
+    assert ow.party.wind_direction == Direction.NORTH
+    for _ in range(4):
+        ow.update(1 / 60)
+    assert ow.party.wind_direction == Direction.NORTH
+    ow.update(1 / 60)  # frame 165 = poll 33
+    assert ow.party.wind_direction == Direction.SOUTH
+    assert ow.party.wind_ctr == 32
+
+
+def test_dowind_does_not_change_with_turns(overworld):
+    """UltimaMain.c:3284-3300: DoWind runs from FullUpdate in the key wait,
+    never from the turn (Routine6E35, UltimaMisc.c:1357-1377). A hundred
+    turns with no time passing leave the wind as it was; the port used to
+    re-roll it every 20th move."""
+    ow = overworld(40, 40)
+    ow.party.wind_direction = Direction.EAST
+    for _ in range(100):
+        ow._finish_turn()
+    assert ow.party.moves >= 100
+    assert ow.party.wind_direction == Direction.EAST
+
+
+def test_dowind_odds_fold_randnum_0_8(monkeypatch):
+    """UltimaMain.c:3292-3297: ``newdir = RandNum(0, 8); if (newdir > 4)
+    newdir -= 4;`` re-rolled while equal to WindDir. 0 is calm, 1..4 are
+    NORTH, EAST, SOUTH, WEST (MoreMessages 43-47; North() passes 1, East()
+    2, South() 3, West() 4 to ValidTrans), and 5..8 fold onto 1..4: calm
+    1/9, each direction 2/9, before the current wind is excluded."""
+    import random
+
+    from py_exodus.world.realtime import roll_wind
+
+    rolls = _WindRolls([5, 0])  # 5 folds to 1 = NORTH = current: roll again
+    monkeypatch.setattr(random, "randint", rolls)
+    assert roll_wind(Direction.NORTH) is None
+    assert rolls.bounds == [(0, 8), (0, 8)]
+
+    expect = [None, Direction.NORTH, Direction.EAST, Direction.SOUTH, Direction.WEST,
+              Direction.NORTH, Direction.EAST, Direction.SOUTH, Direction.WEST]
+    for roll, wind in enumerate(expect):
+        current = Direction.WEST if wind is not Direction.WEST else Direction.EAST
+        monkeypatch.setattr(random, "randint", _WindRolls([roll]))
+        assert roll_wind(current) == wind
+
+
+def test_dowind_runs_in_towns_and_combat_not_in_dungeons(pygame_setup, asset_mgr, town):
+    """UltimaMain.c:3286-3287 ``if (Party[3] == 1) return;`` and
+    GetKeyMouse's ``if (gUpdateWhere == 3) FullUpdate();`` (:3469-3470).
+    gUpdateWhere is 3 on the surface and in towns (Game, :1021) and in
+    combat (UltimaSpellCombat.c:883-886, ``gUpdateWhere = 3; /* a la
+    outside */`` with Party[3] = 0x80); the dungeon sets 4
+    (UltimaDngn.c:87). So the wind keeps time in towns and in combat, and
+    stands still in a dungeon."""
+    from py_exodus.screens.combat_screen import CombatScreen
+    from py_exodus.screens.dungeon_screen import DungeonScreen
+    from py_exodus.world.dungeon import DungeonMap, DungeonTile
+    from py_exodus.world.loader import MapLoader
+
+    party = _party()
+    party.wind_direction = Direction.NORTH
+    party.wind_ctr = 0
+    tw = town(1, 10, 10, party=party)
+    tw.update(_POLL)
+    assert party.wind_direction != Direction.NORTH
+
+    party.wind_direction = Direction.NORTH
+    party.wind_ctr = 0
+    cm = MapLoader(asset_mgr).load_conflict_map("CNFLCT_A.ULT")
+    cs = CombatScreen(party=party, combat_map=cm, creature_tile="orc", asset_mgr=asset_mgr)
+    cs.update(_POLL)
+    assert party.wind_direction != Direction.NORTH
+
+    party.wind_direction = Direction.NORTH
+    party.wind_ctr = 0
+    dmap = DungeonMap(id=98, name="Test", width=16, height=16, levels=8)
+    dmap.tiles = [[[DungeonTile.NOTHING] * 16 for _y in range(16)] for _z in range(8)]
+    ds = DungeonScreen(party=party, dungeon_map=dmap, asset_mgr=asset_mgr)
+    for _ in range(60):
+        ds.update(_POLL)
+    assert party.wind_direction == Direction.NORTH
+    assert party.wind_ctr == 0
+
+
+def test_dowind_counter_is_not_saved_and_old_saves_load():
+    """WindCtr is a plain global (UltimaMain.c:69), not part of the saved
+    Party array, so it starts from 0 on every load; WindDir stays saved as
+    the port always had it. An old save (no counter) loads."""
+    p = Party(wind_direction=Direction.WEST)
+    p.wind_ctr = 17
+    d = p.to_dict()
+    assert "wind_ctr" not in d
+    loaded = Party.from_dict(d)
+    assert loaded.wind_direction == Direction.WEST
+    assert loaded.wind_ctr == 0

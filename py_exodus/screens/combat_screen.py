@@ -786,6 +786,12 @@ class CombatScreen(BaseScreen):
         self.check_party_death()
 
     def update(self, dt: float) -> None:
+        # LairWare Combat sets ``gUpdateWhere = 3; /* a la outside */`` and
+        # Party[3] = 0x80 (UltimaSpellCombat.c:883-886), so DoWind keeps
+        # its real-time clock through every fight, a dungeon's included.
+        from py_exodus.world import realtime
+
+        realtime.advance_wind(self.party, dt)
         fx_dt = dt
         if self.auto_combat and self.auto_combat_interval < 0.12:
             fx_dt = dt * (0.12 / max(0.01, self.auto_combat_interval))
