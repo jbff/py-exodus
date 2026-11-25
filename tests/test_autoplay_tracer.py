@@ -85,3 +85,22 @@ def test_combat_start_logs_the_map_fought_on(tmp_path):
     for scr in (dungeon, combat):
         t.record_step(SimpleNamespace(current_screen=scr), key=None, goal="X")
     assert [r["map"] for r in rows if r["t"] == "combat_start"] == [17]
+
+
+def test_standing_still_writes_repeat_rows(tmp_path):
+    """A stall is visible: on the same tile, an 'r' row with the key and
+    why whenever they change, then every 100 repeats."""
+    from types import SimpleNamespace
+
+    p = batch.build_party()
+    t = RunTracer(enabled=True, seed=1, out_dir=tmp_path)
+    rows = []
+    t._emit = rows.append
+    ow = type("OverworldScreen", (), {})()
+    ow.party, ow.game_map = p, SimpleNamespace(id=13)
+    sm = SimpleNamespace(current_screen=ow)
+    for _ in range(201):
+        t.record_step(sm, key=32, goal="X", why="pass")
+    t.record_step(sm, key=1, goal="X", why="other")
+    reps = [(r["n"], r["key"]) for r in rows if r["t"] == "r"]
+    assert reps == [(1, 32), (100, 32), (200, 32), (1, 1)]

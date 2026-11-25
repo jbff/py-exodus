@@ -301,3 +301,65 @@ def test_capture_dash_unlocks_a_locked_door_on_its_route():
     ctrl._dash = (frozenset({comp}), 13, "shrine", evaluate_goal(p, 13))
     assert ctrl._capture_dash(sm, ow, gm, p, (51, 6), th) == pygame.K_u
     assert list(ctrl._key_queue) == [pygame.K_1, pygame.K_w]
+
+
+def test_a_ship_never_sails_onto_a_parked_frigate_on_ambrosia():
+    """Live trace 2026-11-25 (trace_20261125-180541, ~3,200 turns): the
+    party had landed from a ship at (34, 56) for the wisdom shrine, later
+    came back in a captured one, and the plan's landing tile was its own
+    parked frigate. Each move north was refused. Now a ship never plans
+    onto a frigate: it lands elsewhere and walks on toward the shrine."""
+    from py_exodus.autoplay.planner import Goal, evaluate_goal
+
+    pygame.init()
+    am = batch._assets()
+    p = batch.build_party()
+    p.map_id = 13
+    for m, lv in zip(p.members, (14, 12, 6, 10)):
+        m.level, m.max_hp, m.hp = lv, lv * 100 + 50, lv * 100 + 50
+        m.cards = [1, 1, 1, 1]
+        m.marks = [1, 0, 0, 0]
+        m.food = 153
+        m.keys = 1
+    p.gold = 4402
+    ow = OverworldScreen(party=p, asset_mgr=am, random_encounters=False, map_id=13)
+    sm = StateMachine(asset_mgr=am, audio=None)
+    sm.set_screen(ow)
+    p.objects_map_id = 13
+    p.dynamic_objects = [{"tile": "frigate", "x": 34, "y": 56}]
+    p.x, p.y, p.transport = 34, 57, Transport.SHIP
+    from py_exodus.constants import Direction
+
+    p.wind_direction = Direction.SOUTH  # blocks sailing south only
+    assert evaluate_goal(p, 13) == Goal.AMBROSIA_CARDS_SHRINES
+    ctrl = AutoPlayController(enabled=True)
+    seen = {(p.x, p.y)}
+    for _ in range(40):
+        ow.creatures = []
+        p.wind_direction = Direction.SOUTH
+        ctrl.step(sm)
+        seen.add((p.x, p.y))
+        if p.transport == Transport.FOOT:
+            break
+    assert p.transport == Transport.FOOT, seen
+    assert (34, 56) not in seen
+
+
+def test_a_trip_leg_that_never_moves_bars_its_end_and_replans():
+    """No-progress guard: 60 turns (twice the replan threshold) on one tile
+    with the leg's moves refused bars the leg's end for a while."""
+    from py_exodus.autoplay import controller as ctl
+    from py_exodus.autoplay.trip import Destination, Leg, TripPlan
+
+    c = AutoPlayController(enabled=True)
+    leg = Leg(Transport.SHIP, (34, 56), "X")
+    dest = Destination(frozenset({(55, 27)}), Transport.FOOT, "shrine55,27")
+    c._trip = TripPlan(dest, [leg, Leg(Transport.FOOT, (55, 27), "ARRIVE")], 0.0, 13)
+    c._trip_last_pos = (34, 57)
+    c._trip_stuck = 2 * ctl._TRIP_STUCK_TURNS - 1
+    c._replan = lambda *a, **k: None  # the outcome of the replan is not the point
+    p = batch.build_party()
+    p.transport = Transport.SHIP
+    screen = type("S", (), {"game_map": None})()
+    c._trip_drive(None, screen, None, p, 34, 57, 13, dest)
+    assert (34, 56) in c._active_blocks()

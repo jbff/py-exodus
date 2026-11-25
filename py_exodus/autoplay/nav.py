@@ -92,6 +92,9 @@ def find_2d_step_and_cost(
         else set()
     )
 
+    # A frigate goal is boarded from land; a ship can't sail onto one.
+    boardable = set() if transport == Transport.SHIP else frigate_coords
+
     def _tile_cost(tx: int, ty: int) -> int:
         if not prefer_paths:
             return 1
@@ -147,7 +150,7 @@ def find_2d_step_and_cost(
                         continue
                     tile = game_map.get_tile(nx, ny)
                     tile_name = str(getattr(tile, "name", "")).lower() if tile else ""
-                    is_special = nxt in portal_coords or nxt in frigate_coords or tile_name == "whirlpool"
+                    is_special = nxt in portal_coords or nxt in boardable or tile_name == "whirlpool"
                     if not (is_special or _passable(nx, ny)):
                         continue
                     ncost = cost + _tile_cost(nx, ny)
@@ -189,7 +192,7 @@ def find_2d_step_and_cost(
                 tile_name = str(getattr(tile, "name", "")).lower() if tile else ""
                 is_special_goal = (
                     nxt in portal_coords
-                    or nxt in frigate_coords
+                    or nxt in boardable
                     or tile_name == "whirlpool"
                 )
                 if is_special_goal or _passable(nx, ny):

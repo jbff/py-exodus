@@ -2661,6 +2661,23 @@ class AutoPlayController:
                 self._trip_stuck = 0
         frig_sig = frozenset(self._frigate_costs(party, screen))
         waiting = plan is not None and plan.legs and plan.legs[0].action in ("GATE", "CAPTURE") and pos == plan.legs[0].end
+        # No-progress guard: a replan at _TRIP_STUCK_TURNS that gives the
+        # same plan again means a step the plan relies on is refused (a
+        # parked frigate on the landing tile, live trace 2026-11-25,
+        # trace_20261125-180541, ~3,200 turns). At twice that, still on
+        # the same tile, the leg's end is barred for a while and the trip
+        # replans around it. 60 turns: twice the replan threshold, past
+        # any headwind wait or monster in the way the first replan covers.
+        if (
+            plan is not None
+            and plan.legs
+            and not waiting
+            and self._trip_stuck >= 2 * _TRIP_STUCK_TURNS
+            and plan.legs[0].end != pos
+        ):
+            self._blocked_tiles[plan.legs[0].end] = self._ow_turn + _BLOCK_TURNS
+            self._trip_stuck = 0
+            plan = self._trip = None
         if (
             plan is None
             or plan.map_id != map_id

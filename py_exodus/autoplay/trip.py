@@ -346,7 +346,10 @@ def plan_trip(
                     or (n in frigates and not on_water)
                 ):
                     push(st, (n[0], n[1], FOOT), cost + WALK_STEP_COST + danger.get(n, 0.0), "step")
-            elif n in terr.sea or (n in goal_tiles and dest.need in (None, SHIP)):
+            # A ship never sails onto a parked frigate (the move is refused;
+            # live trace 2026-11-25, trace_20261125-180541: a landing tile
+            # held by the party's own earlier ship, ~3,200 turns refused).
+            elif (n in terr.sea and n not in frigates) or (n in goal_tiles and dest.need in (None, SHIP)):
                 push(st, (n[0], n[1], SHIP), cost + sail_cost + danger.get(n, 0.0), "step")
 
         if m == FOOT:

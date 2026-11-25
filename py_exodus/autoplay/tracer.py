@@ -10,6 +10,7 @@ Row types (``"t"`` field):
 * ``s``             state row, written whenever position / transport / screen /
                     goal changes: step, map, x, y, goal, key, party snapshot,
                     nearby creatures
+* ``r``             standing still: key, why and the repeat count ``n``
 * ``combat_start``  creatures, monster count, party snapshot
 * ``combat_end``    gold delta, party snapshot
 * ``end``           outcome (``WON@n`` / ``WIPED@n`` / ``STEP_CAP@n`` / ``QUIT@n``
@@ -121,6 +122,8 @@ class RunTracer:
         self.enabled = False
         self.steps = 0
         self._file: Any = None
+        self._rep: Any = None
+        self._rep_n = 0
         self._path: Path | None = None
         self._last_sig: tuple | None = None
         self._prev_screen = ""
@@ -216,8 +219,21 @@ class RunTracer:
         z = getattr(getattr(screen, "state", None), "z", None) if kind == "DungeonScreen" else None
         sig = (kind, _screen_map(screen, party), x, y, z, str(party.transport), goal_name)
         if sig == self._last_sig:
+            # Standing still: a compact 'r' row whenever the key or its
+            # reason changes, and every 100 repeats, so a stall shows what
+            # it pressed (trace_20261125-180541 had none for 3,200 turns).
+            rep = (key, why)
+            if rep != self._rep:
+                self._rep, self._rep_n = rep, 0
+            self._rep_n += 1
+            if self._rep_n == 1 or self._rep_n % 100 == 0:
+                row_r: dict[str, Any] = {"t": "r", "step": self.steps, "key": key, "n": self._rep_n}
+                if why:
+                    row_r["why"] = why
+                self._emit(row_r)
             return
         self._last_sig = sig
+        self._rep, self._rep_n = None, 0
         row: dict[str, Any] = {
             "t": "s",
             "step": self.steps,
