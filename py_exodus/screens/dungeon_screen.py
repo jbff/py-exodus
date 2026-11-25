@@ -19,6 +19,7 @@ from py_exodus import special_commands
 from py_exodus.screens.base import BaseScreen
 from py_exodus.screens.member_prompts import (
     prompt_modify_order,
+    prompt_whose_item,
     prompt_ready_weapon,
     prompt_wear_armor,
 )
@@ -519,21 +520,19 @@ class DungeonScreen(BaseScreen):
         before the fight (UltimaDngn.c:206-207), whatever its end."""
 
     def _use_torch(self) -> None:
-        """Toggle the torch (Java DungeonScreen.java:988-1004 Keys.I).
+        """LairWare Ignite (UltimaMain.c:1955-1974): "Whose torch?"; that
+        member burns one ("None left!" when empty; no CheckAlive) and the
+        light is a fresh 255, lit or not (I never puts a torch out). The
+        command ends in dungeonmech (UltimaDngn.c:142, 183-193), which burns
+        one unit at once."""
 
-        A lit torch press extinguishes it with no consumption; otherwise
-        `DungeonState.ignite` burns the first member's torch and loads the
-        GBC counter to 255 — USER-DIRECTED GBC-RULES DEVIATION (2026-11-14):
-        finite torch durations (GBC dungfun2.c:1168-1191 doignite). With
-        none owned the log prints "No Torches!". Every press falls through
-        to finishTurn (which then burns one `torchtime` unit —
-        dungfunc.c:719-734), so the keypress completes one round down.
-        """
-        if self.state.is_torch_on:
-            self.state.torchtime = 0
-        elif not self.state.ignite():
-            self.text_log.add_message("No Torches!")
-        self._consume_turn()
+        def _spent(_member) -> None:
+            self.state.torchtime = 255
+
+        prompt_whose_item(
+            self.text_log, self.party, "IGNITE> Whose torch? (1-4):", "torches",
+            _spent, turn_callback=self._consume_turn,
+        )
 
     def _toggle_music(self) -> None:
         """Java DungeonScreen.java:1013-1023 Keys.V — toggle music; the key

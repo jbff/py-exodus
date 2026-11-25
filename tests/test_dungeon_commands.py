@@ -254,22 +254,27 @@ def test_dungeon_torch_toggle_consumption(pygame_setup):
     scr.state.z = 0
     ticks = turn_meter(party)
 
+    # LairWare Ignite asks whose torch (UltimaMain.c:1962-1973).
     press(scr, pygame.K_i)
+    scr.text_log.submit_input("1")
     assert scr.state.is_torch_on is True
     assert party.members[0].torches == 4  # one torch consumed
     assert not hasattr(scr.state, "torch_rounds")
-    assert ticks() == 98  # Java I key falls through to finishTurn
+    assert ticks() == 98  # Ignite ends in dungeonmech
 
+    # A second I lights a fresh torch; it never puts one out.
     press(scr, pygame.K_i)
-    assert scr.state.is_torch_on is False
-    assert party.members[0].torches == 4  # extinguishing consumes no torch
+    scr.text_log.submit_input("1")
+    assert scr.state.is_torch_on is True
+    assert party.members[0].torches == 3
     assert ticks() == 97
 
     party.members[0].torches = 0
     scr.state.is_torch_on = False
     press(scr, pygame.K_i)
+    scr.text_log.submit_input("1")
     assert scr.state.is_torch_on is False
-    assert any("No Torches!" in m for m in scr.text_log.history)
+    assert any("None left!" in m for m in scr.text_log.history)
 
 
 def test_dungeon_torch_spell_and_key_share_one_boolean(pygame_setup):
@@ -310,15 +315,10 @@ def test_dungeon_ignite_screen_pipeline_pins_counter(pygame_setup):
     scr.party.members[0].torches = 5
 
     press(scr, pygame.K_i)
+    scr.text_log.submit_input("1")  # LairWare Ignite: whose torch?
     assert scr.party.members[0].torches == 4
     assert scr.state.torchtime == 254
     assert scr.state.is_torch_on is True
-
-    # Extinguish: no torch spent, counter gone.
-    press(scr, pygame.K_i)
-    assert scr.party.members[0].torches == 4
-    assert scr.state.torchtime == 0
-    assert scr.state.is_torch_on is False
 
 
 def test_dungeon_dark_view_after_last_round(pygame_setup):

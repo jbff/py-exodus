@@ -722,6 +722,7 @@ def test_dungeon_screen_navigation(pygame_setup, asset_mgr, sample_party):
     # Use torch (Java DungeonScreen.java:988-1004 — I is the torch key)
     sample_party.members[0].character.torches = 2
     dungeon.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_i))
+    dungeon.text_log.submit_input("1")  # LairWare Ignite: whose torch?
     assert dungeon.state.is_torch_on is True
     assert sample_party.members[0].character.torches == 1
 
@@ -767,8 +768,8 @@ def test_dungeon_screen_backstep_and_ladders(pygame_setup, asset_mgr, sample_par
 
 
 def test_dungeon_screen_torch_toggle(pygame_setup, asset_mgr, sample_party):
-    """Java DungeonScreen.java:988-1004 — I lights once, I again extinguishes
-    with no consumption, I with no torches logs "No Torches!"."""
+    """LairWare Ignite (UltimaMain.c:1955-1974): I asks whose torch and
+    lights a fresh one, lit or not; an empty member gets "None left!"."""
     sample_party.members[0].character.torches = 2
 
     dungeon = DungeonScreen(
@@ -776,22 +777,25 @@ def test_dungeon_screen_torch_toggle(pygame_setup, asset_mgr, sample_party):
         map_id=14,
         asset_mgr=asset_mgr,
     )
+    dungeon.state.random_encounters_enabled = False
 
-    # Ignite torch
     dungeon._use_torch()
+    dungeon.text_log.submit_input("1")
     assert dungeon.state.is_torch_on is True
     assert sample_party.members[0].character.torches == 1
 
-    # Extinguish: no torch consumed
+    # Again: another torch burns; I never puts the light out.
     dungeon._use_torch()
-    assert dungeon.state.is_torch_on is False
-    assert sample_party.members[0].character.torches == 1
+    dungeon.text_log.submit_input("1")
+    assert dungeon.state.is_torch_on is True
+    assert sample_party.members[0].character.torches == 0
 
-    # No torches owned: "No Torches!"
-    sample_party.members[0].character.torches = 0
+    # None left.
+    dungeon.state.torchtime = 0
     dungeon._use_torch()
+    dungeon.text_log.submit_input("1")
     assert dungeon.state.is_torch_on is False
-    assert any("No Torches!" in msg for msg in dungeon.text_log.history)
+    assert any("None left!" in msg for msg in dungeon.text_log.history)
 
 
 def test_dungeon_screen_combat_encounter_trigger(pygame_setup, asset_mgr, sample_party):

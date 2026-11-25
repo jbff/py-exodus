@@ -332,3 +332,62 @@ def test_mark_kind_follows_xpos_and_3(asset_mgr):
                     tile = dmap.get_tile(x, y, z)
                     if tile in kinds or tile == DungeonTile.MARK:
                         assert tile == kinds[x & 3], (map_id, x, y, z)
+
+
+# --- D-14 Ignite --------------------------------------------------------------------
+
+
+def _torch_screen(asset_mgr, party):
+    import pygame
+
+    from py_exodus.screens.dungeon_screen import DungeonScreen
+
+    pygame.init()
+    screen = DungeonScreen(party=party, dungeon_map=_dmap(), asset_mgr=asset_mgr)
+    screen.state.random_encounters_enabled = False
+    return screen
+
+
+def _press_i(screen, who: str) -> None:
+    import pygame
+
+    screen.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_i))
+    screen.text_log.submit_input(who)
+
+
+def test_ignite_asks_whose_torch(asset_mgr):
+    """UltimaMain.c:1962-1973: "Whose torch-", GetChar, that member's torch
+    (byte 15) goes: `Player[rosNum][15]--; gTorch = 255;`. The port burned
+    the first member's torch without asking."""
+    party = _party()
+    party.members[0].torches = 3
+    party.members[1].torches = 2
+    screen = _torch_screen(asset_mgr, party)
+    _press_i(screen, "2")
+    assert (party.members[0].torches, party.members[1].torches) == (3, 1)
+    assert screen.state.torchtime == 254  # 255, then dungeonmech burns one
+
+
+def test_ignite_none_left(asset_mgr):
+    """UltimaMain.c:1967-1970: `if (Player[rosNum][15] < 1) { UPrintMessage(67);
+    return; }` ("None left!"): nothing lit, even if another member has one."""
+    party = _party()
+    party.members[0].torches = 3
+    party.members[1].torches = 0
+    screen = _torch_screen(asset_mgr, party)
+    _press_i(screen, "2")
+    assert screen.state.torchtime == 0
+    assert party.members[0].torches == 3
+    assert any("None left" in line for line in screen.text_log.history)
+
+
+def test_ignite_while_lit_lights_a_fresh_torch(asset_mgr):
+    """UltimaMain.c:1955-1974: Ignite never puts a torch out; another torch
+    sets gTorch back to 255. The port's I put a lit torch out (Java toggle)."""
+    party = _party()
+    party.members[0].torches = 3
+    screen = _torch_screen(asset_mgr, party)
+    screen.state.torchtime = 40
+    _press_i(screen, "1")
+    assert screen.state.torchtime == 254
+    assert party.members[0].torches == 2

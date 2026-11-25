@@ -552,7 +552,13 @@ class AutoPlayController:
 
         # Ignite a torch or cast light spell whenever dungeon light is out
         if not getattr(screen.state, "is_torch_on", False):
-            if any(not m.is_dead() and m.torches > 0 for m in party.members):
+            holder = next(
+                (i + 1 for i, m in enumerate(party.members) if not m.is_dead() and m.torches > 0),
+                None,
+            )
+            if holder is not None:
+                # Ignite asks whose torch (LairWare Ignite, UltimaMain.c:1962-1966).
+                self._queue_text(str(holder), enter=False)
                 return self._emit_key(state_machine, pygame.K_i)
             wiz = self._find_caster(party, (Profession.WIZARD,), min_mp=10)
             if wiz is not None:
