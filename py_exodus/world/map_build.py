@@ -198,44 +198,36 @@ def build_dungeon_map(
             level_grid.append(row)
         tiles.append(level_grid)
 
-    # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): fountains typed by
-    # tile x&3 (0=poison, 1=heal, 2=acid, 3=cure) (GBC dungfunc.c:1277-1310;
-    # LW UltimaDngn.c:240-276; NES per-map tables) — maps.xml labels govern
-    # only label-only fountain cells. The assets/maps JSON stores the raw
-    # bytes: wherever the raw byte is 0x02, the x&3 type in the pass below
-    # wins over the 2015 labeler's transposed FOUNTAIN_* labels (10 cells
-    # across mine/fire/m/p.json); labels on other raw bytes (label-only
-    # fountains, e.g. p.json's FOUNTAIN_POISON over raw 0x08 at (9,9,4))
-    # apply as authored.
+    # LairWare reads every fixture from the dungeon's own bytes (GetXYDng,
+    # UltimaDngn.c:196, 212-338): a fountain (2) is typed by x & 3
+    # (UltimaDngn.c:243: 0 poison, 1 heal, 2 acid, 3 cure; GBC
+    # dungfunc.c:1277-1310 agrees) and a mark (5) by x & 3 (UltimaDngn.c:311:
+    # 0 Force, 1 Fire, 2 Snake, 3 Kings). The maps.xml labels (the 2015
+    # labeler's) no longer retype tiles: one turned the Snake dungeon's
+    # writing at (9, 9, 4) into a fountain and one called the Time
+    # dungeon's Kings mark at (11, 15, 7) Fire. They stay on the map for
+    # the search command.
     fountain_by_x_mod = (
         DungeonTile.FOUNTAIN_POISON,
         DungeonTile.FOUNTAIN_HEAL,
         DungeonTile.FOUNTAIN_ACID,
         DungeonTile.FOUNTAIN_CURE,
     )
-
-    # Apply labels from maps.xml definitions (marks, special fountains, etc.)
+    mark_by_x_mod = (
+        DungeonTile.MARK_FORCE,
+        DungeonTile.MARK_FIRE,
+        DungeonTile.MARK_SNAKE,
+        DungeonTile.MARK_KINGS,
+    )
     labels = list(m_def.labels) if m_def else []
-    for label in labels:
-        override = DungeonTile.from_name(label.name)
-        if (
-            override
-            and override.name.startswith("FOUNTAIN_")
-            and 0 <= label.z < 8
-            and 0 <= label.y < 16
-            and 0 <= label.x < 16
-            and struct["tiles"][label.z][label.y][label.x] == 0x02
-        ):
-            # Raw-0x02 cell: the x&3 pass below decides the fountain type.
-            continue
-        if override and 0 <= label.z < 8 and 0 <= label.y < 16 and 0 <= label.x < 16:
-            tiles[label.z][label.y][label.x] = override
 
     for level_grid in tiles:
         for row in level_grid:
             for x in range(len(row)):
                 if row[x] is DungeonTile.FOUNTAIN_UNTYPED:
                     row[x] = fountain_by_x_mod[x & 3]
+                elif row[x] is DungeonTile.MARK:
+                    row[x] = mark_by_x_mod[x & 3]
 
     level_texts = struct["level_texts"]
 

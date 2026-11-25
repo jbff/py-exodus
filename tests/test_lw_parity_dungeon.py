@@ -297,3 +297,38 @@ def test_dungeon_open_chest_opener_must_be_alive():
     evt = state.open_chest(0)
     assert dmap.get_tile(4, 4, 0) == DungeonTile.CHEST
     assert evt.success is False
+
+
+# --- D-08 the dungeon map's bytes decide, not the 2015 labels ----------------
+
+
+def _load_dungeon(asset_mgr, map_id):
+    from py_exodus.world.loader import MapLoader
+
+    return MapLoader(asset_mgr).load_map(map_id)
+
+
+def test_getxydng_writing_stays_writing(asset_mgr):
+    """UltimaDngn.c:196, 334-338: GetXYDng decides; byte 8 is Misty Writing
+    ("Don't drink!" on the Snake dungeon's fifth level). The port's
+    maps.xml label FOUNTAIN_POISON turned (9, 9, 4) into a poison fountain."""
+    dmap = _load_dungeon(asset_mgr, 19)
+    assert dmap.get_tile(9, 9, 4) == DungeonTile.MISTY_WRITINGS
+
+
+def test_mark_kind_follows_xpos_and_3(asset_mgr):
+    """UltimaDngn.c:311: `Player[rosNum][14] |= bits[(xpos & 3) + 4];` the
+    mark is x & 3 (0 Force, 1 Fire, 2 Snake, 3 Kings) for every mark tile.
+    The Time dungeon's (11, 15, 7) is labelled MARK_FIRE; 11 & 3 is Kings."""
+    dmap = _load_dungeon(asset_mgr, 20)
+    assert dmap.get_tile(11, 15, 7) == DungeonTile.MARK_KINGS
+    kinds = (DungeonTile.MARK_FORCE, DungeonTile.MARK_FIRE,
+             DungeonTile.MARK_SNAKE, DungeonTile.MARK_KINGS)
+    for map_id in range(14, 21):
+        dmap = _load_dungeon(asset_mgr, map_id)
+        for z in range(8):
+            for y in range(16):
+                for x in range(16):
+                    tile = dmap.get_tile(x, y, z)
+                    if tile in kinds or tile == DungeonTile.MARK:
+                        assert tile == kinds[x & 3], (map_id, x, y, z)

@@ -282,15 +282,15 @@ def test_dungeon_x3_arbitration_wins_over_transposed_labels(asset_mgr):
 
 
 def test_dungeon_label_only_fountain_keeps_label(asset_mgr):
-    """A label on a NON-0x02 raw byte keeps its maps.xml typing.
+    """The raw byte decides, not a label (LairWare GetXYDng, batch D D-08;
+    replaces the 2026-11-14 controller arbitration that kept the label).
 
-    p.json (x=9, y=9, z=4) raw byte is 0x08 (a label-only fountain), not
-    a transposed 0x02 cell: FOUNTAIN_POISON there must survive the x&3
-    arbitration (controller ruling 2026-11-14).
+    p.json (x=9, y=9, z=4) raw byte is 0x08: Misty Writing, though maps.xml
+    labels it FOUNTAIN_POISON.
     """
     loader = MapLoader(asset_mgr)
     p = loader.load_dungeon_map("p.json")
-    assert p.get_tile(9, 9, 4) is DungeonTile.FOUNTAIN_POISON
+    assert p.get_tile(9, 9, 4) is DungeonTile.MISTY_WRITINGS
 
 
 def test_module_level_helpers(asset_mgr):
