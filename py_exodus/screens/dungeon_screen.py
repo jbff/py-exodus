@@ -423,8 +423,6 @@ class DungeonScreen(BaseScreen):
                 self.state.y,
                 self.dungeon_map,
             )
-        elif c == "SCORE":
-            self.text_log.add_message(special_commands.do_score(self.party))
         else:
             self.text_log.add_message(f"'{c}': Nothing happened.")
 

@@ -395,18 +395,6 @@ class TestSearch:
         assert member.cards == [0, 0, 0, 0]
 
 
-class TestScore:
-    """do_score — user-directed amendment (GBC SCORE entry is a stub)."""
-
-    def test_message_shows_move_counter(self):
-        party = make_party(make_member())
-        party.moves = 4242
-        assert (
-            special_commands.do_score(party)
-            == "Thou hast achieved a score of 4242!"
-        )
-
-
 class TestScreenWiring:
     """Both O prompts and the dungeon O handler delegate to the module."""
 
@@ -466,14 +454,15 @@ class TestScreenWiring:
         assert "Nothing happened." in messages
         assert "smiles" not in messages  # the old KISS stub is gone
 
-    def test_overworld_score(self, ow, sample_party):
+    def test_overworld_score_is_not_a_word(self, ow, sample_party):
+        """User ruling 2026-11-25 (C-26): no port-only Other words."""
         sample_party.moves = 77
         self._key(ow, pygame.K_o)
         self._answer(ow, "SCORE")
 
         joined = " ".join(str(m) for m in ow.text_log.history).replace("\n", " ")
-        assert "Thou hast achieved" in joined
-        assert "score of 77!" in joined
+        assert "score of" not in joined
+        assert "Nothing happened." in joined
 
     def test_overworld_dig_exotics(self, ow, sample_party, monkeypatch):
         sample_party.x, sample_party.y = 33, 3
@@ -503,7 +492,7 @@ class TestScreenWiring:
 
     def test_dungeon_other_refuses_outside_only_commands(self, pygame_setup):
         """Dungeon K_o prompts; BRIBE/STEAL/DIG take the GBC noeffectdat
-        refusal (dungeon_screen.py _prompt_other) and SCORE passes through."""
+        refusal (dungeon_screen.py _prompt_other); SCORE is no word (C-26)."""
         dungeon = DungeonScreen(
             party=make_party(make_member(gold=500)),
             dungeon_map=make_dungeon(),
@@ -531,4 +520,4 @@ class TestScreenWiring:
         self._key(dungeon, pygame.K_o)
         self._answer(dungeon, "SCORE")
         joined = " ".join(str(m) for m in dungeon.text_log.history).replace("\n", " ")
-        assert "score of 12!" in joined
+        assert "score of" not in joined

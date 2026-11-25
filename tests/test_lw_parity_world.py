@@ -289,19 +289,13 @@ def test_putsosaria_keeps_every_parked_object(tmp_path):
     assert SaveSystem.load_game(path).dynamic_objects == objs
 
 
-# --- W-18 (user ruling 2026-11-25): no wind after Exodus falls -------------------
+# --- W-18 (user ruling 2026-11-25, revised): the wind still rules after Exodus
 
 
-def test_validtrans_after_exodus_the_wind_never_stops_a_ship(overworld):
-    """UltimaMain.c:3222-3225 (ValidTrans):
-
-        Boolean ValidTrans(char value) {
-            if (Party[16]) {
-                return TRUE;
-            }
-
-    Once Exodus has fallen (Party[16], the port's exodus_defeated), neither
-    a calm nor a headwind stops a ship."""
+def test_after_exodus_the_wind_still_stops_a_ship(overworld):
+    """LW's ValidTrans (UltimaMain.c:3222-3225) returns TRUE once Party[16]
+    is set; the user ruled against it (no Apple II source for it): a calm
+    and a headwind still stop a ship after Exodus falls."""
     from py_exodus.constants import Direction
 
     ow = overworld(50, 13)
@@ -309,9 +303,9 @@ def test_validtrans_after_exodus_the_wind_never_stops_a_ship(overworld):
     ow.party.exodus_defeated = 1
     ow.party.wind_direction = None
     _key(ow, pygame.K_UP)
-    assert (ow.party.x, ow.party.y) == (50, 12)
+    assert (ow.party.x, ow.party.y) == (50, 13)
+    assert "The ship is becalmed!" in ow.text_log.history
     ow.party.wind_direction = Direction.NORTH
     _key(ow, pygame.K_UP)
-    assert (ow.party.x, ow.party.y) == (50, 11)
-    assert "The ship is becalmed!" not in ow.text_log.history
-    assert "Headwinds block thy ship!" not in ow.text_log.history
+    assert (ow.party.x, ow.party.y) == (50, 13)
+    assert "Headwinds block thy ship!" in ow.text_log.history

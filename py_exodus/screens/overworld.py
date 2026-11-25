@@ -1125,8 +1125,6 @@ class OverworldScreen(BaseScreen):
             special_commands.search_flow(
                 self.text_log, self.party, self.party.x, self.party.y, self.game_map
             )
-        elif c == "SCORE":
-            self.text_log.add_message(special_commands.do_score(self.party))
         elif c == "INSERT":
             prompt_insert_card(self, self.party.x, self.party.y)
         else:
@@ -1350,13 +1348,13 @@ class OverworldScreen(BaseScreen):
         # (UltimaMain.c North()/ValidTrans): no turn-to-face press, no heading.
 
         # Frigate sailing rules: LairWare ValidTrans (UltimaMain.c:3222-3236).
-        # ``if (Party[16]) return TRUE;``: once Exodus has fallen the wind
-        # never stops a ship (W-18). Otherwise a becalmed ship (WindDir 0)
-        # cannot sail at all, and sailing into the wind's own heading is
+        # LW's ``if (Party[16]) return TRUE;`` (no wind once Exodus falls) is
+        # not followed: user ruling 2026-11-25 (W-18), the wind always
+        # governs a ship. A becalmed ship (WindDir 0) cannot sail at all, and sailing into the wind's own heading is
         # refused. Like any refused step the turn still passes (North()
         # NoGo, then the main loop's Routine6E35, UltimaMain.c:1057-1091,
         # 1203-1207).
-        if self.party.transport == Transport.SHIP and not self.party.exodus_defeated:
+        if self.party.transport == Transport.SHIP:
             wind = self.party.wind_direction
             if wind is None:
                 self.text_log.add_message("The ship is becalmed!")

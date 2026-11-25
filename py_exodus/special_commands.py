@@ -1,10 +1,9 @@
-"""Other commands (bribe, dig, pray, search, score), the Steal and Look
+"""Other commands (bribe, dig, pray, search), the Steal and Look
 letter commands, and the item helpers they share.
 
 Rules: LairWare OtherCommand, Steal and Look (UltimaMisc.c:2262-2510;
-UltimaMain.c:2063-2094, 2248-2287). Port additions kept from the 2026-11-14 GBC work:
-SCORE (the move counter) and the Alchemist's lack of a steal bonus (LW
-gives one; ledger ask row). KISS is not a U3 word.
+UltimaMain.c:2063-2094, 2248-2287). No port-only words: SCORE was removed
+(user ruling 2026-11-25, C-26) and KISS is not a U3 word.
 
 The ``do_*`` functions are pure logic taking explicit args (screen-agnostic,
 shared by the town, overworld, and dungeon O prompts); the ``*_flow``
@@ -201,15 +200,6 @@ def do_search(member: PartyMember, x: int, y: int, map_id, map_name: str = "") -
     player.cards[card_index] = player.cards[card_index] + 1
     return CARD_MESSAGE
 
-
-def do_score(party) -> str:
-    """SCORE: the party move counter (2026-11-14 amendment).
-
-    GBC's ``doscore`` (menucmd3.c:872-876) is a "NO EFFECT." stub; the
-    move-counter message is user-directed, reading the port's
-    ``party.moves``.
-    """
-    return f"Thou hast achieved a score of {party.moves}!"
 
 
 # --- shared prompt flows (both screens; text-log orchestration only) ---

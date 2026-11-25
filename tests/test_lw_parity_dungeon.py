@@ -473,7 +473,7 @@ def test_dungeon_y_yells_an_other_word(asset_mgr):
     screen, party = _letter_screen(asset_mgr)
     _key(screen, pygame.K_y)
     screen.text_log.submit_input("1")
-    screen.text_log.submit_input("SCORE")
+    screen.text_log.submit_input("XYZZY")
     assert screen.state.torchtime == 49
     assert not any(line.strip() == "Pass" for line in screen.text_log.history)
 
@@ -528,10 +528,10 @@ def test_dkl_descend_on_the_deepest_level_still_ticks():
         ("h", ["1", "2", "E", "T", "1"]),
         ("j", ["1"]),
         ("n", ["1"]),
-        ("y", ["1", "SCORE"]),
+        ("y", ["1", "XYZZY"]),
         ("i", ["1"]),
         ("c", []),
-        ("o", ["SCORE"]),
+        ("o", ["XYZZY"]),
         ("m", ["1", "2"]),
         ("z", []),
         ("p", []),

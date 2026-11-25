@@ -1258,8 +1258,6 @@ class TownScreen(BaseScreen):
             special_commands.search_flow(
                 self.text_log, self.party, self.avatar_x, self.avatar_y, self.game_map
             )
-        elif c == "SCORE":
-            self.text_log.add_message(special_commands.do_score(self.party))
         elif c == "INSERT":
             prompt_insert_card(self, self.avatar_x, self.avatar_y)
         else:
