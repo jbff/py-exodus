@@ -578,16 +578,18 @@ def _apply_spell_effect(
 
     if spell == Spell.SURMANDUM:
         # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): 75% success leaves
-        # the target GOOD at hp=1; on 25% failure the target crumbles to
-        # ASHES (no resurrect, no heal) instead of always resurrecting.
-        # (GBC menucmd.c:1337-1420; LW UltimaSpellCombat.c:277-348)
+        # the target GOOD; on 25% failure the target crumbles to ASHES (no
+        # resurrect, no heal) instead of always resurrecting.
+        # (GBC menucmd.c:1337-1420; LW UltimaSpellCombat.c:349-353)
+        # LairWare UltimaSpellCombat.c:353 changes only 'D' -> 'G': the HP
+        # stays as it was (0 after a death), as at the healer (user ruling
+        # Q19; the port used to set 1).
         if random.random() < 0.75:
             target_char.status = Status.GOOD
-            target_char.hp = 1
             return SpellResult(
                 success=True,
                 message=f"{caster_char.name} casts Surmandum! {target_char.name} is resurrected!",
-                healed=1,
+                healed=0,
                 spell=spell,
             )
         target_char.status = Status.ASHES
@@ -600,13 +602,15 @@ def _apply_spell_effect(
         )
 
     if spell == Spell.ANJU_SERMANI:
+        # LairWare UltimaSpellCombat.c:374-375: 'A' -> 'G' with the HP left
+        # as it was (user ruling Q19), and the caster loses 5 WIS. The WIS
+        # floor at 0 stays (LW's unsigned byte wraps; ruled out as a bug).
         target_char.status = Status.GOOD
-        target_char.hp = 1
         caster_char.wis = max(0, caster_char.wis - 5)
         return SpellResult(
             success=True,
             message=f"{caster_char.name} casts Anju Sermani! {target_char.name} recalled from ashes. {caster_char.name} lost 5 wisdom.",
-            healed=1,
+            healed=0,
             spell=spell,
         )
 

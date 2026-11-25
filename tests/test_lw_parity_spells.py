@@ -484,3 +484,30 @@ def test_spell_wizard_i_is_dag_lorum():
     for context in ("world", "city", "dungeon", "combat"):
         found, refusal = letter_resolution(entries, "I", context)
         assert found is spell and refusal is None, context
+
+
+@pytest.mark.parametrize("spell,before", [(Spell.SURMANDUM, Status.DEAD), (Spell.ANJU_SERMANI, Status.ASHES)])
+def test_spell_raise_leaves_hp_as_it_was(monkeypatch, spell, before):
+    """UltimaSpellCombat.c:353 and 374-375 (Surmandum, Anju Sermani), user
+    ruling Q19 (follow LairWare):
+
+        Player[Party[6 + value]][17] = 'G';            // Surmandum
+        ...
+        Player[Party[6 + value]][17] = 'G';            // Anju Sermani
+        Player[Party[6 + chnum]][21] -= 5; /* Caster's wisdom-5 */
+
+    Only the status byte changes; the raised member keeps the HP they had
+    (0 after a death), as the healer's resurrection does (S-06). The port
+    set 1 HP. The caster's WIS still stops at 0 (LW's byte wrap below 5 WIS
+    is left out by the same ruling)."""
+    monkeypatch.setattr(magic.random, "random", lambda: 0.0)  # Surmandum works
+    caster = _caster(Profession.CLERIC, wisdom=3, mp=99)
+    target = Character("Dead", "M", profession=Profession.FIGHTER, hp=0, max_hp=300, status=before)
+    party = Party()
+    party.add_member(caster)
+    party.add_member(target)
+    cast_spell(spell, party.members[0], party=party, target_member=party.members[1])
+    assert target.status == Status.GOOD
+    assert target.hp == 0
+    if spell == Spell.ANJU_SERMANI:
+        assert caster.wis == 0

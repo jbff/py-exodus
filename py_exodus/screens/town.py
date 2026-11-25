@@ -907,8 +907,9 @@ class TownScreen(BaseScreen):
                             active.character.status = Status.GOOD
                             self.text_log.add_message(f"{active.name} has been cured of poison!")
                         elif "resurrect" in h_type or "resurrect" in name_l:
+                            # LairWare UltimaMisc.c:1766-1767: only 'D' -> 'G',
+                            # HP left as it was (as PartyMember.heal RESURRECT).
                             active.character.status = Status.GOOD
-                            active.character.hp = active.character.max_hp
                             self.text_log.add_message(f"{active.name} has been resurrected!")
                         else:
                             active.character.hp = active.character.max_hp

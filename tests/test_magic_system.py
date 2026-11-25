@@ -127,11 +127,13 @@ def test_cleric_resurrection():
         res = cast_spell(Spell.SURMANDUM, caster=c, target_member=target)
     assert res.success
     assert target.status == Status.GOOD
-    assert target.hp == 1
+    assert target.hp == 0  # LW UltimaSpellCombat.c:353: HP as it was (ruling Q19)
 
 
 def test_cleric_recall_ashes():
-    """ANJU_SERMANI recalls ASHES to GOOD and deducts 5 wisdom from caster."""
+    """ANJU_SERMANI recalls ASHES to GOOD, HP as it was (LW
+    UltimaSpellCombat.c:374-375, user ruling Q19), and deducts 5 wisdom from
+    the caster."""
     c = Character("Cleric", "F", Race.BOBBIT, Profession.CLERIC, wisdom=50)
     c.mp = 80
 
@@ -139,7 +141,7 @@ def test_cleric_recall_ashes():
     res = cast_spell(Spell.ANJU_SERMANI, caster=c, target_member=target)
     assert res.success
     assert target.status == Status.GOOD
-    assert target.hp > 0
+    assert target.hp == 0
     assert c.wis == 45
 
 
@@ -1320,8 +1322,10 @@ def test_sanctum_mani_clamped_to_missing_hp():
             assert target.hp <= 100
 
 
-def test_surmandum_success_good_hp_one(monkeypatch):
-    """SURMANDUM 75% success: target GOOD with hp=1 (GBC keeps hp=1; NES 150 outvoted)."""
+def test_surmandum_success_good_hp_unchanged(monkeypatch):
+    """SURMANDUM 75% success: target GOOD with the HP it had, 0 after a death
+    (LW UltimaSpellCombat.c:353, user ruling Q19; GBC's hp=1 and NES's 150
+    are outvoted)."""
     import py_exodus.combat.magic as magic
 
     monkeypatch.setattr(magic.random, "random", lambda: 0.5)
@@ -1330,7 +1334,7 @@ def test_surmandum_success_good_hp_one(monkeypatch):
     res = cast_spell(Spell.SURMANDUM, caster=caster, target_member=target)
     assert res.success
     assert target.status == Status.GOOD
-    assert target.hp == 1
+    assert target.hp == 0
 
 
 def test_surmandum_failure_ashes_no_resurrect(monkeypatch):
@@ -1360,7 +1364,7 @@ def test_surmandum_success_rate_seeded():
             target = Character("Target", "M", Race.HUMAN, Profession.FIGHTER, hp=0, status=Status.DEAD)
             res = cast_spell(Spell.SURMANDUM, caster=caster, target_member=target)
             if res.success:
-                assert target.status == Status.GOOD and target.hp == 1
+                assert target.status == Status.GOOD and target.hp == 0
                 successes += 1
             else:
                 assert target.status == Status.ASHES
