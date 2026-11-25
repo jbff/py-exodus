@@ -82,6 +82,27 @@ def _unwrap_save(raw: Any, path: str | Path) -> Any:
     return raw
 
 
+#: The one save slot (LairWare's single game; user ruling 2026-11-25).
+PARTY_SAVE_PATH = "saves/party.json"
+
+
+def autosave_allowed(manager: Any) -> bool:
+    """Whether LairWare's classic AutoSave may write the save now.
+
+    LW's classic preferences set U3PrefAutoSave (PrefsDialog.m:111), so the
+    game saves on entry and exit, on the whirlpool trip, at each death and
+    at a wipe (user ruling 2026-11-25). Only the player's own game does:
+    the state machine's ``autosave_enabled`` is set by a windowed GameApp
+    alone, so headless batches and tests never touch the save, and live
+    autoplay (``autoplay_enabled``) leaves it alone too.
+    """
+    return (
+        manager is not None
+        and bool(getattr(manager, "autosave_enabled", False))
+        and not bool(getattr(manager, "autoplay_enabled", False))
+    )
+
+
 class SaveSystem:
     """Manages serialization of party, character roster, and dynamic overworld deltas."""
 

@@ -589,6 +589,9 @@ class OverworldScreen(BaseScreen):
 
     def on_enter(self) -> None:
         super().on_enter()
+        # Classic AutoSave at each death and at a wipe, wherever the party
+        # is (towns, dungeons and fights sit above this screen).
+        self.party.autosave_hook = self.autosave
         # Back from another screen (the Book, a fight): the command wait
         # starts its idle count afresh (UltimaMain.c:1040).
         self._idle_polls = 0
@@ -1528,14 +1531,17 @@ class OverworldScreen(BaseScreen):
                     self.audio.play_sfx("wave")
                 for line in self.ENGULF_LINES:
                     self.text_log.add_message(line)
+                # GoWhirlPool moves the whirlpool to (2, 62) and PushSosaria
+                # keeps the map with its monsters for the return
+                # (UltimaMain.c:3047-3053; UltimaMisc.c:923-945).
+                c["x"], c["y"] = 2, 62
+                # Classic AutoSave (UltimaMain.c:3048-3060): the party on its
+                # frigate at the engulf spot, before Ambrosia loads.
+                self.autosave()
                 self.party.transport = Transport.FOOT
                 # LairWare GoWhirlPool saves the engulf spot (Party[4]/[5])
                 # and returns the party there (UltimaMain.c:3043-3046, 3093).
                 self.party.whirlpool_return = (self.party.x, self.party.y)
-                # GoWhirlPool then moves the whirlpool to (2, 62) and
-                # PushSosaria keeps the map with its monsters for the return
-                # (UltimaMain.c:3047-3053; UltimaMisc.c:923-945).
-                c["x"], c["y"] = 2, 62
                 self._sosaria_creatures = list(self.creatures)
                 self.party.x, self.party.y = 32, 54
                 self.map_id = 13
@@ -2446,6 +2452,71 @@ class OverworldScreen(BaseScreen):
         if not has_whirlpool:
             self.creatures.insert(0, self._lw_start_whirlpool())
 
+    @staticmethod
+    def _monster_block(creatures: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """The saved Sosaria monster table.
+
+        Every creature, the whirlpool included (user ruling 2026-11-10:
+        whirlpools save like any other creature). LairWare PutSosaria
+        (UltimaMisc.c:839-857) writes the whole monster table and the
+        whirlpool; Java kept the first 8.
+        """
+        saved_monsters = []
+        for c in creatures:
+            entry = {
+                "name": c.get("name", ""),
+                "tile_name": c.get("tile_name", ""),
+                "tile": c.get("tile", ""),
+                "x": int(c.get("x", 0)),
+                "y": int(c.get("y", 0)),
+            }
+            if c.get("hp") is not None:
+                entry["hp"] = int(c["hp"])
+            if c.get("variant"):
+                entry["variant"] = int(c["variant"])
+            if c.get("dir"):
+                entry["dir"] = [int(v) for v in c["dir"]]  # WhirlDX/DY
+            saved_monsters.append(entry)
+        return saved_monsters
+
+    def autosave(self) -> bool:
+        """LairWare's classic AutoSave (user ruling 2026-11-25).
+
+        LW's classic preferences set U3PrefAutoSave (PrefsDialog.m:111), so
+        PutRoster/PutParty/PutSosaria run on entering a town, castle or
+        dungeon (enterdone, UltimaMain.c:1486-1494), on leaving one
+        (Routine6E6B, UltimaMisc.c:1336-1347), on the whirlpool trip in and
+        back (UltimaMain.c:3048-3060, 3094-3104), at each death
+        (HPSubtract, UltimaMain.c:3254-3266) and at a wipe (CheckAllDead,
+        UltimaMain.c:2798-2810). Every one writes the single save slot as
+        the game stands on Sosaria: the party at its Sosaria square (its
+        place in a town or dungeon is not kept, as Journey Onward resumes on
+        Sosaria and towns reset on entry) with Sosaria's monsters. On
+        Ambrosia that is the spot the whirlpool took it from, on its ship,
+        with the Sosaria map it left (GoWhirlPool's own save). Silent, and
+        only in the player's own game (``save_system.autosave_allowed``).
+        """
+        from py_exodus.save_system import PARTY_SAVE_PATH, SaveSystem, autosave_allowed
+
+        if not autosave_allowed(self.manager):
+            return False
+        creatures = self.creatures
+        extra: dict[str, Any] = {}
+        if str(self.map_id) != "0":
+            stash = getattr(self, "_sosaria_creatures", None)
+            creatures = stash if stash is not None else []
+            ret = getattr(self.party, "whirlpool_return", None)
+            if ret is not None:
+                extra.update(x=int(ret[0]), y=int(ret[1]))
+            extra["transport"] = Transport.SHIP.value
+            extra["whirlpool_return"] = None
+        extra["overworld"] = {"monsters": self._monster_block(creatures)}
+        try:
+            SaveSystem.save_game(self.party, PARTY_SAVE_PATH, extra=extra)
+        except Exception:
+            return False
+        return True
+
     def _save_game(self) -> None:
         """Save party progress to JSON file.
 
@@ -2472,33 +2543,12 @@ class OverworldScreen(BaseScreen):
         """
         if getattr(self.game_map, "id", None) == 0:
             try:
-                from py_exodus.save_system import SaveSystem
-
-                saved_monsters = []
-                # Every creature, the whirlpool included (user ruling
-                # 2026-11-10: whirlpools save like any other creature).
-                # LairWare PutSosaria (UltimaMisc.c:839-857) writes the whole
-                # monster table and the whirlpool; Java kept the first 8.
-                for c in self.creatures:
-                    entry = {
-                        "name": c.get("name", ""),
-                        "tile_name": c.get("tile_name", ""),
-                        "tile": c.get("tile", ""),
-                        "x": int(c.get("x", 0)),
-                        "y": int(c.get("y", 0)),
-                    }
-                    if c.get("hp") is not None:
-                        entry["hp"] = int(c["hp"])
-                    if c.get("variant"):
-                        entry["variant"] = int(c["variant"])
-                    if c.get("dir"):
-                        entry["dir"] = [int(v) for v in c["dir"]]  # WhirlDX/DY
-                    saved_monsters.append(entry)
+                from py_exodus.save_system import PARTY_SAVE_PATH, SaveSystem
 
                 SaveSystem.save_game(
                     self.party,
-                    "saves/party.json",
-                    extra={"overworld": {"monsters": saved_monsters}},
+                    PARTY_SAVE_PATH,
+                    extra={"overworld": {"monsters": self._monster_block(self.creatures)}},
                 )
                 self.text_log.add_message("Saved Game.")
             except Exception:

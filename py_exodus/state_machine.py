@@ -31,6 +31,10 @@ class StateMachine:
         self.autoplay_enabled: bool = False
         self.autoplay_step_interval: float | None = None
         self.auto_combat_enabled: bool = False
+        # LairWare classic AutoSave (user ruling 2026-11-25): only the
+        # player's own windowed game turns it on (GameApp); headless runs,
+        # batches and tests never write the save (save_system.autosave_allowed).
+        self.autosave_enabled: bool = False
 
         if initial_screen is not None:
             self.set_screen(initial_screen)

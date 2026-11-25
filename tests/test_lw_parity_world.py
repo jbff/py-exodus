@@ -411,3 +411,238 @@ def test_after_exodus_the_wind_still_stops_a_ship(overworld):
     _key(ow, pygame.K_UP)
     assert (ow.party.x, ow.party.y) == (50, 13)
     assert "Headwinds block thy ship!" in ow.text_log.history
+
+
+# --- W-12 / R-18 / W-20: classic AutoSave (user ruling 2026-11-25) ------------------
+
+
+@pytest.fixture
+def autosaving(pygame_setup, asset_mgr, monkeypatch, tmp_path):
+    """A live-game state machine (autosave on, as GameApp sets it with a
+    window) on Sosaria, saving into a temporary directory."""
+    from py_exodus.screens.overworld import OverworldScreen
+    from py_exodus.state_machine import StateMachine
+
+    monkeypatch.chdir(tmp_path)
+
+    def make(x: int = 40, y: int = 40, party: Party | None = None):
+        sm = StateMachine(asset_mgr=asset_mgr)
+        sm.autosave_enabled = True
+        party = party or _party(_pm("A"), _pm("B"))
+        ow = OverworldScreen(party=party, map_id=0, asset_mgr=asset_mgr,
+                             start_x=x, start_y=y, random_encounters=False)
+        party.x, party.y = x, y
+        sm.set_screen(ow)
+        ow.creatures = [ow._lw_start_whirlpool()]
+        return sm, ow
+
+    return make
+
+
+def _saved(tmp_path=None) -> dict | None:
+    from pathlib import Path
+
+    from py_exodus.save_system import SaveSystem
+
+    path = Path("saves/party.json")
+    return SaveSystem.load_game_data(path) if path.exists() else None
+
+
+@pytest.mark.parametrize("pos, dest", [((46, 19), 3), ((56, 6), 14), ((10, 53), 2)])
+def test_autosave_on_entering_a_town_dungeon_or_castle(autosaving, pos, dest):
+    """UltimaMain.c:1486-1494 (enterdone)::
+
+        if (CFPreferencesGetAppBooleanValue(U3PrefAutoSave, ...)) {
+            PutRoster(); PutParty(); PutSosaria();
+
+    LW's classic preferences set AutoSave (PrefsDialog.m:111): entering a
+    town, castle (Castle Exodus too) or dungeon saves the game on Sosaria,
+    at the entrance, before the new map loads."""
+    sm, ow = autosaving(*pos)
+    assert _saved() is None
+    ow._enter_portal()
+    assert type(sm.current_screen).__name__ != "OverworldScreen"
+    data = _saved()
+    assert data is not None
+    assert (data["x"], data["y"]) == pos
+    assert [m["tile_name"] for m in data["overworld"]["monsters"]] == ["whirlpool"]
+
+
+def test_autosave_on_leaving_a_town(autosaving):
+    """UltimaMisc.c:1336-1347 (Routine6E6B): back on Sosaria, AutoSave
+    writes roster, party and Sosaria."""
+    from pathlib import Path
+
+    sm, ow = autosaving(46, 19)
+    ow._enter_portal()
+    Path("saves/party.json").unlink()
+    town = sm.current_screen
+    town.party.members[0].gold = 777
+    town._exit_town()
+    sm.update(0.0)
+    assert sm.current_screen is ow
+    data = _saved()
+    assert (data["x"], data["y"]) == (46, 19)
+    assert data["members"][0]["gold"] == 777
+
+
+def test_autosave_on_leaving_a_dungeon(autosaving):
+    """UltimaMisc.c:1336-1347: Routine6E6B runs for dungeons as for towns."""
+    from pathlib import Path
+
+    sm, ow = autosaving(56, 6)
+    ow._enter_portal()
+    Path("saves/party.json").unlink()
+    sm.current_screen.exit_screen()
+    sm.update(0.0)
+    assert sm.current_screen is ow
+    assert (_saved()["x"], _saved()["y"]) == (56, 6)
+
+
+def test_autosave_on_the_whirlpool_trip_in_and_back(autosaving):
+    """UltimaMain.c:3048-3060: engulfed, the party is put back on its
+    frigate at the engulf spot, the whirlpool moved to (2, 62), PushSosaria,
+    then AutoSave writes roster, party and Sosaria before Ambrosia loads.
+    UltimaMain.c:3094-3104: back on Sosaria, AutoSave writes roster and
+    party."""
+    from pathlib import Path
+
+    from py_exodus.world import portal_entry
+
+    sm, ow = autosaving(47, 17)
+    ow.party.transport = Transport.SHIP
+    ow._check_whirlpool_engulf()
+    assert ow.map_id == 13
+    data = _saved()
+    assert (data["x"], data["y"]) == (47, 17)
+    assert data["transport"] == Transport.SHIP.value
+    wp = [m for m in data["overworld"]["monsters"] if m["tile_name"] == "whirlpool"]
+    assert [(m["x"], m["y"]) for m in wp] == [(2, 62)]
+
+    Path("saves/party.json").unlink()
+    ow.party.transport = Transport.SHIP
+    assert portal_entry.step_in_whirlpool_portal(ow, 32, 58)
+    data = _saved()
+    assert (data["x"], data["y"]) == (47, 17)
+    assert ow.map_id == 0
+
+
+def test_autosave_when_a_member_dies(autosaving):
+    """UltimaMain.c:3254-3266 (HPSubtract)::
+
+        Player[rosNum][17] = 'D';
+        if (CFPreferencesGetAppBooleanValue(U3PrefAutoSave, ...)) {
+            Party[4] = xpos; Party[5] = ypos;
+            PutParty(); PutRoster();
+
+    Each death saves, anywhere (a town here); the party's place is its
+    Sosaria square."""
+    sm, ow = autosaving(46, 19)
+    ow._enter_portal()
+    from pathlib import Path
+    Path("saves/party.json").unlink()
+    town = sm.current_screen
+    town.party.members[1].apply_damage(999)
+    data = _saved()
+    assert data["members"][1]["status"] in ("D", "DEAD", Status.DEAD.value, Status.DEAD.name)
+    assert data["members"][0]["hp"] == 300
+    assert (data["x"], data["y"]) == (46, 19)
+
+
+def test_autosave_when_a_member_dies_in_combat(autosaving):
+    """HPSubtract saves in combat too (UltimaMain.c:3254-3266)."""
+    sm, ow = autosaving()
+    ow._trigger_combat("orc")
+    assert type(sm.current_screen).__name__ == "CombatScreen"
+    assert _saved() is None  # starting a fight saves nothing
+    ow.party.members[0].apply_damage(999, True)
+    data = _saved()
+    assert data is not None
+    assert data["members"][0]["hp"] == 0
+
+
+def test_autosave_on_a_party_wipe_before_game_over(autosaving):
+    """UltimaMain.c:2798-2810 (CheckAllDead): "ALL PLAYERS OUT!", then
+    AutoSave writes party, roster and Sosaria before the resurrect-or-quit
+    alert. The port saves the dead party before its game over; Journey
+    Onward then finds no living party and opens the empty roster (item 43),
+    no crash and no loop."""
+    from py_exodus.screens.roster_screen import RosterScreen
+    from py_exodus.screens.start import StartScreen
+
+    sm, ow = autosaving()
+    for m in ow.party.members:
+        m.hp, m.status = 0, Status.DEAD
+    assert ow.check_party_death()
+    assert isinstance(sm.current_screen, StartScreen) and sm.current_screen.game_over
+    data = _saved()
+    assert all(m["hp"] == 0 for m in data["members"])
+    sm.current_screen._start_journey()
+    assert isinstance(sm.current_screen, RosterScreen)
+    assert sm.current_screen.party.members == []
+
+
+def test_no_autosave_after_victory(autosaving):
+    """User ruling 2026-11-25: no save after the ending; the last save is
+    the one made on entering Castle Exodus."""
+    from pathlib import Path
+
+    from py_exodus.screens import final
+    from py_exodus.screens.start import StartScreen
+
+    p, _ = _exodus_party()
+    sm, ow = autosaving(10, 53, party=p)
+    ow._enter_portal()
+    before = Path("saves/party.json").read_text()
+    castle = sm.current_screen
+    castle.game_map.npcs = []
+    castle.avatar_x, castle.avatar_y = 33, 12
+    p.exodus_cards_status = 0x7
+    final.prompt_insert_card(castle, 33, 12)
+    _key(castle, pygame.K_1, "1")
+    _key(castle, pygame.K_d, "d")
+    _key(sm.current_screen, pygame.K_SPACE)
+    sm.update(0.0)
+    assert isinstance(sm.current_screen, StartScreen)
+    assert Path("saves/party.json").read_text() == before
+    assert _saved()["exodus_defeated"] == 0
+
+
+def test_autosave_never_in_headless_batches_tests_or_autoplay(
+    pygame_setup, asset_mgr, monkeypatch, tmp_path
+):
+    """Autosaves are for the player's own game: a headless GameApp (and so a
+    batch), a test's StateMachine and live autoplay never write the save,
+    whatever happens (an entry, a death, an exit, a wipe)."""
+    from py_exodus.__main__ import GameApp
+    from py_exodus.screens.overworld import OverworldScreen
+    from py_exodus.state_machine import StateMachine
+
+    monkeypatch.chdir(tmp_path)
+    app = GameApp(assets_dir=str(asset_mgr.assets_dir), headless=True, sound_enabled=False)
+    assert app.state_machine.autosave_enabled is False
+    app.cleanup()
+    pygame.init()
+
+    def play(sm) -> None:
+        party = _party(_pm("A"), _pm("B"))
+        ow = OverworldScreen(party=party, map_id=0, asset_mgr=asset_mgr,
+                             start_x=46, start_y=19, random_encounters=False)
+        party.x, party.y = 46, 19
+        sm.set_screen(ow)
+        ow._enter_portal()
+        party.members[1].apply_damage(999)
+        sm.current_screen._exit_town()
+        sm.update(0.0)
+        for m in party.members:
+            m.hp, m.status = 0, Status.DEAD
+        sm.current_screen.check_party_death()
+
+    plain = StateMachine(asset_mgr=asset_mgr)
+    assert plain.autosave_enabled is False
+    play(plain)
+    live_autoplay = StateMachine(asset_mgr=asset_mgr)
+    live_autoplay.autosave_enabled = True
+    live_autoplay.autoplay_enabled = True
+    play(live_autoplay)
+    assert not (tmp_path / "saves").exists()

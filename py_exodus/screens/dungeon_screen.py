@@ -658,6 +658,12 @@ class DungeonScreen(BaseScreen):
                 self.audio.stop_music()
         self._consume_turn()
 
+    def exit_screen(self) -> None:
+        super().exit_screen()
+        # LairWare Routine6E6B (UltimaMisc.c:1336-1347): back on Sosaria,
+        # classic AutoSave writes roster, party and Sosaria.
+        self.party.run_autosave_hook()
+
     def _cast_spell(self) -> None:
         from py_exodus.combat.magic import prompt_cast_party
         prompt_cast_party(

@@ -61,7 +61,17 @@ def step_in_whirlpool_portal(screen, x: int, y: int) -> bool:
     for c in getattr(screen, "creatures", ()):
         if c.get("tile_name") == "whirlpool" and (c.get("x"), c.get("y")) == (dx, dy):
             c["x"], c["y"] = 2, 62
+    # Classic AutoSave on the way back (UltimaMain.c:3094-3104).
+    _autosave(screen)
     return True
+
+
+def _autosave(screen) -> None:
+    """LairWare classic AutoSave from the overworld screen (user ruling
+    2026-11-25); see ``OverworldScreen.autosave``."""
+    autosave = getattr(screen, "autosave", None)
+    if callable(autosave):
+        autosave()
 
 
 def enter_portal(screen, x: int, y: int) -> bool:
@@ -110,6 +120,12 @@ def enter_portal(screen, x: int, y: int) -> bool:
         if hasattr(screen, "begin_shrine"):
             screen.begin_shrine()
         return True
+
+    if is_overworld:
+        # LairWare enterdone (UltimaMain.c:1486-1494): classic AutoSave
+        # writes roster, party and Sosaria on entering a town, castle or
+        # dungeon, before the new map loads (shrines return before it).
+        _autosave(screen)
 
     if dest_id in (14, 15, 16, 17, 18, 19, 20):  # Dungeons
         from py_exodus.screens.dungeon_screen import DungeonScreen

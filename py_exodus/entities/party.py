@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import random
-from typing import Any
+from typing import Any, Callable
 
 from py_exodus.constants import (
     MAX_PARTY_MEMBERS,
@@ -111,6 +111,12 @@ class PartyMember:
             self.status = Status.DEAD
             new_hp = 0
         self.hp = new_hp
+
+        # LairWare HPSubtract (UltimaMain.c:3254-3266): a death saves the
+        # game under classic AutoSave (user ruling 2026-11-25), in combat
+        # too, before the wipe check. The hook is the overworld's autosave.
+        if self.is_dead() and self.party is not None:
+            self.party.run_autosave_hook()
 
         if (
             not combat_related_damage
@@ -258,6 +264,9 @@ class Party:
         whirlpool_return: tuple[int, int] | None = None,
         sosaria_objects: list[dict[str, int]] | None = None,
     ) -> None:
+        # Runtime only, never saved: the live game's classic AutoSave
+        # (OverworldScreen.autosave), run at each death and at a wipe.
+        self.autosave_hook: Callable[[], Any] | None = None
         self.members: list[PartyMember] = []
         if members:
             for m in members:
@@ -506,6 +515,12 @@ class Party:
                 need -= take
                 if need <= 0:
                     break
+
+    def run_autosave_hook(self) -> None:
+        """Run the classic AutoSave hook, if a live game set one."""
+        hook = getattr(self, "autosave_hook", None)
+        if callable(hook):
+            hook()
 
     # --- Party Member Management ---
     def add_member(self, member: Character | PartyMember) -> PartyMember:

@@ -712,6 +712,9 @@ class TownScreen(BaseScreen):
         # User ruling C-29: leaving Castle Exodus drops the inserted cards.
         self._clear_exodus_cards()
         super().exit_screen()
+        # LairWare Routine6E6B (UltimaMisc.c:1336-1347): back on Sosaria,
+        # classic AutoSave writes roster, party and Sosaria.
+        self.party.run_autosave_hook()
 
     def _exit_town(self) -> None:
         self.text_log.add_message("Leaving city...")

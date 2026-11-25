@@ -96,6 +96,8 @@ class GameApp:
         self.autoplay = AutoPlayController(enabled=autoplay, tracer=self.tracer)
         self.state_machine.autoplay_enabled = self.autoplay.enabled
         self.state_machine.autoplay_step_interval = self.autoplay.step_interval
+        # Classic AutoSave writes the player's save: never when headless.
+        self.state_machine.autosave_enabled = not self.headless
         self.clock = pygame.time.Clock()
 
         # LairWare MainLoop: Intro(), then the View, then the main menu.

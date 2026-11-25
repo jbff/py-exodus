@@ -55,6 +55,13 @@ class BaseScreen(ABC):
         if party is None or not party.is_party_dead():
             return False
 
+        # LairWare CheckAllDead (UltimaMain.c:2798-2810): "ALL PLAYERS
+        # OUT!", then classic AutoSave writes the dead party before the
+        # game-over alert (user ruling 2026-11-25).
+        run_hook = getattr(party, "run_autosave_hook", None)
+        if callable(run_hook):
+            run_hook()
+
         if getattr(self.manager, "autoplay_enabled", False):
             self.manager.autoplay_enabled = False
             text_log = getattr(self, "text_log", None)
