@@ -410,14 +410,13 @@ def test_sequitu_exits_with_label_log(cleric_party):
     assert "Doom" in res.message
 
 
-# --- Task 24: GBC light spells write the torch counter ------------------
-# USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): finite torch durations —
-# LORUM/LUMINAE top up to >= 10 (GBC dungfun2.c:852-853,1070-1071) and
-# SOMINAE loads 235 (GBC dungfun2.c:962); LW's 250 and the exact-10 write
-# are outvoted (no pair agreement on SOMINAE, so GBC governs).
+# --- Light spells write the torch counter -------------------------------
+# LairWare: LORUM/LUMINAE gTorch = 10, SOMINAE 250 (UltimaSpellCombat.c:
+# 203-206, 278-281, 317-320); user rule 2026-11-25 (ledger P-18): no light
+# source ever shortens the light, so max(current, value).
 
 
-def test_sominae_sets_torchtime_235(cleric_party):
+def test_sominae_sets_torchtime_250(cleric_party):
     state = _dungeon(cleric_party, z=2)
     assert cleric_party.members[0].mp >= Spell.SOMINAE.mp_cost
     res = cast_spell(
@@ -427,7 +426,7 @@ def test_sominae_sets_torchtime_235(cleric_party):
         world_map=state,
     )
     assert res.success
-    assert state.torchtime == 235
+    assert state.torchtime == 250
     assert state.is_torch_on is True
 
 
@@ -447,7 +446,7 @@ def test_lorum_tops_up_to_at_least_10(cleric_party, asset_mgr):
     assert res.success
     assert state.torchtime == 10
 
-    # From a higher count: GBC's top-up never lowers the counter.
+    # From a higher count: light never shortens.
     state.torchtime = 50
     cast_spell(
         spell=Spell.LORUM,

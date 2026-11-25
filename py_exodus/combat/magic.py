@@ -780,11 +780,9 @@ def _apply_spell_effect(
 
     # Light / Torches (LORUM, LUMINAE, SOMINAE)
     if spell in (Spell.LORUM, Spell.LUMINAE):
-        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): finite torch
-        # durations — the light spells top the counter up to >= 10
-        # (max(10, torchtime); GBC dungfun2.c:852-853,1070-1071). Java's
-        # boolean flip (SpellUtil.java:89-94, 161-163) and LW's exact-10
-        # write are outvoted; a higher count is never lowered.
+        # LairWare cases 2 and 19 (UltimaSpellCombat.c:203-206, 278-281)
+        # write gTorch = 10. User rule 2026-11-25 (ledger P-18): no light
+        # source ever shortens the light, so max(current, 10).
         if world_map is not None and hasattr(world_map, "torchtime"):
             world_map.torchtime = max(10, world_map.torchtime)
             return SpellResult(
@@ -802,19 +800,19 @@ def _apply_spell_effect(
         )
 
     if spell == Spell.SOMINAE:
-        # USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): SOMINAE is no
-        # longer the Java "REPLACE ME" no-op (SpellUtil.java:187-189) — the
-        # torch counter loads 235 (GBC dungfun2.c:962; also 1128). No pair
-        # agreement (LW 250 / NES ~240 are outvoted) so GBC governs.
+        # LairWare case 25 (UltimaSpellCombat.c:317-320): gTorch = 250 (not
+        # the GBC 235). User rule 2026-11-25 (ledger P-18): no light source
+        # ever shortens the light, so max(current, 250).
         if world_map is not None and hasattr(world_map, "torchtime"):
-            world_map.torchtime = 235
+            world_map.torchtime = max(world_map.torchtime, 250)
         return SpellResult(success=True, spell=spell)
 
     # DAG LORUM: LairWare case 8 (UltimaSpellCombat.c:227-230) sets
     # gTorch = 250 wherever it is cast; only a dungeon keeps a light count.
+    # User rule 2026-11-25 (P-18): never shorter than the light already lit.
     if spell == Spell.DAG_LORUM:
         if world_map is not None and hasattr(world_map, "torchtime"):
-            world_map.torchtime = 250
+            world_map.torchtime = max(world_map.torchtime, 250)
         elif world_map is not None and hasattr(world_map, "light_spell"):
             world_map.light_spell = True
         return SpellResult(

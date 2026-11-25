@@ -511,3 +511,61 @@ def test_spell_raise_leaves_hp_as_it_was(monkeypatch, spell, before):
     assert target.hp == 0
     if spell == Spell.ANJU_SERMANI:
         assert caster.wis == 0
+
+
+# --- P-18: light never shortens (user rule 2026-11-25) -----------------------
+
+
+def _lit_state(torch: int):
+    from py_exodus.world.dungeon import DungeonState
+    from py_exodus.world.map import DungeonMap
+
+    state = DungeonState(DungeonMap(id=1, name="D", width=16, height=16, levels=8),
+                         start_x=1, start_y=1, start_z=0)
+    state.torchtime = torch
+    return state
+
+
+def _light(spell: Spell, torch: int) -> int:
+    party = Party()
+    party.add_member(_caster(Profession.DRUID))
+    state = _lit_state(torch)
+    res = cast_spell(spell, caster=party.members[0], party=party, world_map=state)
+    assert res.success
+    return state.torchtime
+
+
+@pytest.mark.parametrize("spell", [Spell.LORUM, Spell.LUMINAE])
+def test_small_light_spells_give_max_of_current_and_10(spell):
+    """UltimaSpellCombat.c:203-206 and 278-281 set `gTorch = 10`. User rule
+    2026-11-25 (ledger P-18): no light source ever shortens the light, so
+    max(current, 10): a long torch survives a Lorum."""
+    assert _light(spell, 0) == 10
+    assert _light(spell, 200) == 200
+
+
+def test_sominae_gives_max_of_current_and_250():
+    """UltimaSpellCombat.c:317-320: `gTorch = 250;` (LairWare's value, not
+    the GBC 235), as max(current, 250) by the user's rule."""
+    assert _light(Spell.SOMINAE, 0) == 250
+    assert _light(Spell.SOMINAE, 255) == 255
+
+
+def test_dag_lorum_never_shortens_a_torch():
+    """UltimaSpellCombat.c:227-230 `gTorch = 250;` under the same user rule:
+    a fresh torch (255) is not cut to 250."""
+    assert _light(Spell.DAG_LORUM, 255) == 255
+    assert _light(Spell.DAG_LORUM, 3) == 250
+
+
+def test_ignite_never_shortens_the_light():
+    """LairWare Ignite (UltimaMain.c:1955-1974) lights 255; by the user's
+    rule max(current, 255) (the counter tops out at 255)."""
+    from py_exodus.entities.character import Character as _C
+
+    state = _lit_state(40)
+    party = Party()
+    party.add_member(_C("T", "M", torches=2))
+    state.party = party
+    assert state.ignite()
+    assert state.torchtime == 255

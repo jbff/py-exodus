@@ -599,7 +599,8 @@ class DungeonScreen(BaseScreen):
         one unit at once."""
 
         def _spent(_member) -> None:
-            self.state.torchtime = 255
+            # User rule 2026-11-25 (P-18): light never shortens.
+            self.state.torchtime = max(self.state.torchtime, 255)
 
         prompt_whose_item(
             self.text_log, self.party, "IGNITE> Whose torch? (1-4):", "torches",

@@ -1124,18 +1124,18 @@ class DungeonState:
         """Ignite a torch (Java DungeonScreen.java:988-1004 Keys.I; GBC
         dungfun2.c:1168-1191 doignite).
 
-        USER-DIRECTED GBC-RULES DEVIATION (2026-11-14): finite torch
-        durations — ignition burns one torch from the first member who owns
-        one (Java truth) and loads `torchtime` to 255 (GBC's `lightnum`).
-        With no torches owned the call fails and the caller keeps its
-        "No Torches!" log; nothing is consumed.
+        Ignition burns one torch from the first member who owns one (Java
+        truth) and lights 255 (LairWare Ignite, UltimaMain.c:1955-1974), as
+        max(current, 255): no light source ever shortens the light (user
+        rule 2026-11-25, ledger P-18). With no torches owned the call fails
+        and the caller keeps its "No Torches!" log; nothing is consumed.
         """
         if self.party is None:
             return False
         for pm in self.party.members:
             if pm.torches > 0:
                 pm.torches -= 1
-                self.torchtime = 255
+                self.torchtime = max(self.torchtime, 255)
                 return True
         return False
 
