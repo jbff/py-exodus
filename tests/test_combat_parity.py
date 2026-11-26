@@ -1370,3 +1370,19 @@ class TestCombatTiming:
         assert combat.combat_fx == []
         assert (m.x, m.y) != orig_pos
 
+
+
+def test_floor_and_grass_monsters_fight_on_their_own_arena_wherever_the_party_stands():
+    """LairWare BackGround (UltimaSpellCombat.c:778-781): a floor monster
+    (0x10) is always fought on the brick floor (C) and a grass monster (0x02)
+    on grass (G), before the party's tile is looked at. A party standing on a
+    chest a beaten floor monster left in Castle Exodus fought the next floor
+    monster on grass, where it showed (user report 2026-11-25)."""
+    chest = TileDef(index=36, name="chest", rule="chest", combat_map_id=37)
+    game_map = _StubMap({(10, 10): chest, (11, 10): grass_tile()})
+    floor = CreatureDef(id=3, name="Floor", tile="floor")
+    grass = CreatureDef(id=1, name="Grass", tile="grass")
+    assert get_combat_map_id(floor, 11, 10, 10, 10, Transport.FOOT, game_map) == 35
+    assert get_combat_map_id("floor", 11, 10, 10, 10, Transport.FOOT, game_map) == 35
+    game_map = _StubMap({(10, 10): brush_tile(), (11, 10): brush_tile()})
+    assert get_combat_map_id(grass, 11, 10, 10, 10, Transport.FOOT, game_map) == 37

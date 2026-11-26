@@ -100,6 +100,13 @@ def get_combat_map_id(
     ).lower()
     pirate = sails or tile_name == "pirate"
 
+    # BackGround's first tests (UltimaSpellCombat.c:778-781): a floor
+    # monster is fought on the floor, a grass monster on grass, wherever the
+    # party stands (a chest left by a beaten floor monster is not a floor).
+    if tile_name == "floor":
+        return 35  # BASERES + 2, CONFLICT_BRICK_FLOOR (C)
+    if tile_name == "grass":
+        return 37  # BASERES + 4, CONFLICT_GRASS (G)
     if transport == Transport.SHIP:
         if pirate:
             return 41  # BASERES + 8, CONFLICT_BOTH_SHIPS (S)
