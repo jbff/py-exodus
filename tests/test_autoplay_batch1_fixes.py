@@ -325,3 +325,26 @@ def test_strip_food_run_without_two_keys_never_loops_through_the_gate(am, keys):
         was_town = is_town
     assert entries <= 1, entries
 
+
+def test_hunted_party_never_bribes_through_a_member_in_ashes(am):
+    """Review of 0bf9623 (Important 1): _flee_town picked its briber among
+    the not-dead, so a member in ashes holding the most gold was asked to
+    Bribe (Other's CheckAlive refuses: "Incapacitated!") with the guard
+    beside the party. An able member with 100 gold bribes instead."""
+    from types import SimpleNamespace
+
+    party = _party(gold=0)
+    party.members[1].status = Status.ASH
+    party.members[1].hp = 0
+    party.members[1].gold = 900
+    party.members[2].gold = 150
+    gmap = SimpleNamespace(npcs=[SimpleNamespace(x=11, y=31, tile_index=18, movement="ATTACK_AVATAR")],
+                           width=64, height=64)
+    ctrl = AutoPlayController(enabled=True)
+    keys: list[int] = []
+    ctrl._emit_key = lambda _sm, key, **_kw: keys.append(key) or 0
+    ctrl._flee_town(None, gmap, party, 11, 32, set())
+    assert keys == [pygame.K_o]
+    queued = "".join(chr(k) if isinstance(k, int) and k < 128 else str(k) for k in ctrl._key_queue)
+    assert queued.endswith("3n"), queued
+

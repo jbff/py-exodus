@@ -1531,7 +1531,7 @@ class AutoPlayController:
         leaves), else walk for the nearest exit keeping out of reach. No
         Join Gold first: that turn is the guard's attack, so with nobody
         holding 100 gold the party steps away instead."""
-        living = [(i + 1, m) for i, m in enumerate(party.members) if not m.is_dead()]
+        living = _able(party)
         if living:
             briber_idx, briber = max(living, key=lambda im: im[1].gold)
             if briber.gold >= 100:
