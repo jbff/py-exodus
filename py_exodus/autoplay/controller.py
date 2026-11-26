@@ -179,6 +179,9 @@ _STARVING_AVOID_MAX_STEPS = 40
 # trip round a continent or the world): the wind changes on the clock, so
 # waiting it out is cheaper there.
 _WIND_HOLD_MAX = 20
+# Goals this close to a committed hold's goals are the same destination (a
+# drifting whirlpool), so the commitment to the wind-legal route stands.
+_WIND_GOAL_DRIFT = 4
 _WIND_DETOUR_MAX = 60
 _TOWN_DASH_STEPS = 4  # this close to a town gate, firing lanes don't block the walk in
 
@@ -2783,6 +2786,7 @@ class AutoPlayController:
         leg = plan.legs[0]
         if leg.action == "ARRIVE":
             if pos in dest.tiles and (dest.need is None or dest.need == mode):
+                self._wind_commit = None  # a headwind commitment ends on arrival
                 return _ARRIVED
             # Head for the tile the plan chose; only drifting targets
             # (whirlpools) are re-read every tick.
@@ -3523,9 +3527,22 @@ class AutoPlayController:
         # wind-legal route while the wind holds. Letting the wind-free
         # heading back in walked the ship out and back for good (review of
         # 35aa3cd: hold 20, out, back, repeat).
+        # The same destination is the same map and goals within
+        # _WIND_GOAL_DRIFT tiles of the committed ones: the whirlpool drifts
+        # a tile about every 4 steps, and keying on the exact tiles cleared
+        # the commitment at each drift (final review of 8e3b26c).
+        map_key = getattr(game_map, "id", None)
         goal_key = frozenset(goals)
-        if self._wind_commit is not None and self._wind_commit != (wind, goal_key):
-            self._wind_commit = None
+        if self._wind_commit is not None:
+            c_wind, c_map, c_goals = self._wind_commit
+            gw, gh = game_map.width, game_map.height
+            same_dest = c_map == map_key and any(
+                manhattan(gw, gh, a, b) <= _WIND_GOAL_DRIFT for a in goal_key for b in c_goals
+            )
+            if c_wind != wind or not same_dest:
+                self._wind_commit = None
+            else:
+                self._wind_commit = (c_wind, c_map, goal_key)  # follow the drift
             self._wind_hold_n = 0
         committed = self._wind_commit is not None and d is not None
         held = False
@@ -3579,7 +3596,7 @@ class AutoPlayController:
                     else:
                         # Held long enough: sail the wind-legal route (d)
                         # from here on while this wind holds.
-                        self._wind_commit = (wind, goal_key)
+                        self._wind_commit = (wind, map_key, goal_key)
         if held:
             self._wind_hold_n += 1
             return self._emit_key(state_machine, pygame.K_SPACE)

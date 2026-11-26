@@ -2403,3 +2403,34 @@ def test_headwind_hold_never_takes_a_detour_round_the_world(pygame_setup, asset_
     ctrl = AutoPlayController(enabled=True)
     keys = _sail(sm, ow, party, ctrl, (39, 0), Direction.EAST, 40)
     assert keys == [pygame.K_SPACE] * 40 and (party.x, party.y) == (33, 0)
+
+
+def test_headwind_commitment_survives_a_drifting_whirlpool(pygame_setup, asset_mgr):
+    """Final review of 8e3b26c: the commitment to the wind-legal route was
+    keyed on the exact goal tiles, and the SAIL_WHIRLPOOL goal drifts about
+    every 4 steps: each drift cleared it and the hold count, and the
+    hold-20, out-and-back pace came back. (17, 46) toward a goal drifting
+    from (63, 29) under a west wind now arrives."""
+    import random as _random
+
+    sm, ow, party = _ship_at(asset_mgr, (17, 46), Direction.WEST)
+    gm = ow.game_map
+    ctrl = AutoPlayController(enabled=True)
+    rng = _random.Random(0)
+    goal = (63, 29)
+    for n in range(400):
+        party.wind_direction = Direction.WEST
+        for m in party.members:
+            m.food = 300
+        if n % 4 == 3:  # the whirlpool's drift
+            opts = [
+                ((goal[0] + d.dx) % gm.width, (goal[1] + d.dy) % gm.height)
+                for d in (Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST)
+            ]
+            opts = [o for o in opts if can_move_to(gm, o[0], o[1], Transport.SHIP, party=party)]
+            if opts:
+                goal = rng.choice(opts)
+        if (party.x, party.y) == goal:
+            break
+        ctrl._move_toward(sm, gm, party, (party.x, party.y), {goal})
+    assert (party.x, party.y) == goal, ((party.x, party.y), goal)
