@@ -314,6 +314,11 @@ _FOOD_TOWNS: dict[int, tuple[int, int, tuple[int, int]]] = {
     4: (34, 16, (31, 17)),   # Yew
     6: (7, 44, (26, 25)),    # Grey
     11: (37, 53, (29, 41)),  # Dawn (only selected when Dawn is open)
+    # Fawn's Food For Thought (vendor.xml; Mintol at (25, 51) behind the
+    # counter, Shop case 1 from row 49): the food run left it out, and a
+    # party on Fawn's strip, two steps from the gate, sailed past a pirate
+    # for Yew (batch 89c1bf4 b9 seed 90 starved there with 4,665 gold).
+    12: (30, 2, (25, 49)),   # Fawn
     10: (56, 31, (52, 33)),  # Death Gulch (only from its own strip, below)
 }
 # Death Gulch's gate and its grocer: a party on the town's strip (55-58,
@@ -1448,6 +1453,13 @@ class AutoPlayController:
                         self._shop_member_idx = buyer_idx
                         self._talk_dir_key = self._direction_to_npc(gmap, px, py)
                         return self._emit_key(state_machine, pygame.K_t)
+                    if map_id != _MAP_DEATH_GULCH:
+                        # Patient: Fawn's grocery has four wandering thieves
+                        # across its only row in (24-27, 48); with no route
+                        # this turn the party walked out and back in forever.
+                        key = self._town_step_patient(state_machine, gmap, party, px, py, food_xy, npc_tiles)
+                        if key is not None:
+                            return key
                     d = find_2d_step(
                         gmap, (px, py), food_xy, Transport.FOOT, party=party,
                         avoid_tiles=npc_tiles, prefer_paths=True,

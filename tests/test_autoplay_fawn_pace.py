@@ -44,7 +44,7 @@ def _cheb(a, b, n=64):
     return max(min(dx, n - dx), min(dy, n - dy))
 
 
-def _seed90_state(pos=PARTY_AT, hp=HP, ship=True, pirate=PIRATE):
+def _seed90_state(pos=PARTY_AT, hp=HP, ship=True, pirate=PIRATE, food=293):
     """Step 34,452 of seed 90: levels 16/16/6/12, K mark, all Exotics,
     4,665 gold, 8 keys, on foot at (29, 2) beside Fawn's gate, the party's
     frigate at (31, 2) and a pirate at (32, 2) behind it."""
@@ -56,7 +56,7 @@ def _seed90_state(pos=PARTY_AT, hp=HP, ship=True, pirate=PIRATE):
         party.members, (16, 16, 6, 12), hp, MAX_HP, (0, 0, 25, 25), (1200, 1200, 1200, 1065)
     ):
         m.level, m.hp, m.max_hp, m.mp, m.gold = lv, h, mh, mp, gold
-        m.food = 293
+        m.food = food
         m.weapon, m.armor = WeaponType.EXOTIC, ArmorType.EXOTIC
         m.marks = [1, 0, 0, 0]
         m.torches = 2
@@ -150,3 +150,28 @@ def test_the_pace_ends_once_it_has_started(seed):
     assert _aboard_or_in_town(sm, party), trail[-40:]
     assert _paces(trail) <= 6, trail
     assert all(not m.is_dead() for m in party.members)
+
+
+
+def _fed_in_fawn(sm, party):
+    scr = sm.current_screen
+    return (
+        type(scr).__name__ == "TownScreen"
+        and all(m.food >= 140 for m in party.members if not m.is_dead())
+    )
+
+
+@pytest.mark.parametrize("seed", [90, 1])
+@pytest.mark.parametrize("pirate", [PIRATE, None])
+def test_a_hungry_party_beside_fawn_buys_its_food_there(seed, pirate):
+    """Fawn sells rations (Food For Thought, Mintol, behind the counter at
+    (25, 51); LairWare Shop case 1 from row 49, 49 & 7 == 1), but the food
+    run never counted it: from (28, 2), two steps from the gate, BUY_FOOD
+    sailed for Yew or Britain (past the pirate, when there was one)."""
+    sm, ow, party, ctrl, trail = _run(
+        seed, _fed_in_fawn, max_steps=600, pos=(28, 2), pirate=pirate, food=40,
+    )
+    assert _fed_in_fawn(sm, party), trail[-30:]
+    assert sm.current_screen.game_map is not None
+    assert str(sm.current_screen.map_id) == "12", sm.current_screen.map_id
+    assert all(scr != "OverworldScreen" or x <= 31 for scr, x, y in trail), trail
