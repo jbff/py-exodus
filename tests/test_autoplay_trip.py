@@ -2461,3 +2461,31 @@ def test_headwind_commitment_survives_a_drifting_whirlpool(pygame_setup, asset_m
             break
         ctrl._move_toward(sm, gm, party, (party.x, party.y), {goal})
     assert (party.x, party.y) == goal, ((party.x, party.y), goal)
+
+
+def test_a_spare_weapon_nobody_takes_doesnt_block_the_armour_hand_off(pygame_setup, asset_mgr):
+    """Review of 4458b6f (Minor 4): a spare weapon no member would take
+    still ended its holder's turn in best_hand_transfer, so the armour it
+    carried spare was never handed on. Like the kept Bow, the pick goes on
+    to the next item; the H answers name the armour, and it is handed."""
+    from py_exodus.autoplay.equipment import best_hand_transfer, hand_offer
+
+    p = _make_party(level=25, weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC)
+    fighter = p.members[1]
+    fighter.weapons[WeaponType.DAGGER] = 1  # everyone has better: no taker
+    fighter.armors[ArmorType.CHAIN] = 1
+    cleric = p.members[2]
+    cleric.armors.clear()
+    cleric.armors[ArmorType.CLOTH] = 1
+    cleric.armor = ArmorType.CLOTH
+    t = best_hand_transfer(p)
+    assert t == (2, 3)
+    assert hand_offer(p) == (2, 3, ("a", chr(ord("a") + list(ArmorType).index(ArmorType.CHAIN))))
+    sm, ow = _overworld(asset_mgr, p)
+    ctrl = AutoPlayController(enabled=True)
+    for _ in range(8):
+        ctrl.step(sm)
+        if cleric.armors.get(ArmorType.CHAIN, 0) or cleric.armor == ArmorType.CHAIN:
+            break
+    assert cleric.armors.get(ArmorType.CHAIN, 0) == 1 or cleric.armor == ArmorType.CHAIN
+    assert fighter.weapons.get(WeaponType.DAGGER, 0) == 1

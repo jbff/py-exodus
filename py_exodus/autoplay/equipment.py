@@ -232,11 +232,25 @@ def _keeps_spare_bow(member, wt: WeaponType) -> bool:
 def best_hand_transfer(party: Party, prefer_ranged: bool = True) -> tuple[int, int] | None:
     """Find a useful ``H`` (Hand Equipment) transfer from one member to another.
 
-    Mirrors ``_prompt_hand_equipment`` selection order: first unequipped weapon
-    with ``cnt > 0 and w != m1.weapon``, else first unequipped armor with
-    ``cnt > 0 and a != m1.armor``. Only proposes a transfer when the receiving
-    member can use the item and it strictly upgrades their current gear (and the
-    sender does not themselves prefer to equip it).
+    ``(from, to)`` of ``hand_offer``; see there."""
+    offer = hand_offer(party, prefer_ranged)
+    return None if offer is None else (offer[0], offer[1])
+
+
+def hand_offer(
+    party: Party, prefer_ranged: bool = True
+) -> tuple[int, int, tuple[str, str]] | None:
+    """``(from, to, (kind, letter))`` for a useful ``H``: the giver's spare
+    weapons (``cnt > 0 and w != m1.weapon``) in order, then its spare
+    armour, the first one some other member can use and that strictly
+    upgrades their gear (and the giver doesn't itself prefer to equip
+    anything). ``kind``/``letter`` are the LairWare HandEquip answers
+    (W/A, B-P / B-H, UltimaMain.c:1886-1939).
+
+    A spare nobody takes doesn't end the giver's turn: the pick goes on to
+    its next item, armour included. A member's one spare Bow (item B) is
+    never offered (review of 42a1142); a spare weapon without a taker used
+    to block the armour the same way (review of 4458b6f, Minor 4).
     """
     for i, m1 in enumerate(party.members):
         if m1.is_dead():
@@ -245,16 +259,9 @@ def best_hand_transfer(party: Party, prefer_ranged: bool = True) -> tuple[int, i
         if best_owned_weapon(m1, prefer_ranged) is not None or best_owned_armor(m1) is not None:
             continue
 
-        # A member's one spare Bow (item B) stays with it: the pick goes on
-        # to its next item, its armour included (review of 42a1142: the
-        # Bow ended the member's turn and its armour was never handed on).
-        picked_w: WeaponType | None = None
-        for w, cnt in m1.weapons.items():
-            if cnt > 0 and w != m1.weapon and not _keeps_spare_bow(m1, w):
-                picked_w = w
-                break
-
-        if picked_w is not None:
+        for picked_w, cnt in m1.weapons.items():
+            if cnt <= 0 or picked_w == m1.weapon or _keeps_spare_bow(m1, picked_w):
+                continue
             # Scored the way the receiver will choose what to ready: by raw
             # rank, a spare Exotic went to a bow-armed Fighter on a ship,
             # who kept the bow, so it went back, every step (batch 1c7525f
@@ -272,16 +279,11 @@ def best_hand_transfer(party: Party, prefer_ranged: bool = True) -> tuple[int, i
                     and _member_weapon_score(m2, picked_w, prefer_ranged)
                     > _member_weapon_score(m2, m2.weapon, prefer_ranged)
                 ):
-                    return (i + 1, j + 1)
-            continue
+                    return (i + 1, j + 1, ("w", chr(ord("a") + list(WeaponType).index(picked_w))))
 
-        picked_a: ArmorType | None = None
-        for a, cnt in m1.armors.items():
-            if cnt > 0 and a != m1.armor:
-                picked_a = a
-                break
-
-        if picked_a is not None:
+        for picked_a, cnt in m1.armors.items():
+            if cnt <= 0 or picked_a == m1.armor:
+                continue
             a_rank = ARMOR_RANK.get(picked_a, 0)
             for j, m2 in enumerate(party.members):
                 if j == i or m2.is_dead():
@@ -289,7 +291,7 @@ def best_hand_transfer(party: Party, prefer_ranged: bool = True) -> tuple[int, i
                 if m2.armors.get(picked_a, 0) > 0 or m2.armor == picked_a:
                     continue
                 if can_use_armor(m2, picked_a) and a_rank > ARMOR_RANK.get(m2.armor, 0):
-                    return (i + 1, j + 1)
+                    return (i + 1, j + 1, ("a", chr(ord("a") + list(ArmorType).index(picked_a))))
 
     return None
 
@@ -331,9 +333,10 @@ def food_hand_off(party: Party) -> tuple[int, int, int] | None:
 
 
 def hand_item(member) -> tuple[str, str] | None:
-    """The ``H`` answers for what ``best_hand_transfer`` hands from
-    ``member``: ``("w", letter)`` or ``("a", letter)`` (LairWare HandEquip
-    letters, B-P / B-H, UltimaMain.c:1886-1939), in its selection order."""
+    """The ``H`` answers for ``member``'s first spare item, weapons before
+    armour: ``("w", letter)`` or ``("a", letter)`` (LairWare HandEquip
+    letters, B-P / B-H, UltimaMain.c:1886-1939). The controller answers
+    with ``hand_offer``'s item, which skips spares nobody takes."""
     for w, cnt in member.weapons.items():
         if cnt > 0 and w != member.weapon and not _keeps_spare_bow(member, w):
             return "w", chr(ord("a") + list(WeaponType).index(w))

@@ -16,9 +16,8 @@ from py_exodus.autoplay.equipment import (
     SPARE_BOW,
     SPARE_BOW_PRICE,
     spare_bow_purchase,
-    best_hand_transfer,
     food_hand_off,
-    hand_item,
+    hand_offer,
     best_owned_armor,
     best_owned_weapon,
     best_shop_upgrade,
@@ -3391,10 +3390,9 @@ class AutoPlayController:
                 self._wear_item_letter = chr(ord("a") + list(ArmorType).index(better_a))
                 return self._emit_key(state_machine, pygame.K_w)
 
-        transfer = best_hand_transfer(party, prefer_ranged)
-        if transfer is not None:
-            self._hand_from_idx, self._hand_to_idx = transfer
-            self._hand_item = hand_item(party.members[transfer[0] - 1]) or ("w", "b")
+        offer = hand_offer(party, prefer_ranged)
+        if offer is not None:
+            self._hand_from_idx, self._hand_to_idx, self._hand_item = offer
             return self._emit_key(state_machine, pygame.K_h)
 
         return None
