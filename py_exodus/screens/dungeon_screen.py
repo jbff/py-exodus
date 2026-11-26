@@ -1,4 +1,4 @@
-"""Dungeon exploration screen with 3D wireframe corridors, HUD, and combat triggers."""
+"""Dungeon exploration screen: the Stone first-person view, HUD, and combat triggers."""
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
@@ -28,9 +28,6 @@ from py_exodus.screens.member_prompts import (
 from py_exodus.ui.stats_panel import StatsPanel
 from py_exodus.ui.text_log import (
     EGA_BLACK,
-    EGA_BRIGHT_CYAN,
-    EGA_BRIGHT_RED,
-    EGA_DARK_GRAY,
     EGA_LIGHT_GRAY,
     EGA_WHITE,
     EGA_YELLOW,
@@ -58,7 +55,7 @@ _NOT_DNG_CMD_KEYS = frozenset(
 
 
 class DungeonScreen(BaseScreen):
-    """First-person 3D wireframe dungeon navigation screen."""
+    """First-person dungeon navigation screen (the Stone view)."""
 
     #: Where spells are cast from here (the Ztats window's spell chips).
     spell_map_type = "dungeon"
@@ -113,14 +110,18 @@ class DungeonScreen(BaseScreen):
             party=self.party,
             asset_manager=self.asset_mgr,
         )
-        self.camera = DungeonCamera(viewport_size=176)
+        self.camera = DungeonCamera(viewport_size=176, asset_mgr=self.asset_mgr)
         self.stats_panel = StatsPanel(asset_mgr=self.asset_mgr)
         self.text_log = TextLog(max_lines=5, wrap_width=64)
         # DungeonStart's idle wait (UltimaDngn.c:110-121), in game seconds.
         self._idle_time = 0.0
-        # Java DungeonScreen.java:79-80 — the minimap shows by default and P
-        # toggles it.
-        self.show_minimap = True
+        # The level map (LairWare DrawMiniDng): up after a Peer (P) or a
+        # Vieda, until any key.  No free overhead plan (user ruling
+        # 2026-11-26): the old overlay is gone.
+        self.gem_view_active = False
+        self._gem_view_time = 0.0
+        # dPeer's turn (dungeonmech) follows the map, not the gem.
+        self._gem_turn_pending = False
 
         # LairWare Enter (UltimaMain.c:1424-1434): "Enter " (Messages 32)
         # then "dungeon!" (33), nothing more (user ruling 2026-11-25).
@@ -166,6 +167,12 @@ class DungeonScreen(BaseScreen):
             self.stats_panel.inspect_index = None
             # Stats returns, then dungeonmech (UltimaDngn.c:159-161).
             self._run_fixture()
+            return
+
+        # LairWare DrawMiniDng (UltimaGraphics.c:1571-1584) waits in its own
+        # loop: the key that ends the map is swallowed, the 3D view returns.
+        if self.gem_view_active:
+            self._close_gem_view()
             return
 
         if self.text_log.is_waiting_for_input:
@@ -234,10 +241,7 @@ class DungeonScreen(BaseScreen):
         elif event.key == pygame.K_y:
             self._prompt_yell()
         elif event.key == pygame.K_p:
-            # Java DungeonScreen.java:79-80 + 1012-1015 — P toggles the
-            # minimap and falls through the keyUp tail (turn consumed).
-            self.show_minimap = not self.show_minimap
-            self._consume_turn()
+            self._peer_gem()
         elif event.key == pygame.K_v:
             # Java DungeonScreen.java:1013-1023 — V toggles music and falls
             # through the keyUp tail (turn consumed).
@@ -311,6 +315,8 @@ class DungeonScreen(BaseScreen):
             return
         if self.stats_panel.inspect_index is not None:
             return  # Ztats is modal; the fixture follows when it closes
+        if self.gem_view_active:
+            return  # so is the level map
         if self.manager is not None and self.manager.current_screen is not self:
             return
         evt = self.state.take_fixture()
@@ -457,6 +463,46 @@ class DungeonScreen(BaseScreen):
             self.text_log, self.party, "NEGATE TIME> Whose powder? (1-4):", "powder",
             _spent, turn_callback=self._consume_turn,
         )
+
+    def _peer_gem(self) -> None:
+        """LairWare dPeer (UltimaDngn.c:440-454): whose gem (message 75); a
+        key outside 1-4 ends the command; a member with none gets "None
+        left!" (67) and keeps everything; otherwise that member spends one
+        and DrawMiniDng(0) shows the level.  Like every dungeon command it
+        ends in dungeonmech (UltimaDngn.c:149, 161, 183), so the turn passes
+        in all three cases, after the map when there is one.
+
+        The PEER cheat (debug.CHEATS.free_peer) shows the map at once: no
+        question, no gem."""
+
+        def _spent(_member) -> None:
+            self._gem_turn_pending = True
+            self._open_gem_view()
+
+        def _turn() -> None:
+            if not self._gem_turn_pending:
+                self._consume_turn()
+
+        if debug.CHEATS.free_peer:
+            _spent(None)
+            return
+        prompt_whose_item(
+            self.text_log, self.party, "PEER> Whose gem? (1-4):", "gems",
+            _spent, turn_callback=_turn,
+        )
+
+    def _open_gem_view(self) -> None:
+        """Show the level map (dPeer, or Vieda: UltimaSpellCombat.c:322-327,
+        ``if (Party[3] == 1) DrawMiniDng(0)``).  It owns the input."""
+        self.gem_view_active = True
+        self._gem_view_time = 0.0
+
+    def _close_gem_view(self) -> None:
+        self.gem_view_active = False
+        if self._gem_turn_pending:
+            self._gem_turn_pending = False
+            self._consume_turn()
+        self._run_fixture()
 
     def _prompt_yell(self) -> None:
         """LairWare Yell(0) (UltimaDngn.c:158; UltimaMain.c:2544-2550): a
@@ -673,6 +719,7 @@ class DungeonScreen(BaseScreen):
             world_map=self.state,
             audio=self.audio,
             exit_callback=self.exit_screen,
+            view_callback=self._open_gem_view,
         )
 
     def update(self, dt: float) -> None:
@@ -686,13 +733,16 @@ class DungeonScreen(BaseScreen):
 
         Six seconds of game time at the dungeon's command prompt with no key
         pass the turn as Space would. DoAutoHeal (zp[0xD1] == -2000) is not
-        ported (user ruling). Prompts and Ztats never pass; autoplay holds
-        it (realtime.autoplay_on)."""
+        ported (user ruling). Prompts, Ztats and the level map never pass;
+        autoplay holds it (realtime.autoplay_on)."""
         from py_exodus.world import realtime
 
+        if self.gem_view_active:
+            self._gem_view_time += max(0.0, dt)  # the party box blinks
         waiting = (
             not self.text_log.is_waiting_for_input
             and self.stats_panel.inspect_index is None
+            and not self.gem_view_active
             and not self.is_finished
             and self.party.is_anyone_alive()
             and not realtime.autoplay_on(self)
@@ -704,32 +754,19 @@ class DungeonScreen(BaseScreen):
         if self._idle_time + 1e-9 >= realtime.DUNGEON_PASS_SECONDS:
             self.handle_event(realtime.space_event())
 
-    def _render_minimap(self, target: pygame.Surface) -> None:
-        """Draw the current dungeon level as a small top-down chart.
+    def _render_peer(self, surface: pygame.Surface, pane: int) -> None:
+        """The level map over the view pane (LairWare DrawMiniDng(0), see
+        py_exodus/ui/gem_view.py); the party panel and log stay up."""
+        from py_exodus.ui.gem_view import marker_visible, render_dungeon_gem_view
 
-        Java truth: DungeonScreen.java:79-80 keeps ``showMiniMap`` True by
-        default and the Keys.P handler (DungeonScreen.java:1012-1015)
-        toggles it — the party explores with a level plan overlaid on the
-        viewport and presses P to hide it.
-        """
-        from py_exodus.world.map import DungeonTile
-
-        cell = 4
-        dmap = self.state.dmap
-        offset_x = target.get_width() - dmap.width * cell - 4
-        offset_y = 20
-        for gy in range(dmap.height):
-            for gx in range(dmap.width):
-                tile = dmap.get_tile(gx, gy, self.state.z)
-                if tile == DungeonTile.WALL:
-                    color = EGA_BRIGHT_CYAN
-                else:
-                    color = EGA_DARK_GRAY
-                target.fill(color, (offset_x + gx * cell, offset_y + gy * cell, cell - 1, cell - 1))
-        # Party position dot
-        px = offset_x + self.state.x * cell
-        py = offset_y + self.state.y * cell
-        target.fill(EGA_BRIGHT_RED, (px, py, cell - 1, cell - 1))
+        render_dungeon_gem_view(
+            surface,
+            pygame.Rect(0, 0, pane, pane),
+            self.state.dmap,
+            self.state.z,
+            (self.state.x, self.state.y),
+            marker_on=marker_visible(int(self._gem_view_time / 0.2)),
+        )
 
     def render(self, surface: pygame.Surface) -> None:
         surface.fill(EGA_BLACK)
@@ -737,71 +774,39 @@ class DungeonScreen(BaseScreen):
         scale = 3 if w >= 640 else 1
         v_size = 176 * scale
 
+        # The light rule: a lit torch (or the XRAY cheat), else pitch black.
         torch_lit = self.state.is_torch_on or debug.CHEATS.xray
 
+        # The view is drawn at the original's 176x176 and enlarged.
+        view = pygame.Surface((176, 176))
+        self.camera.render_view(
+            view,
+            dmap=self.state.dmap,
+            x=self.state.x,
+            y=self.state.y,
+            z=self.state.z,
+            dir=self.state.dir,
+            torch_lit=torch_lit,
+        )
         if scale > 1:
-            temp_v = pygame.Surface((176, 176))
-            self.camera.render_wireframe(
-                temp_v,
-                dmap=self.state.dmap,
-                x=self.state.x,
-                y=self.state.y,
-                z=self.state.z,
-                dir=self.state.dir,
-                torch_lit=torch_lit,
-            )
+            view = pygame.transform.scale(view, (v_size, v_size))
+        surface.blit(view, (0, 0))
 
-            font = get_hud_font(size=10)
-            status_line = f"LVL: {self.state.z + 1}  DIR: {self.state.dir.name}"
-            stat_surf = font.render(status_line, True, EGA_YELLOW)
-            temp_v.blit(stat_surf, (4, 4))
+        font = get_hud_font(size=16 if scale > 1 else 10)
+        status_line = f"LVL: {self.state.z + 1}  DIR: {self.state.dir.name}"
+        stat_surf = font.render(status_line, True, EGA_YELLOW)
+        surface.blit(stat_surf, (8, 6) if scale > 1 else (4, 4))
 
-            if self.show_minimap:
-                self._render_minimap(temp_v)
-
-            scaled_v = pygame.transform.scale(temp_v, (v_size, v_size))
-            surface.blit(scaled_v, (0, 0))
-
-            # Right Sidebar (Party Stats) at native high resolution
-            self._render_stats_panel(
-                surface,
-                pygame.Rect(v_size, 0, w - v_size, h),
-            )
-
-            # Bottom HUD Text Log at native resolution
-            self.text_log.render(
-                surface,
-                rect=pygame.Rect(0, v_size, v_size, h - v_size),
-                draw_border=True,
-            )
-        else:
-            self.camera.render_wireframe(
-                surface,
-                dmap=self.state.dmap,
-                x=self.state.x,
-                y=self.state.y,
-                z=self.state.z,
-                dir=self.state.dir,
-                torch_lit=torch_lit,
-            )
-
-            font = get_hud_font(size=10)
-            status_line = f"LVL: {self.state.z + 1}  DIR: {self.state.dir.name}"
-            stat_surf = font.render(status_line, True, EGA_YELLOW)
-            surface.blit(stat_surf, (4, 4))
-
-            if self.show_minimap:
-                self._render_minimap(surface)
-
-            self._render_stats_panel(
-                surface,
-                pygame.Rect(176, 0, w - 176, h),
-            )
-
-            log_h = max(24, h - 176)
-            self.text_log.render(
-                surface,
-                rect=pygame.Rect(0, 176, 176, log_h),
-                draw_border=True,
-            )
+        # Right sidebar (party stats) and the text log under the view.
+        self._render_stats_panel(
+            surface,
+            pygame.Rect(v_size, 0, w - v_size, h),
+        )
+        self.text_log.render(
+            surface,
+            rect=pygame.Rect(0, v_size, v_size, h - v_size if scale > 1 else max(24, h - 176)),
+            draw_border=True,
+        )
+        if self.gem_view_active:
+            self._render_peer(surface, v_size)
         self._render_ztats(surface, v_size)

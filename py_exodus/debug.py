@@ -32,7 +32,8 @@ DEBUG_MODE: bool = False
 
 @dataclass
 class CheatState:
-    """The six GBC cheat toggles (``cheat.c:40-46`` extern bytes).
+    """The six GBC cheat toggles (``cheat.c:40-46`` extern bytes), and the
+    port's own ``free_peer`` (user request 2026-11-26).
 
     Deliberately NOT frozen: effect sites and tests mutates the singleton's
     fields in place (GBC flips its ``cheat_*`` bytes the same way); the
@@ -46,6 +47,9 @@ class CheatState:
     noblock: bool = False  #: WALK THROUGH ANY TILE
     full_mp: bool = False  #: MP NEVER DECREASES
     no_class: bool = False  #: ANY CHAR CAN CAST ANY SPELL
+    #: P SHOWS THE MAP ANYWHERE, NO GEM: surface, town and dungeon.  Not a
+    #: GBC cheat; it replaces the dungeon's old free map overlay.
+    free_peer: bool = False
 
 
 #: The single instance the effect sites read; tests mutate it directly and
@@ -68,6 +72,7 @@ _MENU_ITEMS: list[tuple[str, str, str]] = [
     ("NOBLOCK", "WALK THROUGH ANY TILE", "noblock"),
     ("FULL MP", "MP NEVER DECREASES", "full_mp"),
     ("NOCLASS", "ANY CHAR CAN CAST ANY SPELL", "no_class"),
+    ("PEER", "P SHOWS THE MAP ANYWHERE, NO GEM", "free_peer"),
 ]
 
 MAX_ALL_LABEL = "MAXALL"  # cheat.c:76-77 "MAX]ALL"
@@ -77,7 +82,7 @@ MAX_ALL_DESC = "MAX OUT EVERYTHING FOR EVERYONE"  # cheat.c:101-102
 def open_cheat_menu(text_log: Any, party: Any = None) -> None:
     """Open the F10 cheat menu as an indexed text_log prompt (GBC docheat).
 
-    An indexed "1-7" prompt stands in for GBC's cursor menu: the port's
+    An indexed "1-8" prompt stands in for GBC's cursor menu: the port's
     prompt pipeline is text based and a cursor widget would be overkill.
     """
     if not DEBUG_MODE:
@@ -86,9 +91,10 @@ def open_cheat_menu(text_log: Any, party: Any = None) -> None:
     for idx, (label, desc, attr) in enumerate(_MENU_ITEMS):
         state = "ON" if getattr(CHEATS, attr) else "OFF"
         text_log.add_message(f"{idx + 1}. {label} - {desc} [{state}]")
-    text_log.add_message(f"7. {MAX_ALL_LABEL} - {MAX_ALL_DESC}")
+    max_all_key = len(_MENU_ITEMS) + 1
+    text_log.add_message(f"{max_all_key}. {MAX_ALL_LABEL} - {MAX_ALL_DESC}")
     text_log.prompt(
-        "Cheat? (1-6, 7/M=Max all, Esc=cancel):",
+        f"Cheat? (1-{max_all_key - 1}, {max_all_key}/M=Max all, Esc=cancel):",
         callback=lambda choice: _on_cheat_choice(text_log, party, choice),
         single_char=True,
     )
@@ -96,7 +102,7 @@ def open_cheat_menu(text_log: Any, party: Any = None) -> None:
 
 def _on_cheat_choice(text_log: Any, party: Any, choice: str) -> None:
     key = choice.strip().upper()
-    if key in ("7", "M"):
+    if key in (str(len(_MENU_ITEMS) + 1), "M"):
         text_log.add_message(max_all(party))
         return
     for idx, (label, _desc, attr) in enumerate(_MENU_ITEMS):

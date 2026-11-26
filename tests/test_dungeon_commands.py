@@ -166,13 +166,18 @@ def test_dungeon_v_music_toggle(pygame_setup):
     assert ticks() == 98
 
 
-def test_dungeon_p_minimap_toggle(pygame_setup):
+def test_dungeon_p_is_peer_and_takes_the_turn(pygame_setup):
+    """LairWare dPeer (UltimaDngn.c:149, 440-454): P asks whose gem, and a
+    key outside 1-4 ends it; like every dungeon command it ends in
+    dungeonmech, so the turn passes (more in test_dungeon_peer)."""
     scr = make_screen()
     ticks = turn_meter(scr.party)
 
     press(scr, pygame.K_p)
-    # Java DungeonScreen.java:80 + 1012-1015 — P toggles the minimap; the
-    # key falls through to finishTurn.
+    assert "Whose gem?" in scr.text_log.current_prompt
+    assert ticks() == 99
+    scr.text_log.handle_char("X")
+    assert not scr.text_log.is_waiting_for_input
     assert ticks() == 98
 
 

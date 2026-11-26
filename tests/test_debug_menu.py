@@ -104,7 +104,7 @@ class TestDebugFlagParse:
 
 
 class TestCheatMenu:
-    def test_menu_lists_all_seven_items(self, text_log: TextLog, cheat_state: Any) -> None:
+    def test_menu_lists_all_eight_items(self, text_log: TextLog, cheat_state: Any) -> None:
         debug.DEBUG_MODE = True
         debug.open_cheat_menu(text_log)
         blob = "\n".join(text_log.history)
@@ -115,6 +115,7 @@ class TestCheatMenu:
             "NOBLOCK",
             "FULL MP",
             "NOCLASS",
+            "PEER",
             "MAXALL",
         ):
             assert label in blob
@@ -126,6 +127,7 @@ class TestCheatMenu:
             "WALK THROUGH ANY TILE",
             "MP NEVER DECREASES",
             "ANY CHAR CAN CAST ANY SPELL",
+            "P SHOWS THE MAP ANYWHERE, NO GEM",
             "MAX OUT EVERYTHING FOR EVERYONE",
         ):
             assert desc in blob
@@ -152,11 +154,25 @@ class TestCheatMenu:
         text_log.submit_input("5")
         assert debug.CHEATS.full_mp is False
 
-    def test_max_all_choice_and_index_seven(self, text_log: TextLog, cheat_state: Any) -> None:
+    def test_index_seven_toggles_the_peer_cheat(self, text_log: TextLog, cheat_state: Any) -> None:
+        """The port's own cheat (user request 2026-11-26) sits after the six
+        GBC toggles; MAXALL moves to 8."""
         party = make_party()
         debug.DEBUG_MODE = True
         debug.open_cheat_menu(text_log, party)
+        assert "1-7, 8/M=Max all" in text_log.current_prompt
         text_log.submit_input("7")
+        assert debug.CHEATS.free_peer is True
+        assert party.members[0].character.gold != 9999
+        debug.open_cheat_menu(text_log, party)
+        text_log.submit_input("7")
+        assert debug.CHEATS.free_peer is False
+
+    def test_max_all_choice_and_index_eight(self, text_log: TextLog, cheat_state: Any) -> None:
+        party = make_party()
+        debug.DEBUG_MODE = True
+        debug.open_cheat_menu(text_log, party)
+        text_log.submit_input("8")
         assert party.members[0].character.gold == 9999
         debug.open_cheat_menu(text_log, party)
         text_log.submit_input("M")
@@ -430,6 +446,7 @@ class TestCheatNeverSaved:
         "noblock",
         "full_mp",
         "no_class",
+        "free_peer",
         "noclass",
         "fullmp",
         "cheat",

@@ -1,10 +1,9 @@
-"""3D wireframe dungeon corridor renderer and navigation system.
+"""First-person dungeon view (the "Stone" renderer) and navigation system.
 
-Authentic Ultima III first-person stepped wireframe projection and dungeon state management.
+The torchlit stone-block corridor view and the dungeon state management.
 """
 from __future__ import annotations
 
-import math
 import random
 from dataclasses import dataclass
 from enum import Enum
@@ -27,17 +26,6 @@ if TYPE_CHECKING:
 
 # --- Classic EGA Palette Constants ---
 COLOR_BLACK = (0, 0, 0)
-COLOR_WHITE = (255, 255, 255)
-COLOR_CYAN = (0, 255, 255)
-COLOR_GREEN = (0, 255, 0)
-COLOR_YELLOW = (255, 255, 85)
-COLOR_RED = (255, 85, 85)
-COLOR_BLUE = (85, 85, 255)
-COLOR_MAGENTA = (255, 85, 255)
-COLOR_DARK_GRAY = (85, 85, 85)
-COLOR_LIGHT_GRAY = (170, 170, 170)
-#: Perspective block-seam colour drawn across wall faces (mortar-joint read).
-COLOR_SEAM = (120, 120, 120)
 
 
 class DungeonEventType(str, Enum):
@@ -135,182 +123,157 @@ def get_relative_offsets(d: Direction) -> tuple[tuple[int, int], tuple[int, int]
     return fwd, left, right
 
 
+#: Tiles drawn as a full stone block.  A secret door is drawn exactly like a
+#: wall; a door or locked door carries a door on each face.
+_SOLID_TILES = frozenset({
+    DungeonTile.WALL, DungeonTile.DOOR, DungeonTile.SECRET_DOOR, DungeonTile.LOCKED_DOOR,
+})
+_DOOR_FACES = frozenset({DungeonTile.DOOR, DungeonTile.LOCKED_DOOR})
+_LADDER_TILES = frozenset({
+    DungeonTile.LADDER_UP, DungeonTile.LADDER_DOWN, DungeonTile.LADDER_UP_DOWN,
+})
+#: The word under the rod in the close-up.  A plain MARK has none.
+_MARK_SIGILS = {
+    DungeonTile.MARK_KINGS: "KINGS",
+    DungeonTile.MARK_FIRE: "FIRE",
+    DungeonTile.MARK_SNAKE: "SNAKE",
+    DungeonTile.MARK_FORCE: "FORCE",
+}
+
+_Point = tuple[float, float]
+_Quad = list[_Point]
+_RGB = tuple[int, int, int]
+
+
+def _lerp_rgb(a: _RGB, b: _RGB, t: float) -> _RGB:
+    return (
+        int(a[0] + (b[0] - a[0]) * t),
+        int(a[1] + (b[1] - a[1]) * t),
+        int(a[2] + (b[2] - a[2]) * t),
+    )
+
+
+def _bilerp(q: _Quad, u: float, v: float) -> _Point:
+    """Point at (u across, v down) inside the quad [tl, tr, br, bl]."""
+    tl, tr, br, bl = q
+    top = (tl[0] + (tr[0] - tl[0]) * u, tl[1] + (tr[1] - tl[1]) * u)
+    bot = (bl[0] + (br[0] - bl[0]) * u, bl[1] + (br[1] - bl[1]) * u)
+    return (top[0] + (bot[0] - top[0]) * v, top[1] + (bot[1] - top[1]) * v)
+
+
 class DungeonCamera:
-    """First-person 3D perspective wireframe corridor renderer for Ultima III dungeons.
+    """First-person "Stone" dungeon view: torchlit blocks that fade with distance.
 
-    Java truth (DungeonScreen.java): the dungeon is a true 3D scene — every
-    solid tile (WALL / DOOR / SECRET_DOOR) is a full 1x1x1 cube spanning one
-    grid cell, floor at y=0, ceiling at y=1 (DungeonScreen.java:192-205,
-    492-500), with a PerspectiveCamera at the party tile centre, mid-height,
-    vertical fov 67 and near plane 0.1 (DungeonScreen.java:180-183).  The
-    scene is symmetric in all four facings — there are no per-facing offset
-    tables; the camera basis rotates with the party.  This port reproduces
-    the same placement rules on a 2D canvas with a pinhole projection:
+    The view is drawn at the original's 176x176 and enlarged by the screen.
+    The eye sits at the centre of the party's tile, mid-height, looking along
+    the facing.  Camera-local axes: X lateral (positive = the party's right),
+    Y down, Z depth.  The tile ``d`` steps ahead is centred on z = d, so its
+    near face is at z = d - 0.5 and a wall one step ahead fills the view.
 
-    * camera-local axes: X lateral (positive = party's right), Y up, Z depth
-      along the facing; the eye sits at y=0.5 on the NEAR BOUNDARY of the
-      party tile (z=0), so the corridor column ``s`` tiles ahead spans
-      z [s, s+1].  This is the classic stepped dungeon-view convention (and
-      the old renderer's frame table): a wall one step ahead projects to
-      half-extent 56px with generous margins, the wall beside the party
-      shows as a screen-edge strip, and deeper geometry shrinks hard
-      (half-extents 56 / 28 / 18.7 / 14 / 11.2 px by depth) so distance is
-      readable.  Java's true centre-of-tile camera would render a wall one
-      tile ahead as a viewport-filling plane — accurate but unnavigable on
-      a wireframe canvas.
-    * FOCAL: a 0.5-unit half-tile at depth 1 projects to 56px on the 176px
-      viewport, i.e. a 77-degree vertical fov bracketing Java's 67.
-    * Painter's algorithm, far to near: walls-through-openings, side faces,
-      corridor frames, then the terminating front face, then fixtures.
+    Every solid tile (wall, door, secret door, locked door) is a full block.
+    Blocks and floor features are painted far to near and outside in, so a
+    nearer block hides whatever stands behind it and a side opening is a real
+    gap.  Light is a rule, not a look: with no torch the view is black.
+
+    While the party stands on a fountain or on a Mark, a close-up picture
+    replaces the corridor (``closeup_for``).
     """
 
-    # 176x176 viewport matching the 11x11 tile viewport area
-    DEFAULT_SIZE = 176
+    #: Native view size (the original's 11x11 tiles of 16px).
+    SIZE: ClassVar[int] = 176
+    DEFAULT_SIZE: ClassVar[int] = SIZE
 
-    #: Screen px a half-tile spans at depth 1 (56 = one frame step).
-    FOCAL: ClassVar[float] = 112.0
+    #: Focal length in pixels: the face one step ahead fills the view.
+    FOCAL: ClassVar[float] = 88.0
 
-    #: Java camera.near = 0.1f (DungeonScreen.java:183)
-    NEAR: ClassVar[float] = 0.1
+    #: Near clip, for the blocks beside the party.
+    NEAR: ClassVar[float] = 0.18
 
-    #: Eye height: Java builds floor boxes at y=-0.5 and ceiling boxes at
-    #: y=1.5, so the walkable corridor spans y in [0, 1] and the camera sits
-    #: mid-height at y=0.5 (DungeonScreen.java:197, 203; currentPos y=.5).
-    EYE: ClassVar[float] = 0.5
-
-    #: How many corridor columns the lit view projects.  Java renders the
-    #: whole level every frame; the torch-lit falloff (point light ~5 units)
-    #: reads as roughly 6 tiles of detail.
+    #: How many tiles ahead, and to each side, the lit view looks at.  The fog
+    #: turns black a little short of five tiles, so the last ones cost nothing.
     MAX_DEPTH: ClassVar[int] = 6
+    MAX_LATERAL: ClassVar[int] = 3
+
+    #: Pretend depth for a feature on the party's own tile (the eye is at the
+    #: tile centre, so its real depth is zero): a ladder fills the height of
+    #: the view, the others sit at the party's feet.
+    OWN_TILE_LADDER_Z: ClassVar[float] = 0.5
+    OWN_TILE_Z: ClassVar[float] = 0.75
+
+    FRONT: ClassVar[_RGB] = (182, 160, 124)
+    SIDE: ClassVar[_RGB] = (138, 118, 92)
+    MORTAR: ClassVar[float] = 0.55
+    CEILING_NEAR: ClassVar[_RGB] = (58, 52, 50)
+    FLOOR_NEAR: ClassVar[_RGB] = (96, 78, 58)
+    FLOOR_SEAM: ClassVar[_RGB] = (60, 46, 32)
+    DOOR: ClassVar[_RGB] = (120, 62, 28)
+    DOOR_TRIM: ClassVar[_RGB] = (60, 30, 12)
+    BRASS: ClassVar[_RGB] = (230, 190, 60)
+    IRON: ClassVar[_RGB] = (70, 70, 78)
 
     def __init__(
         self,
-        viewport_size: int = DEFAULT_SIZE,
-        default_color: tuple[int, int, int] = COLOR_WHITE,
-        door_color: tuple[int, int, int] = COLOR_CYAN,
-        fixture_color: tuple[int, int, int] = COLOR_GREEN,
+        viewport_size: int = SIZE,
+        asset_mgr: AssetManager | None = None,
     ) -> None:
         self.viewport_size = viewport_size
-        self.default_color = default_color
-        self.door_color = door_color
-        self.fixture_color = fixture_color
+        #: Source of the chest, Time Lord and monster sprites.  Without one
+        #: (bare tests) simple drawn figures stand in.
+        self.asset_mgr = asset_mgr
+        self._view: pygame.Surface | None = None
+        self._scene_key: tuple | None = None
+        self._background: pygame.Surface | None = None
+        self._closeups: dict[str, pygame.Surface] = {}
 
-    # --- projection helpers -------------------------------------------------
-
-    def _project(
-        self,
-        cx: float,
-        cy: float,
-        focal: float,
-        lateral: float,
-        height: float,
-        depth: float,
-    ) -> tuple[float, float]:
-        """Pinhole projection of a camera-local (lateral, height, depth) point.
-
-        depth is clamped at Java's near plane (0.1) so faces that extend
-        behind the eye render from the near-plane slice outward — a wall
-        beside the party (its column spans z [0, 1]) paints the strip from
-        the screen edge inward exactly like the classic view.
-        """
-        z = max(depth, self.NEAR)
-        u = cx + lateral * focal / z
-        v = cy - (height - self.EYE) * focal / z
-        return (u, v)
-
-    def _half_extent(self, focal: float, depth: float) -> float:
-        """On-screen half-extent of a tile-half (0.5 world units) at depth."""
-        return min(0.5 * focal / max(depth, self.NEAR), 0.5 * 176)
-
-    def _face_quad(
-        self,
-        cx: float,
-        cy: float,
-        focal: float,
-        corners: list[tuple[float, float, float]],
-    ) -> list[tuple[float, float]]:
-        return [self._project(cx, cy, focal, *p) for p in corners]
-
-    def _draw_face(
-        self,
-        surface: pygame.Surface,
-        cx: float,
-        cy: float,
-        focal: float,
-        fill: tuple[int, int, int],
-        outline: tuple[int, int, int],
-        seam: tuple[int, int, int] | None = None,
-        lat: float | None = None,
-        d0: float = 0.0,
-        d1: float = 0.0,
-        front_plane: float | None = None,
-        h0: float = 0.0,
-        h1: float = 1.0,
-    ) -> list[tuple[float, float]]:
-        """Fill one wall face and dress it with perspective block seams.
-
-        Either ``lat`` (a lateral face at the given X, spanning depths
-        d0..d1 and heights h0..h1) or ``front_plane`` (a face we look at
-        head-on at the given depth, spanning lateral -0.5..0.5).  Seams
-        project like the face, so a wall one tile ahead — whose face covers
-        the whole viewport at Java's 67-degree fov — still reads as a
-        receding block surface instead of a flat grey fill.
-        """
-        hs = [h0 + i * (h1 - h0) / 4 for i in (1, 2, 3)]
-        if lat is not None:
-            corners = [
-                (lat, h0, d0), (lat, h0, d1), (lat, h1, d1), (lat, h1, d0)
-            ]
-            span = (d1 - d0) / 4
-            verticals = [
-                [(lat, h0, d0 + i * span), (lat, h1, d0 + i * span)]
-                for i in (1, 2, 3)
-            ]
-            horizontals = [[(lat, h, d0), (lat, h, d1)] for h in hs]
-        else:
-            z = front_plane if front_plane is not None else 0.5
-            xs = (-0.25, 0.0, 0.25)
-            corners = [(-0.5, h0, z), (0.5, h0, z), (0.5, h1, z), (-0.5, h1, z)]
-            verticals = [[(x, h0, z), (x, h1, z)] for x in xs]
-            horizontals = [[(-0.5, h, z), (0.5, h, z)] for h in hs]
-        quad = self._face_quad(cx, cy, focal, corners)
-        pygame.draw.polygon(surface, fill, quad)
-        pygame.draw.lines(surface, outline, True, quad, 1)
-        if seam is not None:
-            for seg in verticals + horizontals:
-                pygame.draw.line(
-                    surface,
-                    seam,
-                    self._project(cx, cy, focal, *seg[0]),
-                    self._project(cx, cy, focal, *seg[1]),
-                    1,
-                )
-        return quad
-
-    # --- tile helpers -------------------------------------------------------
+    # --- rules ---------------------------------------------------------------
 
     @staticmethod
     def _is_solid(tile: DungeonTile) -> bool:
-        """Tiles that render as a full blocking cube.
-
-        Java addBlock (DungeonScreen.java:492-591): WALL renders a full
-        1x1x1 mortar box; DOOR and SECRET_DOOR render the same full box plus
-        a door slab detail.  LOCKED_DOOR has no mesh in Java (its 0x00 value
-        can never survive the .ult lookup anyway), so the port renders it as
-        a solid door — visually informative and never an invisible blocker.
-        """
-        return tile in (
-            DungeonTile.WALL,
-            DungeonTile.DOOR,
-            DungeonTile.SECRET_DOOR,
-            DungeonTile.LOCKED_DOOR,
-        )
+        return tile in _SOLID_TILES
 
     @staticmethod
-    def _is_door(tile: DungeonTile) -> bool:
-        return tile in (DungeonTile.DOOR, DungeonTile.SECRET_DOOR, DungeonTile.LOCKED_DOOR)
+    def closeup_for(tile: DungeonTile) -> str | None:
+        """Which close-up replaces the view while the party stands on ``tile``."""
+        if tile in FOUNTAIN_TILES:
+            return "fountain"
+        if tile in MARK_TILES:
+            return "rod"
+        return None
 
-    def render_wireframe(
+    @staticmethod
+    def fog(z: float) -> float:
+        """Brightness (1 = full torchlight, 0 = black) at depth ``z``."""
+        t = max(0.0, min(1.0, (z - 0.5) / 4.2))
+        return (1 - t) ** 1.35
+
+    @classmethod
+    def _shade(cls, colour: _RGB, z: float) -> _RGB:
+        k = cls.fog(z)
+        return (int(colour[0] * k), int(colour[1] * k), int(colour[2] * k))
+
+    # --- projection ----------------------------------------------------------
+
+    def _project(self, lateral: float, height: float, depth: float) -> _Point:
+        """Pinhole projection; ``height`` runs -0.5 (ceiling) to 0.5 (floor)."""
+        z = max(depth, self.NEAR)
+        c = self.SIZE / 2
+        return (c + lateral * self.FOCAL / z, c + height * self.FOCAL / z)
+
+    def _front_quad(self, lateral: float, z: float) -> _Quad:
+        return [
+            self._project(lateral - 0.5, -0.5, z), self._project(lateral + 0.5, -0.5, z),
+            self._project(lateral + 0.5, 0.5, z), self._project(lateral - 0.5, 0.5, z),
+        ]
+
+    def _side_quad(self, x_plane: float, z0: float, z1: float) -> _Quad:
+        return [
+            self._project(x_plane, -0.5, z0), self._project(x_plane, -0.5, z1),
+            self._project(x_plane, 0.5, z1), self._project(x_plane, 0.5, z0),
+        ]
+
+    # --- entry point ---------------------------------------------------------
+
+    def render_view(
         self,
         surface: pygame.Surface,
         dmap: DungeonMap | None = None,
@@ -319,763 +282,376 @@ class DungeonCamera:
         z: int = 0,
         dir: Direction = Direction.NORTH,
         torch_lit: bool = False,
-        max_steps: int = 4,
         *,
         dng: DungeonMap | None = None,
-        wall_color: tuple[int, int, int] | None = None,
         creatures: list | None = None,
     ) -> None:
-        """Project first-person perspective dungeon corridors onto surface.
+        """Draw the 176x176 view at the top-left of ``surface``.
 
-        ``creatures`` carries the wandering monsters loose on level z (Java
-        renders each dungeon creature as a 3D mesh at its live position,
-        DungeonScreen.creatureModels / moveDungeonCreatures draw order).
+        ``torch_lit`` is the light rule: False draws pitch black, whatever the
+        party stands on.  ``creatures`` are the wandering monsters loose in
+        the dungeon (objects with ``x``, ``y``, ``level`` and a ``creature``
+        whose ``tile`` names the sprite); those on level ``z`` are drawn.
+
+        The finished picture is kept, and drawn again only when what the eye
+        can see changes, so a still frame costs a tile scan and one blit.
         """
         active_map = dmap or dng
         if active_map is None:
             raise ValueError("DungeonMap instance required (pass dmap or dng).")
 
-        w, h = surface.get_width(), surface.get_height()
-        size = min(w, h)
-        focal = self.FOCAL * (size / 176)
-        cx, cy = w / 2, h / 2
+        if self._view is None:
+            self._view = pygame.Surface((self.SIZE, self.SIZE))
+            self._scene_key = None
+        view = self._view
 
-        # Fill background with solid black
-        surface.fill(COLOR_BLACK)
-
-        # Pitch black when dark (no active torch or light spell)
         if not torch_lit:
+            key: tuple = ("dark",)
+            if key != self._scene_key:
+                view.fill(COLOR_BLACK)
+                self._scene_key = key
+            surface.blit(view, (0, 0))
             return
 
-        max_depth = self.MAX_DEPTH
-
-        fwd, left, right = get_relative_offsets(dir)
-
-        def tile_at(lateral_col: int, depth_col: int) -> DungeonTile:
-            """Grid tile lateral_col tiles to the right (negative = left) and
-            depth_col tiles ahead of the party, wrapped like Java's dungeon."""
-            tx = (x + fwd[0] * depth_col + right[0] * lateral_col) % active_map.width
-            ty = (y + fwd[1] * depth_col + right[1] * lateral_col) % active_map.height
-            return active_map.get_tile(tx, ty, z)
-
-        # Scan the corridor ahead: the first solid column terminates sight
-        # (its front face occludes everything beyond).  A doorway stops the
-        # corridor visually too — Java renders the door cube as a full wall
-        # box with a slab detail.
-        stop_depth = max_depth + 1
-        front_tile: DungeonTile | None = None
-        for s in range(1, max_depth + 1):
-            t = tile_at(0, s)
-            if self._is_solid(t):
-                stop_depth = s
-                front_tile = t
-                break
-
-        # Filled-face colours: front faces read bright, side faces darker,
-        # faces glimpsed through an opening darkest — judge walls AND depth.
-        # Java also renders floor/ceiling boxes for every grid tile, so the
-        # eye never sees a true void: rays past a wall hit its ceiling-box
-        # side face, and rays down an opening hit the side corridor's
-        # floor/ceiling planes. The port paints those with darker fills.
-        front_fill = (85, 85, 85)
-        side_fill = (55, 55, 55)
-        opening_fill = (40, 40, 40)
-        floor_fill = (38, 38, 38)
-        ceil_fill = (30, 30, 30)
-        shadow_fill = (25, 25, 25)
-        depth_frames = {
-            0: (220, 220, 220),
-            1: (220, 220, 220),
-            2: (175, 175, 175),
-            3: (135, 135, 135),
-            4: (100, 100, 100),
+        fwd, _left, right = get_relative_offsets(dir)
+        lats = range(-self.MAX_LATERAL, self.MAX_LATERAL + 1)
+        grid = {
+            (lat, d): active_map.get_tile(
+                (x + fwd[0] * d + right[0] * lat) % active_map.width,
+                (y + fwd[1] * d + right[1] * lat) % active_map.height,
+                z,
+            )
+            for d in range(self.MAX_DEPTH + 1)
+            for lat in lats
         }
-        depth_wall_fills = {
-            3: ((72, 72, 72), (46, 46, 46), (34, 34, 34)),
-            4: ((60, 60, 60), (38, 38, 38), (28, 28, 28)),
-        }
+        monsters = self._monsters_in_view(active_map, x, y, z, fwd, right, creatures)
 
-        max_col = min(stop_depth, max_depth) - 1  # last column with open corridor
-
-        def quad_for(corners: list[tuple[float, float, float]]):
-            return self._face_quad(cx, cy, focal, corners)
-
-        for s in range(max_col, -1, -1):  # far to near
-            plane_near = s
-            plane_far = s + 1
-            frame_col = depth_frames.get(s, (70, 70, 70))
-            if s <= 2:
-                s_front_fill, s_side_fill, s_opening_fill = (
-                    front_fill, side_fill, opening_fill
-                )
+        key = ("lit", tuple(grid.values()), tuple(sorted(monsters.items())))
+        if key != self._scene_key:
+            closeup = self.closeup_for(grid[(0, 0)])
+            if closeup is not None:
+                view.blit(self._closeup(closeup, grid[(0, 0)]), (0, 0))
             else:
-                s_front_fill, s_side_fill, s_opening_fill = depth_wall_fills.get(
-                    s, ((48, 48, 48), (30, 30, 30), (22, 22, 22))
-                )
-            side_seam = (72, 72, 72) if s <= 1 else None
-            front_seam = (100, 100, 100) if s <= 1 else None
-            opening_seam = (55, 55, 55) if s <= 1 else None
-            ceil_outline = COLOR_DARK_GRAY if s <= 2 else (55, 55, 55)
+                self._draw_scene(view, grid, monsters)
+            self._scene_key = key
+        surface.blit(view, (0, 0))
 
-            # --- corridor floor and ceiling strips (y=0 / y=1 planes)
-            floor_quad = quad_for(
-                [(-0.5, 0.0, plane_near), (0.5, 0.0, plane_near),
-                 (0.5, 0.0, plane_far), (-0.5, 0.0, plane_far)]
-            )
-            ceiling_quad = quad_for(
-                [(-0.5, 1.0, plane_near), (0.5, 1.0, plane_near),
-                 (0.5, 1.0, plane_far), (-0.5, 1.0, plane_far)]
-            )
-            pygame.draw.polygon(surface, floor_fill, floor_quad)
-            pygame.draw.polygon(surface, ceil_fill, ceiling_quad)
-
-            # --- side geometry, left then right (side = -1 / +1)
-            for side in (-1, 1):
-                lat_solid = side * 0.5
-                st = tile_at(side, s)
-                open_side = not self._is_solid(st)
-
-                if open_side:
-                    # Side corridor floor/ceiling extending laterally to the
-                    # first wall one or two tiles out.
-                    boundary = lat_solid
-                    for k in (2, 3):
-                        if self._is_solid(tile_at(side * (k - 1), s)):
-                            break
-                        boundary = side * (k - 0.5)
-                    # visible lateral tiles: only up to the last column that
-                    # the eye can reach through the opening at this depth
-                    pygame.draw.polygon(surface, floor_fill, quad_for(
-                        [(lat_solid, 0.0, plane_near),
-                         (boundary, 0.0, plane_near),
-                         (boundary, 0.0, plane_far),
-                         (lat_solid, 0.0, plane_far)]
-                    ))
-                    pygame.draw.polygon(surface, ceil_fill, quad_for(
-                        [(lat_solid, 1.0, plane_near),
-                         (boundary, 1.0, plane_near),
-                         (boundary, 1.0, plane_far),
-                         (lat_solid, 1.0, plane_far)]
-                    ))
-
-                    # first solid tile seen through the opening
-                    for k in (2, 3):
-                        far = tile_at(side * k, s)
-                        if self._is_solid(far):
-                            lat = side * (k - 0.5)
-                            quad = self._draw_face(
-                                surface, cx, cy, focal,
-                                lat=lat, d0=plane_near, d1=plane_far,
-                                fill=s_opening_fill, outline=ceil_outline,
-                                seam=opening_seam,
-                            )
-                            if self._is_door(far):
-                                self._front_door_detail(surface, quad, far, dim=True)
-                            break
-                else:
-                    # Solid side wall: face at the corridor plane plus the
-                    # Java ceiling-box side face continuing it upward.
-                    far_boundary = plane_far
-                    quad = self._draw_face(
-                        surface, cx, cy, focal,
-                        lat=lat_solid, d0=plane_near, d1=far_boundary,
-                        fill=s_side_fill, outline=frame_col,
-                        seam=side_seam,
-                    )
-                    if self._is_door(st):
-                        self._side_door_detail(
-                            surface,
-                            quad[0][0], quad[0][1], quad[3][1],
-                            quad[1][0], quad[1][1], quad[2][1],
-                            is_left=side < 0, tile=st,
-                        )
-                    self._draw_face(
-                        surface, cx, cy, focal,
-                        lat=lat_solid, d0=plane_near, d1=plane_far,
-                        h0=1.0, h1=2.0,
-                        fill=ceil_fill, outline=ceil_outline,
-                        seam=None,
-                    )
-
-            # --- opening edges receding outward + opening far frame
-            for side in (-1, 1):
-                if self._is_solid(tile_at(side, s)):
-                    continue
-                lat = side * 0.5
-                for lat_line, hgt in ((lat, 0.0), (lat, 1.0)):
-                    p_near = self._project(cx, cy, focal, lat_line, hgt, plane_near)
-                    p_far = self._project(cx, cy, focal, lat_line, hgt, plane_far)
-                    pygame.draw.line(surface, frame_col, p_near, p_far, 1)
-                p_t = self._project(cx, cy, focal, lat, 1.0, plane_far)
-                p_b = self._project(cx, cy, focal, lat, 0.0, plane_far)
-                pygame.draw.line(surface, frame_col, p_t, p_b, 1)
-
-            # --- corridor cross-section frames at the far plane
-            half = self._half_extent(focal, plane_far)
-            pygame.draw.line(
-                surface, frame_col,
-                (cx - half, cy + half), (cx + half, cy + half), 1,
-            )
-            pygame.draw.line(
-                surface, frame_col,
-                (cx - half, cy - half), (cx + half, cy - half), 1,
-            )
-            if s + 1 <= max_col or (front_tile is not None and stop_depth == s + 1):
-                half_n = self._half_extent(focal, s + 2)
-                for lat_line in (-half, half):
-                    for v_sgn in (-1, 1):
-                        pygame.draw.line(
-                            surface, frame_col,
-                            (cx + lat_line, cy + v_sgn * half),
-                            (cx + lat_line, cy + v_sgn * half_n), 1,
-                        )
-
-            # --- terminating front face (+ its ceiling-box face above) at
-            # the near plane of the solid column stop_depth
-            if s == stop_depth - 1 and front_tile is not None and stop_depth >= 1:
-                zf = plane_far  # = stop_depth - 0.5
-                quad = self._draw_face(
-                    surface, cx, cy, focal,
-                    front_plane=zf,
-                    fill=s_front_fill,
-                    outline=COLOR_WHITE if s <= 1 else frame_col,
-                    seam=front_seam,
-                )
-                if self._is_door(front_tile):
-                    self._front_door_detail(surface, quad, front_tile)
-                self._draw_face(
-                    surface, cx, cy, focal,
-                    front_plane=zf, h0=1.0, h1=2.0,
-                    fill=shadow_fill, outline=ceil_outline,
-                    seam=None,
-                )
-
-        # Render dungeon fixtures along the corridor (back to front)
-        for s in range(0, min(stop_depth - 1, max_depth) + 1):
-            if s == 0:
-                cur_x, cur_y = x, y
-            else:
-                cur_x = (x + fwd[0] * s) % active_map.width
-                cur_y = (y + fwd[1] * s) % active_map.height
-
-            tile = active_map.get_tile(cur_x, cur_y, z)
-            self._render_fixture(surface, tile, s, cx, cy, focal)
-
-        # Render the wandering creatures at their live positions (Java's
-        # creature meshes stand on their tile, so the same tile-centre
-        # perspective applies). Back to front so nearer monsters paint over.
-        for s in range(min(stop_depth - 1, max_depth), 0, -1):
-            for wc in creatures or []:
-                if getattr(wc, "level", z) != z:
-                    continue
-                # Camera-local offset, wrapped the short way the dungeon wraps
-                # (Java Utils.getRelativeDirection, wrap only).
-                dcol = (wc.x - x) % active_map.width
-                drow = (wc.y - y) % active_map.height
-                if dcol > active_map.width // 2:
-                    dcol -= active_map.width
-                if drow > active_map.height // 2:
-                    drow -= active_map.height
-                depth = dcol * fwd[0] + drow * fwd[1]
-                lateral = dcol * right[0] + drow * right[1]
-                if depth != s or abs(depth) != depth:
-                    continue
-                # Occlusion: the eye sees a creature only if everything
-                # between its tile and the corridor centre line at its depth
-                # is open, AND no wall at a shallower depth blocks the ray
-                # from (0, 0.5) to (lateral, s + 0.5).
-                if lateral == int(lateral):
-                    lat_i = int(lateral)
-                    sign = 1 if lat_i > 0 else -1
-                    occluded = any(
-                        self._is_solid(tile_at(sign * k, s))
-                        for k in range(0, abs(lat_i) + 1)
-                    )
-                    if not occluded and lat_i != 0:
-                        abs_lat = abs(lat_i)
-                        for d_col in range(1, s):
-                            lat_near = abs_lat * (d_col - 0.5) / s
-                            lat_far = abs_lat * (d_col + 0.5) / s
-                            c_min = math.floor(lat_near + 0.5 + 1e-9)
-                            c_max = math.ceil(lat_far - 0.5 - 1e-9)
-                            if any(
-                                self._is_solid(tile_at(sign * c, d_col))
-                                for c in range(c_min, c_max + 1)
-                            ):
-                                occluded = True
-                                break
-                    if not occluded:
-                        self._render_creature(
-                            surface, cx, cy, focal, lat_i, s
-                        )
-
-    def _render_creature(
+    def _monsters_in_view(
         self,
-        surface: pygame.Surface,
-        ccx: float,
-        ccy: float,
-        focal: float,
-        lateral: int,
-        depth: int,
-    ) -> None:
-        """Draw a wandering monster's silhouette on its tile centre.
+        dmap: DungeonMap,
+        x: int,
+        y: int,
+        z: int,
+        fwd: tuple[int, int],
+        right: tuple[int, int],
+        creatures: list | None,
+    ) -> dict[tuple[int, int], str]:
+        """Sprite name of the monster on each (lateral, depth) tile ahead."""
+        found: dict[tuple[int, int], str] = {}
+        for wc in creatures or []:
+            if getattr(wc, "level", z) != z:
+                continue
+            # Camera-local offset, wrapped the short way round the level.
+            dcol = (wc.x - x) % dmap.width
+            drow = (wc.y - y) % dmap.height
+            if dcol > dmap.width // 2:
+                dcol -= dmap.width
+            if drow > dmap.height // 2:
+                drow -= dmap.height
+            depth = dcol * fwd[0] + drow * fwd[1]
+            lateral = dcol * right[0] + drow * right[1]
+            if 1 <= depth <= self.MAX_DEPTH and abs(lateral) <= self.MAX_LATERAL:
+                name = getattr(getattr(wc, "creature", None), "tile", None) or "monster"
+                found[(lateral, depth)] = str(name)
+        return found
 
-        The figure keeps the wireframe conventions of the fixture renderer:
-        the box is the tile's projected cross-section at the column centre
-        (stepped convention: column s spans z [s, s+1]), so a monster one
-        step away fills a far bigger screen region than one two steps out.
-        """
-        surf_w = surface.get_width()
-        if depth == 1 and abs(lateral) >= 2:
-            return
-        d = depth + 0.5
-        half = self._half_extent(focal, d)
-        fxc = ccx + lateral * focal / d
-        if not (0 <= fxc < surf_w):
-            return
-        top = ccy - (0.62 - self.EYE) * focal / d
-        bottom = ccy - (0.0 - self.EYE) * focal / d
-        w = max(3, int(half * 0.8))
-        left = max(0, int(fxc - w // 2))
-        right = min(surf_w - 1, int(fxc - w // 2) + w - 1)
-        rect_w = max(1, right - left + 1)
-        # body
-        pygame.draw.rect(
-            surface, COLOR_YELLOW,
-            (left, int(top), rect_w, int(bottom - top)), 1,
-        )
-        # shoulders
-        shoulder_y = int(top + (bottom - top) * 0.25)
-        pygame.draw.line(
-            surface, COLOR_YELLOW,
-            (left, shoulder_y),
-            (right, shoulder_y), 1,
-        )
-        # head
-        head_r = max(2, w // 4)
-        head_cx = max(head_r, min(surf_w - 1 - head_r, int(fxc)))
-        pygame.draw.circle(
-            surface, COLOR_YELLOW,
-            (head_cx, int(top) - head_r), head_r, 1,
-        )
+    # --- the corridor --------------------------------------------------------
 
-    def _front_door_detail(
+    def _draw_scene(
         self,
-        surface: pygame.Surface,
-        quad: list[tuple[float, float]],
-        tile: DungeonTile,
-        dim: bool = False,
+        s: pygame.Surface,
+        grid: dict[tuple[int, int], DungeonTile],
+        monsters: dict[tuple[int, int], str],
     ) -> None:
-        """Door panel inside a wall face we look at head-on.
+        s.blit(self._floor_and_ceiling(), (0, 0))
+        outside_in = sorted(
+            range(-self.MAX_LATERAL, self.MAX_LATERAL + 1), key=lambda v: -abs(v)
+        )
+        near = self.NEAR
+        for d in range(self.MAX_DEPTH, -1, -1):  # far to near
+            for lat in outside_in:
+                tile = grid[(lat, d)]
+                if tile in _SOLID_TILES:
+                    if d >= 1:
+                        self._draw_face(s, self._front_quad(lat, d - 0.5), tile, d - 0.5, False)
+                    z_side = max(d - 0.5, 0.5)
+                    if lat > 0:
+                        q = self._side_quad(lat - 0.5, max(d - 0.5, near), d + 0.5)
+                        self._draw_face(s, q, tile, z_side, True)
+                    elif lat < 0:
+                        q = self._side_quad(lat + 0.5, d + 0.5, max(d - 0.5, near))
+                        self._draw_face(s, [q[1], q[0], q[3], q[2]], tile, z_side, True)
+                elif d >= 1:
+                    self._draw_feature(s, tile, lat, float(d))
+                    name = monsters.get((lat, d))
+                    if name is not None:
+                        self._draw_monster(s, name, lat, float(d))
+        # What the party stands on (ladders, a chest, the Time Lord).
+        own = grid[(0, 0)]
+        if own in _LADDER_TILES:
+            self._draw_feature(s, own, 0, self.OWN_TILE_LADDER_Z)
+        elif own in (DungeonTile.CHEST, DungeonTile.TIME_LORD):
+            self._draw_feature(s, own, 0, self.OWN_TILE_Z)
 
-        Java slab (DungeonScreen.java:574-589): a 1.04 x .85 x .6 box centred
-        at y=.4 — a panel reaching floor to 0.83 height against the wall cube.
-        DOOR shows the door texture; SECRET_DOOR a near-invisible dark slab;
-        LOCKED_DOOR (Java-empty, port-visible) a red panel.
-        """
-        xs = [p[0] for p in quad]
-        top = min(p[1] for p in quad)
-        bottom = max(p[1] for p in quad)
-        left, right = min(xs), max(xs)
-        fw = right - left
-        fh = bottom - top
+    def _floor_and_ceiling(self) -> pygame.Surface:
+        """The gradient behind every corridor: drawn once, then reused."""
+        if self._background is None:
+            n = self.SIZE
+            bg = pygame.Surface((n, n))
+            for row in range(n // 2):
+                t = (1 - row / (n / 2)) ** 1.6
+                pygame.draw.line(
+                    bg, _lerp_rgb(COLOR_BLACK, self.CEILING_NEAR, t), (0, row), (n, row)
+                )
+                pygame.draw.line(
+                    bg, _lerp_rgb(COLOR_BLACK, self.FLOOR_NEAR, t),
+                    (0, n - 1 - row), (n, n - 1 - row),
+                )
+            for d in range(1, self.MAX_DEPTH + 1):  # flagstone seams, receding
+                zf = d - 0.5
+                row = self._project(0, 0.5, zf)[1]
+                pygame.draw.line(bg, self._shade(self.FLOOR_SEAM, zf), (0, row), (n, row))
+            self._background = bg
+        return self._background
 
-        if tile == DungeonTile.LOCKED_DOOR:
-            panel_col = COLOR_RED
-        elif tile == DungeonTile.SECRET_DOOR:
-            panel_col = COLOR_DARK_GRAY
+    def _draw_face(
+        self, s: pygame.Surface, q: _Quad, tile: DungeonTile, z: float, side: bool
+    ) -> None:
+        colour = self._shade(self.SIDE if side else self.FRONT, z)
+        pygame.draw.polygon(s, colour, q)
+        if colour == COLOR_BLACK:
+            return  # lost in the fog, but it still hides what is behind it
+        mortar = (
+            int(colour[0] * self.MORTAR), int(colour[1] * self.MORTAR),
+            int(colour[2] * self.MORTAR),
+        )
+        self._draw_bricks(s, q, mortar)
+        if tile in _DOOR_FACES:
+            self._draw_door(s, q, z, locked=tile == DungeonTile.LOCKED_DOOR)
+
+    @staticmethod
+    def _draw_bricks(s: pygame.Surface, q: _Quad, colour: _RGB, rows: int = 4) -> None:
+        """Running-bond mortar lines inside a face."""
+        for r in range(1, rows):
+            pygame.draw.line(s, colour, _bilerp(q, 0, r / rows), _bilerp(q, 1, r / rows))
+        for r in range(rows):
+            off = 0.25 if r % 2 else 0.0
+            for k in range(3):
+                u = off + k * 0.5
+                if 0 < u < 1:
+                    pygame.draw.line(
+                        s, colour, _bilerp(q, u, r / rows), _bilerp(q, u, (r + 1) / rows)
+                    )
+
+    def _draw_door(self, s: pygame.Surface, q: _Quad, z: float, locked: bool) -> None:
+        dq = [_bilerp(q, 0.3, 0.28), _bilerp(q, 0.7, 0.28), _bilerp(q, 0.7, 1), _bilerp(q, 0.3, 1)]
+        trim = self._shade(self.DOOR_TRIM, z)
+        pygame.draw.polygon(s, self._shade(self.DOOR, z), dq)
+        pygame.draw.polygon(s, trim, dq, 1)
+        for u in (0.43, 0.57):  # planks
+            pygame.draw.line(s, trim, _bilerp(q, u, 0.3), _bilerp(q, u, 1))
+        px, py = _bilerp(q, 0.63, 0.66)
+        radius = max(1, int(3 / z))
+        if locked:  # iron bands and a lock plate in place of the ring
+            iron = self._shade(self.IRON, z)
+            for v in (0.42, 0.84):
+                pygame.draw.line(s, iron, _bilerp(q, 0.3, v), _bilerp(q, 0.7, v))
+            pygame.draw.rect(
+                s, iron, (int(px) - radius, int(py) - radius, 2 * radius + 1, 2 * radius + 1)
+            )
         else:
-            panel_col = COLOR_CYAN if not dim else COLOR_DARK_GRAY
+            pygame.draw.circle(s, self._shade(self.BRASS, z), (int(px), int(py)), radius, 1)
 
-        door_w = max(6, int(fw * 0.82))
-        door_h = max(8, int(fh * 0.80))
-        door_x = int(left + (fw - door_w) / 2)
-        door_y = int(bottom - door_h)
+    # --- features ------------------------------------------------------------
 
-        pygame.draw.rect(surface, panel_col, (door_x, door_y, door_w, door_h), 1)
-        # Lintel band across the third
-        beam_y = door_y + door_h // 3
-        pygame.draw.line(surface, panel_col, (door_x, beam_y), (door_x + door_w, beam_y), 1)
-        # Plank centre line
-        mid_x = door_x + door_w // 2
-        pygame.draw.line(surface, panel_col, (mid_x, door_y), (mid_x, door_y + door_h), 1)
-        if tile == DungeonTile.DOOR:
-            radius = max(1, int(fw / 30))
-            knob_x = door_x + int(door_w * 0.8)
-            knob_y = door_y + int(door_h * 0.6)
-            pygame.draw.circle(surface, COLOR_YELLOW, (knob_x, knob_y), radius)
-
-    def _side_door_detail(
-        self,
-        surface: pygame.Surface,
-        x1: float,
-        top1: float,
-        bot1: float,
-        x2: float,
-        top2: float,
-        bot2: float,
-        is_left: bool,
-        tile: DungeonTile,
-    ) -> None:
-        """Door seams on a side wall face (Java's slab barely protrudes from
-        the wall cube, so the port shows an inset seam instead of a full
-        trapezoid — the wall face keeps reading as solid)."""
-        # Java SECRET_DOOR slab is translucent dark gray (DungeonScreen.java:
-        # 577-578) — subtle seams, unlike a plain DOOR's bright panel.
-        panel_col = (
-            COLOR_RED if tile == DungeonTile.LOCKED_DOOR
-            else COLOR_DARK_GRAY if tile == DungeonTile.SECRET_DOOR
-            else self.door_color
+    def _sprite(self, name: str, px_h: int, k: float = 1.0) -> pygame.Surface | None:
+        """The named tile sprite ``px_h`` pixels tall, dimmed to brightness k."""
+        if self.asset_mgr is None:
+            return None
+        try:
+            tile = self.asset_mgr.get_tile_surface(name)
+        except (KeyError, FileNotFoundError, pygame.error):
+            return None
+        scale = max(1, px_h) / tile.get_height()
+        img = pygame.transform.scale(
+            tile, (max(1, int(tile.get_width() * scale)), max(1, int(tile.get_height() * scale)))
         )
-        d_x1 = int(x1 + (x2 - x1) * 0.25)
-        d_x2 = int(x1 + (x2 - x1) * 0.85)
+        if k < 1.0:
+            v = int(255 * k)
+            img.fill((v, v, v), special_flags=pygame.BLEND_RGB_MULT)
+        return img
 
-        h1 = bot1 - top1
-        h2 = bot2 - top2
-
-        door_top1 = int(bot1 - h1 * 0.75)
-        door_top2 = int(bot2 - h2 * 0.75)
-
-        door_pts = [
-            (d_x1, door_top1),
-            (d_x2, door_top2),
-            (d_x2, bot2),
-            (d_x1, bot1),
-        ]
-        pygame.draw.lines(surface, panel_col, True, door_pts, 1)
-        # centre plank line
-        pygame.draw.line(
-            surface,
-            panel_col,
-            ((d_x1 + d_x2) // 2, (door_top1 + door_top2) // 2),
-            ((d_x1 + d_x2) // 2, (bot1 + bot2) // 2),
-            1,
-        )
-
-    def _draw_front_door(
-        self,
-        surface: pygame.Surface,
-        left: int,
-        top: int,
-        right: int,
-        bottom: int,
-        tile: DungeonTile,
-    ) -> None:
-        """Render front-facing vector door with frame, planks, and handle."""
-        w = right - left
-        h = bottom - top
-
-        door_w = max(6, int(w * 0.48))
-        door_h = max(8, int(h * 0.72))
-        door_x = left + (w - door_w) // 2
-        door_y = bottom - door_h
-
-        # Outer door frame
-        frame_rect = (door_x, door_y, door_w, door_h)
-        pygame.draw.rect(surface, self.door_color, frame_rect, 1)
-
-        # Arch or crossbeam
-        beam_y = door_y + door_h // 3
-        pygame.draw.line(surface, self.door_color, (door_x, beam_y), (door_x + door_w, beam_y), 1)
-
-        # Vertical plank line
-        mid_x = door_x + door_w // 2
-        pygame.draw.line(surface, self.door_color, (mid_x, door_y), (mid_x, bottom), 1)
-
-        # Doorknob / ring handle
-        knob_x = door_x + int(door_w * 0.8)
-        knob_y = door_y + int(door_h * 0.6)
-        radius = max(1, w // 30)
-        pygame.draw.circle(surface, COLOR_YELLOW, (knob_x, knob_y), radius)
-
-    def _draw_side_door(
-        self,
-        surface: pygame.Surface,
-        x1: int,
-        top1: int,
-        bot1: int,
-        x2: int,
-        top2: int,
-        bot2: int,
-        is_left: bool,
-    ) -> None:
-        """Render perspective door outline on side wall."""
-        # Calculate trapezoid for side door between x1 and x2
-        d_x1 = int(x1 + (x2 - x1) * 0.25)
-        d_x2 = int(x1 + (x2 - x1) * 0.75)
-
-        h1 = bot1 - top1
-        h2 = bot2 - top2
-
-        door_top1 = int(bot1 - h1 * 0.7)
-        door_top2 = int(bot2 - h2 * 0.7)
-
-        door_pts = [
-            (d_x1, door_top1),
-            (d_x2, door_top2),
-            (d_x2, bot2),
-            (d_x1, bot1),
-        ]
-        pygame.draw.lines(surface, self.door_color, True, door_pts, 1)
-
-    def _render_fixture(
-        self,
-        surface: pygame.Surface,
-        tile: DungeonTile,
-        step: int,
-        ccx: float = 88.0,
-        ccy: float = 88.0,
-        focal: float | None = None,
-    ) -> None:
-        """Render wireframe 3D fixtures (ladders, chests, fountains, pit traps, marks).
-
-        The fixture sits at the centre of the column ``step`` tiles ahead;
-        its screen box is the tile's true projected cross-section (Java
-        renders the object mesh at the tile position, so apparent size
-        follows the same 1/depth perspective as the walls).
-        """
-        if tile in (DungeonTile.WALL, DungeonTile.NOTHING, DungeonTile.FLOOR, DungeonTile.DOOR):
+    def _draw_feature(self, s: pygame.Surface, tile: DungeonTile, lat: int, z: float) -> None:
+        """A floor feature standing on the centre of a tile at depth ``z``."""
+        k = self.fog(z)
+        if k <= 0.0:
             return
 
-        f = focal if focal is not None else self.FOCAL
-        # Tile centre at z = s + 0.5 (stepped convention: column s spans
-        # z [s, s+1]); the party's own tile still uses its near boundary so
-        # the box stays finite (the old full-screen box).
-        half = self._half_extent(f, step + 0.5)
-        left, top = ccx - half, ccy - half
-        right, bottom = ccx + half, ccy + half
-        cx = (left + right) // 2
-        w = right - left
-        h = bottom - top
+        def sh(c: _RGB) -> _RGB:
+            return (int(c[0] * k), int(c[1] * k), int(c[2] * k))
 
-        if tile == DungeonTile.LADDER_UP:
-            self._draw_ladder(surface, cx, bottom, top, w, h, up=True, down=False)
-        elif tile == DungeonTile.LADDER_DOWN:
-            self._draw_ladder(surface, cx, bottom, top, w, h, up=False, down=True)
-        elif tile == DungeonTile.LADDER_UP_DOWN:
-            self._draw_ladder(surface, cx, bottom, top, w, h, up=True, down=True)
-        elif tile == DungeonTile.CHEST:
-            self._draw_chest(surface, cx, bottom, w, h)
+        fx, fy = self._project(lat, 0.5, z)      # floor point under the tile centre
+        _cx, cy = self._project(lat, -0.5, z)    # ceiling point above it
+        u = self.FOCAL / z                       # one tile, in pixels
+
+        if tile == DungeonTile.CHEST:
+            h = int(u * 0.45)
+            img = self._sprite("chest", h, k)
+            if img is not None:
+                s.blit(img, (fx - img.get_width() / 2, fy - img.get_height() - u * 0.02))
+            else:
+                w = max(3, h)
+                box = pygame.Rect(int(fx - w / 2), int(fy - h * 0.7), w, max(2, int(h * 0.7)))
+                pygame.draw.rect(s, sh((150, 100, 40)), box)
+                pygame.draw.rect(s, sh(self.DOOR_TRIM), box, 1)
+                pygame.draw.line(
+                    s, sh(self.DOOR_TRIM), (box.left, box.top + box.h // 3),
+                    (box.right - 1, box.top + box.h // 3),
+                )
+                pygame.draw.rect(s, sh(self.BRASS), (int(fx) - 1, box.top + box.h // 3, 2, 2))
+        elif tile in _LADDER_TILES:
+            up = tile in (DungeonTile.LADDER_UP, DungeonTile.LADDER_UP_DOWN)
+            down = tile in (DungeonTile.LADDER_DOWN, DungeonTile.LADDER_UP_DOWN)
+            w = u * 0.32
+            if up:
+                pygame.draw.ellipse(s, COLOR_BLACK, (fx - w * 0.9, cy - u * 0.05, w * 1.8, u * 0.16))
+            if down:
+                pygame.draw.ellipse(s, COLOR_BLACK, (fx - w * 0.9, fy - u * 0.11, w * 1.8, u * 0.16))
+            top = cy if up else fy - u * 0.55
+            bot = fy if down else fy - u * 0.02
+            rail = sh((200, 150, 80))
+            for sx in (-w / 2, w / 2):
+                pygame.draw.line(s, rail, (fx + sx, top), (fx + sx, bot), max(1, int(u / 40)))
+            rungs = 6
+            for i in range(1, rungs):
+                yy = top + (bot - top) * i / rungs
+                pygame.draw.line(s, rail, (fx - w / 2, yy), (fx + w / 2, yy))
         elif tile in FOUNTAIN_TILES:
-            self._draw_fountain(surface, cx, bottom, w, h, tile)
+            w = u * 0.5
+            pygame.draw.ellipse(s, sh((130, 130, 140)), (fx - w / 2, fy - u * 0.2, w, u * 0.14))
+            pygame.draw.rect(s, sh((110, 110, 120)), (fx - w / 2, fy - u * 0.13, w, u * 0.12))
+            pygame.draw.ellipse(s, sh((40, 90, 220)), (fx - w * 0.42, fy - u * 0.19, w * 0.84, u * 0.1))
+            pygame.draw.line(
+                s, sh((150, 200, 255)), (fx, fy - u * 0.16), (fx, fy - u * 0.42), max(1, int(u / 30))
+            )
+        elif tile in MARK_TILES:
+            h = u * 0.55
+            glow = pygame.Surface((int(u * 0.5) + 2, int(h) + 2), pygame.SRCALPHA)
+            pygame.draw.ellipse(glow, (255, 80, 0, int(90 * k)), glow.get_rect())
+            s.blit(glow, (fx - glow.get_width() / 2, fy - h - 2))
+            pygame.draw.line(s, sh((255, 200, 60)), (fx, fy - h), (fx, fy), max(1, int(u / 22)))
+            pygame.draw.circle(s, sh((255, 255, 180)), (int(fx), int(fy - h)), max(1, int(u / 18)))
         elif tile == DungeonTile.PIT_TRAP:
-            self._draw_pit_trap(surface, cx, bottom, w, h)
-        elif tile in (
-            DungeonTile.MARK,
-            DungeonTile.MARK_KINGS,
-            DungeonTile.MARK_FIRE,
-            DungeonTile.MARK_FORCE,
-            DungeonTile.MARK_SNAKE,
-        ):
-            self._draw_mark(surface, cx, bottom, w, h)
+            # A black hole in the flagstones, with a worn rim.  Which traps
+            # the party can spot is a rule: the wireframe showed only those
+            # straight ahead, so the ones off to the side stay unseen.
+            if lat != 0:
+                return
+            w = u * 0.5
+            far = self._project(lat, 0.5, z + 0.25)[1]
+            near = self._project(lat, 0.5, max(z - 0.25, self.NEAR))[1]
+            hole = pygame.Rect(int(fx - w / 2), int(far), max(3, int(w)), max(2, int(near - far)))
+            pygame.draw.ellipse(s, COLOR_BLACK, hole)
+            pygame.draw.ellipse(s, sh((150, 70, 50)), hole, 1)
         elif tile == DungeonTile.TIME_LORD:
-            self._draw_time_lord(surface, cx, bottom, w, h)
+            h = int(u * 0.6)
+            img = self._sprite("lord_british", h)
+            if img is not None:
+                s.blit(img, (fx - img.get_width() / 2, fy - img.get_height()))
+            else:
+                self._draw_figure(s, fx, fy, h, (85, 85, 255))
 
-    def _draw_ladder(
-        self,
-        surface: pygame.Surface,
-        cx: int,
-        bottom: int,
-        top: int,
-        w: int,
-        h: int,
-        up: bool,
-        down: bool,
-    ) -> None:
-        """Render 3D wireframe ladder rails, rungs, and ceiling/floor holes."""
-        rail_w = max(4, w // 5)
-        x1 = cx - rail_w // 2
-        x2 = cx + rail_w // 2
+    def _draw_monster(self, s: pygame.Surface, name: str, lat: int, z: float) -> None:
+        k = self.fog(z)
+        if k <= 0.0:
+            return
+        fx, fy = self._project(lat, 0.5, z)
+        h = int(self.FOCAL / z * 0.62)
+        img = self._sprite(name, h, k)
+        if img is not None:
+            s.blit(img, (fx - img.get_width() / 2, fy - img.get_height()))
+        else:
+            v = int(200 * k)
+            self._draw_figure(s, fx, fy, h, (v, v, v))
 
-        y_top = top if up else (top + int(h * 0.4))
-        y_bot = bottom if not down else (bottom - int(h * 0.05))
+    @staticmethod
+    def _draw_figure(s: pygame.Surface, fx: float, fy: float, h: int, colour: _RGB) -> None:
+        """A plain standing figure, for when there is no sprite to draw."""
+        h = max(4, h)
+        w = max(3, int(h * 0.5))
+        head = max(1, h // 6)
+        pygame.draw.circle(s, colour, (int(fx), int(fy - h + head)), head)
+        pygame.draw.polygon(s, colour, [
+            (fx, fy - h + 2 * head), (fx + w / 2, fy), (fx - w / 2, fy),
+        ])
 
-        # Side rails
-        pygame.draw.line(surface, self.fixture_color, (x1, y_top), (x1, y_bot), 1)
-        pygame.draw.line(surface, self.fixture_color, (x2, y_top), (x2, y_bot), 1)
+    # --- close-ups -----------------------------------------------------------
 
-        # Rungs
-        num_rungs = 5
-        span = y_bot - y_top
-        if span > 4:
-            for r in range(1, num_rungs + 1):
-                ry = y_top + int(span * r / (num_rungs + 1))
-                pygame.draw.line(surface, self.fixture_color, (x1, ry), (x2, ry), 1)
+    def _closeup(self, kind: str, tile: DungeonTile) -> pygame.Surface:
+        """The picture shown while the party stands on a fountain or a Mark."""
+        sigil = _MARK_SIGILS.get(tile, "") if kind == "rod" else ""
+        cache_key = f"{kind}:{sigil}"
+        pic = self._closeups.get(cache_key)
+        if pic is None:
+            pic = self._fountain_picture() if kind == "fountain" else self._rod_picture(sigil)
+            self._closeups[cache_key] = pic
+        return pic
 
-        # Holes in ceiling or floor
-        hole_w = rail_w + max(4, w // 8)
-        hole_h = max(3, h // 10)
-        if up:
-            pygame.draw.ellipse(
-                surface,
-                COLOR_CYAN,
-                (cx - hole_w // 2, max(0, top - hole_h // 2), hole_w, hole_h),
-                1,
+    def _closeup_backdrop(self, wall: _RGB, mortar: _RGB) -> pygame.Surface:
+        n = self.SIZE
+        s = self._floor_and_ceiling().copy()
+        pygame.draw.rect(s, wall, (0, 20, n, 104))
+        self._draw_bricks(s, [(0, 20), (n, 20), (n, 124), (0, 124)], mortar, rows=6)
+        return s
+
+    def _fountain_picture(self) -> pygame.Surface:
+        s = self._closeup_backdrop((120, 104, 80), (70, 60, 46))
+        # basin
+        pygame.draw.ellipse(s, (150, 150, 160), (28, 108, 120, 30))
+        pygame.draw.rect(s, (125, 125, 135), (28, 122, 120, 26))
+        pygame.draw.ellipse(s, (95, 95, 105), (28, 136, 120, 22))
+        pygame.draw.ellipse(s, (40, 90, 220), (36, 112, 104, 20))
+        pygame.draw.ellipse(s, (110, 170, 255), (60, 116, 56, 8), 1)
+        # pillar and spout
+        pygame.draw.rect(s, (140, 140, 150), (80, 66, 16, 52))
+        pygame.draw.ellipse(s, (160, 160, 170), (70, 58, 36, 12))
+        for dx in (-10, 0, 10):
+            pygame.draw.arc(s, (150, 200, 255), (82 + dx - 12, 52, 24, 70), 0.2, 2.9, 1)
+        return s
+
+    def _rod_picture(self, sigil: str) -> pygame.Surface:
+        n = self.SIZE
+        s = self._closeup_backdrop((110, 94, 72), (64, 54, 40))
+        glow = pygame.Surface((n, n), pygame.SRCALPHA)
+        for radius, alpha in ((70, 30), (50, 50), (32, 80)):
+            pygame.draw.circle(glow, (255, 90, 0, alpha), (88, 80), radius)
+        s.blit(glow, (0, 0))
+        # altar
+        pygame.draw.rect(s, (90, 90, 100), (52, 120, 72, 30))
+        pygame.draw.rect(s, (130, 130, 140), (46, 114, 84, 8))
+        # the rod
+        pygame.draw.rect(s, (255, 170, 40), (85, 40, 6, 76))
+        pygame.draw.rect(s, (255, 240, 160), (87, 40, 2, 76))
+        pygame.draw.circle(s, (255, 255, 200), (88, 38), 6)
+        if sigil:
+            from py_exodus.ui.text_log import get_hud_font
+
+            text = get_hud_font(size=12, font_name="ultima.ttf").render(
+                sigil, False, (255, 220, 120)
             )
-        if down:
-            pygame.draw.ellipse(
-                surface,
-                COLOR_RED,
-                (cx - hole_w // 2, bottom - hole_h // 2, hole_w, hole_h),
-                1,
-            )
+            s.blit(text, (88 - text.get_width() // 2, 156))
+        return s
 
-    def _draw_chest(
-        self,
-        surface: pygame.Surface,
-        cx: int,
-        bottom: int,
-        w: int,
-        h: int,
-    ) -> None:
-        """Render 3D wireframe treasure chest on the floor."""
-        cw = max(8, int(w * 0.36))
-        ch = max(5, int(h * 0.22))
-        cd = max(3, int(h * 0.12))
-
-        fx1 = cx - cw // 2
-        fx2 = cx + cw // 2
-        fy1 = bottom - ch
-        fy2 = bottom
-
-        # Front face
-        pygame.draw.rect(surface, COLOR_YELLOW, (fx1, fy1, cw, ch), 1)
-
-        # Lid perspective top face
-        bx1 = fx1 + cd
-        bx2 = fx2 + cd
-        by1 = fy1 - cd
-        pygame.draw.lines(
-            surface,
-            COLOR_YELLOW,
-            False,
-            [(fx1, fy1), (bx1, by1), (bx2, by1), (fx2, fy1)],
-            1,
-        )
-        pygame.draw.line(surface, COLOR_YELLOW, (bx2, by1), (fx2, fy2), 1)
-
-        # Latch
-        pygame.draw.rect(surface, COLOR_WHITE, (cx - 1, fy1 + ch // 3, 3, 3))
-
-    def _draw_fountain(
-        self,
-        surface: pygame.Surface,
-        cx: int,
-        bottom: int,
-        w: int,
-        h: int,
-        tile: DungeonTile,
-    ) -> None:
-        """Render 3D wireframe fountain with basin, pedestal, and water spout."""
-        color_map = {
-            DungeonTile.FOUNTAIN_HEAL: COLOR_BLUE,
-            DungeonTile.FOUNTAIN_CURE: COLOR_CYAN,
-            DungeonTile.FOUNTAIN_ACID: COLOR_YELLOW,
-            DungeonTile.FOUNTAIN_POISON: COLOR_GREEN,
-            DungeonTile.FOUNTAIN_PLAIN: COLOR_WHITE,
-        }
-        f_color = color_map.get(tile, COLOR_CYAN)
-
-        bw = max(10, int(w * 0.44))
-        bh = max(4, int(h * 0.18))
-        pygame.draw.ellipse(surface, f_color, (cx - bw // 2, bottom - bh, bw, bh), 1)
-
-        # Pedestal
-        pw = max(4, bw // 3)
-        ph = max(4, int(h * 0.25))
-        pygame.draw.rect(surface, f_color, (cx - pw // 2, bottom - bh - ph, pw, ph), 1)
-
-        # Upper basin
-        uw = max(6, int(bw * 0.6))
-        uh = max(3, int(bh * 0.6))
-        pygame.draw.ellipse(surface, f_color, (cx - uw // 2, bottom - bh - ph - uh // 2, uw, uh), 1)
-
-        # Spout & droplets
-        spout_top = bottom - bh - ph - uh - max(3, h // 12)
-        pygame.draw.line(surface, COLOR_WHITE, (cx, bottom - bh - ph), (cx, spout_top), 1)
-        pygame.draw.line(surface, f_color, (cx, spout_top), (cx - uw // 3, bottom - bh - ph), 1)
-        pygame.draw.line(surface, f_color, (cx, spout_top), (cx + uw // 3, bottom - bh - ph), 1)
-
-    def _draw_pit_trap(
-        self,
-        surface: pygame.Surface,
-        cx: int,
-        bottom: int,
-        w: int,
-        h: int,
-    ) -> None:
-        """Render 3D wireframe pit hole in the dungeon floor."""
-        pw = max(8, int(w * 0.5))
-        ph = max(4, int(h * 0.22))
-
-        pts = [
-            (cx - pw // 2, bottom - ph),
-            (cx + pw // 2, bottom - ph),
-            (cx + pw // 2 + 3, bottom),
-            (cx - pw // 2 - 3, bottom),
-        ]
-        # Dark fill hole
-        pygame.draw.polygon(surface, COLOR_BLACK, pts)
-        pygame.draw.lines(surface, COLOR_RED, True, pts, 1)
-
-        # Receding pit interior lines
-        pygame.draw.line(surface, COLOR_DARK_GRAY, pts[0], (cx, bottom + ph // 2), 1)
-        pygame.draw.line(surface, COLOR_DARK_GRAY, pts[1], (cx, bottom + ph // 2), 1)
-
-    def _draw_mark(
-        self,
-        surface: pygame.Surface,
-        cx: int,
-        bottom: int,
-        w: int,
-        h: int,
-    ) -> None:
-        """Render the 3D wireframe pedestal of a mystical Mark shrine."""
-        ow = max(6, int(w * 0.28))
-        oh = max(4, int(h * 0.22))
-        pedestal_top = bottom - oh
-
-        # Pedestal trapezoid
-        pedestal_pts = [
-            (cx - ow // 2, bottom),
-            (cx + ow // 2, bottom),
-            (cx + ow // 3, pedestal_top),
-            (cx - ow // 3, pedestal_top),
-        ]
-        pygame.draw.lines(surface, self.default_color, True, pedestal_pts, 1)
-
-        # Sparkle above the pedestal
-        radius = max(3, w // 10)
-        cy = pedestal_top - radius - 3
-        pygame.draw.line(surface, COLOR_WHITE, (cx - radius, cy), (cx + radius, cy), 1)
-        pygame.draw.line(surface, COLOR_WHITE, (cx, cy - radius), (cx, cy + radius), 1)
-
-    def _draw_time_lord(
-        self,
-        surface: pygame.Surface,
-        cx: int,
-        bottom: int,
-        w: int,
-        h: int,
-    ) -> None:
-        """Render wireframe vision of the mystical Time Lord."""
-        fig_h = max(10, int(h * 0.6))
-        fig_w = max(6, int(w * 0.25))
-
-        top_y = bottom - fig_h
-        head_r = max(2, fig_w // 4)
-
-        # Head
-        pygame.draw.circle(surface, COLOR_BLUE, (cx, top_y + head_r), head_r, 1)
-        # Robe triangle
-        robe_pts = [
-            (cx, top_y + head_r * 2),
-            (cx + fig_w // 2, bottom),
-            (cx - fig_w // 2, bottom),
-        ]
-        pygame.draw.lines(surface, COLOR_BLUE, True, robe_pts, 1)
-        # Staff
-        pygame.draw.line(surface, COLOR_CYAN, (cx + fig_w // 2 + 2, top_y), (cx + fig_w // 2 + 2, bottom), 1)
 
 
 class DungeonState:

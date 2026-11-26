@@ -314,7 +314,7 @@ class Spell(Enum):
     # reach of a Paladin's, Illusionist's or Ranger's 49 MP.
     SOMINAE = ("J", 45, "Major light spell", "cleric", 0x70A, 0x08)
     SANCTU_MANI = ("K", 50, "Major healing", "cleric", 0x702, 0xFF)
-    VIEDA = ("L", 55, "Overhead view of surroundings", "cleric", 0x200, 0x05)
+    VIEDA = ("L", 55, "Overhead view of surroundings", "cleric", 0x200, 0x0D)
     EXCUUN = ("M", 60, "Death bolt", "cleric", 0x200, 0x02)
     # LairWare UltimaSpellCombat.c:330-335, 356-361: Surmandum and Anju
     # Sermani fail in combat (`Party[3] == 0x80`), so the combat bit is off.

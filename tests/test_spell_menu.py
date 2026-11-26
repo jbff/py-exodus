@@ -558,7 +558,9 @@ _JAVA_SPELLS = [
     ("SEQUITU", 40, 0x70A, 0x08),  # Constants.java:717
     ("SOMINAE", 45, 0x702, 0x08),  # Constants.java:718
     ("SANCTU_MANI", 50, 0x702, 0xFF),  # Constants.java:719
-    ("VIEDA", 55, 0x200, 0x05),  # Constants.java:720
+    # Constants.java:720 has 0x05; the dungeon bit is LairWare's
+    # (UltimaSpellCombat.c:322-327 DrawMiniDng, user ruling 2026-11-26).
+    ("VIEDA", 55, 0x200, 0x0D),
     ("EXCUUN", 60, 0x200, 0x02),  # Constants.java:721
     ("SURMANDUM", 65, 0x200, 0xFF),  # Constants.java:722
     ("ZXKUQYB", 70, 0x200, 0x02),  # Constants.java:723

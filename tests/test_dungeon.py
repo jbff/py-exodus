@@ -1,4 +1,4 @@
-"""Tests for 3D wireframe dungeon corridor renderer and navigation."""
+"""Tests for the Stone first-person dungeon view and navigation."""
 import random
 
 import pygame
@@ -11,6 +11,8 @@ from py_exodus.entities.character import Character
 from py_exodus.entities.party import Party, PartyDeathException
 from py_exodus.world.dungeon import (
     COLOR_BLACK,
+    FOUNTAIN_TILES,
+    MARK_TILES,
     DungeonCamera,
     DungeonEventType,
     DungeonState,
@@ -69,19 +71,51 @@ def empty_dmap():
     return dmap
 
 
-# --- Rendering Tests ---
+# --- Rendering Tests (the Stone view) ---
 
-def test_dungeon_wireframe_render(asset_mgr, perinian_dmap):
+
+def _view(dmap, x=5, y=5, d=Direction.NORTH, lit=True, creatures=None, cam=None):
+    """One 176x176 frame from (x, y) on level 0."""
+    pygame.init()
+    surf = pygame.Surface((176, 176))
+    (cam or DungeonCamera()).render_view(
+        surf, dmap, x, y, 0, d, torch_lit=lit, creatures=creatures
+    )
+    return surf
+
+
+def _diff_box(a, b):
+    """Bounding box (x0, y0, x1, y1) of the pixels where two frames differ,
+    or None when they are the same picture."""
+    pts = [
+        (px, py)
+        for px in range(176)
+        for py in range(176)
+        if a.get_at((px, py)) != b.get_at((px, py))
+    ]
+    if not pts:
+        return None
+    xs = [q[0] for q in pts]
+    ys = [q[1] for q in pts]
+    return (min(xs), min(ys), max(xs), max(ys))
+
+
+def _lit_pixels(surf):
+    return sum(
+        1 for px in range(176) for py in range(176) if surf.get_at((px, py))[:3] != COLOR_BLACK
+    )
+
+
+def test_dungeon_view_render(asset_mgr, perinian_dmap):
     pygame.init()
     surf = pygame.Surface((176, 176))
     state = DungeonState(perinian_dmap, start_x=1, start_y=1, start_z=0, start_dir=Direction.NORTH)
-    cam = DungeonCamera()
-    cam.render_wireframe(surf, perinian_dmap, state.x, state.y, state.z, state.dir)
-    assert surf.get_at((88, 88)) is not None
+    cam = DungeonCamera(asset_mgr=asset_mgr)
+    cam.render_view(surf, perinian_dmap, state.x, state.y, state.z, state.dir, torch_lit=True)
+    assert _lit_pixels(surf) > 0
 
 
-# --- Dungeon creatures in the 3D view (Java DungeonScreen renders the
-# wandering-creature meshes approaching the party) ---
+# --- Dungeon creatures in the view (the ``creatures`` argument) ---
 
 
 def _wc(level=0):
@@ -93,216 +127,257 @@ def _wc(level=0):
     )
 
 
-def _creature_pixels(surf):
-    """Bounding box (x0, y0, x1, y1) of the monster's drawn pixels in the
-    central viewport, or None when it did not render."""
-    yellowish = []
-    for px in range(0, 176):
-        for py in range(0, 176):
-            col = surf.get_at((px, py))[:3]
-            if col == (255, 255, 85):
-                yellowish.append((px, py))
-    if not yellowish:
-        return None
-    xs = [p[0] for p in yellowish]
-    ys = [p[1] for p in yellowish]
-    return (min(xs), min(ys), max(xs), max(ys))
+def _creature_pixels(dmap, wc, **kw):
+    """Where the monster changed the picture, or None when it did not show."""
+    return _diff_box(_view(dmap, **kw), _view(dmap, creatures=[wc], **kw))
 
 
 def test_creature_renders_in_3d_view(empty_dmap):
-    pygame.init()
-    surf = pygame.Surface((176, 176))
-    cam = DungeonCamera()
-    cam.render_wireframe(
-        surf, empty_dmap, 5, 5, 0, Direction.NORTH, torch_lit=True,
-        creatures=[_wc()],
-    )
-    box = _creature_pixels(surf)
+    box = _creature_pixels(empty_dmap, _wc())
     assert box is not None, "creature one tile ahead did not render in the 3D view"
     # A monster one tile ahead stands in the center of the corridor.
     assert box[0] < 88 < box[2]
 
 
-def test_creature_absent_from_3d_view_without_argument(empty_dmap):
-    """No creatures argument — no creature pixels (view unchanged, so the
-    geometry-lock baselines and conventions hold)."""
-    pygame.init()
-    surf = pygame.Surface((176, 176))
-    cam = DungeonCamera()
-    cam.render_wireframe(surf, empty_dmap, 5, 5, 0, Direction.NORTH, torch_lit=True)
-    assert _creature_pixels(surf) is None
+def test_creature_uses_its_sprite_when_assets_are_loaded(asset_mgr, empty_dmap):
+    bare = _view(empty_dmap, creatures=[_wc()])
+    with_sprite = _view(empty_dmap, creatures=[_wc()], cam=DungeonCamera(asset_mgr=asset_mgr))
+    assert _diff_box(bare, with_sprite) is not None
 
 
-def test_creature_farther_is_smaller_and_high(empty_dmap):
+def test_creature_on_another_level_is_not_drawn(empty_dmap):
+    wc = _wc()
+    wc.level = 3
+    assert _creature_pixels(empty_dmap, wc) is None
+
+
+def test_creature_farther_is_smaller(empty_dmap):
     """A monster two tiles ahead must be visibly smaller than one one tile
-    ahead (depth-scaled like the wall geometry), so the party reads distance."""
-    pygame.init()
-    cam = DungeonCamera()
+    ahead (depth-scaled like the walls), so the party reads distance."""
     sizes = []
     for wy in (4, 3):
-        surf = pygame.Surface((176, 176))
         wc = _wc()
         wc.y = wy
-        cam.render_wireframe(
-            surf, empty_dmap, 5, 5, 0, Direction.NORTH, torch_lit=True,
-            creatures=[wc],
-        )
-        box = _creature_pixels(surf)
+        box = _creature_pixels(empty_dmap, wc)
         assert box is not None, f"creature at distance {5 - wy} did not render"
         sizes.append((box[2] - box[0]) * (box[3] - box[1]))
     assert sizes[0] > sizes[1], "creature two tiles ahead not visibly smaller"
 
 
 def test_creature_off_axis_positions_with_facing(empty_dmap):
-    """A monster one tile ahead in the party's right-hand opening renders on
-    the correct screen side (Java places the mesh at the world position)."""
-    pygame.init()
-    cam = DungeonCamera()
-    surf = pygame.Surface((176, 176))
+    """A monster ahead and to the party's right shows in the right half,
+    one to the left in the left half."""
     wc = _wc()
-    wc.x = 6  # one right of the party facing NORTH
-    cam.render_wireframe(
-        surf, empty_dmap, 5, 5, 0, Direction.NORTH, torch_lit=True,
-        creatures=[wc],
-    )
-    box = _creature_pixels(surf)
+    wc.x, wc.y = 6, 3  # two ahead, one right of the party facing NORTH
+    box = _creature_pixels(empty_dmap, wc)
     assert box is not None, "side monster did not render"
     assert box[0] > 88, "a monster to the east must appear in the right half"
+    wc.x = 4
+    box = _creature_pixels(empty_dmap, wc)
+    assert box is not None and box[2] < 88
 
 
 def test_creature_occluded_by_shallow_side_wall(empty_dmap):
-    """A solid wall at a shallower depth along the sightline occludes a
-    creature behind it in a side column."""
-    pygame.init()
-    cam = DungeonCamera()
-    surf = pygame.Surface((176, 176))
+    """A block at a shallower depth along the sightline hides a creature
+    behind it in a side column."""
     empty_dmap.set_tile(6, 4, 0, DungeonTile.WALL)
     wc = _wc()
     wc.x = 6
-    wc.y = 3  # depth=2, lateral=1 behind wall at (6, 4)
-    cam.render_wireframe(
-        surf, empty_dmap, 5, 5, 0, Direction.NORTH, torch_lit=True,
-        creatures=[wc],
-    )
-    assert _creature_pixels(surf) is None
+    wc.y = 3  # depth=2, lateral=1 behind the wall at (6, 4)
+    assert _creature_pixels(empty_dmap, wc) is None
 
 
-def test_creature_depth1_off_axis_clipping(empty_dmap):
-    """At depth=1, |lateral|>=2 is outside the viewport and skipped;
-    |lateral|==1 is clamped within [0, 176)."""
-    pygame.init()
-    cam = DungeonCamera()
-
-    # depth=1, lateral=2 -> outside horizontal viewport, skipped
-    surf_far_lat = pygame.Surface((176, 176))
-    wc_out = _wc()
-    wc_out.x = 7
-    wc_out.y = 4
-    cam.render_wireframe(
-        surf_far_lat, empty_dmap, 5, 5, 0, Direction.NORTH, torch_lit=True,
-        creatures=[wc_out],
-    )
-    assert _creature_pixels(surf_far_lat) is None
-
-    # depth=1, lateral=1 -> clamped within [0, 176) on right half
-    surf_right = pygame.Surface((176, 176))
-    wc_r = _wc()
-    wc_r.x = 6
-    wc_r.y = 4
-    cam.render_wireframe(
-        surf_right, empty_dmap, 5, 5, 0, Direction.NORTH, torch_lit=True,
-        creatures=[wc_r],
-    )
-    box_r = _creature_pixels(surf_right)
-    assert box_r is not None
-    assert 88 < box_r[0] and box_r[2] < 176
-
-    # depth=1, lateral=-1 -> clamped within [0, 176) on left half
-    surf_left = pygame.Surface((176, 176))
-    wc_l = _wc()
-    wc_l.x = 4
-    wc_l.y = 4
-    cam.render_wireframe(
-        surf_left, empty_dmap, 5, 5, 0, Direction.NORTH, torch_lit=True,
-        creatures=[wc_l],
-    )
-    box_l = _creature_pixels(surf_left)
-    assert box_l is not None
-    assert 0 <= box_l[0] and box_l[2] < 88
+def test_creature_beside_the_first_tile_stays_inside_the_view(empty_dmap):
+    """At depth 1, two tiles off the axis is outside the view; one tile off
+    shows at that edge."""
+    wc = _wc()
+    wc.x, wc.y = 7, 4
+    assert _creature_pixels(empty_dmap, wc) is None
+    wc.x = 6
+    box = _creature_pixels(empty_dmap, wc)
+    assert box is not None and 88 < box[0] and box[2] < 176
+    wc.x = 4
+    box = _creature_pixels(empty_dmap, wc)
+    assert box is not None and 0 <= box[0] and box[2] < 88
 
 
-def test_dungeon_wireframe_all_directions(empty_dmap):
-    pygame.init()
-    surf = pygame.Surface((176, 176))
-    cam = DungeonCamera()
-
+def test_dungeon_view_all_directions(empty_dmap):
     for direction in (Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST):
-        cam.render_wireframe(surf, empty_dmap, 5, 5, 0, direction, torch_lit=True)
-        # Verify surface has drawn lines (non-black pixels)
-        non_black = False
-        for px in range(0, 176, 8):
-            for py in range(0, 176, 8):
-                col = surf.get_at((px, py))
-                if (col.r, col.g, col.b) != COLOR_BLACK:
-                    non_black = True
-                    break
-            if non_black:
-                break
-        assert non_black, f"No wireframe lines rendered facing {direction.name}"
+        assert _lit_pixels(_view(empty_dmap, d=direction)) > 0, (
+            f"Nothing rendered facing {direction.name}"
+        )
 
 
 def test_dungeon_render_torch_vs_dark(empty_dmap):
-    pygame.init()
-    surf_dark = pygame.Surface((176, 176))
-    surf_lit = pygame.Surface((176, 176))
+    """The light rule: no torch, no picture."""
+    assert _lit_pixels(_view(empty_dmap, lit=False)) == 0
+    assert _lit_pixels(_view(empty_dmap, lit=True)) > 0
+
+
+@pytest.mark.parametrize("tile", [
+    DungeonTile.CHEST, DungeonTile.FOUNTAIN_HEAL, DungeonTile.MARK_FIRE,
+    DungeonTile.LADDER_UP, DungeonTile.TIME_LORD, DungeonTile.PIT_TRAP,
+])
+def test_no_torch_shows_nothing_whatever_is_there(empty_dmap, tile):
+    """Dark is dark: nothing ahead, no monster, and no close-up either."""
+    empty_dmap.set_tile(5, 4, 0, tile)
+    assert _lit_pixels(_view(empty_dmap, lit=False, creatures=[_wc()])) == 0
+    empty_dmap.set_tile(5, 5, 0, tile)  # standing on it
+    assert _lit_pixels(_view(empty_dmap, lit=False)) == 0
+
+
+def test_torchlight_gives_out_with_distance():
+    """A wall two tiles off is brighter than one four tiles off, and past
+    the fog nothing shows at all."""
+    cam = DungeonCamera
+    assert cam.fog(0.5) == 1.0
+    assert cam.fog(1.5) > cam.fog(3.5) > 0
+    assert cam.fog(5.0) == 0
+    dmap = _flat_dmap()
+    base = _view(dmap, 8, 8)
+    dmap.set_tile(8, 8 - cam.MAX_DEPTH, 0, DungeonTile.CHEST)
+    assert _diff_box(base, _view(dmap, 8, 8)) is None
+
+
+#: Every tile the old wireframe drew: blocks, doors and the floor features.
+_DRAWN_TILES = [
+    DungeonTile.WALL,
+    DungeonTile.DOOR,
+    DungeonTile.LOCKED_DOOR,
+    DungeonTile.SECRET_DOOR,
+    DungeonTile.LADDER_UP,
+    DungeonTile.LADDER_DOWN,
+    DungeonTile.LADDER_UP_DOWN,
+    DungeonTile.CHEST,
+    DungeonTile.PIT_TRAP,
+    DungeonTile.TIME_LORD,
+    *sorted(FOUNTAIN_TILES, key=lambda t: t.value),
+    *sorted(MARK_TILES, key=lambda t: t.value),
+]
+
+
+@pytest.mark.parametrize("tile", _DRAWN_TILES)
+def test_every_tile_the_wireframe_drew_is_drawn(empty_dmap, tile):
+    """Each one changes the picture of an open corridor, one and two tiles
+    ahead, in the middle of the view."""
+    base = _view(empty_dmap)
+    for steps in (1, 2):
+        empty_dmap.set_tile(5, 5 - steps, 0, tile)
+        box = _diff_box(base, _view(empty_dmap))
+        assert box is not None, f"{tile.name} {steps} ahead is not drawn"
+        assert box[0] <= 88 <= box[2]
+        empty_dmap.set_tile(5, 5 - steps, 0, DungeonTile.FLOOR)
+
+
+@pytest.mark.parametrize("tile", _DRAWN_TILES[4:])
+def test_floor_features_show_with_and_without_sprites(asset_mgr, empty_dmap, tile):
+    cam = DungeonCamera(asset_mgr=asset_mgr)
+    base = _view(empty_dmap, cam=cam)
+    empty_dmap.set_tile(5, 3, 0, tile)
+    assert _diff_box(base, _view(empty_dmap, cam=cam)) is not None
+
+
+@pytest.mark.parametrize("tile", [
+    DungeonTile.WIND_TRAP, DungeonTile.GREMLINS, DungeonTile.MISTY_WRITINGS,
+    DungeonTile.ORB, DungeonTile.NOTHING,
+])
+def test_tiles_the_wireframe_hid_stay_hidden(empty_dmap, tile):
+    """The wind trap, the gremlins and the writings never showed: they look
+    like open floor still."""
+    base = _view(empty_dmap)
+    empty_dmap.set_tile(5, 4, 0, tile)
+    assert _diff_box(base, _view(empty_dmap)) is None
+
+
+@pytest.mark.parametrize("spot", [(5, 4), (5, 3), (4, 4), (6, 4), (6, 3), (4, 2)])
+def test_secret_door_renders_the_same_as_a_wall(empty_dmap, spot):
+    """Ahead, on a side wall or through an opening: pixel for pixel a wall."""
+    empty_dmap.set_tile(*spot, 0, DungeonTile.WALL)
+    wall = _view(empty_dmap)
+    empty_dmap.set_tile(*spot, 0, DungeonTile.SECRET_DOOR)
+    assert _diff_box(wall, _view(empty_dmap)) is None
+
+
+@pytest.mark.parametrize("spot", [(5, 4), (5, 3), (4, 4), (6, 4)])
+def test_doors_look_like_doors(empty_dmap, spot):
+    """A door and a locked door each differ from plain wall, ahead and on
+    the side walls, and from each other."""
+    pics = {}
+    for tile in (DungeonTile.WALL, DungeonTile.DOOR, DungeonTile.LOCKED_DOOR):
+        empty_dmap.set_tile(*spot, 0, tile)
+        pics[tile] = _view(empty_dmap)
+    assert _diff_box(pics[DungeonTile.WALL], pics[DungeonTile.DOOR]) is not None
+    assert _diff_box(pics[DungeonTile.WALL], pics[DungeonTile.LOCKED_DOOR]) is not None
+    assert _diff_box(pics[DungeonTile.DOOR], pics[DungeonTile.LOCKED_DOOR]) is not None
+
+
+@pytest.mark.parametrize("tile", [
+    DungeonTile.LADDER_UP, DungeonTile.LADDER_DOWN, DungeonTile.LADDER_UP_DOWN,
+    DungeonTile.CHEST, DungeonTile.TIME_LORD,
+])
+def test_feature_under_the_party_is_drawn(empty_dmap, tile):
+    """The wireframe drew what the party stands on; so does Stone."""
+    base = _view(empty_dmap)
+    empty_dmap.set_tile(5, 5, 0, tile)
+    assert _diff_box(base, _view(empty_dmap)) is not None
+
+
+def test_view_follows_the_map_when_it_changes(empty_dmap):
+    """The camera keeps its last picture; a taken chest must still vanish."""
     cam = DungeonCamera()
-
-    # Dark: 0 torch rounds, no light spell
-    cam.render_wireframe(surf_dark, empty_dmap, 5, 5, 0, Direction.NORTH, torch_lit=False)
-    # Lit: 50 torch rounds
-    cam.render_wireframe(surf_lit, empty_dmap, 5, 5, 0, Direction.NORTH, torch_lit=True)
-
-    # Lit view should render more wireframe details/depth than dark view
-    dark_pixels = sum(
-        1 for x in range(176) for y in range(176) if surf_dark.get_at((x, y))[:3] != COLOR_BLACK
-    )
-    lit_pixels = sum(
-        1 for x in range(176) for y in range(176) if surf_lit.get_at((x, y))[:3] != COLOR_BLACK
-    )
-    assert dark_pixels == 0
-    assert lit_pixels > dark_pixels
+    base = _view(empty_dmap, cam=cam)
+    empty_dmap.set_tile(5, 3, 0, DungeonTile.CHEST)
+    with_chest = _view(empty_dmap, cam=cam)
+    assert _diff_box(base, with_chest) is not None
+    empty_dmap.set_tile(5, 3, 0, DungeonTile.FLOOR)
+    assert _diff_box(base, _view(empty_dmap, cam=cam)) is None
+    # and a still frame is the same picture again
+    assert _diff_box(base, _view(empty_dmap, cam=cam)) is None
+    assert _diff_box(base, _view(empty_dmap, cam=cam, d=Direction.SOUTH, y=10)) is None
 
 
-def test_dungeon_render_fixtures(empty_dmap):
-    pygame.init()
-    surf = pygame.Surface((176, 176))
-    cam = DungeonCamera()
+# --- Close-ups: standing on a fountain or a Mark ---
 
-    # Place various fixtures at (5, 4) in front of camera at (5, 5) facing NORTH
-    fixtures = [
-        DungeonTile.LADDER_UP,
-        DungeonTile.LADDER_DOWN,
-        DungeonTile.LADDER_UP_DOWN,
-        DungeonTile.CHEST,
-        DungeonTile.FOUNTAIN_HEAL,
-        DungeonTile.FOUNTAIN_CURE,
-        DungeonTile.FOUNTAIN_ACID,
-        DungeonTile.FOUNTAIN_POISON,
-        DungeonTile.PIT_TRAP,
-        DungeonTile.ORB,
-        DungeonTile.MARK_KINGS,
-        DungeonTile.DOOR,
-        DungeonTile.TIME_LORD,
-    ]
 
-    for fix in fixtures:
-        empty_dmap.set_tile(5, 4, 0, fix)
-        cam.render_wireframe(surf, empty_dmap, 5, 5, 0, Direction.NORTH, torch_lit=True)
-        # Check non-black fixture pixels exist
-        colored = sum(
-            1 for x in range(30, 146) for y in range(30, 146) if surf.get_at((x, y))[:3] != COLOR_BLACK
-        )
-        assert colored > 0, f"Fixture {fix.name} did not produce visible wireframe pixels"
+def test_closeup_only_on_a_fountain_or_a_mark():
+    for tile in DungeonTile:
+        kind = DungeonCamera.closeup_for(tile)
+        if tile in FOUNTAIN_TILES:
+            assert kind == "fountain"
+        elif tile in MARK_TILES:
+            assert kind == "rod"
+        else:
+            assert kind is None, tile.name
+
+
+@pytest.mark.parametrize("tile", sorted(FOUNTAIN_TILES | MARK_TILES, key=lambda t: t.value))
+def test_closeup_replaces_the_corridor(empty_dmap, tile):
+    """On the tile the picture is the close-up: the same whichever way the
+    party faces and whatever stands ahead.  One step off, it is a corridor
+    again."""
+    empty_dmap.set_tile(5, 5, 0, tile)
+    north = _view(empty_dmap)
+    assert _diff_box(north, _view(empty_dmap, d=Direction.EAST)) is None
+    empty_dmap.set_tile(5, 4, 0, DungeonTile.WALL)
+    assert _diff_box(north, _view(empty_dmap)) is None
+    empty_dmap.set_tile(5, 4, 0, DungeonTile.FLOOR)
+    # one step back, looking at it: no longer the close-up
+    assert _diff_box(north, _view(empty_dmap, y=6)) is not None
+    assert _diff_box(_view(empty_dmap, y=6), _view(empty_dmap, y=6, d=Direction.EAST)) is not None
+
+
+def test_closeups_differ_by_kind_and_every_mark_gets_the_rod(empty_dmap):
+    pics = {}
+    for tile in (DungeonTile.FOUNTAIN_HEAL, DungeonTile.FOUNTAIN_POISON, *sorted(MARK_TILES, key=lambda t: t.value)):
+        empty_dmap.set_tile(5, 5, 0, tile)
+        pics[tile] = _view(empty_dmap)
+    assert _diff_box(pics[DungeonTile.FOUNTAIN_HEAL], pics[DungeonTile.FOUNTAIN_POISON]) is None
+    assert _diff_box(pics[DungeonTile.FOUNTAIN_HEAL], pics[DungeonTile.MARK_FIRE]) is not None
+    # The rod and its glow are the same picture on every Mark (only the
+    # word under it changes): compare the rows above the word.
+    for tile in MARK_TILES:
+        box = _diff_box(pics[DungeonTile.MARK], pics[tile])
+        assert box is None or box[1] >= 150, tile.name
 
 
 # --- Navigation & Turning Tests ---
@@ -884,7 +959,7 @@ def test_door_rendering_and_traversal(empty_dmap):
     empty_dmap.set_tile(6, 5, 0, DungeonTile.DOOR)
 
     # Render with front and side doors
-    cam.render_wireframe(surf, empty_dmap, 5, 5, 0, Direction.NORTH, torch_lit=True)
+    cam.render_view(surf, empty_dmap, 5, 5, 0, Direction.NORTH, torch_lit=True)
     non_black = sum(1 for x in range(176) for y in range(176) if surf.get_at((x, y))[:3] != COLOR_BLACK)
     assert non_black > 0
 
@@ -901,12 +976,12 @@ def test_camera_validation_and_dng_alias(empty_dmap):
     cam = DungeonCamera()
 
     # dng alias support
-    cam.render_wireframe(surf, dng=empty_dmap, x=5, y=5, z=0, dir=Direction.NORTH)
+    cam.render_view(surf, dng=empty_dmap, x=5, y=5, z=0, dir=Direction.NORTH)
     assert surf.get_at((88, 88)) is not None
 
     # Error if neither dmap nor dng provided
     with pytest.raises(ValueError):
-        cam.render_wireframe(surf)
+        cam.render_view(surf)
 
 
 def test_deepest_level_klimb_down_clamps(empty_dmap):
@@ -920,21 +995,11 @@ def test_deepest_level_klimb_down_clamps(empty_dmap):
     assert state.z == 7
 
 
-# --- Renderer geometry locks (2026-11-10 dungeon-render fix) ---
+# --- Renderer geometry locks (the Stone view) ---
 #
-# Pixel-level regression checks for the projected wireframe renderer:
-# a wall one corridor column ahead must paint its FRONT face in the centre
-# region, a wall one tile EAST must paint its SIDE face along that screen
-# edge, and doors must paint a distinct panel. Coordinates follow from
-# DungeonCamera's pinhole projection (FOCAL 132.53 on the 176px viewport):
-
-FRONT_FILL = (85, 85, 85)
-SIDE_FILL = (55, 55, 55)
-SHADOW_FILL = (25, 25, 25)
-FLOOR_FILL = (38, 38, 38)
-CEILING_FILL = (30, 30, 30)
-SEAM = (120, 120, 120)
-DOOR_CYAN = (0, 255, 255)
+# The eye is at the centre of the party tile with FOCAL 88 on the 176px view:
+# the near face of the tile d steps ahead is at z = d - 0.5 and projects to
+# the box 88 +/- 44 / z.  The pixels below sit inside a block, off its mortar.
 
 
 def _flat_dmap() -> DungeonMap:
@@ -945,110 +1010,96 @@ def _flat_dmap() -> DungeonMap:
 
 
 def _render_geom(dmap, x, y, d=Direction.NORTH):
-    pygame.init()
-    surf = pygame.Surface((176, 176))
-    DungeonCamera().render_wireframe(surf, dmap, x, y, 0, d, torch_lit=True)
-    return surf
+    return _view(dmap, x, y, d)
+
+
+def _stone(z, side=False):
+    cam = DungeonCamera
+    return cam._shade(cam.SIDE if side else cam.FRONT, z)
 
 
 def test_front_face_wall_two_ahead():
-    """Wall 2 tiles ahead facing NORTH: its front face sits at depth 1.5,
-    projecting to the box (44..132) — fill in the centre, shadow of the
-    ceiling-box face above it, black past the box bounds."""
+    """Wall 2 tiles ahead: its front face is at depth 1.5 and fills the box
+    59..117; outside the box the eye sees past it."""
     dmap = _flat_dmap()
+    open_view = _render_geom(dmap, 8, 8)
     dmap.set_tile(8, 6, 0, DungeonTile.WALL)  # party (8,8) facing NORTH
     surf = _render_geom(dmap, 8, 8)
-    assert surf.get_at((80, 80))[:3] == FRONT_FILL
-    assert surf.get_at((70, 70))[:3] == FRONT_FILL
-    # rays above the wall's top edge hit the corridor ceiling before the
-    # wall plane (java's floor/ceiling boxes tile the whole plane — no void)
-    assert surf.get_at((80, 20))[:3] == CEILING_FILL
-    # past the box on the far side: darkness before the box ring ends
-    assert surf.get_at((150, 88))[:3] == (0, 0, 0)
+    assert surf.get_at((70, 70))[:3] == _stone(1.5)
+    assert surf.get_at((100, 110))[:3] == _stone(1.5)
+    # above and beside the block: the same ceiling and floor as without it
+    assert surf.get_at((80, 20)) == open_view.get_at((80, 20))
+    assert surf.get_at((150, 120)) == open_view.get_at((150, 120))
 
 
 def test_side_face_wall_one_east():
-    """Wall 1 tile EAST of the party facing NORTH: its inner face at the
-    corridor plane spans screen-left/right of the centre — side-shaded, not
-    front-shaded, so left/right reading is unambiguous."""
+    """A block ahead and to the right shows its side face on the right:
+    side-shaded, not front-shaded, so left and right read unambiguously."""
     dmap = _flat_dmap()
     dmap.set_tile(9, 7, 0, DungeonTile.WALL)  # one EAST, one NORTH of party
     surf = _render_geom(dmap, 8, 8)
-    # side strip on the right: fill at the screen edge of the wall plane
-    strip = surf.get_at((130, 70))[:3]
-    assert strip == SIDE_FILL
-    # and the same wall is NOT painted as a front face in the centre column
-    assert surf.get_at((80, 20))[:3] != FRONT_FILL
+    assert surf.get_at((150, 80))[:3] == _stone(0.5, side=True)
+    assert surf.get_at((26, 80))[:3] != _stone(0.5, side=True)
 
 
 def test_side_face_wall_one_west():
-    """Mirror of the east case: wall one WEST paints the left side strip."""
+    """Mirror of the east case."""
     dmap = _flat_dmap()
-    dmap.set_tile(7, 8, 0, DungeonTile.WALL)  # adjacent, party's own column
+    dmap.set_tile(7, 7, 0, DungeonTile.WALL)
     surf = _render_geom(dmap, 8, 8)
-    assert surf.get_at((26, 70))[:3] == SIDE_FILL
+    assert surf.get_at((26, 80))[:3] == _stone(0.5, side=True)
+    assert surf.get_at((150, 80))[:3] != _stone(0.5, side=True)
 
 
 def test_front_door_panel_is_distinct():
-    """A DOOR on the terminating wall paints a cyan panel inside the front
-    face box (Java door slab, DungeonScreen.java:574-589), unlike plain WALL."""
+    """A DOOR in the wall ahead paints wood in the middle of the face,
+    reaching the floor; a plain WALL does not."""
     dmap = _flat_dmap()
+    door = DungeonCamera._shade(DungeonCamera.DOOR, 1.5)
     dmap.set_tile(8, 6, 0, DungeonTile.DOOR)
     surf = _render_geom(dmap, 8, 8)
-    cyan = 0
-    for px in range(44, 133, 3):
-        for py in range(44, 133, 3):
-            if surf.get_at((px, py))[:3] == DOOR_CYAN:
-                cyan += 1
-    assert cyan > 0
-    assert surf.get_at((88, 30))[:3] != DOOR_CYAN
+    assert surf.get_at((88, 100))[:3] == door
+    assert surf.get_at((88, 62))[:3] != door  # stone above the lintel
+    dmap.set_tile(8, 6, 0, DungeonTile.WALL)
+    assert _render_geom(dmap, 8, 8).get_at((88, 100))[:3] != door
 
 
 def test_opening_reads_different_from_wall():
-    """An opening where the wall-side strip would be leaves that region
-    dark (side corridor), while the wall-side render paints the side fill."""
-    dmap = DungeonMap(id=98, name="GeomTest2", width=16, height=16, levels=1)
-    dmap.tiles = [[[DungeonTile.NOTHING] * 16 for _ in range(16)]]
-    # enclose the level's north edge so the corridor terminates at depth 4
+    """A side opening is a real gap: where the wall's side face would be,
+    the eye sees on into the side passage."""
+    dmap = _flat_dmap()
     for gx in range(16):
         dmap.set_tile(gx, 0, 0, DungeonTile.WALL)
-    dmap.set_tile(7, 8, 0, DungeonTile.WALL)  # west wall, party column
+    dmap.set_tile(7, 7, 0, DungeonTile.WALL)
     surf_wall = _render_geom(dmap, 8, 8)
-
-    dmap.set_tile(7, 8, 0, DungeonTile.NOTHING)  # swap the wall for an opening
+    dmap.set_tile(7, 7, 0, DungeonTile.NOTHING)  # swap the wall for an opening
     surf_open = _render_geom(dmap, 8, 8)
-
-    assert surf_wall.get_at((16, 70))[:3] == SIDE_FILL
-    # through the opening the eye sees the side corridor's ceiling plane
-    # (Java draws floor/ceiling boxes for every tile) — clearly darker
-    assert surf_open.get_at((16, 70))[:3] == CEILING_FILL
+    assert surf_wall.get_at((26, 80))[:3] == _stone(0.5, side=True)
+    assert surf_open.get_at((26, 80))[:3] != _stone(0.5, side=True)
+    # and a chest standing in the side passage shows through the gap only
+    dmap.set_tile(7, 6, 0, DungeonTile.CHEST)
+    assert _diff_box(surf_open, _render_geom(dmap, 8, 8)) is not None
+    dmap.set_tile(7, 7, 0, DungeonTile.WALL)
+    assert _diff_box(surf_wall, _render_geom(dmap, 8, 8)) is None
 
 
 def test_front_face_occludes_deeper_geometry():
-    """The terminating front face occludes fixtures beyond it: a chest one
-    tile past the wall paints no green anywhere."""
+    """The wall ahead hides what is behind it: a chest one tile past it
+    changes nothing."""
     dmap = _flat_dmap()
     dmap.set_tile(8, 6, 0, DungeonTile.WALL)
+    surf = _render_geom(dmap, 8, 8)
     dmap.set_tile(8, 5, 0, DungeonTile.CHEST)
-    surf = _render_geom(dmap, 8, 8)
-    for px in range(0, 176, 4):
-        for py in range(0, 176, 4):
-            assert surf.get_at((px, py))[:3] != (0, 255, 0)
+    assert _diff_box(surf, _render_geom(dmap, 8, 8)) is None
 
 
-def test_navigation_depth_darkening_and_clean_planes():
-    """Open floor/ceiling planes have no noisy longitudinal seam lines, and
-    distant terminating walls (s >= 3) are depth-darkened."""
+def test_distant_walls_are_darker():
+    """A wall four tiles ahead is the same stone, dimmer than one two ahead."""
     dmap = _flat_dmap()
-    # Wall 4 tiles ahead (stop_depth=4, s=3) facing NORTH from (8, 8)
     dmap.set_tile(8, 4, 0, DungeonTile.WALL)
-    surf = _render_geom(dmap, 8, 8)
-    # Centre floor and ceiling have no longitudinal seam at x=88
-    assert surf.get_at((88, 160))[:3] == (38, 38, 38)
-    assert surf.get_at((88, 16))[:3] == CEILING_FILL
-    # Distant front face at s=3 is darkened below FRONT_FILL (85, 85, 85)
-    far_col = surf.get_at((88, 88))[:3]
-    assert (0, 0, 0) < far_col < FRONT_FILL
+    far_col = _render_geom(dmap, 8, 8).get_at((86, 86))[:3]
+    assert far_col == _stone(3.5)
+    assert (0, 0, 0) < far_col < _stone(1.5)
 
 
 # --- Task 24: GBC finite torch durations --------------------------------
@@ -1318,14 +1369,12 @@ def test_spell_exit_uses_java_map_label(asset_mgr, test_party):
 @pytest.mark.parametrize("tile", sorted(
     __import__("py_exodus.world.dungeon", fromlist=["FOUNTAIN_TILES"]).FOUNTAIN_TILES, key=lambda t: t.value
 ))
-def test_every_fountain_tile_is_drawn_as_a_fountain(monkeypatch, empty_dmap, tile):
+def test_every_fountain_tile_is_drawn_as_a_fountain(empty_dmap, tile):
     """One fountain set (dungeon.FOUNTAIN_TILES, fix round 1): the camera
-    draws each of them as a fountain, FOUNTAIN_UNTYPED included."""
-    pygame.init()
-    surf = pygame.Surface((176, 176))
-    cam = DungeonCamera()
-    drawn = []
-    monkeypatch.setattr(cam, "_draw_fountain", lambda *a, **k: drawn.append(a[-1]))
+    draws each of them as the same fountain, FOUNTAIN_UNTYPED included."""
+    empty_dmap.set_tile(5, 4, 0, DungeonTile.FOUNTAIN_HEAL)
+    heal = _view(empty_dmap)
     empty_dmap.set_tile(5, 4, 0, tile)
-    cam.render_wireframe(surf, empty_dmap, 5, 5, 0, Direction.NORTH, torch_lit=True)
-    assert tile in drawn
+    assert _diff_box(heal, _view(empty_dmap)) is None
+    empty_dmap.set_tile(5, 4, 0, DungeonTile.FLOOR)
+    assert _diff_box(heal, _view(empty_dmap)) is not None

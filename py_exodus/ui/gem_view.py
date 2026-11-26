@@ -7,8 +7,11 @@ Who pays: LairWare PeerGem (UltimaMain.c:2143-2159) asks whose gem
 timer, so no turn passes while the view is up. P itself has no early return
 (GameScreen.java:604-605) and falls through the keyUp tail finishTurn
 (GameScreen.java:628) — the press consumes a turn either way, before the
-view opens. Dungeons never use it: DungeonScreen.java:1012-1015 makes P a
-plain minimap toggle instead.
+view opens.
+
+Dungeons peer too (user ruling 2026-11-26, LairWare dPeer UltimaDngn.c:440-454
+and Vieda UltimaSpellCombat.c:322-327): ``render_dungeon_gem_view`` draws
+LairWare DrawMiniDng(0), the whole 16x16 level, in the same frame.
 
 The picture follows LairWare DrawMiniMap (UltimaGraphics.c:1433-1495): the
 WHOLE map, drawn from shrunken real tiles into the MAP PANE only (the party
@@ -158,6 +161,40 @@ def peer_map_rect(pane: pygame.Rect, map_w: int, map_h: int, scale: int) -> pyga
     return pygame.Rect(x, y, w, h)
 
 
+def _draw_shadow(surface: pygame.Surface, rect: pygame.Rect, scale: int) -> None:
+    """Drop shadow (UltimaGraphics.c:1462-1469): a block-wide band right of
+    and below the map, offset one block down/right, then a half-block band
+    blended again over its inner half."""
+    for band in (shadow_width(scale), shadow_width(scale) // 2):
+        if band <= 0:
+            continue
+        for r in (
+            pygame.Rect(rect.right, rect.top + band, band, rect.h),
+            pygame.Rect(rect.left + band, rect.bottom, rect.w - band, band),
+        ):
+            shade = pygame.Surface(r.size, pygame.SRCALPHA)
+            shade.fill(SHADOW_COLOR)
+            surface.blit(shade, r)
+
+
+def _draw_frame(surface: pygame.Surface, rect: pygame.Rect, scale: int) -> None:
+    """Frame: white, then black outside it (FrameRect twice)."""
+    fw = frame_width(scale)
+    pygame.draw.rect(surface, EGA_WHITE, rect.inflate(2 * fw, 2 * fw), fw)
+    pygame.draw.rect(surface, EGA_BLACK, rect.inflate(4 * fw, 4 * fw), fw)
+
+
+def _draw_marker(
+    surface: pygame.Surface, rect: pygame.Rect, cell: int, px: int, py: int, scale: int
+) -> None:
+    """Party marker: a yellow box around the party's cell."""
+    pad = max(1, scale - 1)
+    box = pygame.Rect(rect.x + px * cell, rect.y + py * cell, cell, cell).inflate(2 * pad, 2 * pad)
+    if scale > 1:
+        pygame.draw.rect(surface, EGA_BLACK, box.inflate(4, 4), 2)
+    pygame.draw.rect(surface, EGA_YELLOW, box, pad)
+
+
 def _terrain(game_map: Any, asset_mgr: Any, cell: int) -> pygame.Surface:
     """The map's terrain from shrunken tiles, composed once and reused
     until the map, its tiles, the tile set or the cell size change."""
@@ -205,19 +242,7 @@ def render_gem_view(
     try:
         surface.fill(EGA_BLACK, pane)
 
-        # Drop shadow (UltimaGraphics.c:1462-1469): a block-wide band right
-        # of and below the map, offset one block down/right, then a
-        # half-block band blended again over its inner half.
-        for band in (shadow_width(scale), shadow_width(scale) // 2):
-            if band <= 0:
-                continue
-            for r in (
-                pygame.Rect(rect.right, rect.top + band, band, rect.h),
-                pygame.Rect(rect.left + band, rect.bottom, rect.w - band, band),
-            ):
-                shade = pygame.Surface(r.size, pygame.SRCALPHA)
-                shade.fill(SHADOW_COLOR)
-                surface.blit(shade, r)
+        _draw_shadow(surface, rect, scale)
 
         # Terrain (composed once), then everyone standing on it.
         surface.blit(_terrain(game_map, asset_mgr, cell), rect)
@@ -236,17 +261,177 @@ def render_gem_view(
             if img is not None:
                 surface.blit(img, (rect.x + px * cell, rect.y + py * cell))
 
-        # Frame: white, then black outside it (FrameRect twice).
-        fw = frame_width(scale)
-        pygame.draw.rect(surface, EGA_WHITE, rect.inflate(2 * fw, 2 * fw), fw)
-        pygame.draw.rect(surface, EGA_BLACK, rect.inflate(4 * fw, 4 * fw), fw)
+        _draw_frame(surface, rect, scale)
 
         # Party marker: a blinking yellow box around the party's cell.
         if marker_on and on_map(px, py):
-            pad = max(1, scale - 1)
-            box = pygame.Rect(rect.x + px * cell, rect.y + py * cell, cell, cell).inflate(2 * pad, 2 * pad)
-            if scale > 1:
-                pygame.draw.rect(surface, EGA_BLACK, box.inflate(4, 4), 2)
-            pygame.draw.rect(surface, EGA_YELLOW, box, pad)
+            _draw_marker(surface, rect, cell, px, py, scale)
+    finally:
+        surface.set_clip(old_clip)
+
+
+# --- Dungeon level map (LairWare DrawMiniDng) --------------------------------
+
+#: DrawMiniDng's pieces (UltimaGraphics.c:1540-1555), by the number LairWare
+#: hands DngPiece.  Piece 8 is the party marker, drawn here as the yellow box.
+PIECE_DOOR = 0
+PIECE_SECRET_DOOR = 1
+PIECE_WALL = 2
+PIECE_LADDER_BOTH = 3
+PIECE_LADDER_UP = 4
+PIECE_LADDER_DOWN = 5
+PIECE_EMPTY = 6
+PIECE_OTHER = 7
+
+# Stone's colours (world.dungeon.DungeonCamera), so the map and the view
+# read as one place.
+_STONE = (182, 160, 124)
+_STONE_MORTAR = (100, 88, 68)
+_FLOOR = (44, 36, 28)
+_FLOOR_SEAM = (30, 24, 18)
+_DOOR_WOOD = (120, 62, 28)
+_DOOR_TRIM = (60, 30, 12)
+_BRASS = (230, 190, 60)
+_RAIL = (200, 150, 80)
+
+_DNG_PIECES: dict[tuple[int, int], pygame.Surface] = {}
+
+
+def dungeon_piece(tile: Any) -> int:
+    """Which piece DrawMiniDng draws for a dungeon tile.
+
+    LairWare (UltimaGraphics.c:1540-1555) starts from piece 7 and names
+    seven byte values: 0xC0 door 0, 0xA0 secret door 1, 0x80 wall 2, 0x30
+    ladder up and down 3, 0x20 ladder down 5, 0x10 ladder up 4, 0x00 empty 6.
+    A secret door has its own piece, so the map tells it from a wall.  Every
+    other value (fountains, Marks, chests, traps, the Time Lord...) is the
+    one "something here" piece 7.  The port's floor is LairWare's 0x00, and
+    its locked door (no LairWare byte) is shown as a door.
+    """
+    from py_exodus.world.map import DungeonTile as T
+
+    return {
+        T.DOOR: PIECE_DOOR,
+        T.LOCKED_DOOR: PIECE_DOOR,
+        T.SECRET_DOOR: PIECE_SECRET_DOOR,
+        T.WALL: PIECE_WALL,
+        T.LADDER_UP_DOWN: PIECE_LADDER_BOTH,
+        T.LADDER_UP: PIECE_LADDER_UP,
+        T.LADDER_DOWN: PIECE_LADDER_DOWN,
+        T.NOTHING: PIECE_EMPTY,
+        T.FLOOR: PIECE_EMPTY,
+    }.get(tile, PIECE_OTHER)
+
+
+def _stone_block(s: pygame.Surface, c: int) -> None:
+    """A block of wall seen from above: stone with running-bond mortar."""
+    s.fill(_STONE)
+    if c < 6:
+        return
+    rows = 4 if c >= 16 else 2
+    for r in range(rows):
+        y = r * c // rows
+        pygame.draw.line(s, _STONE_MORTAR, (0, y), (c - 1, y))
+        x = (c // 4 if r % 2 else 3 * c // 4)
+        pygame.draw.line(s, _STONE_MORTAR, (x, y), (x, (r + 1) * c // rows))
+    pygame.draw.line(s, _STONE_MORTAR, (0, 0), (0, c - 1))
+
+
+def _door_rect(c: int) -> pygame.Rect:
+    return pygame.Rect(c * 3 // 10, c // 5, max(2, c * 2 // 5), c - c // 5)
+
+
+def _ladder(s: pygame.Surface, c: int) -> None:
+    x0, x1 = c * 3 // 8, c - 1 - c * 3 // 8
+    top, bot = c // 5, c - 1 - c // 5
+    pygame.draw.line(s, _RAIL, (x0, top), (x0, bot))
+    pygame.draw.line(s, _RAIL, (x1, top), (x1, bot))
+    for i in range(1, 4):
+        y = top + (bot - top) * i // 4
+        pygame.draw.line(s, _RAIL, (x0, y), (x1, y))
+
+
+def _arrow(s: pygame.Surface, c: int, up: bool, x: int) -> None:
+    """A small arrowhead beside the ladder: which way it goes."""
+    h = max(2, c // 5)
+    mid = c // 2
+    if up:
+        pts = [(x, mid - h), (x - h, mid), (x + h, mid)]
+    else:
+        pts = [(x, mid + h), (x - h, mid), (x + h, mid)]
+    pygame.draw.polygon(s, EGA_WHITE, pts)
+
+
+def _dungeon_piece_surface(piece: int, cell: int) -> pygame.Surface:
+    """One map piece, ``cell`` px square, drawn once per size."""
+    hit = _DNG_PIECES.get((piece, cell))
+    if hit is not None:
+        return hit
+    c = cell
+    s = pygame.Surface((c, c))
+    if piece in (PIECE_WALL, PIECE_DOOR, PIECE_SECRET_DOOR):
+        _stone_block(s, c)
+        door = _door_rect(c)
+        if piece == PIECE_DOOR:
+            s.fill(_DOOR_WOOD, door)
+            pygame.draw.rect(s, _DOOR_TRIM, door, 1)
+            if c >= 16:
+                pygame.draw.circle(s, _BRASS, (door.right - c // 8, door.centery + c // 10), max(1, c // 16))
+        elif piece == PIECE_SECRET_DOOR:
+            # The outline of a door in the stone, and nothing more.
+            pygame.draw.rect(s, _DOOR_TRIM, door, max(1, c // 16))
+    else:
+        s.fill(_FLOOR)
+        if c >= 6:
+            pygame.draw.rect(s, _FLOOR_SEAM, (0, 0, c, c), 1)
+        if piece in (PIECE_LADDER_UP, PIECE_LADDER_DOWN, PIECE_LADDER_BOTH):
+            _ladder(s, c)
+            if piece in (PIECE_LADDER_UP, PIECE_LADDER_BOTH):
+                _arrow(s, c, True, c // 6 + 1)
+            if piece in (PIECE_LADDER_DOWN, PIECE_LADDER_BOTH):
+                _arrow(s, c, False, c - 2 - c // 6)
+        elif piece == PIECE_OTHER:
+            r = max(1, c // 5)
+            m = c // 2
+            pygame.draw.polygon(s, _BRASS, [(m, m - r), (m + r, m), (m, m + r), (m - r, m)])
+    _DNG_PIECES[(piece, cell)] = s
+    return s
+
+
+def render_dungeon_gem_view(
+    surface: pygame.Surface,
+    pane: pygame.Rect,
+    dmap: Any,
+    level: int,
+    party_xy: tuple[int, int],
+    *,
+    marker_on: bool = True,
+) -> None:
+    """Draw one whole dungeon level into ``pane``: LairWare DrawMiniDng(0).
+
+    Same frame, drop shadow and blinking yellow party box as the surface
+    Peer picture.  Nothing outside the pane is touched.
+    """
+    scale = 3 if surface.get_width() >= 640 else 1
+    map_w, map_h = dmap.width, dmap.height
+    cell = peer_cell(min(pane.w, pane.h), map_w, map_h, scale)
+    rect = peer_map_rect(pane, map_w, map_h, scale)
+
+    old_clip = surface.get_clip()
+    surface.set_clip(pane.clip(old_clip) if old_clip else pane)
+    try:
+        surface.fill(EGA_BLACK, pane)
+        _draw_shadow(surface, rect, scale)
+        for my in range(map_h):
+            for mx in range(map_w):
+                piece = dungeon_piece(dmap.get_tile(mx, my, level))
+                surface.blit(
+                    _dungeon_piece_surface(piece, cell),
+                    (rect.x + mx * cell, rect.y + my * cell),
+                )
+        _draw_frame(surface, rect, scale)
+        px, py = party_xy
+        if marker_on and 0 <= px < map_w and 0 <= py < map_h:
+            _draw_marker(surface, rect, cell, px, py, scale)
     finally:
         surface.set_clip(old_clip)

@@ -204,7 +204,9 @@ def test_spell_where_follows_the_location_mask():
     assert spell_where(Spell.FAL_DIVI) == "anywhere"
     assert spell_where(Spell.SURMANDUM) == "not in combat"
     assert spell_where(Spell.APPAR_UNEM) == "not in combat"
-    assert spell_where(Spell.VIEDA) == "Sosaria, town"
+    # Vieda shows the level map in a dungeon too (LW, ruling 2026-11-26).
+    assert spell_where(Spell.VIEDA) == "not in combat"
+    assert spell_where(Spell.DAG_ACRON) != spell_where(Spell.VIEDA)
 
 
 # --- opening, switching, closing --------------------------------------------

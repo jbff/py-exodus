@@ -12,8 +12,8 @@ Java truth:
 - ``exodus/GameScreen.java:604-605`` + ``628`` — P has no early return, so
   the press itself consumes a turn (finishTurn) with or without gems, before
   the view opens.
-- ``exodus/DungeonScreen.java:1012-1015`` — dungeon P is only the minimap
-  toggle (gems never enter it); covered by test_dungeon_commands.
+- Dungeon P is LairWare dPeer (user ruling 2026-11-26), not Java's
+  minimap toggle; covered by test_dungeon_peer.
 - The picture is LairWare DrawMiniMap (UltimaGraphics.c:1433-1495): the
   whole map from shrunken real tiles in the map pane only, people and
   monsters at their places, the party in a blinking YELLOW box (see

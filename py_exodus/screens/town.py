@@ -1102,6 +1102,12 @@ class TownScreen(BaseScreen):
             self.text_log.add_message(PEER_MESSAGE)
             self.gem_view_active = True
 
+        # The PEER cheat: the map at once, no question and no gem.
+        if debug.CHEATS.free_peer:
+            _spent(None)
+            self._consume_pass_turn()
+            return
+
         prompt_whose_item(
             self.text_log, self.party, "PEER> Whose gem? (1-4):", "gems",
             _spent, turn_callback=self._consume_pass_turn,
