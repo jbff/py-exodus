@@ -134,7 +134,11 @@ def prompt_insert_card(screen: BaseScreen, x: int, y: int) -> None:
             if card is None:
                 screen.text_log.add_message("What?")
                 return
-            final_scr = FinalScreen(party=screen.party, audio=getattr(screen, "audio", None))
+            final_scr = FinalScreen(
+                party=screen.party,
+                audio=getattr(screen, "audio", None),
+                asset_mgr=getattr(screen, "asset_mgr", None),
+            )
             try:
                 inserted = final_scr.insert_card(card, member_idx=idx, pos=(x, y))
             except PartyDeathException:
@@ -179,11 +183,15 @@ class FinalScreen(BaseScreen):
         party: Party | None = None,
         return_screen: BaseScreen | None = None,
         audio: AudioManager | None = None,
+        asset_mgr: Any = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(return_screen=return_screen, **kwargs)
         self.party = party
         self.audio = audio
+        # Handed on to the title by return_to_title: without it the next
+        # Journey Onward overworld has no renderer and draws black.
+        self.asset_mgr = asset_mgr
         self.victory: bool = False
         self.screen_shake: bool = False
         self.shake_timer: float = 0.0

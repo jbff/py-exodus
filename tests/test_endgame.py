@@ -418,3 +418,29 @@ def test_stats_panel_render_smoke(pygame_setup):
     surface = pygame.Surface((140, 200))
     panel.set_inspect(0)
     panel.render(surface, party, inspect_index=0)
+
+
+def test_title_after_victory_keeps_assets(pygame_setup, asset_mgr):
+    """The title reached from the victory epilogue keeps the asset manager
+    and audio, so Journey Onward's overworld can draw its map (it showed
+    black: FinalScreen had no asset_mgr to hand on)."""
+    from py_exodus.screens.start import StartScreen
+
+    party = card_party(x=30, y=12)
+    sm = StateMachine(asset_mgr=asset_mgr)
+    ow = OverworldScreen(party=party, map_id=2, asset_mgr=asset_mgr, manager=sm)
+    sm.set_screen(ow)
+    for px, letter in ((30, "L"), (31, "S"), (32, "M"), (33, "D")):
+        party.x = px
+        ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_o))
+        type_prompt(ow.text_log, "INSERT")
+        single_char(ow.text_log, "1")
+        single_char(ow.text_log, letter)
+    final_scr = sm.current_screen
+    assert isinstance(final_scr, FinalScreen) and final_scr.victory
+    assert final_scr.asset_mgr is asset_mgr
+
+    final_scr.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RETURN))
+    title = sm.current_screen
+    assert isinstance(title, StartScreen)
+    assert title.asset_mgr is asset_mgr
