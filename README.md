@@ -165,7 +165,7 @@ Reproducible autoplay runs, one trace per seed, no window:
 uv run python -m py_exodus.autoplay.batch --seeds 0-99 --workers 2 --out-dir traces/batch
 ```
 
-Each seed prints `WON@<steps>`, `WIPED@<steps>` or `STEP_CAP@<steps>`. A trace row records position, goal, party state, the key pressed and **`why`**: the autoplay functions and lines that chose it. In towns it also lists the people within 4 tiles. Standing still writes a short repeat row (the key, `why` and a count) whenever the key changes and every 100 turns, and rows carry each member's marks. So a loop or a stall in a trace names the code that caused it.
+Each seed prints `WON@<steps>`, `WIPED@<steps>` or `STEP_CAP@<steps>`. A trace row records position, the game turn (`moves`, the turn count the game shows), goal, party state, the key pressed and **`why`**: the autoplay functions and lines that chose it. In towns it also lists the people within 4 tiles. Standing still writes a short repeat row (the key, `why`, a count and the game turn) whenever the key changes and every 100 turns, and rows carry each member's marks. So a loop or a stall in a trace names the code that caused it.
 
 ### Tests
 
@@ -173,7 +173,7 @@ Each seed prints `WON@<steps>`, `WIPED@<steps>` or `STEP_CAP@<steps>`. A trace r
 uv run python -m pytest
 ```
 
-**2,036 tests** covering mechanics, LairWare/Java/GBC parity, vendors, dungeons, combat, rendering and autoplay regressions (most autoplay fixes come with a test that fails on the old code).
+**2,037 tests** covering mechanics, LairWare/Java/GBC parity, vendors, dungeons, combat, rendering and autoplay regressions (most autoplay fixes come with a test that fails on the old code).
 
 ---
 

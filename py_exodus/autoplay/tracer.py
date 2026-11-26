@@ -8,9 +8,10 @@ Row types (``"t"`` field):
 
 * ``start``         seed, wall-clock stamp
 * ``s``             state row, written whenever position / transport / screen /
-                    goal changes: step, map, x, y, goal, key, party snapshot,
-                    nearby creatures
-* ``r``             standing still: key, why and the repeat count ``n``
+                    goal changes: step, game turn (``moves``), map, x, y, goal,
+                    key, party snapshot, nearby creatures
+* ``r``             standing still: key, why, the repeat count ``n`` and the
+                    game turn (``moves``)
 * ``combat_start``  creatures, monster count, party snapshot
 * ``combat_end``    gold delta, party snapshot
 * ``end``           outcome (``WON@n`` / ``WIPED@n`` / ``STEP_CAP@n`` / ``QUIT@n``
@@ -227,7 +228,10 @@ class RunTracer:
                 self._rep, self._rep_n = rep, 0
             self._rep_n += 1
             if self._rep_n == 1 or self._rep_n % 100 == 0:
-                row_r: dict[str, Any] = {"t": "r", "step": self.steps, "key": key, "n": self._rep_n}
+                row_r: dict[str, Any] = {
+                    "t": "r", "step": self.steps, "moves": getattr(party, "moves", 0),
+                    "key": key, "n": self._rep_n,
+                }
                 if why:
                     row_r["why"] = why
                 self._emit(row_r)
@@ -237,6 +241,9 @@ class RunTracer:
         row: dict[str, Any] = {
             "t": "s",
             "step": self.steps,
+            # The game turn: user reports name turns, not steps
+            # (trace_20261125-184644 could only be matched by estimate).
+            "moves": getattr(party, "moves", 0),
             "scr": kind.replace("Screen", ""),
             "map": sig[1],
             "x": x,

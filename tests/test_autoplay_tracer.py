@@ -104,3 +104,18 @@ def test_standing_still_writes_repeat_rows(tmp_path):
     t.record_step(sm, key=1, goal="X", why="other")
     reps = [(r["n"], r["key"]) for r in rows if r["t"] == "r"]
     assert reps == [(1, 32), (100, 32), (200, 32), (1, 1)]
+
+
+def test_state_and_still_rows_carry_the_game_turn(tmp_path):
+    """User reports name turns (party.moves); trace_20261125-184644 had no
+    turn field, so its stalls could only be matched by estimate. Every 's'
+    and 'r' row carries ``moves``."""
+    res = batch.run_seed(3, tmp_path, max_steps=400)
+    assert res["outcome"] == "STEP_CAP@400"
+    rows = _atlas().read_rows(tmp_path / "trace_3.jsonl.gz")
+    for kind in ("s", "r"):
+        sel = [r for r in rows if r["t"] == kind]
+        assert sel, kind
+        assert all(isinstance(r.get("moves"), int) for r in sel), kind
+    moves = [r["moves"] for r in rows if r["t"] in ("s", "r")]
+    assert moves == sorted(moves) and moves[-1] > moves[0]
