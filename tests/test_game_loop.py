@@ -1895,6 +1895,16 @@ def test_combat_screen_zero_mp_casting(pygame_setup, asset_mgr, sample_party):
     assert not any("not enough mp" in msg.lower() for msg in combat.text_log.history)
 
 
+def test_map_two_is_labelled_castle_of_fire():
+    """User ruling 2026-11-26: map 2 (EXODUS) is "Castle of Fire" wherever
+    its label shows (LW's resources say "Exodus Castle"; Java said "Castle
+    of Death")."""
+    from py_exodus.assets import MAP_ID_TO_LABEL, MAP_NAME_TO_ID
+
+    assert MAP_ID_TO_LABEL[MAP_NAME_TO_ID["EXODUS"]] == "Castle of Fire"
+    assert "Castle of Death" not in MAP_ID_TO_LABEL.values()
+
+
 def test_overworld_entry_uses_java_map_label(pygame_setup, asset_mgr, sample_party):
     """Item 35: OverworldScreen logs Java MAP_ID_TO_LABEL ('Entering Sosaria!',
     'Entering Ambrosia!'), matching GameScreen.java:334 and TownScreen."""

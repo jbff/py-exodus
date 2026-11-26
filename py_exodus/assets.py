@@ -84,7 +84,7 @@ MAP_ID_TO_NAME: dict[int, str] = {v: k for k, v in MAP_NAME_TO_ID.items()}
 MAP_ID_TO_LABEL: dict[int, str] = {
     0: "Sosaria",
     1: "Castle of Lord British",
-    2: "Castle of Death",
+    2: "Castle of Fire",
     3: "Britain",
     4: "Yew",
     5: "Moon",
