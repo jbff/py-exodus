@@ -137,3 +137,62 @@ def food_hand_off(party):
     from py_exodus.autoplay.equipment import food_hand_off as f
 
     return f(party)
+
+
+# --- Item 2: the shop prompt loop with an incapacitated buyer -------------
+
+
+def test_food_buyer_is_never_an_incapacitated_member(am):
+    """Seed 3, step 92,735: at Britain's grocer with the Fighter in ashes
+    and 0 food. The cheapest-fed member was picked to buy, but LairWare
+    Transact talks only through a living member (UltimaMain.c:2302-2305,
+    "Incapacitated!"): Talk, the Fighter, refused, ~44,000 steps, starved."""
+    from py_exodus.screens.town import TownScreen
+
+    random.seed(3)
+    party = _party(food=(15, 0, 15, 15), gold=128)
+    party.members[1].status = Status.ASH
+    party.members[1].hp = 0
+    party.map_id = 3
+    sm = StateMachine(asset_mgr=am, audio=None)
+    ts = TownScreen(party=party, asset_mgr=am, map_id=3, start_x=44, start_y=47)
+    sm.set_screen(ts)
+
+    ctrl = AutoPlayController(enabled=True)
+    for _ in range(80):
+        ctrl.step(sm)
+        if any(m.food > 15 for m in party.members if not m.is_disabled()):
+            break
+    assert any(m.food > 15 for m in party.members if not m.is_disabled())
+    history = " ".join(str(x) for x in getattr(ts.text_log, "history", ()) or ())
+    assert "Incapacitated" not in history
+
+
+def test_last_living_member_buys_food_beside_the_ashes(am):
+    """Seed 3, step 134,766: the Thief alone alive with 15 food and 15 gold,
+    the Fighter in ashes, the others dead. The Fighter (0 food) was still
+    picked to Transact, so the Thief starved beside the grocer."""
+    from py_exodus.screens.town import TownScreen
+
+    random.seed(3)
+    party = _party(food=(15, 0, 0, 0), gold=0)
+    party.members[0].gold = 15
+    party.members[1].status = Status.ASH
+    for m in party.members[1:]:
+        m.hp = 0
+    for m in party.members[2:]:
+        m.status = Status.DEAD
+    party.map_id = 3
+    sm = StateMachine(asset_mgr=am, audio=None)
+    ts = TownScreen(party=party, asset_mgr=am, map_id=3, start_x=44, start_y=47)
+    sm.set_screen(ts)
+
+    ctrl = AutoPlayController(enabled=True)
+    # The trace's goal was GRIND_AND_LEVEL; the grocer visit ran on the
+    # target its last BUY_FOOD had set, still standing.
+    ctrl._food_shop_target = 150
+    for _ in range(80):
+        ctrl.step(sm)
+        if party.members[0].food > 15:
+            break
+    assert party.members[0].food > 15

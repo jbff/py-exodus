@@ -361,7 +361,8 @@ def best_shop_upgrade(
     Dawn is a rare double-new-moon town; shop there only opportunistically,
     never as a goal).
     """
-    living = [(i + 1, m) for i, m in enumerate(party.members) if not m.is_dead()]
+    # Dead or ashes can't Transact (LairWare UltimaMain.c:2302-2305).
+    living = [(i + 1, m) for i, m in enumerate(party.members) if not m.is_disabled()]
     if not living:
         return None
     total_gold = party.gold
@@ -456,7 +457,7 @@ def spare_bow_purchase(party: Party) -> ShopUpgrade | None:
     never makes a trip of it (``best_shop_upgrade`` doesn't offer it)."""
     for i, m in enumerate(party.members):
         if (
-            not m.is_dead()
+            not m.is_disabled()
             and m.weapon == WeaponType.EXOTIC
             and wants_spare_bow(m)
             and not has_spare_bow(m)
@@ -501,7 +502,8 @@ def excess_gear(
     cards, marks and exotics). That is the same test ``best_shop_upgrade``
     buys by, so nothing sold is bought back. Spares come off members who
     don't want them first."""
-    living = [(i + 1, m) for i, m in enumerate(party.members) if not m.is_dead()]
+    # Dead or ashes can't Transact (LairWare UltimaMain.c:2302-2305).
+    living = [(i + 1, m) for i, m in enumerate(party.members) if not m.is_disabled()]
     modes = (True, False) if prefer_ranged else (False,)
     sales: list[SpareGear] = []
 

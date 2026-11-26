@@ -284,6 +284,15 @@ def _key_to_unicode(key: int) -> str:
     return ""
 
 
+def _able(party) -> list[tuple[int, Any]]:
+    """``(1-based index, member)`` for members who can Transact or bribe:
+    neither dead nor ashes (LairWare Transact, UltimaMain.c:2302-2305, and
+    Other's CheckAlive; "Incapacitated!"). Seed 3 at bdbd73a picked its
+    food buyer by least food among the not-dead, the Fighter in ashes, and
+    Talked through it at Britain's grocer ~44,000 times until all starved."""
+    return [(i + 1, m) for i, m in enumerate(party.members) if not m.is_disabled()]
+
+
 def _char_to_key(ch: str) -> int | None:
     """Map a single ASCII character to its pygame.K_* constant."""
     c = ch.lower()
@@ -1173,7 +1182,7 @@ class AutoPlayController:
                     for npc in getattr(gmap, "npcs", [])
                     if "guard" in str(getattr(npc, "tile_name", getattr(npc, "tile", ""))).lower()
                 }
-                living = [(i + 1, m) for i, m in enumerate(party.members) if not m.is_dead()]
+                living = _able(party)
                 if guards and living and party.gold >= 100:
                     from py_exodus.screens.overworld import can_move_to
 
@@ -1275,7 +1284,7 @@ class AutoPlayController:
         if map_id in _GUILD_TOWNS and goal in (Goal.BUY_KEYS, Goal.BUY_TORCHES):
             _, _, guild_xy = _GUILD_TOWNS[map_id]
             guild_xy = self._shop_spot(gmap, (px, py), guild_xy)
-            living = [(i + 1, m) for i, m in enumerate(party.members) if not m.is_dead()]
+            living = _able(party)
             if living:
                 if goal == Goal.BUY_KEYS:
                     cost, letter = 50, "c"
@@ -1297,7 +1306,7 @@ class AutoPlayController:
         if map_id in _FOOD_TOWNS and goal not in (Goal.CURE_POISON, Goal.RESURRECT_DEAD):
             _, _, food_xy = _FOOD_TOWNS[map_id]
             food_xy = self._shop_spot(gmap, (px, py), food_xy)
-            living = [(i + 1, m) for i, m in enumerate(party.members) if not m.is_dead()]
+            living = _able(party)
             if living:
                 total_gold = party.gold
                 food_price = 1  # a ration, LairWare Shop case 1
@@ -1366,7 +1375,7 @@ class AutoPlayController:
                 healer_xy = healer_stand
                 if (px, py) == healer_stand:
                     return self._emit_key(state_machine, pygame.K_SPACE)
-            living = [(i + 1, m) for i, m in enumerate(party.members) if not m.is_dead()]
+            living = _able(party)
             if goal == Goal.RESURRECT_DEAD:
                 patient = next(
                     (
