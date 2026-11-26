@@ -137,15 +137,6 @@ class CombatScreen(BaseScreen):
         # Combat Z shown; the member passes when Ztats is closed.
         self._ztats_pass_pending = False
 
-    def on_enter(self) -> None:
-        """Sync auto-combat flag from manager when entering combat."""
-        super().on_enter()
-        if self.manager is not None and (
-            getattr(self.manager, "autoplay_enabled", False)
-            or getattr(self.manager, "auto_combat_enabled", False)
-        ):
-            self.auto_combat = True
-
     @property
     def active_party_member(self) -> PartyMember | None:
         """Return currently active party member taking turn in combat."""
@@ -169,6 +160,11 @@ class CombatScreen(BaseScreen):
 
     def on_enter(self) -> None:
         super().on_enter()
+        # Tab/F2 auto-combat is remembered on the manager (the sidebar shows
+        # it) and carries into each new fight. Full Autoplay fights its own
+        # way and does not switch it on.
+        if self.manager is not None and getattr(self.manager, "auto_combat_enabled", False):
+            self.auto_combat = True
         # Back from the Book or a quick-reference card: the member's command
         # wait starts its count afresh (UltimaSpellCombat.c:938), as after
         # any key; the key that opened the card never reached this screen.
