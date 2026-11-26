@@ -223,7 +223,7 @@ class ConflictMap(GameMap):
 
 @dataclass
 class DungeonMap:
-    """3D wireframe dungeon map (16x16x8 levels)."""
+    """Dungeon map (16x16x8 levels)."""
 
     id: int = 0
     name: str = ""

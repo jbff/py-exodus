@@ -184,7 +184,7 @@ def build_conflict_map(
 def build_dungeon_map(
     m_def: MapDef | None, struct: dict, asset_mgr: AssetManager
 ) -> DungeonMap:
-    """Build 3D wireframe dungeon map (16x16x8 levels) with text messages."""
+    """Build a dungeon map (16x16x8 levels) with text messages."""
     fname = struct["source"]
     tiles: list[list[list[DungeonTile]]] = []
     for z in range(8):

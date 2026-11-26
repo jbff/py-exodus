@@ -91,6 +91,13 @@ def press(screen, key: int) -> None:
     screen.handle_event(pygame.event.Event(pygame.KEYDOWN, key=key))
 
 
+def press_char(screen, ch: str) -> None:
+    """A typed answer, through the screen (as the player's key arrives)."""
+    screen.handle_event(
+        pygame.event.Event(pygame.KEYDOWN, key=pygame.key.key_code(ch.lower()), unicode=ch)
+    )
+
+
 def turn_meter(party: Party):
     """dungeonmech runs AgeChars once per command: count the calls."""
     turns = [0]
@@ -389,17 +396,156 @@ def test_no_torch_is_black_and_xray_lights_it(cheat_state):
     assert any(lit.get_at((x, y))[:3] != (0, 0, 0) for x in range(0, 528, 8) for y in range(40, 528, 8))
 
 
-@pytest.mark.parametrize("tile", [DungeonTile.FOUNTAIN_CURE, DungeonTile.MARK_KINGS])
-def test_closeup_shows_only_while_standing_on_it(tile):
+# --- close-ups show for the event only (LairWare ImageDisplay .. ImageGoAway) ---
+
+VIEW = pygame.Rect(0, 40, 528, 488)  # the pane below the LVL/DIR line
+
+
+def _step_onto(tile):
+    """A screen one step south of ``tile``, then the step onto it."""
     dmap = make_dmap()
     dmap.set_tile(5, 4, 0, tile)
     scr = make_screen(dmap=dmap)
+    corridor_ahead = frame(scr)
+    press(scr, pygame.K_UP)
+    assert (scr.state.x, scr.state.y) == (5, 4)
+    return scr, corridor_ahead
+
+
+def _is_corridor(scr) -> bool:
+    """A corridor changes with the facing; a close-up does not."""
+    keep = scr.state.dir
     scr.state.dir = Direction.NORTH
-    ahead = frame(scr)
+    north = frame(scr)
     scr.state.dir = Direction.EAST
-    assert not same(ahead, frame(scr), pygame.Rect(0, 40, 528, 488))  # a corridor: facing matters
-    scr.state.y = 4  # now on it
-    on_north = frame(scr)
-    scr.state.dir = Direction.SOUTH
-    assert same(on_north, frame(scr), pygame.Rect(0, 40, 528, 488))  # the close-up: it does not
-    assert not same(ahead, on_north, PANE)
+    east = frame(scr)
+    scr.state.dir = keep
+    return not same(north, east, VIEW)
+
+
+def test_fountain_closeup_is_up_while_the_question_is_asked_and_gone_after():
+    """UltimaDngn.c:224-234: ImageDisplay(5) with the question; a drink
+    asks again (the picture stays); a key outside 1-4 is ImageGoAway and the
+    3D view is back, the party still on the fountain."""
+    scr, _ahead = _step_onto(DungeonTile.FOUNTAIN_HEAL)
+    assert "who will drink" in scr.text_log.current_prompt
+    assert scr._picture == "fountain" and not _is_corridor(scr)
+    press_char(scr, "1")
+    assert "who will drink" in scr.text_log.current_prompt  # goto fountain
+    assert scr._picture == "fountain" and not _is_corridor(scr)
+    press_char(scr, "X")
+    assert not scr.text_log.is_waiting_for_input
+    assert (scr.state.x, scr.state.y) == (5, 4)  # still standing on it
+    assert scr._picture is None and _is_corridor(scr)
+    # the next command there asks again, and the picture is back
+    press(scr, pygame.K_LEFT)
+    assert scr._picture == "fountain" and not _is_corridor(scr)
+
+
+def test_fountain_closeup_goes_when_the_question_is_escaped():
+    scr, _ahead = _step_onto(DungeonTile.FOUNTAIN_CURE)
+    assert scr._picture == "fountain"
+    press(scr, pygame.K_ESCAPE)
+    assert not scr.text_log.is_waiting_for_input
+    assert scr._picture is None and _is_corridor(scr)
+
+
+@pytest.mark.parametrize("answer", ["1", "X"])
+def test_rod_closeup_is_up_for_the_question_and_gone_after_any_answer(answer):
+    """UltimaDngn.c:300-309: ImageDisplay(6), the question, then ``mark:
+    ImageGoAway()`` whether a member touched it or not."""
+    scr, _ahead = _step_onto(DungeonTile.MARK_KINGS)
+    assert "who will touch" in scr.text_log.current_prompt
+    assert scr._picture == "rod" and not _is_corridor(scr)
+    press_char(scr, answer)
+    assert not scr.text_log.is_waiting_for_input
+    assert (scr.state.x, scr.state.y) == (5, 4)
+    assert scr._picture is None and _is_corridor(scr)
+
+
+def test_time_lord_closeup_stays_with_his_words_until_a_key():
+    """UltimaDngn.c:213-222: ImageDisplay(8), message 151, WaitKeyMouse,
+    ImageGoAway, DrawDungeon. The key is swallowed."""
+    scr, _ahead = _step_onto(DungeonTile.TIME_LORD)
+    assert "Time Lord" in "\n".join(scr.text_log.history)
+    assert not scr.text_log.is_waiting_for_input
+    assert scr._picture == "timelord" and not _is_corridor(scr)
+    turns = turn_meter(scr.party)
+    scr.update(30.0)  # WaitKeyMouse: no idle pass under the picture
+    assert scr._picture == "timelord" and turns() == 0
+    press(scr, pygame.K_UP)
+    assert (scr.state.x, scr.state.y) == (5, 4)  # swallowed: no step
+    assert turns() == 0
+    assert scr._picture is None and _is_corridor(scr)
+    # the next command there is a turn, and he speaks (and shows) again
+    press(scr, pygame.K_LEFT)
+    assert turns() == 1
+    assert scr._picture == "timelord"
+    scr.handle_event(pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=1, pos=(5, 5)))
+    assert scr._picture is None
+
+
+def test_time_lord_closeup_never_holds_autoplay():
+    scr, _ahead = _step_onto(DungeonTile.FLOOR)
+    scr.state.dmap.set_tile(5, 3, 0, DungeonTile.TIME_LORD)
+    scr.manager = MagicMock(autoplay_enabled=True, current_screen=scr)
+    press(scr, pygame.K_UP)
+    assert (scr.state.x, scr.state.y) == (5, 3)
+    assert scr._picture is None
+
+
+@pytest.mark.parametrize("tile", [DungeonTile.FOUNTAIN_CURE, DungeonTile.MARK_KINGS, DungeonTile.TIME_LORD])
+def test_closeup_shows_in_the_dark_during_the_event(tile):
+    dmap = make_dmap()
+    dmap.set_tile(5, 4, 0, tile)
+    scr = make_screen(dmap=dmap, lit=False)
+    press(scr, pygame.K_UP)
+    assert scr._picture is not None
+    surf = frame(scr)
+    assert any(surf.get_at((x, y))[:3] != (0, 0, 0) for x in range(0, 528, 8) for y in range(40, 528, 8))
+    if scr.text_log.is_waiting_for_input:
+        press_char(scr, "X")
+    else:
+        press(scr, pygame.K_SPACE)
+    surf = frame(scr)
+    assert not any(surf.get_at((x, y))[:3] != (0, 0, 0) for x in range(0, 528, 8) for y in range(40, 528, 8))
+
+
+# --- the map owns the mouse too ----------------------------------------------
+
+
+def _open_map(scr) -> None:
+    scr.party.members[0].gems = 1
+    press(scr, pygame.K_p)
+    scr.text_log.handle_char("1")
+    assert scr.gem_view_active
+
+
+def test_mouse_wheel_does_not_scroll_the_log_under_the_map():
+    scr = make_screen()
+    scrolled = []
+    scr.text_log.handle_wheel = lambda event: scrolled.append(event)
+    wheel = pygame.event.Event(pygame.MOUSEWHEEL, x=0, y=1)
+    scr.handle_event(wheel)
+    assert len(scrolled) == 1  # the wheel scrolls the log in normal play
+    _open_map(scr)
+    scr.handle_event(wheel)
+    # the wheel's legacy button events do not count as a click either
+    scr.handle_event(pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=4, pos=(10, 10)))
+    assert len(scrolled) == 1
+    assert scr.gem_view_active is True
+
+
+def test_a_mouse_click_closes_the_map_like_any_key():
+    """LairWare DrawMiniDng ends on ``GetKeyMouse(0) | Button()``
+    (UltimaGraphics.c:1581)."""
+    scr = make_screen()
+    turns = turn_meter(scr.party)
+    click = pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=1, pos=(100, 100))
+    scr.handle_event(click)  # nothing to close: a click is no command
+    assert turns() == 0
+    _open_map(scr)
+    scr.handle_event(click)
+    assert scr.gem_view_active is False
+    assert turns() == 1  # dPeer's turn follows the map
+    assert (scr.state.x, scr.state.y) == (5, 5)

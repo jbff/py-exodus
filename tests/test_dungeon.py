@@ -74,12 +74,12 @@ def empty_dmap():
 # --- Rendering Tests (the Stone view) ---
 
 
-def _view(dmap, x=5, y=5, d=Direction.NORTH, lit=True, creatures=None, cam=None):
+def _view(dmap, x=5, y=5, d=Direction.NORTH, lit=True, creatures=None, cam=None, closeup=False):
     """One 176x176 frame from (x, y) on level 0."""
     pygame.init()
     surf = pygame.Surface((176, 176))
     (cam or DungeonCamera()).render_view(
-        surf, dmap, x, y, 0, d, torch_lit=lit, creatures=creatures
+        surf, dmap, x, y, 0, d, torch_lit=lit, creatures=creatures, closeup=closeup
     )
     return surf
 
@@ -218,24 +218,88 @@ def test_dungeon_render_torch_vs_dark(empty_dmap):
     DungeonTile.CHEST, DungeonTile.FOUNTAIN_HEAL, DungeonTile.MARK_FIRE,
     DungeonTile.LADDER_UP, DungeonTile.TIME_LORD, DungeonTile.PIT_TRAP,
 ])
-def test_no_torch_shows_nothing_whatever_is_there(empty_dmap, tile):
-    """Dark is dark: nothing ahead, no monster, and no close-up either."""
+def test_no_torch_shows_nothing_ahead(empty_dmap, tile):
+    """Dark is dark: nothing ahead and no monster."""
     empty_dmap.set_tile(5, 4, 0, tile)
     assert _lit_pixels(_view(empty_dmap, lit=False, creatures=[_wc()])) == 0
-    empty_dmap.set_tile(5, 5, 0, tile)  # standing on it
+
+
+@pytest.mark.parametrize("tile", [
+    DungeonTile.CHEST, DungeonTile.LADDER_UP, DungeonTile.TIME_LORD,
+    DungeonTile.FOUNTAIN_HEAL, DungeonTile.MARK_FIRE,
+])
+def test_no_torch_shows_nothing_underfoot_outside_an_event(empty_dmap, tile):
+    empty_dmap.set_tile(5, 5, 0, tile)
     assert _lit_pixels(_view(empty_dmap, lit=False)) == 0
 
 
-def test_torchlight_gives_out_with_distance():
-    """A wall two tiles off is brighter than one four tiles off, and past
-    the fog nothing shows at all."""
+_CLOSEUP_TILES = sorted(FOUNTAIN_TILES | MARK_TILES | {DungeonTile.TIME_LORD}, key=lambda t: t.value)
+
+
+@pytest.mark.parametrize("tile", _CLOSEUP_TILES)
+def test_closeup_shows_without_a_torch(empty_dmap, tile):
+    """LairWare's ImageDisplay(5/6/8) has no gTorch check (UltimaDngn.c:
+    212-318, UltimaMacIF.c:1980-2003): during the event the close-up is
+    the same picture in the dark as with a torch."""
+    cam = DungeonCamera()
+    empty_dmap.set_tile(5, 5, 0, tile)
+    lit = _view(empty_dmap, lit=True, cam=cam, closeup=True)
+    dark = _view(empty_dmap, lit=False, cam=cam, closeup=True)
+    assert _lit_pixels(dark) > 0
+    assert _diff_box(lit, dark) is None
+    # the event over, the dark is back
+    assert _lit_pixels(_view(empty_dmap, lit=False, cam=cam)) == 0
+
+
+def test_torchlight_reaches_six_tiles():
+    """User ruling 2026-11-26: the light thins with distance but nothing the
+    light rule shows goes dark. A wall two tiles off is brighter than one
+    four off, and the sixth tile is faint but still there."""
     cam = DungeonCamera
+    assert cam.MAX_DEPTH == 6
     assert cam.fog(0.5) == 1.0
-    assert cam.fog(1.5) > cam.fog(3.5) > 0
-    assert cam.fog(5.0) == 0
+    assert cam.fog(1.5) > cam.fog(3.5) > cam.fog(5.5) > cam.fog(6.0) > 0
+    assert cam._shade(cam.FRONT, 5.5) != COLOR_BLACK
+    assert min(cam._shade(cam.FRONT, 6.0)) >= 8
+
+
+@pytest.mark.parametrize("tile", [
+    DungeonTile.CHEST, DungeonTile.PIT_TRAP, DungeonTile.LADDER_DOWN,
+    DungeonTile.FOUNTAIN_HEAL, DungeonTile.MARK_FIRE, DungeonTile.WALL,
+])
+@pytest.mark.parametrize("steps", [5, 6])
+def test_tiles_five_and_six_ahead_are_drawn_faintly(tile, steps):
+    """With a torch, a chest (pit, ladder...) five or six tiles ahead shows,
+    dimmer than the same thing two tiles ahead; seven ahead is out of sight."""
     dmap = _flat_dmap()
     base = _view(dmap, 8, 8)
-    dmap.set_tile(8, 8 - cam.MAX_DEPTH, 0, DungeonTile.CHEST)
+    dmap.set_tile(8, 8 - steps, 0, tile)
+    far = _view(dmap, 8, 8)
+    box = _diff_box(base, far)
+    assert box is not None, f"{tile.name} {steps} ahead is not drawn"
+    assert box[0] <= 88 <= box[2]
+    brightest = max(
+        sum(far.get_at((px, py))[:3])
+        for px in range(box[0], box[2] + 1)
+        for py in range(box[1], box[3] + 1)
+        if far.get_at((px, py)) != base.get_at((px, py))
+    )
+    assert brightest > 0
+    dmap.set_tile(8, 8 - steps, 0, DungeonTile.NOTHING)
+    dmap.set_tile(8, 8 - 2, 0, tile)
+    near = _view(dmap, 8, 8)
+    nbox = _diff_box(base, near)
+    assert max(
+        sum(near.get_at((px, py))[:3])
+        for px in range(nbox[0], nbox[2] + 1)
+        for py in range(nbox[1], nbox[3] + 1)
+    ) > brightest
+
+
+def test_seven_tiles_ahead_is_out_of_sight():
+    dmap = _flat_dmap()
+    base = _view(dmap, 8, 8)
+    dmap.set_tile(8, 8 - (DungeonCamera.MAX_DEPTH + 1), 0, DungeonTile.CHEST)
     assert _diff_box(base, _view(dmap, 8, 8)) is None
 
 
@@ -339,45 +403,67 @@ def test_view_follows_the_map_when_it_changes(empty_dmap):
 # --- Close-ups: standing on a fountain or a Mark ---
 
 
-def test_closeup_only_on_a_fountain_or_a_mark():
+def test_closeup_pictures_are_lairwares_three():
+    """ImageDisplay 5 (fountain), 6 (rod) and 8 (Time Lord), nothing else."""
     for tile in DungeonTile:
         kind = DungeonCamera.closeup_for(tile)
         if tile in FOUNTAIN_TILES:
             assert kind == "fountain"
         elif tile in MARK_TILES:
             assert kind == "rod"
+        elif tile == DungeonTile.TIME_LORD:
+            assert kind == "timelord"
         else:
             assert kind is None, tile.name
 
 
-@pytest.mark.parametrize("tile", sorted(FOUNTAIN_TILES | MARK_TILES, key=lambda t: t.value))
-def test_closeup_replaces_the_corridor(empty_dmap, tile):
-    """On the tile the picture is the close-up: the same whichever way the
-    party faces and whatever stands ahead.  One step off, it is a corridor
-    again."""
+@pytest.mark.parametrize("tile", _CLOSEUP_TILES)
+def test_closeup_replaces_the_corridor_only_when_asked(empty_dmap, tile):
+    """While the screen asks for it the picture is the close-up: the same
+    whichever way the party faces and whatever stands ahead. Not asked,
+    the party sees the corridor though it still stands on the tile."""
     empty_dmap.set_tile(5, 5, 0, tile)
-    north = _view(empty_dmap)
-    assert _diff_box(north, _view(empty_dmap, d=Direction.EAST)) is None
+    north = _view(empty_dmap, closeup=True)
+    assert _diff_box(north, _view(empty_dmap, d=Direction.EAST, closeup=True)) is None
     empty_dmap.set_tile(5, 4, 0, DungeonTile.WALL)
-    assert _diff_box(north, _view(empty_dmap)) is None
+    assert _diff_box(north, _view(empty_dmap, closeup=True)) is None
+    # standing there with no event: a corridor, which the wall ahead changes
+    walled = _view(empty_dmap)
+    assert _diff_box(north, walled) is not None
     empty_dmap.set_tile(5, 4, 0, DungeonTile.FLOOR)
-    # one step back, looking at it: no longer the close-up
-    assert _diff_box(north, _view(empty_dmap, y=6)) is not None
-    assert _diff_box(_view(empty_dmap, y=6), _view(empty_dmap, y=6, d=Direction.EAST)) is not None
+    assert _diff_box(walled, _view(empty_dmap)) is not None
+
+
+@pytest.mark.parametrize("tile", [
+    DungeonTile.CHEST, DungeonTile.LADDER_UP, DungeonTile.FLOOR, DungeonTile.PIT_TRAP,
+])
+def test_no_closeup_on_other_tiles_even_when_asked(empty_dmap, tile):
+    empty_dmap.set_tile(5, 5, 0, tile)
+    assert _diff_box(_view(empty_dmap), _view(empty_dmap, closeup=True)) is None
 
 
 def test_closeups_differ_by_kind_and_every_mark_gets_the_rod(empty_dmap):
     pics = {}
-    for tile in (DungeonTile.FOUNTAIN_HEAL, DungeonTile.FOUNTAIN_POISON, *sorted(MARK_TILES, key=lambda t: t.value)):
+    for tile in (DungeonTile.FOUNTAIN_HEAL, DungeonTile.FOUNTAIN_POISON, DungeonTile.TIME_LORD,
+                 *sorted(MARK_TILES, key=lambda t: t.value)):
         empty_dmap.set_tile(5, 5, 0, tile)
-        pics[tile] = _view(empty_dmap)
+        pics[tile] = _view(empty_dmap, closeup=True)
     assert _diff_box(pics[DungeonTile.FOUNTAIN_HEAL], pics[DungeonTile.FOUNTAIN_POISON]) is None
     assert _diff_box(pics[DungeonTile.FOUNTAIN_HEAL], pics[DungeonTile.MARK_FIRE]) is not None
+    assert _diff_box(pics[DungeonTile.TIME_LORD], pics[DungeonTile.MARK_FIRE]) is not None
+    assert _diff_box(pics[DungeonTile.TIME_LORD], pics[DungeonTile.FOUNTAIN_HEAL]) is not None
     # The rod and its glow are the same picture on every Mark (only the
     # word under it changes): compare the rows above the word.
     for tile in MARK_TILES:
         box = _diff_box(pics[DungeonTile.MARK], pics[tile])
         assert box is None or box[1] >= 150, tile.name
+
+
+def test_time_lord_closeup_uses_his_sprite_when_assets_are_loaded(asset_mgr, empty_dmap):
+    empty_dmap.set_tile(5, 5, 0, DungeonTile.TIME_LORD)
+    bare = _view(empty_dmap, closeup=True)
+    drawn = _view(empty_dmap, closeup=True, cam=DungeonCamera(asset_mgr=asset_mgr))
+    assert _diff_box(bare, drawn) is not None
 
 
 # --- Navigation & Turning Tests ---

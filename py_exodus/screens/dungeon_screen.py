@@ -122,6 +122,10 @@ class DungeonScreen(BaseScreen):
         self._gem_view_time = 0.0
         # dPeer's turn (dungeonmech) follows the map, not the gem.
         self._gem_turn_pending = False
+        # The close-up that is up (LairWare ImageDisplay 5/6/8 until
+        # ImageGoAway, UltimaDngn.c:212-318): "fountain" and "rod" for the
+        # length of their question, "timelord" until a key or a click.
+        self._picture: str | None = None
 
         # LairWare Enter (UltimaMain.c:1424-1434): "Enter " (Messages 32)
         # then "dungeon!" (33), nothing more (user ruling 2026-11-25).
@@ -149,8 +153,24 @@ class DungeonScreen(BaseScreen):
     def handle_event(self, event: pygame.event.Event) -> None:
         # Mouse wheel scrolls the shared text log back through history
         # (Java LogScrollPane affordance; wheel is never a dungeon command).
+        # The level map owns all input: no scrolling under it (as the
+        # surface Peer), and a click ends it like any key: LairWare
+        # DrawMiniDng waits on ``GetKeyMouse(0) | Button()``
+        # (UltimaGraphics.c:1581).
         if event.type == pygame.MOUSEWHEEL:
-            self.text_log.handle_wheel(event)
+            if not self.gem_view_active:
+                self.text_log.handle_wheel(event)
+            return
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            # Buttons 4 and 5 are the wheel's legacy events, not clicks.
+            if getattr(event, "button", 1) not in (1, 2, 3):
+                return
+            if self.gem_view_active:
+                self._idle_time = 0.0
+                self._close_gem_view()
+            elif self._picture == "timelord":
+                self._idle_time = 0.0
+                self._picture = None  # WaitKeyMouse (UltimaDngn.c:218)
             return
 
         if event.type != pygame.KEYDOWN:
@@ -175,8 +195,16 @@ class DungeonScreen(BaseScreen):
             self._close_gem_view()
             return
 
+        # The Time Lord's picture (UltimaDngn.c:213-222): ``WaitKeyMouse();
+        # ImageGoAway(); ... DrawDungeon();`` -- the key is swallowed.
+        if self._picture == "timelord":
+            self._picture = None
+            return
+
         if self.text_log.is_waiting_for_input:
             self.text_log.handle_event(event)
+            if not self.text_log.is_waiting_for_input:
+                self._picture = None  # the question is over: ImageGoAway
             self._run_fixture()
             return
 
@@ -328,14 +356,37 @@ class DungeonScreen(BaseScreen):
             self._ask_rod()
         else:
             self._process_event(evt)
+            self._show_time_lord(evt)
+
+    def _show_time_lord(self, evt: DungeonEvent) -> None:
+        """UltimaDngn.c:213-222: ``ImageDisplay(8, TRUE); UPrintMessage(151);
+        WaitKeyMouse(); ImageGoAway();`` -- his picture stays with his words
+        until a key or a click. Autoplay answers every wait itself
+        (realtime.autoplay_on), so it never holds for the picture."""
+        from py_exodus.world import realtime
+        from py_exodus.world.map import DungeonTile
+
+        if evt.tile != DungeonTile.TIME_LORD or self.is_finished:
+            return
+        if self.manager is not None and self.manager.current_screen is not self:
+            return
+        if realtime.autoplay_on(self):
+            return
+        self._picture = "timelord"
 
     def _ask_fountain(self) -> None:
         """UltimaDngn.c:228-279: ``fountain: UPrintMessage(152); chnum =
         GetChar(); if (chnum < 1 || chnum > 4) { ... goto dungstart; }`` --
         a member drinks (the dead and ashes "Can't") and the question comes
-        again; any other key leaves. The answers take no turn."""
+        again; any other key leaves. The answers take no turn.
+
+        The fountain's picture is up from ``ImageDisplay(5, TRUE)`` (224)
+        to the ``ImageGoAway()`` of the key that leaves (233): for as long
+        as the question is asked, and no longer."""
+        self._picture = "fountain"
 
         def _on_who(who: str) -> None:
+            self._picture = None
             try:
                 n = int(who.strip())
             except ValueError:
@@ -365,9 +416,14 @@ class DungeonScreen(BaseScreen):
         one member touches the red-hot rod (the mark, then HPSubtract 50;
         LW has no CheckAlive, but a dead member is refused here: user
         ruling 2026-11-25, ledger D-26), or any other key leaves. Either way the prompt is
-        done until the next command."""
+        done until the next command.
+
+        The rod's picture is up from ``ImageDisplay(6, TRUE)`` (300) to the
+        ``mark: ImageGoAway()`` every answer ends in (308-309)."""
+        self._picture = "rod"
 
         def _on_who(who: str) -> None:
+            self._picture = None
             try:
                 n = int(who.strip())
             except ValueError:
@@ -743,6 +799,7 @@ class DungeonScreen(BaseScreen):
             not self.text_log.is_waiting_for_input
             and self.stats_panel.inspect_index is None
             and not self.gem_view_active
+            and self._picture is None
             and not self.is_finished
             and self.party.is_anyone_alive()
             and not realtime.autoplay_on(self)
@@ -787,6 +844,7 @@ class DungeonScreen(BaseScreen):
             z=self.state.z,
             dir=self.state.dir,
             torch_lit=torch_lit,
+            closeup=self._picture is not None,
         )
         if scale > 1:
             view = pygame.transform.scale(view, (v_size, v_size))

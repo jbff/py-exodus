@@ -173,10 +173,13 @@ class DungeonCamera:
     Every solid tile (wall, door, secret door, locked door) is a full block.
     Blocks and floor features are painted far to near and outside in, so a
     nearer block hides whatever stands behind it and a side opening is a real
-    gap.  Light is a rule, not a look: with no torch the view is black.
+    gap.  Light is a rule, not a look: with no torch the corridor is black.
 
-    While the party stands on a fountain or on a Mark, a close-up picture
-    replaces the corridor (``closeup_for``).
+    A close-up picture (fountain, red-hot rod, Time Lord) replaces the
+    corridor for as long as the screen asks for one (``closeup``): LairWare
+    shows ImageDisplay(5/6/8) for the event only, from the fixture's
+    question to ImageGoAway (UltimaDngn.c:212-318), and with no gTorch
+    check (UltimaMacIF.c:1980-2003), so it shows in the dark too.
     """
 
     #: Native view size (the original's 11x11 tiles of 16px).
@@ -189,9 +192,13 @@ class DungeonCamera:
     #: Near clip, for the blocks beside the party.
     NEAR: ClassVar[float] = 0.18
 
-    #: How many tiles ahead, and to each side, the lit view looks at.  The fog
-    #: turns black a little short of five tiles, so the last ones cost nothing.
+    #: How many tiles ahead, and to each side, the lit view looks at.
     MAX_DEPTH: ClassVar[int] = 6
+
+    #: Depth at which the torchlight would give out.  It is past MAX_DEPTH, so
+    #: the fifth and sixth tiles stay faint but readable (user ruling
+    #: 2026-11-26: nothing the light rule shows may go dark).
+    FOG_REACH: ClassVar[float] = 7.5
     MAX_LATERAL: ClassVar[int] = 3
 
     #: Pretend depth for a feature on the party's own tile (the eye is at the
@@ -233,17 +240,20 @@ class DungeonCamera:
 
     @staticmethod
     def closeup_for(tile: DungeonTile) -> str | None:
-        """Which close-up replaces the view while the party stands on ``tile``."""
+        """Which close-up picture belongs to ``tile``'s event, if any:
+        LairWare ImageDisplay 5 (fountain), 6 (rod) and 8 (Time Lord)."""
         if tile in FOUNTAIN_TILES:
             return "fountain"
         if tile in MARK_TILES:
             return "rod"
+        if tile == DungeonTile.TIME_LORD:
+            return "timelord"
         return None
 
-    @staticmethod
-    def fog(z: float) -> float:
+    @classmethod
+    def fog(cls, z: float) -> float:
         """Brightness (1 = full torchlight, 0 = black) at depth ``z``."""
-        t = max(0.0, min(1.0, (z - 0.5) / 4.2))
+        t = max(0.0, min(1.0, (z - 0.5) / (cls.FOG_REACH - 0.5)))
         return (1 - t) ** 1.35
 
     @classmethod
@@ -285,11 +295,15 @@ class DungeonCamera:
         *,
         dng: DungeonMap | None = None,
         creatures: list | None = None,
+        closeup: bool = False,
     ) -> None:
         """Draw the 176x176 view at the top-left of ``surface``.
 
-        ``torch_lit`` is the light rule: False draws pitch black, whatever the
-        party stands on.  ``creatures`` are the wandering monsters loose in
+        ``torch_lit`` is the light rule: False draws the corridor pitch black.
+        ``closeup`` True draws the picture of the tile the party stands on
+        (``closeup_for``) in place of the corridor, lit or not; the screen
+        sets it for the length of the fountain, rod or Time Lord event.
+        ``creatures`` are the wandering monsters loose in
         the dungeon (objects with ``x``, ``y``, ``level`` and a ``creature``
         whose ``tile`` names the sprite); those on level ``z`` are drawn.
 
@@ -305,8 +319,19 @@ class DungeonCamera:
             self._scene_key = None
         view = self._view
 
+        if closeup:
+            own = active_map.get_tile(x % active_map.width, y % active_map.height, z)
+            kind = self.closeup_for(own)
+            if kind is not None:
+                key: tuple = ("closeup", own)
+                if key != self._scene_key:
+                    view.blit(self._closeup(kind, own), (0, 0))
+                    self._scene_key = key
+                surface.blit(view, (0, 0))
+                return
+
         if not torch_lit:
-            key: tuple = ("dark",)
+            key = ("dark",)
             if key != self._scene_key:
                 view.fill(COLOR_BLACK)
                 self._scene_key = key
@@ -328,11 +353,7 @@ class DungeonCamera:
 
         key = ("lit", tuple(grid.values()), tuple(sorted(monsters.items())))
         if key != self._scene_key:
-            closeup = self.closeup_for(grid[(0, 0)])
-            if closeup is not None:
-                view.blit(self._closeup(closeup, grid[(0, 0)]), (0, 0))
-            else:
-                self._draw_scene(view, grid, monsters)
+            self._draw_scene(view, grid, monsters)
             self._scene_key = key
         surface.blit(view, (0, 0))
 
@@ -598,14 +619,47 @@ class DungeonCamera:
     # --- close-ups -----------------------------------------------------------
 
     def _closeup(self, kind: str, tile: DungeonTile) -> pygame.Surface:
-        """The picture shown while the party stands on a fountain or a Mark."""
+        """The picture for a fountain, a Mark or the Time Lord."""
         sigil = _MARK_SIGILS.get(tile, "") if kind == "rod" else ""
         cache_key = f"{kind}:{sigil}"
         pic = self._closeups.get(cache_key)
         if pic is None:
-            pic = self._fountain_picture() if kind == "fountain" else self._rod_picture(sigil)
+            if kind == "fountain":
+                pic = self._fountain_picture()
+            elif kind == "timelord":
+                pic = self._time_lord_picture()
+            else:
+                pic = self._rod_picture(sigil)
             self._closeups[cache_key] = pic
         return pic
+
+    def _time_lord_picture(self) -> pygame.Surface:
+        """A vision of the Time Lord (LairWare ImageDisplay(8)): the figure
+        in a cold light against the stone, an hourglass at his side."""
+        n = self.SIZE
+        s = self._closeup_backdrop((92, 86, 84), (52, 48, 48))
+        glow = pygame.Surface((n, n), pygame.SRCALPHA)
+        for radius, alpha in ((78, 26), (58, 44), (40, 70)):
+            pygame.draw.circle(glow, (110, 150, 255, alpha), (88, 86), radius)
+        s.blit(glow, (0, 0))
+        # the dais he stands on
+        pygame.draw.ellipse(s, (70, 70, 84), (40, 138, 96, 20))
+        pygame.draw.ellipse(s, (104, 104, 122), (44, 136, 88, 14))
+        img = self._sprite("lord_british", 96)
+        if img is not None:
+            s.blit(img, (88 - img.get_width() // 2, 146 - img.get_height()))
+        else:
+            self._draw_figure(s, 88, 146, 96, (85, 85, 255))
+            pygame.draw.line(s, (220, 220, 255), (116, 54), (116, 146), 2)
+        # hourglass
+        gx, gy = 140, 112
+        frame = (200, 170, 90)
+        pygame.draw.line(s, frame, (gx - 8, gy), (gx + 8, gy), 2)
+        pygame.draw.line(s, frame, (gx - 8, gy + 30), (gx + 8, gy + 30), 2)
+        pygame.draw.polygon(s, (170, 200, 235), [(gx - 6, gy + 2), (gx + 6, gy + 2), (gx, gy + 15)], 1)
+        pygame.draw.polygon(s, (170, 200, 235), [(gx - 6, gy + 28), (gx + 6, gy + 28), (gx, gy + 15)], 1)
+        pygame.draw.polygon(s, (240, 220, 140), [(gx - 4, gy + 27), (gx + 4, gy + 27), (gx, gy + 20)])
+        return s
 
     def _closeup_backdrop(self, wall: _RGB, mortar: _RGB) -> pygame.Surface:
         n = self.SIZE

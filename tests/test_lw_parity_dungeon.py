@@ -928,11 +928,17 @@ def test_dungeonmech_strange_wind_every_command(asset_mgr):
 ])
 def test_dungeonmech_time_lord_and_writing_speak_every_command(asset_mgr, tile, words):
     """UltimaDngn.c:213-223, 334-338: the Time Lord (case 1) and the writing
-    (case 8) speak after every command while the party stands there."""
+    (case 8) speak after every command while the party stands there. The
+    Time Lord's picture then waits for a key (``WaitKeyMouse();
+    ImageGoAway();``, 218-219), which is not a command."""
     import pygame
 
     screen = _fixture_screen(asset_mgr, tile)
     _press(screen, pygame.K_SPACE, " ")
+    if tile == DungeonTile.TIME_LORD:
+        assert sum(1 for m in screen.text_log.history if words in m) == 1
+        _press(screen, pygame.K_SPACE, " ")  # ends the picture, swallowed
+        assert sum(1 for m in screen.text_log.history if words in m) == 1
     _press(screen, pygame.K_SPACE, " ")
     assert sum(1 for m in screen.text_log.history if words in m) == 2
 

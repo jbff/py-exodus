@@ -108,7 +108,7 @@ class MapLoader:
     def load_dungeon_map(
         self, fname_or_id: str | int, m_def: MapDef | None = None
     ) -> DungeonMap:
-        """Load 3D wireframe dungeon map (16x16x8 levels) with text messages."""
+        """Load a dungeon map (16x16x8 levels) with text messages."""
         if isinstance(fname_or_id, int):
             map_id = fname_or_id
             m_def = m_def or self.asset_mgr.map_defs.get(map_id)
