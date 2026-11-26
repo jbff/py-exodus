@@ -38,7 +38,8 @@ class QuickCommand:
     """One row of the commands card.
 
     ``where`` holds the places the key does its work: S Sosaria (Ambrosia
-    too), T town or castle, D dungeon, C combat.
+    too, except Q, which saves on Sosaria only), T town or castle, D
+    dungeon, C combat.
     """
 
     key: str
@@ -67,7 +68,7 @@ COMMANDS: tuple[QuickCommand, ...] = (
     QuickCommand("N", "Negate time", "stop time (powder)", "STDC"),
     QuickCommand("O", "Other", "type a command word", "STD"),
     QuickCommand("P", "Peer", "view the map (gem)", "STD"),
-    QuickCommand("Q", "Quit & save", "save the game", "S"),
+    QuickCommand("Q", "Quit & save", "save (Sosaria only)", "S"),
     QuickCommand("R", "Ready", "ready a weapon", "STDC"),
     QuickCommand("S", "Steal", "from behind a counter", "T"),
     QuickCommand("T", "Transact", "talk, buy, sell", "T"),
@@ -91,9 +92,9 @@ PLACES: tuple[tuple[str, str, tuple[int, int, int]], ...] = (
 
 #: One line per spell, from the rules as combat/magic.py works them.
 SPELL_EFFECTS: dict[Spell, str] = {
-    Spell.REPOND: "Slays orcs; one try per fight, half the time",
+    Spell.REPOND: "Kills orcs 3 in 4; half the time, one try a fight",
     Spell.MITTAR: "Bolt for 16-31 or 48-56 damage",
-    Spell.LORUM: "Light for at least 10 turns",
+    Spell.LORUM: "Light for 10 turns, unless a longer light is lit",
     Spell.DOR_ACRON: "Down one level (not from the lowest)",
     Spell.SUR_ACRON: "Up one level; from the top, out",
     Spell.FULGAR: "Bolt for 75 damage",
@@ -107,10 +108,10 @@ SPELL_EFFECTS: dict[Spell, str] = {
     Spell.DAG_MENTAR: "Twice the caster's INT to each foe, 3 in 4",
     Spell.NECORP: "Every monster drops to 5 HP",
     Spell.UNSPEAKABLE: "Kills each foe, 3 times in 4",
-    Spell.PONTORI: "Slays skeletons; one try per fight, half the time",
+    Spell.PONTORI: "Kills skeletons 3 in 4; half the time, one try a fight",
     Spell.APPAR_UNEM: "Opens a chest untrapped; fails 1 time in 4",
     Spell.SANCTU: "Heals one member 10-30 HP",
-    Spell.LUMINAE: "Light for at least 10 turns",
+    Spell.LUMINAE: "Light for 10 turns, unless a longer light is lit",
     Spell.REC_SU: "Up one level; from the top, out",
     Spell.REC_DU: "Down one level (not from the lowest)",
     Spell.LIB_REC: "To a random spot on this level",

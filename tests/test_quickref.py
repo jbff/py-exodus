@@ -34,9 +34,26 @@ def _flags(letter: str) -> str:
 
 
 def _letters_in(func) -> set[str]:
-    """The single letters a handler tests with ``pygame.K_<x>``."""
+    """The letters a handler's dispatch tests as ``event.key == pygame.K_x``
+    or ``event.key in (... pygame.K_x ...)``; range checks such as
+    ``pygame.K_a <= event.key <= pygame.K_z`` do not count."""
     src = inspect.getsource(func)
-    return {m.upper() for m in re.findall(r"pygame\.K_([a-z])\b", src)}
+    found = set(re.findall(r"event\.key == pygame\.K_([a-z])\b", src))
+    for group in re.findall(r"event\.key in \(([^)]*)\)", src):
+        found |= set(re.findall(r"pygame\.K_([a-z])\b", group))
+    return {m.upper() for m in found}
+
+
+def test_letters_in_ignores_range_checks():
+    def handler(event):
+        if pygame.K_a <= event.key <= pygame.K_z:
+            pass
+        if event.key == pygame.K_q:
+            pass
+        elif event.key in (pygame.K_SPACE, pygame.K_p):
+            pass
+
+    assert _letters_in(handler) == {"Q", "P"}
 
 
 # --- the command table ------------------------------------------------------
@@ -89,6 +106,30 @@ def test_town_q_refuses(pygame_setup, asset_mgr):
     assert any("Cannot save here!" in m for m in _log(t))
 
 
+def _dungeon(asset_mgr):
+    from py_exodus.screens.dungeon_screen import DungeonScreen
+    from py_exodus.world.dungeon import DungeonMap, DungeonTile
+
+    dmap = DungeonMap(id=98, name="Test", width=16, height=16, levels=8)
+    dmap.tiles = [[[DungeonTile.NOTHING] * 16 for _y in range(16)] for _z in range(8)]
+    ds = DungeonScreen(party=_party(), dungeon_map=dmap, asset_mgr=asset_mgr)
+    ds.state.random_encounters_enabled = False
+    return ds
+
+
+def test_dungeon_flags_match_real_key_presses(pygame_setup, asset_mgr):
+    """Each letter pressed in a real dungeon: "NOT A DNG CMD!" (refused)
+    or "Pass" (the unhandled tail) means no D flag; anything else is a
+    dungeon command."""
+    for ch in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
+        ds = _dungeon(asset_mgr)
+        before = len(ds.text_log.history)
+        _key(ds, getattr(pygame, f"K_{ch.lower()}"), ch.lower())
+        new = ds.text_log.history[before:]
+        refused = "NOT A DNG CMD!" in new or new == ["Pass"]
+        assert ("D" in _flags(ch)) == (not refused), (ch, new)
+
+
 def test_dungeon_flags_match_the_dungeon_handler():
     from py_exodus.screens.dungeon_screen import _NOT_DNG_CMD_KEYS, DungeonScreen
 
@@ -98,6 +139,41 @@ def test_dungeon_flags_match_the_dungeon_handler():
     for ch in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
         accepted = ch in handled and ch not in refused
         assert ("D" in _flags(ch)) == accepted, ch
+
+
+def _combat(asset_mgr):
+    from py_exodus.constants import Profession
+    from py_exodus.entities.character import Character
+    from py_exodus.entities.party import Party
+    from py_exodus.screens.combat_screen import CombatScreen
+    from py_exodus.world.loader import MapLoader
+
+    p = Party()
+    for n in ("A", "B"):
+        p.add_member(Character(name=n, profession=Profession.FIGHTER, hp=200, max_hp=300, food=150))
+    cm = MapLoader(asset_mgr).load_conflict_map("CNFLCT_A.ULT")
+    return CombatScreen(party=p, combat_map=cm, creature_tile="orc", asset_mgr=asset_mgr, monster_count=1)
+
+
+def test_combat_flags_match_real_key_presses(pygame_setup, asset_mgr):
+    """Each letter pressed in a real fight: a combat command answers (a
+    line, a prompt, Ztats or the next member's turn); any other letter
+    does nothing at all."""
+    for ch in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
+        cs = _combat(asset_mgr)
+        before = list(cs.text_log.history)
+        member = cs.arena.active_party_member_idx
+        _key(cs, getattr(pygame, f"K_{ch.lower()}"), ch.lower())
+        acted = (
+            cs.text_log.history != before
+            or cs.text_log.is_waiting_for_input
+            or cs.stats_panel.inspect_index is not None
+            or cs.arena.active_party_member_idx != member
+        )
+        if ch == "P":  # a second pass key, on the Pass row
+            assert acted
+            continue
+        assert ("C" in _flags(ch)) == acted, ch
 
 
 def test_combat_flags_match_the_combat_handler():
@@ -118,7 +194,7 @@ def test_combat_flags_match_the_combat_handler():
 def test_every_spell_has_a_one_line_effect():
     assert set(SPELL_EFFECTS) == set(Spell)
     for sp, text in SPELL_EFFECTS.items():
-        assert text and "\n" not in text and len(text) <= 52, sp
+        assert text and "\n" not in text and len(text) <= 56, sp
 
 
 def test_spell_where_follows_the_location_mask():
@@ -266,8 +342,19 @@ def test_cards_render(pygame_setup, size, card):
     sm, game = _sm()
     sm.push_screen(QuickRefScreen(card=card))
     surf = pygame.Surface(size)
+    surf.fill((0, 0, 255))
+    game.render = lambda s: s.fill((0, 0, 255))  # a plain blue game screen
     sm.render(surf)
-    assert surf.get_at((size[0] // 2, size[1] // 2)) is not None
+    w, h = size
+    # Outside the card: the game, dimmed (darker than the blue).
+    corner = surf.get_at((1, 1))
+    assert corner.b < 255 and corner.b > 0
+    # Inside the card: the card's own background, not the backdrop.
+    inside = surf.get_at((w // 2, h - h // 6))
+    assert (inside.r, inside.g, inside.b) != (corner.r, corner.g, corner.b)
+    # Text was drawn: the card holds more than two colours.
+    colours = {tuple(surf.get_at((x, y))) for x in range(0, w, 3) for y in range(h // 6, h - h // 6, 3)}
+    assert len(colours) > 10
 
 
 def test_commands_rows_fit_their_column(pygame_setup):
@@ -299,3 +386,66 @@ def _log(screen) -> list[str]:
     tl = screen.text_log
     msgs = getattr(tl, "messages", None) or getattr(tl, "lines", None) or []
     return [str(m) for m in msgs]
+
+
+# --- review fixes -----------------------------------------------------------
+
+
+_POLL = 5 / 60
+
+
+def test_closing_a_card_in_combat_restarts_the_member_wait(pygame_setup, asset_mgr):
+    """The card is its own wait: back in the fight the member's 46-poll
+    count starts afresh, so closing the card never passes at once."""
+    from py_exodus.screens.combat_screen import COMBAT_PASS_POLLS
+
+    cs = _combat(asset_mgr)
+    sm = StateMachine(asset_mgr=asset_mgr, initial_screen=cs)
+    passes = lambda: sum(1 for m in cs.text_log.history if m == "Pass")  # noqa: E731
+    for _ in range(COMBAT_PASS_POLLS - 2):
+        sm.update(_POLL)
+    _key(sm, pygame.K_F3)
+    assert isinstance(sm.current_screen, QuickRefScreen)
+    for _ in range(200):
+        sm.update(_POLL)
+    _key(sm, pygame.K_ESCAPE)
+    assert sm.current_screen is cs
+    for _ in range(5):
+        sm.update(_POLL)
+    assert passes() == 0
+
+
+@pytest.mark.parametrize("card_kind", ["quickref", "book"])
+def test_autoplay_never_types_into_a_card_or_the_book(pygame_setup, asset_mgr, card_kind):
+    from py_exodus.autoplay.controller import AutoPlayController
+    from py_exodus.screens.book import BookScreen
+
+    sm, game = _sm()
+    sm.party = None
+    if card_kind == "quickref":
+        _key(sm, pygame.K_F3)
+        top = sm.current_screen
+        assert isinstance(top, QuickRefScreen)
+    else:
+        top = BookScreen(return_screen=game, manager=sm)
+        sm.push_screen(top)
+    ctrl = AutoPlayController(enabled=True)
+    ctrl._key_queue.extend([pygame.K_a, pygame.K_RETURN])
+    for _ in range(5):
+        assert ctrl.step(sm) is None
+    assert sm.current_screen is top
+    assert list(ctrl._key_queue) == [pygame.K_a, pygame.K_RETURN]
+
+
+def test_spell_lines_say_what_the_rules_do():
+    assert "3 in 4" in SPELL_EFFECTS[Spell.REPOND] and "orcs" in SPELL_EFFECTS[Spell.REPOND]
+    assert "3 in 4" in SPELL_EFFECTS[Spell.PONTORI] and "skeletons" in SPELL_EFFECTS[Spell.PONTORI]
+    for sp in (Spell.REPOND, Spell.PONTORI):
+        assert "half the time" in SPELL_EFFECTS[sp] and "one try" in SPELL_EFFECTS[sp]
+    for sp in (Spell.LORUM, Spell.LUMINAE):
+        assert SPELL_EFFECTS[sp] == "Light for 10 turns, unless a longer light is lit"
+
+
+def test_q_says_sosaria_only():
+    q = next(c for c in COMMANDS if c.key == "Q")
+    assert q.where == "S" and "Sosaria only" in q.desc

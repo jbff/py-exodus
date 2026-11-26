@@ -558,6 +558,11 @@ class AutoPlayController:
             return None
 
         screen_name = type(screen).__name__
+        # The Book or a quick-reference card is up over the game (the player
+        # opened it): nothing is typed into it, and the queued keys wait for
+        # the game screen to come back.
+        if screen_name in ("BookScreen", "QuickRefScreen"):
+            return None
         if screen_name == "FinalScreen":
             self._key_queue.clear()
             return None

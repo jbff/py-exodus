@@ -169,6 +169,10 @@ class CombatScreen(BaseScreen):
 
     def on_enter(self) -> None:
         super().on_enter()
+        # Back from the Book or a quick-reference card: the member's command
+        # wait starts its count afresh (UltimaSpellCombat.c:938), as after
+        # any key; the key that opened the card never reached this screen.
+        self._reset_idle()
         if self.audio is not None:
             self.audio.play_music("combat")
 
