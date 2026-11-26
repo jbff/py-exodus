@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Reset saves/party.json and restore the optimal Level 1 starter roster."""
+"""Reset the save (party.json) and restore the optimal Level 1 starter roster,
+in the game's save folder (py_exodus.paths.save_dir)."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -16,8 +17,10 @@ from py_exodus.save_system import SaveSystem
 
 
 def reset_new_game(saves_dir: Path | None = None) -> None:
-    """Remove saves/party.json and write a fresh optimal 4-member roster."""
-    target_dir = saves_dir or (ROOT / "saves")
+    """Remove party.json and write a fresh optimal 4-member roster."""
+    from py_exodus.paths import save_dir
+
+    target_dir = saves_dir or save_dir()
     target_dir.mkdir(parents=True, exist_ok=True)
 
     party_file = target_dir / "party.json"

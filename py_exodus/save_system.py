@@ -82,8 +82,6 @@ def _unwrap_save(raw: Any, path: str | Path) -> Any:
     return raw
 
 
-#: The one save slot (LairWare's single game; user ruling 2026-11-25).
-PARTY_SAVE_PATH = "saves/party.json"
 
 
 def autosave_allowed(manager: Any) -> bool:
@@ -103,16 +101,16 @@ def autosave_allowed(manager: Any) -> bool:
     )
 
 
-#: The roster file (LairWare's 20 roster records, PutRoster).
-ROSTER_SAVE_PATH = "saves/roster.json"
-
-
-def sync_roster(party: Any, path: str | Path = ROSTER_SAVE_PATH) -> None:
+def sync_roster(party: Any, path: str | Path | None = None) -> None:
     """LairWare PutRoster with PutParty (UltimaMisc.c:709-755): write each
     party member into its own roster record (``roster_slot``), as dispersing
     the party does, so the roster never holds a stale copy (a wiped party
     lies dead there too). Members without a slot (saves from before slots)
     are left out; nothing is written when no member has one."""
+    if path is None:
+        from py_exodus.paths import roster_save_path
+
+        path = roster_save_path()
     members = [
         getattr(m, "character", m)
         for m in getattr(party, "members", ())

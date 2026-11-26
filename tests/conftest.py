@@ -4,6 +4,13 @@ import pygame
 from py_exodus.assets import AssetManager
 
 
+@pytest.fixture(autouse=True)
+def _saves_stay_in_the_test_dir(monkeypatch):
+    """Saves go to ``saves/`` under the current directory (tests chdir to
+    tmp_path), never the player's per-user save folder."""
+    monkeypatch.setenv("PY_EXODUS_SAVE_DIR", "saves")
+
+
 @pytest.fixture(scope="module")
 def pygame_setup():
     """Ensure pygame is initialized once for test session."""

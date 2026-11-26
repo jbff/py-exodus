@@ -58,7 +58,7 @@ python3 -m py_exodus
 - **`F9`:** Full Autoplay on or off. `[` slows it down and `]` speeds it up.
 - **`F10`:** the debug menu, with `--debug` only. Its cheats include a free Peer: `P` shows the map anywhere, for no gem.
 
-Saving follows LairWare's classic AutoSave, with one save slot. The game saves when you enter or leave a town, castle or dungeon, on the whirlpool trip, and when a member dies. `Q` also saves, on Sosaria only. Nothing is saved while autoplay is on, or after the ending.
+Saving follows LairWare's classic AutoSave, with one save slot. Saves live in your user data folder: `%APPDATA%\py-exodus` on Windows, `~/Library/Application Support/py-exodus` on macOS, `~/.local/share/py-exodus` on Linux (set `PY_EXODUS_SAVE_DIR` to use another). A source checkout's old `saves/` folder is copied there the first time you play. The game saves when you enter or leave a town, castle or dungeon, on the whirlpool trip, and when a member dies. `Q` also saves, on Sosaria only. Nothing is saved while autoplay is on, or after the ending.
 
 ## Autoplay
 
@@ -100,7 +100,7 @@ uv run python -m py_exodus.autoplay.batch --seeds 0-99 --workers 2 --out-dir tra
 uv run python -m pytest
 ```
 
-There are **2,454 tests**. They cover the mechanics, parity with LairWare, Java and the Game Boy Color port, the shops, the dungeons, combat, rendering and autoplay. Most autoplay fixes come with a test that fails on the old code.
+There are **2,458 tests**. They cover the mechanics, parity with LairWare, Java and the Game Boy Color port, the shops, the dungeons, combat, rendering and autoplay. Most autoplay fixes come with a test that fails on the old code.
 
 ---
 

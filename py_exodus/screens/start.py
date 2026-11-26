@@ -196,7 +196,9 @@ class StartScreen(BaseScreen):
         try:
             from py_exodus.save_system import SaveSystem
 
-            json_p = Path("saves/party.json")
+            from py_exodus.paths import party_save_path
+
+            json_p = party_save_path()
             if json_p.exists():
                 # Java reads the whole SaveGame record (party + per-map
                 # objects/monsters, Context.java:138-193); the screen extras
@@ -284,7 +286,9 @@ class StartScreen(BaseScreen):
         try:
             from py_exodus.save_system import SaveSystem
 
-            path = Path("saves/party.json")
+            from py_exodus.paths import party_save_path
+
+            path = party_save_path()
             if not path.exists():
                 return None
             party = Party.from_dict(SaveSystem.load_game_data(path))

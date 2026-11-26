@@ -242,6 +242,10 @@ def main(argv: list[str] | None = None) -> None:
                 print(f"Unknown tile set: {args.tiles}")
             print("Tile sets: " + tileset_listing())
             sys.exit(0 if args.tiles.lower() == "list" else 2)
+    from py_exodus.paths import migrate_legacy_saves
+
+    for copied in migrate_legacy_saves():
+        print(f"Copied your save to {copied}")
     app = GameApp(autoplay=args.autoplay, trace=args.trace, tiles=args.tiles)
     try:
         app.run()

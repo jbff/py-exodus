@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 import pygame
 
+from py_exodus.paths import party_save_path, roster_save_path, save_dir
 from py_exodus.constants import (
     ArmorType,
     Profession,
@@ -130,7 +131,7 @@ class RosterScreen(BaseScreen):
         from py_exodus.save_system import SaveSystem
 
         candidates = [
-            Path("saves/roster.json"),
+            roster_save_path(),
             Path("assets/data/roster.json"),
         ]
         for c in candidates:
@@ -288,9 +289,9 @@ class RosterScreen(BaseScreen):
         try:
             from py_exodus.save_system import SaveSystem
 
-            Path("saves").mkdir(parents=True, exist_ok=True)
-            SaveSystem.save_roster(self.roster, "saves/roster.json")
-            Path("saves/party.json").unlink(missing_ok=True)
+            save_dir().mkdir(parents=True, exist_ok=True)
+            SaveSystem.save_roster(self.roster, roster_save_path())
+            party_save_path().unlink(missing_ok=True)
         except Exception:
             pass
         if self.audio is not None:
@@ -380,12 +381,12 @@ class RosterScreen(BaseScreen):
         which the Party defaults already carry."""
         from py_exodus.save_system import SaveSystem
 
-        Path("saves").mkdir(parents=True, exist_ok=True)
+        save_dir().mkdir(parents=True, exist_ok=True)
         # A party in use is already saved, with its world; writing it again
         # from here would drop the world (user ruling Q2).
         if not self.party_formed:
-            SaveSystem.save_game(self.party, "saves/party.json")
-        SaveSystem.save_roster(self.roster, "saves/roster.json")
+            SaveSystem.save_game(self.party, party_save_path())
+        SaveSystem.save_roster(self.roster, roster_save_path())
 
     def _save_party_formations(self) -> None:
         """Save the formed party and roster, then return to the title screen.

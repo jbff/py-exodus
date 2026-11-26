@@ -614,7 +614,9 @@ class AutoPlayController:
         return None
 
     def _step_start(self, state_machine: StateMachine) -> int:
-        save_path = Path("saves/party.json")
+        from py_exodus.paths import party_save_path
+
+        save_path = party_save_path()
         if save_path.exists():
             return self._emit_key(state_machine, pygame.K_j)
         return self._emit_key(state_machine, pygame.K_2)

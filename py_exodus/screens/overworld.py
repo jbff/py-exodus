@@ -2521,8 +2521,8 @@ class OverworldScreen(BaseScreen):
         with the Sosaria map it left (GoWhirlPool's own save). Silent, and
         only in the player's own game (``save_system.autosave_allowed``).
         """
+        from py_exodus.paths import party_save_path
         from py_exodus.save_system import (
-            PARTY_SAVE_PATH,
             SaveSystem,
             autosave_allowed,
             sync_roster,
@@ -2544,7 +2544,7 @@ class OverworldScreen(BaseScreen):
         # A Sosaria record is on the surface, even from inside a dungeon.
         extra["dungeon_level"] = 0
         try:
-            SaveSystem.save_game(self.party, PARTY_SAVE_PATH, extra=extra)
+            SaveSystem.save_game(self.party, party_save_path(), extra=extra)
             # PutRoster goes with every PutParty (UltimaMain.c:1490, 2803,
             # 3051, 3100, 3261; UltimaMisc.c:1344).
             sync_roster(self.party)
@@ -2578,11 +2578,12 @@ class OverworldScreen(BaseScreen):
         """
         if getattr(self.game_map, "id", None) == 0:
             try:
-                from py_exodus.save_system import PARTY_SAVE_PATH, SaveSystem
+                from py_exodus.paths import party_save_path
+                from py_exodus.save_system import SaveSystem
 
                 SaveSystem.save_game(
                     self.party,
-                    PARTY_SAVE_PATH,
+                    party_save_path(),
                     extra={"overworld": {"monsters": self._monster_block(self.creatures)}},
                 )
                 self.text_log.add_message("Saved Game.")
