@@ -304,6 +304,46 @@ def _monster_lined_up_dir(
     return Direction.WEST if best.x < px else Direction.EAST
 
 
+def _line_up_step(
+    arena: CombatArena,
+    member_idx: int,
+    px: int,
+    py: int,
+    monsters: list[CombatMonster],
+) -> Direction | None:
+    """First step to the nearest square that shares a row or column with a
+    living monster (user ruling 2026-11-25, brief item A): a Mittar caster
+    with nothing lined up walks there and casts, since the bolt flies over
+    walls and the rail (LW Shoot, UltimaSpellCombat.c:708-731). The square
+    is walkable and free; one no monster stands next to (any of its 8
+    neighbours) wins over a nearer one beside a monster. ``None`` when no
+    such square can be reached: the caller keeps today's moves, so a caster
+    never paces."""
+    if not monsters:
+        return None
+    visited: set[tuple[int, int]] = {(px, py)}
+    queue: deque[tuple[int, int, Direction]] = deque()
+    for d in _CARDINAL_DIRS:
+        nx, ny = px + d.dx, py + d.dy
+        if _is_walkable_unoccupied(arena, member_idx, nx, ny):
+            visited.add((nx, ny))
+            queue.append((nx, ny, d))
+    nearest_any: Direction | None = None
+    while queue:
+        cx, cy, first_dir = queue.popleft()
+        if _monster_lined_up_dir(cx, cy, monsters) is not None:
+            if not _monster_can_attack(monsters, cx, cy):
+                return first_dir
+            if nearest_any is None:
+                nearest_any = first_dir
+        for d in _CARDINAL_DIRS:
+            nx, ny = cx + d.dx, cy + d.dy
+            if (nx, ny) not in visited and _is_walkable_unoccupied(arena, member_idx, nx, ny):
+                visited.add((nx, ny))
+                queue.append((nx, ny, first_dir))
+    return nearest_any
+
+
 def _find_ranged_attack_dir(
     arena: CombatArena,
     px: int,
@@ -415,6 +455,18 @@ def choose_auto_combat_action(
     # when no living member has 50 HP or more.
     if getattr(member, "hp", 0) < NEARLY_DEAD_HP and _someone_else_can_fight(arena, member_idx):
         return Action.pass_turn()
+
+    # Brief item A (user ruling 2026-11-25): a Mittar caster with nothing
+    # lined up steps toward the nearest square that lines one up (its bolt
+    # flies over walls), rather than closing on the nearest monster: a Man-
+    # O-War beside the hull is never reached that way. No such square:
+    # the moves below, as before.
+    if can_cast_mittar:
+        line_dir = _line_up_step(
+            arena, member_idx, px, py, [m for m in arena.monsters if not m.is_dead]
+        )
+        if line_dir is not None:
+            return Action.move(line_dir)
 
     # Advance toward nearest visible living monster.
     # For melee fighters, prefer BFS shortest path first so obstacles (like ship masts)

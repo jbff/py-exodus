@@ -90,7 +90,7 @@ A Python 3 / Pygame-CE reimplementation of *Ultima III: Exodus*, with **Auto-Com
 
 ## Auto-Combat (`TAB`)
 
-Borrowed in concept from the LairWare port: **`TAB`** (or `F2`) during any battle toggles tactical Auto-Combat. Each living member picks healing and cures when needed, offensive magic, or ranged/melee attacks; you can take back control at any moment. As in LairWare, a Wizard, Lark, Alchemist, Druid or Ranger with 5+ MP and no Bow +2 or +4 never melees: it casts Mittar at the nearest living monster on its row or column (seen or hidden), at any range and next to it too, and otherwise moves to line one up. The rest follows LairWare too (user rulings 2026-11-25), in classic mode (rows and columns, no diagonals):
+Borrowed in concept from the LairWare port: **`TAB`** (or `F2`) during any battle toggles tactical Auto-Combat. Each living member picks healing and cures when needed, offensive magic, or ranged/melee attacks; you can take back control at any moment. As in LairWare, a Wizard, Lark, Alchemist, Druid or Ranger with 5+ MP and no Bow +2 or +4 never melees: it casts Mittar at the nearest living monster on its row or column (seen or hidden), at any range and next to it too, and otherwise walks to the nearest square that lines one up (the bolt flies over walls and a ship's rail), one no monster stands next to if it can; with no such square in reach it moves as before. The rest follows LairWare too (user rulings 2026-11-25), in classic mode (rows and columns, no diagonals):
 - **Flee**: a member under 50 HP (whatever its maximum) with a monster on any of its eight neighbouring squares steps south, west, east or north, the first free square no monster neighbours; with none, it fights. While under 50 HP it never walks back toward a monster: it attacks or shoots only what it can reach from where it stands, and otherwise passes. The last living member never flees and still closes in, and so does every member when nobody alive has 50 HP or more.
 - **Healing**: a Cleric, Paladin, Illusionist, Druid or Ranger with 10+ MP casts Sanctu (never Sanctu Mani) on the living member with the lowest HP, only when that HP is under 75. Healing outside combat is unchanged.
 - **Missiles**: a sling or bow (+2 and +4 too) shoots the nearest monster on its row or column, at any range, next to it too. A dagger is a hand weapon in Auto-Combat and is never thrown.
@@ -174,7 +174,7 @@ Each seed prints `WON@<steps>`, `WIPED@<steps>` or `STEP_CAP@<steps>`. A trace r
 uv run python -m pytest
 ```
 
-**2,051 tests** covering mechanics, LairWare/Java/GBC parity, vendors, dungeons, combat, rendering and autoplay regressions (most autoplay fixes come with a test that fails on the old code).
+**2,054 tests** covering mechanics, LairWare/Java/GBC parity, vendors, dungeons, combat, rendering and autoplay regressions (most autoplay fixes come with a test that fails on the old code).
 
 ---
 
