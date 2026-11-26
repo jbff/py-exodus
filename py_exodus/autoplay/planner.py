@@ -408,6 +408,24 @@ def gold_has_a_use(party: Party) -> bool:
     return not has_all_cards or return_trip_cost(party) > 0
 
 
+def optional_purchase_ok(party: Party, price: int) -> bool:
+    """An optional purchase (the spare Bow, item B) leaves the 500 gold
+    resurrection reserve, and never takes the party from over the target it
+    is saving for (the first Ambrosia trip, or a return trip for stats)
+    back under it: a party that already holds a trip's gold sails, and
+    doesn't raid again. Under the target it only delays the raid's end, once."""
+    after = party.gold - price
+    if after < 500:
+        return False
+    if gold_has_a_use(party):
+        living = [m for m in party.members if not m.is_dead()]
+        has_all_cards = all(any(m.cards[i] > 0 for m in living) for i in range(4))
+        target = return_trip_gold(party) if has_all_cards else ambrosia_trip_gold(party)
+        if party.gold >= target > after:
+            return False
+    return True
+
+
 def needs_shrine_stats(party: Party) -> bool:
     """>= 500 gold (worth staying on Ambrosia for) and a plan step left."""
     if party.gold < 500:

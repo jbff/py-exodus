@@ -872,3 +872,20 @@ def test_dire_poison_stays_in_cure_mode_up_the_ladder(am):
     assert all(m.status == Status.GOOD for m in party.members), zs
     assert zs == sorted(zs, reverse=True), zs
     assert waits_on_z3 == 0
+
+
+def test_a_spare_bow_held_after_a_fight_is_put_away_in_a_dungeon(am):
+    """Brief item B (user ruling 2026-11-25): a fight down here can end with
+    the Fighter's spare Bow readied; the next dungeon step readies its
+    Exotic again (R, member 2, P), so the next fight starts with it."""
+    party = _party()
+    fighter = party.members[1]
+    fighter.weapons[WeaponType.BOW] = 1
+    assert fighter.ready_weapon(WeaponType.BOW, am)
+    sm, ds = _dungeon(am, party, FIRE, (13, 5, 1))
+    ctrl = AutoPlayController(enabled=True)
+    assert ctrl.step(sm) == pygame.K_r
+    for _ in range(3):
+        ctrl.step(sm)
+    assert fighter.weapon == WeaponType.EXOTIC
+    assert fighter.weapons[WeaponType.BOW] == 1

@@ -1433,15 +1433,21 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
     ow_s.creatures = [{"x": 52, "y": 17, "tile_name": "whirlpool"}]
     assert ctrl.step(sm) == pygame.K_DOWN
 
-    # Ranged bows beat Exotic while prefer_ranged=True; Wizard/Cleric equip Exotic immediately; CONQUER_EXODUS switches to Exotic
+    # Magic bows beat Exotic while prefer_ranged=True; Wizard/Cleric equip Exotic immediately; CONQUER_EXODUS switches to Exotic
     from py_exodus.autoplay.equipment import best_owned_weapon
 
     fighter = Character("F", "M", Race.HUMAN, Profession.FIGHTER)
-    fighter.weapon = WeaponType.BOW
-    fighter.weapons[WeaponType.BOW] = 1
+    fighter.weapon = WeaponType.BOW_P2
+    fighter.weapons[WeaponType.BOW_P2] = 1
     fighter.weapons[WeaponType.EXOTIC] = 1
     assert best_owned_weapon(fighter, prefer_ranged=True) is None
     assert best_owned_weapon(fighter, prefer_ranged=False) == WeaponType.EXOTIC
+    # A plain Bow is the Exotic holder's spare (user ruling 2026-11-25,
+    # unreachable fights): the Exotic is readied in either mode.
+    fighter.weapon = WeaponType.BOW
+    fighter.weapons[WeaponType.BOW] = 1
+    fighter.weapons[WeaponType.BOW_P2] = 0
+    assert best_owned_weapon(fighter, prefer_ranged=True) == WeaponType.EXOTIC
 
     wiz = Character("W", "M", Race.FUZZY, Profession.WIZARD)
     wiz.weapon = WeaponType.DAGGER

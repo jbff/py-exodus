@@ -13,6 +13,9 @@ import pygame
 
 from py_exodus.autoplay.equipment import (
     excess_gear,
+    SPARE_BOW,
+    SPARE_BOW_PRICE,
+    spare_bow_purchase,
     best_hand_transfer,
     hand_item,
     best_owned_armor,
@@ -38,6 +41,7 @@ from py_exodus.autoplay.planner import (
     SHRINE_RESERVE,
     alcort_wisdom_gap,
     gold_has_a_use,
+    optional_purchase_ok,
     next_shrine_goal,
     needs_heal,
     TOWN_REST_BELOW_PCT,
@@ -213,6 +217,8 @@ _SHOP_TOWNS: dict[int, tuple[int, int, tuple[int, int], tuple[int, int]]] = {
 
 # Sell talks per town visit at most: a refused sale can't loop the party.
 _SELL_TALKS_PER_VISIT = 12
+# Spare-Bow talks per town visit at most (item B), for the same reason.
+_BOW_TALKS_PER_VISIT = 4
 
 # Towns with Guild shops reachable on foot: map_id -> (portal_x, portal_y, guild_stand_xy)
 # Every guild sells a torches, b gems, c keys, d powder; the stand is two
@@ -618,6 +624,23 @@ class AutoPlayController:
 
         dmap = getattr(screen, "dungeon_map", None) or getattr(screen, "dmap", None) or screen.state.dmap
         goal = evaluate_goal(party, map_id=self._screen_map_id(screen, party))
+
+        # A fight in here can end with a member's spare Bow readied (brief
+        # item B, user ruling 2026-11-25): ready the Exotic again first. On
+        # the surface and in towns ``_maybe_manage_gear`` does it.
+        bow_idx = next(
+            (
+                i + 1
+                for i, m in enumerate(party.members)
+                if not m.is_dead() and best_owned_weapon(m) == WeaponType.EXOTIC
+                and m.weapon == SPARE_BOW
+            ),
+            None,
+        )
+        if bow_idx is not None:
+            letter = chr(ord("a") + list(WeaponType).index(WeaponType.EXOTIC))
+            self._queue_text(f"{bow_idx}{letter}", enter=False)
+            return self._emit_key(state_machine, pygame.K_r)
 
         # On a mark that a living member still needs: pass a turn, and the
         # rod asks again (S is not a dungeon command, UltimaDngn.c:152).
@@ -1224,25 +1247,11 @@ class AutoPlayController:
             and (goal == Goal.OUTFIT_BRITAIN or map_id == 11)
             and getattr(self, "_food_shop_target", None) is None
         ):
-            _, _, wep_xy, arm_xy = _SHOP_TOWNS[map_id]
             upgrade = best_shop_upgrade(party, include_wizard_dagger=True, include_dawn=(map_id == 11))
             if upgrade is not None and (not upgrade.dawn_only or map_id == 11):
-                buyer = party.members[upgrade.member_idx - 1]
-                if buyer.gold < upgrade.price:
-                    self._join_gold_member_idx = upgrade.member_idx
-                    return self._emit_key(state_machine, pygame.K_j)
-                stand_xy = self._shop_spot(gmap, (px, py), wep_xy if upgrade.kind == "weapon" else arm_xy)
-                if (px, py) == stand_xy:
-                    self._shop_member_idx = upgrade.member_idx
-                    self._shop_item_letter = upgrade.item_letter
-                    self._talk_dir_key = self._direction_to_npc(gmap, px, py)
-                    return self._emit_key(state_machine, pygame.K_t)
-                d = find_2d_step(
-                    gmap, (px, py), stand_xy, Transport.FOOT, party=party,
-                    avoid_tiles=npc_tiles, prefer_paths=True,
-                )
-                if d is not None:
-                    return self._emit_key(state_machine, _DIR_TO_KEY[d])
+                key = self._buy_upgrade(state_machine, gmap, party, map_id, px, py, npc_tiles, upgrade)
+                if key is not None:
+                    return key
 
         if map_id in _GUILD_TOWNS and goal in (Goal.BUY_KEYS, Goal.BUY_TORCHES):
             _, _, guild_xy = _GUILD_TOWNS[map_id]
@@ -1382,6 +1391,24 @@ class AutoPlayController:
         key = self._sell_spare_gear(state_machine, screen, gmap, party, map_id, px, py, npc_tiles)
         if key is not None:
             return key
+
+        # Item B (user ruling 2026-11-25): the spare plain Bow, on the way out
+        # of any town with a weapon shop the party came to anyway (never a
+        # trip of its own), with gold the plan isn't saving.
+        if (
+            map_id in _SHOP_TOWNS
+            and goal not in (Goal.BUY_FOOD, Goal.RESURRECT_DEAD, Goal.CURE_POISON)
+            and optional_purchase_ok(party, SPARE_BOW_PRICE)
+        ):
+            if self._bow_visit != id(screen):
+                self._bow_visit, self._bow_talks = id(screen), 0
+            upgrade = spare_bow_purchase(party)
+            if upgrade is not None and self._bow_talks < _BOW_TALKS_PER_VISIT:
+                key = self._buy_upgrade(state_machine, gmap, party, map_id, px, py, npc_tiles, upgrade)
+                if key == pygame.K_t:
+                    self._bow_talks += 1
+                if key is not None:
+                    return key
 
         if roam_danger and not roamers_ok:
             # No goal route kept clear of a roaming hostile: try once more
@@ -1556,6 +1583,31 @@ class AutoPlayController:
     _sell_asked = False
     _sell_visit: int | None = None
     _sell_talks = 0
+
+    _bow_visit: int | None = None
+    _bow_talks = 0
+
+    def _buy_upgrade(self, state_machine, gmap, party, map_id, px, py, npc_tiles, upgrade) -> int | None:
+        """Pool gold to the buyer, walk to the shop's counter and Transact
+        for ``upgrade``; ``None`` when the counter can't be reached."""
+        _, _, wep_xy, arm_xy = _SHOP_TOWNS[map_id]
+        buyer = party.members[upgrade.member_idx - 1]
+        if buyer.gold < upgrade.price:
+            self._join_gold_member_idx = upgrade.member_idx
+            return self._emit_key(state_machine, pygame.K_j)
+        stand_xy = self._shop_spot(gmap, (px, py), wep_xy if upgrade.kind == "weapon" else arm_xy)
+        if (px, py) == stand_xy:
+            self._shop_member_idx = upgrade.member_idx
+            self._shop_item_letter = upgrade.item_letter
+            self._talk_dir_key = self._direction_to_npc(gmap, px, py)
+            return self._emit_key(state_machine, pygame.K_t)
+        d = find_2d_step(
+            gmap, (px, py), stand_xy, Transport.FOOT, party=party,
+            avoid_tiles=npc_tiles, prefer_paths=True,
+        )
+        if d is not None:
+            return self._emit_key(state_machine, _DIR_TO_KEY[d])
+        return None
 
     def _sell_spare_gear(self, state_machine, screen, gmap, party, map_id, px, py, npc_tiles) -> int | None:
         """Sell the party's spare weapons and armour (``excess_gear``) to this

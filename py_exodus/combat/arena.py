@@ -91,6 +91,10 @@ class Action:
         return cls(ActionType.PASS)
 
     @classmethod
+    def ready(cls, weapon: WeaponType) -> Action:
+        return cls(ActionType.READY, weapon=weapon)
+
+    @classmethod
     def cast(
         cls,
         spell: Any,
@@ -456,6 +460,13 @@ class CombatArena:
             res = self._handle_player_attack(member_idx, member, cur_pos, act)
         elif act.type == ActionType.CAST:
             res = self._handle_player_cast(member_idx, member, act)
+        elif act.type == ActionType.READY and act.weapon is not None:
+            # Auto-combat's R (brief 2026-11-25): readying a weapon takes the
+            # member's turn, as in LW, and so does a refusal (the screen's
+            # own R prompt passes the turn itself, CombatScreen
+            # _prompt_ready_weapon); the result lines are Java's.
+            ok = member.ready_weapon(act.weapon, self.asset_mgr)
+            res = ActionResult(success=ok, action=act, message="Success!" if ok else "Failed!")
         elif act.type == ActionType.PASS:
             # Java CombatScreen.java:292: the SPACE keypress logs "Pass" —
             # no member named, no turn summary.

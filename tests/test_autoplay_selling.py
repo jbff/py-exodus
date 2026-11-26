@@ -40,14 +40,19 @@ def test_exotic_fighter_sells_old_sword_and_bow_once_melee_for_good():
         if m is not f:
             m.weapon, m.armor = WeaponType.EXOTIC, ArmorType.EXOTIC
     sales = excess_gear(p, ORDINARY_W, ORDINARY_A, prefer_ranged=False)
+    # The one plain Bow is the Exotic holder's spare (user ruling 2026-11-25,
+    # unreachable fights): kept in either mode.
     assert set(sales) == {
         SpareGear(idx, "weapon", WeaponType.SWORD, 1),
-        SpareGear(idx, "weapon", WeaponType.BOW, 1),
         SpareGear(idx, "armor", ArmorType.PLATE, 1),
     }
-    # While ranged is still preferred, the bow beats the Exotic: kept.
     sales = excess_gear(p, ORDINARY_W, ORDINARY_A, prefer_ranged=True)
     assert SpareGear(idx, "weapon", WeaponType.BOW, 1) not in sales
+    # A second Bow is spare gear once every Bow user holds one.
+    f.weapons[WeaponType.BOW] = 2
+    _by_prof(p, Profession.THIEF)[1].weapons[WeaponType.BOW] = 1
+    sales = excess_gear(p, ORDINARY_W, ORDINARY_A, prefer_ranged=False)
+    assert SpareGear(idx, "weapon", WeaponType.BOW, 1) in sales
 
 
 def test_a_piece_another_member_would_use_is_kept():
@@ -152,15 +157,18 @@ def _run(sm, ts, ctrl, until, steps=400):
             break
 
 
-def test_leaving_grey_sells_the_spare_bow(assets, monkeypatch):
+def test_leaving_grey_sells_a_second_bow_and_keeps_the_spare(assets, monkeypatch):
+    """The Exotic holder keeps one plain Bow for unreachable fights (user
+    ruling 2026-11-25); a second one is sold (the Thief has its own)."""
     party = _endgame_party()
     idx, f = _by_prof(party, Profession.FIGHTER)
-    f.weapons[WeaponType.BOW] = 1
+    f.weapons[WeaponType.BOW] = 2
+    _by_prof(party, Profession.THIEF)[1].weapons[WeaponType.BOW] = 1
     f.armors[ArmorType.PLATE] = 1
     sm, ts = _in_grey(assets, monkeypatch, party)
     ctrl = AutoPlayController(enabled=True)
-    _run(sm, ts, ctrl, lambda: f.weapons[WeaponType.BOW] == 0 and f.armors[ArmorType.PLATE] == 0)
-    assert f.weapons[WeaponType.BOW] == 0
+    _run(sm, ts, ctrl, lambda: f.weapons[WeaponType.BOW] == 1 and f.armors[ArmorType.PLATE] == 0)
+    assert f.weapons[WeaponType.BOW] == 1
     assert f.armors[ArmorType.PLATE] == 0
     assert f.gold == 350 + 2500
     assert f.weapon == WeaponType.EXOTIC and f.armor == ArmorType.EXOTIC

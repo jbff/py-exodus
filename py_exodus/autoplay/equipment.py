@@ -160,15 +160,49 @@ def _weapon_score(wt: WeaponType, prefer_ranged: bool) -> int:
     return rank
 
 
+# Brief item B (user ruling 2026-11-25): once a member's weapon is the
+# Exotic, a plain Bow is its spare for fights where nothing can be reached
+# (auto-combat readies it there and readies the Exotic again after).
+SPARE_BOW = WeaponType.BOW
+SPARE_BOW_PRICE = 350  # vendor.xml "f", every weapon shop
+
+
+def owns_exotic_weapon(member: Character) -> bool:
+    return member.weapon == WeaponType.EXOTIC or member.weapons.get(WeaponType.EXOTIC, 0) > 0
+
+
+def has_spare_bow(member: Character) -> bool:
+    return member.weapon == SPARE_BOW or member.weapons.get(SPARE_BOW, 0) > 0
+
+
+def wants_spare_bow(member: Character) -> bool:
+    """The member's weapon is the Exotic (readied, or in the pack while the
+    spare Bow is readied) and it can use a plain Bow."""
+    return (
+        can_use_weapon(member, SPARE_BOW)
+        and owns_exotic_weapon(member)
+        and member.weapon in (WeaponType.EXOTIC, SPARE_BOW)
+    )
+
+
+def _member_weapon_score(member: Character, wt: WeaponType, prefer_ranged: bool) -> int:
+    """``_weapon_score`` for ``member``: a plain Bow never outranks an Exotic
+    the member owns, in either mode, so the Exotic stays its weapon and the
+    Bow its spare (item B)."""
+    if wt == SPARE_BOW and owns_exotic_weapon(member):
+        return WEAPON_RANK[SPARE_BOW]
+    return _weapon_score(wt, prefer_ranged)
+
+
 def best_owned_weapon(member: Character, prefer_ranged: bool = True) -> WeaponType | None:
     """Return the best usable weapon in ``member.weapons`` strictly better than equipped."""
-    cur_rank = _weapon_score(member.weapon, prefer_ranged)
+    cur_rank = _member_weapon_score(member, member.weapon, prefer_ranged)
     best: WeaponType | None = None
     best_rank = cur_rank
     for wt, cnt in member.weapons.items():
         if cnt <= 0 or wt == WeaponType.NONE or not can_use_weapon(member, wt):
             continue
-        r = _weapon_score(wt, prefer_ranged)
+        r = _member_weapon_score(member, wt, prefer_ranged)
         if r > best_rank:
             best = wt
             best_rank = r
@@ -217,7 +251,9 @@ def best_hand_transfer(party: Party, prefer_ranged: bool = True) -> tuple[int, i
             # rank, a spare Exotic went to a bow-armed Fighter on a ship,
             # who kept the bow, so it went back, every step (batch 1c7525f
             # seed 17: 16,500 steps parked handing it to and fro, starved).
-            w_rank = _weapon_score(picked_w, prefer_ranged)
+            # A member's one spare Bow (item B) stays with it.
+            if picked_w == SPARE_BOW and wants_spare_bow(m1) and m1.weapons.get(SPARE_BOW, 0) <= 1:
+                continue
             for j, m2 in enumerate(party.members):
                 if j == i or m2.is_dead():
                     continue
@@ -226,7 +262,11 @@ def best_hand_transfer(party: Party, prefer_ranged: bool = True) -> tuple[int, i
                 # (the dig-site loop: dig exotic, hand it on, dig again...).
                 if m2.weapons.get(picked_w, 0) > 0 or m2.weapon == picked_w:
                     continue
-                if can_use_weapon(m2, picked_w) and w_rank > _weapon_score(m2.weapon, prefer_ranged):
+                if (picked_w == SPARE_BOW and wants_spare_bow(m2)) or (
+                    can_use_weapon(m2, picked_w)
+                    and _member_weapon_score(m2, picked_w, prefer_ranged)
+                    > _member_weapon_score(m2, m2.weapon, prefer_ranged)
+                ):
                     return (i + 1, j + 1)
             continue
 
@@ -368,6 +408,29 @@ def best_shop_upgrade(
     return max(candidates, key=_priority)
 
 
+def spare_bow_purchase(party: Party) -> ShopUpgrade | None:
+    """Item B (user ruling 2026-11-25): the first living member whose
+    weapon is the Exotic, who can use a plain Bow and has none, buys one
+    ("f", 350, every weapon shop). Gold is the caller's test; the planner
+    never makes a trip of it (``best_shop_upgrade`` doesn't offer it)."""
+    for i, m in enumerate(party.members):
+        if (
+            not m.is_dead()
+            and m.weapon == WeaponType.EXOTIC
+            and wants_spare_bow(m)
+            and not has_spare_bow(m)
+        ):
+            return ShopUpgrade(
+                member_idx=i + 1,
+                kind="weapon",
+                item_letter="f",
+                price=SPARE_BOW_PRICE,
+                dawn_only=False,
+                rank_gain=0,
+            )
+    return None
+
+
 @dataclass(frozen=True)
 class SpareGear:
     """One sale: ``count`` of ``item`` from member ``member_idx`` (1-based)."""
@@ -402,8 +465,12 @@ def excess_gear(
     sales: list[SpareGear] = []
 
     def wants_weapon(m: Character, wt: WeaponType) -> bool:
+        # A member's one spare Bow (item B) is kept, never sold.
+        if wt == SPARE_BOW and wants_spare_bow(m) and m.weapon != SPARE_BOW:
+            return True
         return can_use_weapon(m, wt) and any(
-            _weapon_score(wt, mode) > _weapon_score(m.weapon, mode) for mode in modes
+            _member_weapon_score(m, wt, mode) > _member_weapon_score(m, m.weapon, mode)
+            for mode in modes
         )
 
     def wants_armor(m: Character, at: ArmorType) -> bool:

@@ -344,6 +344,97 @@ def _line_up_step(
     return nearest_any
 
 
+# Brief item B (user ruling 2026-11-25): a member whose weapon is the Exotic
+# carries a plain Bow (LW weapon 5, a projectile weapon, UltimaAutocombat.c:
+# 155) for fights where nothing can be reached.
+_SPARE_BOW = WeaponType.BOW
+
+
+def _can_ready(member: Any, wt: WeaponType, asset_mgr: Any) -> bool:
+    """``member`` holds a ``wt`` in its pack and its class may ready it
+    (the test ``Character.ready_weapon`` makes)."""
+    if getattr(member, "weapons", {}).get(wt, 0) <= 0:
+        return False
+    if asset_mgr is not None:
+        w_def = asset_mgr.get_weapon(wt.name.lower())
+        if w_def is not None and not w_def.can_use(member.profession):
+            return False
+    return True
+
+
+def _monster_in_reach(
+    arena: CombatArena, px: int, py: int, monsters: list[CombatMonster]
+) -> bool:
+    """A living monster is next to ``(px, py)`` (a cardinal side, where a
+    hand weapon strikes, A-13) or a walk over open ground leads to a square
+    next to one. Members are no obstacle (they move); monsters are."""
+    if not monsters:
+        return False
+    occupied = {(m.x, m.y) for m in monsters}
+    goals = {(m.x + d.dx, m.y + d.dy) for m in monsters for d in _CARDINAL_DIRS}
+    width, height = arena.combat_map.width, arena.combat_map.height
+    seen = {(px, py)}
+    queue: deque[tuple[int, int]] = deque([(px, py)])
+    while queue:
+        cx, cy = queue.popleft()
+        if (cx, cy) in goals:
+            return True
+        for d in _CARDINAL_DIRS:
+            nx, ny = cx + d.dx, cy + d.dy
+            if (nx, ny) in seen or (nx, ny) in occupied:
+                continue
+            if not (0 <= nx < width and 0 <= ny < height):
+                continue
+            tile = arena.combat_map.get_tile(nx, ny)
+            if tile is not None and bool(getattr(tile, "attribs", TileAttrib.NONE) & TileAttrib.UNWALKABLE):
+                continue
+            seen.add((nx, ny))
+            queue.append((nx, ny))
+    return False
+
+
+def _holds_spare_bow(member: Any) -> bool:
+    """The spare Bow is readied and the Exotic waits in the pack."""
+    return (
+        getattr(member, "weapon", WeaponType.NONE) == _SPARE_BOW
+        and getattr(member, "weapons", {}).get(WeaponType.EXOTIC, 0) > 0
+    )
+
+
+def _spare_bow_switch(
+    arena: CombatArena,
+    member: Any,
+    px: int,
+    py: int,
+    monsters: list[CombatMonster],
+    asset_mgr: Any,
+) -> Action | None:
+    """Brief item B (user ruling 2026-11-25). An Exotic holder with a Bow in
+    the pack readies the Bow (R, which takes the turn, as in LW) only when
+    no monster is next to it and no walk brings one within reach; it readies
+    the Exotic again once a monster is next to it. In Castle Exodus only
+    Exotics hit (B-21), so the Bow is never readied there and put away if
+    held. The two tests never hold at once, so a member switches at most
+    once each time the fight changes, never back and forth every turn."""
+    is_exodus = getattr(arena, "_is_exodus_map", None)
+    in_exodus = bool(is_exodus()) if callable(is_exodus) else False
+    adjacent = any(
+        (px + d.dx, py + d.dy) == (m.x, m.y) for m in monsters for d in _CARDINAL_DIRS
+    )
+    if _holds_spare_bow(member):
+        if (in_exodus or adjacent) and _can_ready(member, WeaponType.EXOTIC, asset_mgr):
+            return Action.ready(WeaponType.EXOTIC)
+        return None
+    if (
+        not in_exodus
+        and getattr(member, "weapon", WeaponType.NONE) == WeaponType.EXOTIC
+        and _can_ready(member, _SPARE_BOW, asset_mgr)
+        and not _monster_in_reach(arena, px, py, monsters)
+    ):
+        return Action.ready(_SPARE_BOW)
+    return None
+
+
 def _find_ranged_attack_dir(
     arena: CombatArena,
     px: int,
@@ -406,6 +497,14 @@ def choose_auto_combat_action(
         and _can_cast_spell(member, Spell.MITTAR)
         and getattr(member, "weapon", WeaponType.NONE) not in _NO_MITTAR_WEAPONS
     )
+    effective_asset_mgr = asset_mgr if asset_mgr is not None else getattr(arena, "asset_mgr", None)
+    if not can_cast_mittar:
+        switch = _spare_bow_switch(
+            arena, member, px, py, [m for m in arena.monsters if not m.is_dead], effective_asset_mgr
+        )
+        if switch is not None:
+            return switch
+
     if can_cast_mittar:
         # MonsterLinedUp counts every monster with HP (UltimaAutocombat.c:
         # 465-467: ``if (MonsterHP[mon] != 0)``), seen or not.
@@ -431,7 +530,6 @@ def choose_auto_combat_action(
             if (px + d.dx, py + d.dy) in visible_positions:
                 return Action.attack(d)
 
-    effective_asset_mgr = asset_mgr if asset_mgr is not None else getattr(arena, "asset_mgr", None)
     weapon_range, attack_through = _get_weapon_info(member, effective_asset_mgr)
 
     # Cardinal ranged attack with clear line of sight
@@ -461,7 +559,8 @@ def choose_auto_combat_action(
     # flies over walls), rather than closing on the nearest monster: a Man-
     # O-War beside the hull is never reached that way. No such square:
     # the moves below, as before.
-    if can_cast_mittar:
+    # A member holding its spare Bow (item B) lines up the same way.
+    if can_cast_mittar or _holds_spare_bow(member):
         line_dir = _line_up_step(
             arena, member_idx, px, py, [m for m in arena.monsters if not m.is_dead]
         )
