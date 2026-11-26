@@ -196,3 +196,100 @@ def test_last_living_member_buys_food_beside_the_ashes(am):
         if party.members[0].food > 15:
             break
     assert party.members[0].food > 15
+
+
+# --- Item 3: stranded on Death Gulch's strip --------------------------------
+
+
+def _strip_party(food: int):
+    party = _party(level=25, food=(food,) * 4, gold=1244)
+    for m in party.members:
+        m.max_hp = m.hp = 2550
+        m.marks = [1, 1, 1, 1]
+        m.cards = [1, 1, 1, 1]
+        m.keys = 5
+    party.x, party.y = 58, 40
+    return party
+
+
+def test_stranded_on_death_gulchs_strip_buys_food_in_death_gulch(am):
+    """Seed 8 at bdbd73a: back out of Death Gulch at (56, 31) with no ship
+    (the one parked at (59, 40) was gone). The strip (55-58, 31-40) is
+    walled by water and mountains; its gate (58, 31) sits in a mountain
+    pocket with a dungeon, so the only way off is a captured ship. The
+    capture waited ~3,000 turns for a pirate that never came (LairWare's
+    MoveMonsters steps greedily and a pirate snags on the coast) and the
+    party starved with 4,976 gold, Death Gulch's grocer (52, 35) a few
+    steps away. BUY_FOOD from the strip now goes there."""
+    from py_exodus.screens.overworld import OverworldScreen
+    from py_exodus.screens.town import TownScreen
+
+    random.seed(8)
+    party = _strip_party(food=60)
+    sm = StateMachine(asset_mgr=am, audio=None)
+    ow = OverworldScreen(party=party, asset_mgr=am, random_encounters_enabled=False)
+    ow.creatures = []
+    sm.set_screen(ow)
+    ctrl = AutoPlayController(enabled=True)
+    entered = None
+    for _ in range(400):
+        ctrl.step(sm)
+        scr = sm.current_screen
+        if isinstance(scr, TownScreen) and entered is None:
+            entered = getattr(scr, "map_id", None)
+        if min(m.food for m in party.members) >= 150:
+            break
+    assert entered == 10
+    assert min(m.food for m in party.members) >= 150
+
+
+def test_mainland_food_runs_never_pick_death_gulch(am):
+    """Only a party on the strip shops there: from Britain the grocer is
+    Britain's or Yew's, as before."""
+    from py_exodus.screens.overworld import OverworldScreen
+
+    party = _strip_party(food=60)
+    party.x, party.y = 44, 20
+    sm = StateMachine(asset_mgr=am, audio=None)
+    ow = OverworldScreen(party=party, asset_mgr=am, random_encounters_enabled=False)
+    ow.creatures = []
+    sm.set_screen(ow)
+    ctrl = AutoPlayController(enabled=True)
+    ctrl.step(sm)
+    assert ctrl._trip is not None
+    assert (56, 31) not in ctrl._trip.dest.tiles
+
+
+def test_capture_never_waits_for_a_snagged_pirate(am):
+    """Seed 8 at bdbd73a, step 78,613: on the strip at (58, 40), BUY_KEYS,
+    the only way off a captured ship. A pirate south of the strip snags at
+    (58, 48) (LairWare MoveMonsters tries the diagonal, vertical and then
+    horizontal step toward the party and stays put when all are land,
+    UltimaMisc.c:1191-1236). The hunt saw it stall and tried to dash, but
+    no foot route reaches a tile beside it, so it fell through to "it is
+    coming" and passed turns, ~3,000 of them, until the party starved.
+    A stalled hunt with no dash leaves that pirate alone for a while and
+    patrols the coast, which also changes the pirate's heading."""
+    from py_exodus.screens.overworld import OverworldScreen
+
+    random.seed(8)
+    party = _strip_party(food=300)
+    for m in party.members:
+        m.keys = 0
+    sm = StateMachine(asset_mgr=am, audio=None)
+    ow = OverworldScreen(party=party, asset_mgr=am, random_encounters_enabled=False)
+    ow.creatures = [{"x": 58, "y": 48, "tile_name": "pirate"}]
+    sm.set_screen(ow)
+    ctrl = AutoPlayController(enabled=True)
+    run = longest = 0
+    seen = set()
+    for _ in range(120):
+        key = ctrl.step(sm)
+        seen.add((party.x, party.y))
+        if key == pygame.K_SPACE:
+            run += 1
+            longest = max(longest, run)
+        else:
+            run = 0
+    assert longest <= 10, longest
+    assert len(seen) >= 4

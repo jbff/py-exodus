@@ -245,7 +245,14 @@ _FOOD_TOWNS: dict[int, tuple[int, int, tuple[int, int]]] = {
     4: (34, 16, (31, 17)),   # Yew
     6: (7, 44, (26, 25)),    # Grey
     11: (37, 53, (29, 41)),  # Dawn (only selected when Dawn is open)
+    10: (56, 31, (52, 33)),  # Death Gulch (only from its own strip, below)
 }
+# Death Gulch's gate and its grocer: a party on the town's strip (55-58,
+# 31-40, walled by water and mountains; gate 7's site (58, 31) is in a
+# mountain pocket) has no way off but a ship. Waiting for a pirate there it
+# buys its food in Death Gulch (seed 8 at bdbd73a starved on the strip with
+# 4,976 gold). From anywhere else Death Gulch is never a food run.
+_DEATH_GULCH_PORTAL = (56, 31)
 
 # Towns with Healers reachable on foot: map_id -> (portal_x, portal_y, healer_stand_xy)
 _HEALER_TOWNS: dict[int, tuple[int, int, tuple[int, int]]] = {
@@ -1358,6 +1365,10 @@ class AutoPlayController:
                     )
                     if d is not None:
                         return self._emit_key(state_machine, _DIR_TO_KEY[d])
+                    if map_id == _MAP_DEATH_GULCH:
+                        key = self._death_gulch_way(state_machine, gmap, party, px, py, food_xy, npc_tiles)
+                        if key is not None:
+                            return key
                 else:
                     self._food_shop_target = None
 
@@ -1694,6 +1705,49 @@ class AutoPlayController:
                 return self._emit_key(state_machine, _DIR_TO_KEY[d])
             return None
         return None
+
+    def _death_gulch_way(self, state_machine, gmap, party, px, py, goal_xy, npc_tiles) -> int | None:
+        """A step toward ``goal_xy`` in Death Gulch past its locked doors
+        (Unlock with a key) and the guard who stands in the west passage
+        (bribed, 100 gold, as a raid does): Death Gulch's grocer (52, 35)
+        is behind both. Moving people are not walls; fixed guards are,
+        unless one stands on the route, which is then bribed."""
+        has_key = any(not m.is_dead() and m.keys > 0 for m in party.members)
+        movers = {
+            (n.x, n.y) for n in getattr(gmap, "npcs", ())
+            if getattr(n, "movement", "FIXED") != "FIXED"
+        }
+        guards = {
+            (n.x, n.y) for n in getattr(gmap, "npcs", ())
+            if "guard" in str(getattr(n, "tile_name", "")).lower()
+        }
+        saved = gmap.npcs
+        gmap.npcs = [n for n in saved if (n.x, n.y) not in guards]
+        try:
+            d = find_2d_step(
+                gmap, (px, py), goal_xy, Transport.FOOT, party=party,
+                avoid_tiles=(npc_tiles - movers - guards) | (self._town_danger_tiles - {(px, py)}),
+                allow_locked_doors=has_key,
+            )
+        finally:
+            gmap.npcs = saved
+        if d is None:
+            return None
+        nxt = (px + d.dx, py + d.dy)
+        if nxt in guards:
+            able = _able(party)
+            if not able or party.gold < 100:
+                return None
+            briber_idx, briber = max(able, key=lambda im: im[1].gold)
+            if briber.gold < 100:
+                self._join_gold_member_idx = briber_idx
+                return self._emit_key(state_machine, pygame.K_j)
+            self._queue_text("BRIBE", enter=True)
+            self._queue_text(f"{briber_idx}{d.name[0].lower()}", enter=False)
+            return self._emit_key(state_machine, pygame.K_o)
+        if nxt in movers:
+            return self._emit_key(state_machine, pygame.K_SPACE)  # they step aside
+        return self._step_or_unlock(state_machine, gmap, party, px, py, d)
 
     def _step_or_unlock(self, state_machine: StateMachine, gmap, party, px: int, py: int, d: Direction) -> int:
         nx, ny = px + d.dx, py + d.dy
@@ -2649,7 +2703,12 @@ class AutoPlayController:
 
         if goal == Goal.BUY_FOOD:
             dawn = self._dawn_open(screen)
-            portals = {(i[0], i[1]) for mid, i in _FOOD_TOWNS.items() if mid != 11 or dawn}
+            portals = {
+                (i[0], i[1]) for mid, i in _FOOD_TOWNS.items()
+                if (mid != 11 or dawn) and mid != _MAP_DEATH_GULCH
+            }
+            if cur_map_id == 0 and self._on_death_gulch_strip(gmap, party, (px, py)):
+                portals = {_DEATH_GULCH_PORTAL}
             return self._portal_dest(sm, screen, portals, "food" + ("+dawn" if dawn else ""))
 
         if goal in (Goal.RESURRECT_DEAD, Goal.CURE_POISON):
@@ -3110,7 +3169,7 @@ class AutoPlayController:
         th = self._threats
         pirates = [p for p in (th.pirates if th is not None else []) if terr.sea_comp.get(p) in comps]
         if self._ow_turn < self._capture_shun_until:
-            pirates = []  # too weak to dash a stalled hunt: patrol for a while
+            pirates = []  # a stalled hunt with no dash: patrol for a while
         for d in (Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST):
             if ((pos[0] + d.dx) % w, (pos[1] + d.dy) % h) in pirates:
                 self._dash = None
@@ -3127,11 +3186,16 @@ class AutoPlayController:
                 key = self._capture_dash(state_machine, state_machine.current_screen, gmap, party, pos, th)
                 if key is not None:
                     return key
-            else:
-                self._capture_shun_until = self._ow_turn + _CAPTURE_SHUN_TURNS
-                self._cap_best = None
-                self._patrol_target = None
-                pirates = []
+                # No foot route reaches a tile beside it: a pirate snagged
+                # on the coast (LairWare MoveMonsters steps only toward the
+                # party, UltimaMisc.c:1191-1236) never comes. Leave it alone
+                # and patrol, as a weak party does (seed 8 at bdbd73a passed
+                # ~3,000 turns at (58, 40) for one at (58, 48), starved).
+                self._dash = None
+            self._capture_shun_until = self._ow_turn + _CAPTURE_SHUN_TURNS
+            self._cap_best = None
+            self._patrol_target = None
+            pirates = []
         if pirates:
             engage = {
                 ((p[0] + dx) % w, (p[1] + dy) % h)
@@ -3252,6 +3316,18 @@ class AutoPlayController:
             frontier = nxt
         self._hunt_target = best if best is not None else min(candidates)
         return self._hunt_target
+
+    def _on_death_gulch_strip(self, gmap, party, pos) -> bool:
+        """``pos`` is on foot reach of Death Gulch's gate on Sosaria (the
+        strip a party can't leave but by ship)."""
+        if getattr(party, "transport", Transport.FOOT) != Transport.FOOT:
+            return False
+        w, h = gmap.width, gmap.height
+        reach = self._foot_reachable(gmap, party, pos)
+        gx, gy = _DEATH_GULCH_PORTAL
+        return _DEATH_GULCH_PORTAL in reach or any(
+            ((gx + dx) % w, (gy + dy) % h) in reach for dx, dy in _NEIGHBOURS4
+        )
 
     def _foot_reachable(self, gmap, party, pos, barred=frozenset()) -> frozenset[tuple[int, int]]:
         """Land tiles reachable on foot from ``pos`` without entering a
