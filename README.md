@@ -19,6 +19,16 @@ A Python 3 / Pygame-CE reimplementation of *Ultima III: Exodus* (1983), by Richa
 - **Auto-Combat (`TAB`):** each living member heals, cures, casts or attacks as LairWare's auto-combat would. You can take back control at any moment.
 - **Full Autoplay (`F9`):** plays the whole game through the real UI, pressing the same keys you would.
 
+## Screenshots
+
+| The intro | The View | The main menu |
+|---|---|---|
+| ![The intro: the py-exodus title art, Ultima III by Lord British, and the party facing the dragon](docs/screenshots/intro.png) | ![The View: the title over a strip of Sosaria with castles, a ship and daemons](docs/screenshots/view.png) | ![The main menu: Journey Onward, New Game / Roster, Book of Lore, Return to the View](docs/screenshots/menu.png) |
+
+| Sosaria | A dungeon |
+|---|---|
+| ![Sosaria: the party by the coast with a ship, beside the party panel with member cards, quest marks and the moons and wind](docs/screenshots/sosaria.png) | ![The Dungeon of the Snake in the Stone view: a torchlit corridor with a chest, beside the party panel](docs/screenshots/dungeon.png) |
+
 ## Download
 
 Ready-to-play builds are attached to each [release](https://github.com/jbff/py-exodus/releases), with no Python needed:
@@ -107,6 +117,7 @@ uv run python -m py_exodus.autoplay.batch --seeds 0-99 --workers 2 --out-dir tra
 - **Utilities:**
   - `scripts/autoplay_atlas.py` summarizes traces.
   - `scripts/render_maps.py` renders the JSON maps to PNGs in `maps_rendered/`.
+  - `scripts/readme_screenshots.py` renders the screenshots above into `docs/screenshots/`.
 
 ### Tests
 
