@@ -293,3 +293,35 @@ def test_capture_never_waits_for_a_snagged_pirate(am):
             run = 0
     assert longest <= 10, longest
     assert len(seen) >= 4
+
+
+@pytest.mark.parametrize("keys", [0, 1])
+def test_strip_food_run_without_two_keys_never_loops_through_the_gate(am, keys):
+    """Review of 0bf9623 (Critical 1): with under 2 keys the Death Gulch
+    way stops at its first locked door, the party walks out, BUY_FOOD
+    sends it back to the gate, and the town resets: 745 entries in 1,500
+    steps with 0 keys, 377 in 800 with 1. Death Gulch is the strip's food
+    run only with 2 keys (its two doors) and the bribe gold."""
+    from py_exodus.screens.overworld import OverworldScreen
+    from py_exodus.screens.town import TownScreen
+
+    random.seed(8)
+    party = _strip_party(food=60)
+    for m in party.members:
+        m.keys = 0
+    party.members[0].keys = keys
+    sm = StateMachine(asset_mgr=am, audio=None)
+    ow = OverworldScreen(party=party, asset_mgr=am, random_encounters_enabled=False)
+    ow.creatures = []
+    sm.set_screen(ow)
+    ctrl = AutoPlayController(enabled=True)
+    entries = 0
+    was_town = False
+    for _ in range(400):
+        ctrl.step(sm)
+        is_town = isinstance(sm.current_screen, TownScreen)
+        if is_town and not was_town:
+            entries += 1
+        was_town = is_town
+    assert entries <= 1, entries
+

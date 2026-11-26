@@ -253,6 +253,10 @@ _FOOD_TOWNS: dict[int, tuple[int, int, tuple[int, int]]] = {
 # buys its food in Death Gulch (seed 8 at bdbd73a starved on the strip with
 # 4,976 gold). From anywhere else Death Gulch is never a food run.
 _DEATH_GULCH_PORTAL = (56, 31)
+# Death Gulch's way to its grocer: two locked doors, (12, 32) and (33, 32),
+# a key each, and two guards to bribe, 100 gold each (_death_gulch_way).
+_DG_FOOD_KEYS = 2
+_DG_FOOD_BRIBES = 200
 
 # Towns with Healers reachable on foot: map_id -> (portal_x, portal_y, healer_stand_xy)
 _HEALER_TOWNS: dict[int, tuple[int, int, tuple[int, int]]] = {
@@ -1712,7 +1716,7 @@ class AutoPlayController:
         (bribed, 100 gold, as a raid does): Death Gulch's grocer (52, 35)
         is behind both. Moving people are not walls; fixed guards are,
         unless one stands on the route, which is then bribed."""
-        has_key = any(not m.is_dead() and m.keys > 0 for m in party.members)
+        has_key = any(m.keys > 0 for _, m in _able(party))
         movers = {
             (n.x, n.y) for n in getattr(gmap, "npcs", ())
             if getattr(n, "movement", "FIXED") != "FIXED"
@@ -1753,10 +1757,7 @@ class AutoPlayController:
         nx, ny = px + d.dx, py + d.dy
         nxt_tile = gmap.get_tile(nx, ny) if 0 <= nx < gmap.width and 0 <= ny < gmap.height else None
         if nxt_tile is not None and str(getattr(nxt_tile, "name", "")).lower() == "locked_door":
-            key_idx = next(
-                (i + 1 for i, m in enumerate(party.members) if not m.is_dead() and m.keys > 0),
-                None,
-            )
+            key_idx = next((i for i, m in _able(party) if m.keys > 0), None)
             if key_idx is not None:
                 self._queue_text(f"{key_idx}{d.name[0].lower()}", enter=False)
                 return self._emit_key(state_machine, pygame.K_u)
@@ -2707,7 +2708,11 @@ class AutoPlayController:
                 (i[0], i[1]) for mid, i in _FOOD_TOWNS.items()
                 if (mid != 11 or dawn) and mid != _MAP_DEATH_GULCH
             }
-            if cur_map_id == 0 and self._on_death_gulch_strip(gmap, party, (px, py)):
+            if (
+                cur_map_id == 0
+                and self._can_shop_death_gulch(party)
+                and self._on_death_gulch_strip(gmap, party, (px, py))
+            ):
                 portals = {_DEATH_GULCH_PORTAL}
             return self._portal_dest(sm, screen, portals, "food" + ("+dawn" if dawn else ""))
 
@@ -3316,6 +3321,19 @@ class AutoPlayController:
             frontier = nxt
         self._hunt_target = best if best is not None else min(candidates)
         return self._hunt_target
+
+    @staticmethod
+    def _can_shop_death_gulch(party) -> bool:
+        """Keys for both of Death Gulch's doors on able members, and the two
+        bribes plus a ration a member in gold. Short of either the way in
+        stops at a door, the party walks out and comes straight back, the
+        town reset each time (review of 0bf9623: 745 entries in 1,500 steps
+        with 0 keys); then the strip waits for a pirate as before."""
+        able = _able(party)
+        return (
+            sum(m.keys for _, m in able) >= _DG_FOOD_KEYS
+            and party.gold >= _DG_FOOD_BRIBES + len(able)
+        )
 
     def _on_death_gulch_strip(self, gmap, party, pos) -> bool:
         """``pos`` is on foot reach of Death Gulch's gate on Sosaria (the
