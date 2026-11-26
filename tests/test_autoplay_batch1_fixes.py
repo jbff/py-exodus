@@ -348,3 +348,23 @@ def test_hunted_party_never_bribes_through_a_member_in_ashes(am):
     queued = "".join(chr(k) if isinstance(k, int) and k < 128 else str(k) for k in ctrl._key_queue)
     assert queued.endswith("3n"), queued
 
+
+def test_stale_food_target_never_takes_a_raid_to_death_gulchs_grocer(am):
+    """Review of 0bf9623 (Minor 1): Death Gulch's grocer serves BUY_FOOD
+    only. A food target left standing from an earlier run sent a raid
+    (GRIND_AND_LEVEL) to the counter instead."""
+    from py_exodus.screens.town import TownScreen
+
+    random.seed(8)
+    party = _strip_party(food=100)
+    party.members[0].food = 80
+    party.members[3].hp = 90  # under the raid's 100 HP bar: no chest run first
+    party.map_id = 10
+    sm = StateMachine(asset_mgr=am, audio=None)
+    ts = TownScreen(party=party, asset_mgr=am, map_id=10, start_x=50, start_y=33)
+    sm.set_screen(ts)
+    ctrl = AutoPlayController(enabled=True)
+    ctrl._food_shop_target = 150
+    for _ in range(12):
+        ctrl.step(sm)
+    assert party.members[0].food <= 80

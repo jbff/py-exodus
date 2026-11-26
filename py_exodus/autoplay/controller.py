@@ -1313,7 +1313,13 @@ class AutoPlayController:
                 if key is not None:
                     return key
 
-        if map_id in _FOOD_TOWNS and goal not in (Goal.CURE_POISON, Goal.RESURRECT_DEAD):
+        if (
+            map_id in _FOOD_TOWNS
+            and goal not in (Goal.CURE_POISON, Goal.RESURRECT_DEAD)
+            # Death Gulch's grocer is the stranded party's food run only:
+            # a target left from an earlier run must not take a raid there.
+            and (map_id != _MAP_DEATH_GULCH or goal == Goal.BUY_FOOD)
+        ):
             _, _, food_xy = _FOOD_TOWNS[map_id]
             food_xy = self._shop_spot(gmap, (px, py), food_xy)
             living = _able(party)
