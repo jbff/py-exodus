@@ -3381,7 +3381,13 @@ class AutoPlayController:
         if start is not None and turn - start >= _WHIRL_HOLD_TURNS:
             self._whirl_hold_from = None
             self._whirl_hold_until = start + _WHIRL_HOLD_TURNS + _WHIRL_HOLD_COOLDOWN
-            return False
+            start = None
+            # A window that ran out long ago (the hold drifted out and no
+            # landing came until now) is no reason to land beside the
+            # whirlpool: past the cooldown a new hold may start (review of
+            # 4ecd649). Inside it the ship lands, as before.
+            if turn < self._whirl_hold_until:
+                return False
         if not near:
             return False
         if start is None:

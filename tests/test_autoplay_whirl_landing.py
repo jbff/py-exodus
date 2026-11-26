@@ -232,6 +232,26 @@ def test_landing_wait_budget_is_not_renewed_by_a_whirlpool_drifting_in_and_out()
     assert ctrl._whirl_hold_until == 1000 + HOLD + ctl._WHIRL_HOLD_COOLDOWN
 
 
+def test_a_much_later_landing_holds_after_a_hold_that_drifted_out():
+    """4ecd649 review: a hold whose whirlpool drifted out left its start
+    behind, so the next landing with the whirlpool near, long after the
+    window and the cooldown, took the "window over" branch and landed
+    beside it with no wait."""
+    ctrl = AutoPlayController(enabled=True)
+    ctrl._ow_turn = 1000
+    assert ctrl._whirl_hold_step(near=True) is True
+    ctrl._ow_turn = 1001
+    assert ctrl._whirl_hold_step(near=False) is False
+    ctrl._ow_turn = 5000
+    assert ctrl._whirl_hold_step(near=True) is True
+    # And that new hold has its own bounded window.
+    held = 1
+    for _ in range(4 * HOLD):
+        ctrl._ow_turn += 1
+        held += ctrl._whirl_hold_step(near=True)
+    assert held == HOLD, held
+
+
 def test_failed_reboard_passes_without_driving_the_trip_twice():
     """89c1bf4 review: a reboard whose trip gave no key fell through to the
     goal's trip in the same step, driving the trip (and its counters) twice."""
