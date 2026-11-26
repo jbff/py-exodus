@@ -69,6 +69,13 @@ def roll_hit(attacker_dex: int, defender_defense: int = 0) -> bool:
     return True
 
 
+def hit_chance(attacker_dex: int) -> float:
+    """The chance that :func:`roll_hit` lands: half the swings always land,
+    the other half land when the 0-99 roll is at most DEX."""
+    passes = max(0, min(100, int(attacker_dex) + 1))
+    return 0.5 + 0.5 * passes / 100
+
+
 def lw_weapon_index(weapon: Any) -> int:
     """LairWare Player[48]: 0 hands .. 15 exotic (the WeaponType order)."""
     from py_exodus.constants import WeaponType
@@ -102,6 +109,14 @@ def calculate_player_damage(
         + lw_weapon_index(weapon_def) * 3
         + 4
     )
+
+
+def player_damage_range(character: Any) -> tuple[int, int]:
+    """Lowest and highest blow :func:`calculate_player_damage` can roll
+    with the member's readied weapon."""
+    strength = int(getattr(character, "str", 0) or 0)
+    low = strength // 2 + lw_weapon_index(getattr(character, "weapon", None)) * 3 + 4
+    return low, low + (strength | 1)
 
 
 def calculate_monster_damage(basehp: int) -> int:

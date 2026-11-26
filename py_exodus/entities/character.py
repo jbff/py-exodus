@@ -299,24 +299,33 @@ class Character(metaclass=CharacterMeta):
     def max_mana(self, val: _builtin_int | None) -> None:
         self.max_mp = val
 
+    def mp_max_parts(self) -> tuple[_builtin_int | None, _builtin_int | None]:
+        """The MP max that INT and WIS each give this profession, None where
+        the stat gives none. A Druid takes the higher of the two, a Ranger
+        the lower (:meth:`compute_max_mp`)."""
+        prof = self.profession
+        if prof == Profession.WIZARD:
+            return self.intelligence, None
+        if prof == Profession.CLERIC:
+            return None, self.wisdom
+        if prof in (Profession.ALCHEMIST, Profession.LARK):
+            return self.intelligence // 2, None
+        if prof in (Profession.PALADIN, Profession.ILLUSIONIST):
+            return None, self.wisdom // 2
+        if prof in (Profession.DRUID, Profession.RANGER):
+            return self.intelligence // 2, self.wisdom // 2
+        return None, None
+
     def compute_max_mp(self) -> _builtin_int:
         """Calculate maximum MP based on profession and casting attributes."""
-        prof = self.profession
-        if prof in (Profession.BARBARIAN, Profession.FIGHTER, Profession.THIEF):
+        from_int, from_wis = self.mp_max_parts()
+        if from_int is None and from_wis is None:
             return 0
-        if prof == Profession.WIZARD:
-            return self.intelligence
-        if prof == Profession.CLERIC:
-            return self.wisdom
-        if prof in (Profession.ALCHEMIST, Profession.LARK):
-            return self.intelligence // 2
-        if prof in (Profession.PALADIN, Profession.ILLUSIONIST):
-            return self.wisdom // 2
-        if prof == Profession.DRUID:
-            return max(self.intelligence // 2, self.wisdom // 2)
-        if prof == Profession.RANGER:
-            return min(self.intelligence // 2, self.wisdom // 2)
-        return 0
+        if from_int is None or from_wis is None:
+            return from_int if from_wis is None else from_wis
+        if self.profession == Profession.RANGER:
+            return min(from_int, from_wis)
+        return max(from_int, from_wis)
 
     # --- Status condition queries ---
     def is_dead(self) -> bool:
