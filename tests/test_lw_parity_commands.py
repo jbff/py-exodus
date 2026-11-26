@@ -1204,7 +1204,8 @@ def test_enter_shrine_wording(overworld):
 
 def test_bribe_at_the_whirlpool_is_not_here_and_free(asset_mgr):
     """LairWare Bribe looks only in Monsters[] (``object = MonsterHere(xs,
-    ys); if (object > 127) { NotHere(); return; }``, UltimaMisc.c:2457-2461;
+    ys); if (object > 127) { NotHere(); return; }``, UltimaMisc.c:2457-2461,
+    in Bribe, 2454-2478;
     MonsterHere, UltimaMisc.c:429-442). The whirlpool is WhirlX/WhirlY,
     outside that table (ledger W-22): bribing it is NotHere and costs
     nothing (the port charged 100 gold for NoEffect)."""

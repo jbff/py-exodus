@@ -70,7 +70,7 @@ def do_bribe(
     game_map: GameMap | None,
     creatures: list | None = None,
 ) -> str:
-    """LairWare Bribe (UltimaMisc.c:2446-2464): someone must stand in the
+    """LairWare Bribe (UltimaMisc.c:2454-2478): someone must stand in the
     chosen direction (else NotHere, free); under 100 gold "Not enough
     gold!"; otherwise 100 gold goes, and only a guard (0x48) leaves --
     anyone else answers NoEffect. Success is silent ("")."""
@@ -85,15 +85,16 @@ def do_bribe(
             (c for c in creatures
              if int(c.get("x", -1)) == tx and int(c.get("y", -1)) == ty
              # MonsterHere scans Monsters[] only (UltimaMisc.c:429-442); the
-             # whirlpool (WhirlX/WhirlY) is not there: NotHere, free (W-22).
+             # whirlpool (WhirlX/WhirlY) is not there: NotHere, free (W-22;
+             # Bribe's MonsterHere call, UltimaMisc.c:2457).
              and str(c.get("tile_name") or c.get("tile") or "").lower() != "whirlpool"),
             None,
         )
     if npc is None and creature is None:
-        return NOT_HERE  # MonsterHere == 255 (UltimaMisc.c:2449-2452)
+        return NOT_HERE  # MonsterHere > 127: NotHere (UltimaMisc.c:2457-2461)
     if getattr(member, "gold", 0) < 100:
-        return CANNOT_PAY  # UltimaMisc.c:2454-2457
-    member.gold -= 100  # paid before the guard test (UltimaMisc.c:2459-2461)
+        return CANNOT_PAY  # UltimaMisc.c:2462-2467
+    member.gold -= 100  # paid before the guard test (UltimaMisc.c:2468-2474)
     if npc is not None:
         if str(getattr(npc, "tile_name", "")).lower() != "guard":
             return NO_EFFECT
