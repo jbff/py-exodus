@@ -52,6 +52,8 @@ python3 -m py_exodus
 - **Commands:** the classic single-letter commands, as in LairWare. Examples are `A`ttack, `B`oard, `C`ast, `E`nter, `G`et, `H`and, `I`gnite, `J`oin gold, `K`limb, `L`ook, `N`egate time, `O`ther, `P`eer, `Q`uit & save, `R`eady, `S`teal, `T`ransact, `U`nlock, `W`ear, `X`-it, `Y`ell and `Z`tats.
 - **Confirming and cancelling:** `Enter` or `Space` confirms, and `Esc` cancels.
 - **`F1`:** the Book of Lore, the spell books and the command reference, from any screen.
+- **`F3`:** a quick-reference card of the letter commands, with where each one works (Sosaria, towns, dungeons, combat). The game is paused while it is open; any key closes it.
+- **`F4`:** quick-reference cards of the Wizard and Cleric spells, with cost, where they work and what they do. `Tab` switches between the two; `F3` shows the commands.
 - **`TAB`** (or `F2`): Auto-Combat on or off during a battle.
 - **`F9`:** Full Autoplay on or off. `[` slows it down and `]` speeds it up.
 - **`F10`:** the debug menu, with `--debug` only.
@@ -98,7 +100,7 @@ uv run python -m py_exodus.autoplay.batch --seeds 0-99 --workers 2 --out-dir tra
 uv run python -m pytest
 ```
 
-There are **2,153 tests**. They cover the mechanics, parity with LairWare, Java and the Game Boy Color port, the shops, the dungeons, combat, rendering and autoplay. Most autoplay fixes come with a test that fails on the old code.
+There are **2,175 tests**. They cover the mechanics, parity with LairWare, Java and the Game Boy Color port, the shops, the dungeons, combat, rendering and autoplay. Most autoplay fixes come with a test that fails on the old code.
 
 ---
 
@@ -128,7 +130,6 @@ The rest of the rules follow LairWare. Every rule decision, with its LairWare so
 - **The victory ending:** LairWare-style colour flashes, an "EXODUS VANQUISHED" page with the move count, then the epilogue in serif lettering. The design is chosen.
 - **A new dungeon view:** "Stone" style, with solid torchlit walls, fog with distance, and close-up pictures for fountains and the red-hot rod. The map overlay will then be off by default. The design is chosen.
 - **A Ztats window** over the map. The design is chosen.
-- **Quick-reference cards on `F3` or `F4`:** the letter commands, and the Cleric and Wizard spells.
 - **The Book of Lore** reformatted, so it is no longer about 128 pages in a giant font.
 
 ## Possible loose ends

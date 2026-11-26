@@ -34,6 +34,8 @@ Arrow Keys / Numpad) Move party (ships sail off in any direction the wind allows
 Enter / Space) Confirm menu choices or advance pages.
 Esc) Cancel a prompt or exit the Book of Lore / subscreen.
 F1) Open or close this Book of Lore, Spell Books, and Command Reference from any screen.
+F3) Quick-reference card of the letter commands and where each works (F3 or any key closes; the game waits while it is open).
+F4) Quick-reference cards of the Wizard and Cleric spells (Tab switches between them; F3 shows the commands).
 Tab / F2) Toggle tactical Auto-Combat on or off during battle.
 F9) Toggle autonomous Full Autoplay (Watch Mode) on or off.
 [ / ]) Decrease ([) or increase (]) Autoplay step speed while Autoplay is active.
