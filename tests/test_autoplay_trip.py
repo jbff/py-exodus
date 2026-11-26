@@ -2356,36 +2356,38 @@ def test_headwind_hold_takes_an_allowed_step_that_gains_on_the_route(pygame_setu
     assert (party.x, party.y) != (19, 45)
 
 
-def test_headwind_hold_is_capped_then_sails_the_wind_legal_route(pygame_setup, asset_mgr, monkeypatch):
-    """A hold with nothing to gain lasts at most min(_WIND_HOLD_MAX, the
-    detour's extra turns) in a row under one wind; then the ship sails the
-    wind-legal route. A detour longer than _WIND_DETOUR_MAX is never
-    taken (the wind changes on the clock)."""
-    sm, ow, party = _ship_at(asset_mgr, (40, 40), Direction.EAST)
+def _sail(sm, ow, party, ctrl, goal, wind, steps):
+    keys = []
+    for _ in range(steps):
+        if (party.x, party.y) == goal:
+            break
+        party.wind_direction = wind  # the wind holds for the whole test
+        keys.append(ctrl._move_toward(sm, ow.game_map, party, (party.x, party.y), {goal}))
+    return keys
 
-    def fake(gmap, start, goals, transport=None, party=None, wind_direction=None,
-             avoid_tiles=None, ignore_wind=False, **kw):
-        if ignore_wind:
-            return Direction.EAST, 6
-        return Direction.NORTH, 6 + extra
 
-    monkeypatch.setattr(controller_mod, "find_2d_step_and_cost", fake)
-    monkeypatch.setattr(AutoPlayController, "_wind_progress_step", staticmethod(lambda *a: None))
-    sent = []
-    monkeypatch.setattr(AutoPlayController, "_emit_key", lambda self, sm_, k, guarded=True: sent.append(k) or k)
+def test_headwind_hold_is_capped_then_sails_the_wind_legal_route(pygame_setup, asset_mgr):
+    """Review of 35aa3cd (windsim): (17, 46) to (63, 29) under a west wind
+    is 35 turns wind-free, 93 by the wind-legal route. After the hold
+    (min(_WIND_HOLD_MAX, 58) = 20 turns) the ship stepped onto the detour,
+    the wind-free heading there pointed back, and it stepped back: hold 20,
+    out, back, for good. Once the cap fires under a wind the ship keeps to
+    the wind-legal route while that wind holds, and arrives."""
+    from py_exodus.autoplay import controller as C
 
-    extra = 30
+    sm, ow, party = _ship_at(asset_mgr, (17, 46), Direction.WEST)
     ctrl = AutoPlayController(enabled=True)
-    keys = [ctrl._move_toward(sm, ow.game_map, party, (40, 40), {(46, 40)}) for _ in range(25)]
-    assert keys[: controller_mod._WIND_HOLD_MAX] == [pygame.K_SPACE] * controller_mod._WIND_HOLD_MAX
-    assert keys[controller_mod._WIND_HOLD_MAX:] == [pygame.K_UP] * 5
+    keys = _sail(sm, ow, party, ctrl, (63, 29), Direction.WEST, C._WIND_HOLD_MAX + 93 + 15)
+    assert (party.x, party.y) == (63, 29)
+    assert keys[: C._WIND_HOLD_MAX] == [pygame.K_SPACE] * C._WIND_HOLD_MAX
+    assert pygame.K_SPACE not in keys[C._WIND_HOLD_MAX:]
 
-    extra = 4  # a short detour: hold no longer than it would add
-    ctrl = AutoPlayController(enabled=True)
-    keys = [ctrl._move_toward(sm, ow.game_map, party, (40, 40), {(46, 40)}) for _ in range(6)]
-    assert keys == [pygame.K_SPACE] * 4 + [pygame.K_UP] * 2
 
-    extra = controller_mod._WIND_DETOUR_MAX + 1
+def test_headwind_hold_never_takes_a_detour_round_the_world(pygame_setup, asset_mgr):
+    """(33, 0) to (39, 0) against an east wind: 6 turns wind-free, 122 by
+    the only wind-legal way, round the world. That detour adds more than
+    _WIND_DETOUR_MAX, so the ship waits for the wind."""
+    sm, ow, party = _ship_at(asset_mgr, (33, 0), Direction.EAST)
     ctrl = AutoPlayController(enabled=True)
-    keys = [ctrl._move_toward(sm, ow.game_map, party, (40, 40), {(46, 40)}) for _ in range(40)]
-    assert keys == [pygame.K_SPACE] * 40
+    keys = _sail(sm, ow, party, ctrl, (39, 0), Direction.EAST, 40)
+    assert keys == [pygame.K_SPACE] * 40 and (party.x, party.y) == (33, 0)

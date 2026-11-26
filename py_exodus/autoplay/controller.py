@@ -324,6 +324,8 @@ class AutoPlayController:
         # Headwind hold (_move_toward): turns held in a row, and the wind held for.
         self._wind_hold_n = 0
         self._wind_hold_wind = None
+        # (wind, goals) a hold was given up for: the wind-legal route rules.
+        self._wind_commit = None
         self._whirl_missing = False
         self._trip_stuck = 0
         self._trip_still = 0  # turns on one tile; only a move resets it
@@ -3550,12 +3552,23 @@ class AutoPlayController:
                 avoid_tiles=avoid,
                 allow_locked_doors=has_key,
             )
+        # A hold given up under this wind for these goals: keep to the
+        # wind-legal route while the wind holds. Letting the wind-free
+        # heading back in walked the ship out and back for good (review of
+        # 35aa3cd: hold 20, out, back, repeat).
+        goal_key = frozenset(goals)
+        if self._wind_commit is not None and self._wind_commit != (wind, goal_key):
+            self._wind_commit = None
+            self._wind_hold_n = 0
+        committed = self._wind_commit is not None and d is not None
+        held = False
         if (
             party.transport == Transport.SHIP
             and wind is not None
             and party.food >= 100
             and start not in (avoid or ())
             and not getattr(self, "_ship_threat_near", False)
+            and not committed
         ):
             free_d, free_cost = find_2d_step_and_cost(
                 game_map,
@@ -3578,7 +3591,6 @@ class AutoPlayController:
                     # Advance along the wind-free shortest route while its next
                     # heading is allowed.
                     d = free_d
-                    self._wind_hold_n = 0
                 else:
                     prog = self._wind_progress_step(
                         game_map, start, goals, party, wind, avoid, has_key, free_cost
@@ -3588,7 +3600,6 @@ class AutoPlayController:
                         self._wind_hold_wind, self._wind_hold_n = wind, 0
                     if prog is not None:
                         d = prog
-                        self._wind_hold_n = 0
                     elif (
                         d is None
                         or extra is None
@@ -3597,11 +3608,16 @@ class AutoPlayController:
                     ):
                         # Headwind on the short route and no allowed step
                         # gains on it: wait for the wind (see _WIND_HOLD_MAX).
-                        self._wind_hold_n += 1
-                        return self._emit_key(state_machine, pygame.K_SPACE)
-                    # Held long enough: sail the wind-legal route (d).
-        else:
-            self._wind_hold_n = 0
+                        held = True
+                    else:
+                        # Held long enough: sail the wind-legal route (d)
+                        # from here on while this wind holds.
+                        self._wind_commit = (wind, goal_key)
+        if held:
+            self._wind_hold_n += 1
+            return self._emit_key(state_machine, pygame.K_SPACE)
+        if self._wind_commit is None:
+            self._wind_hold_n = 0  # a hold counts only turns held in a row
         if d is None and avoid:
             # Drop the soft avoidance but keep the hard threats (pirate lanes,
             # squid reach): the lane guard would refuse those steps anyway.
