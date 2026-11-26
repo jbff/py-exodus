@@ -319,8 +319,6 @@ class AutoPlayController:
         self._trip_frigates: frozenset[tuple[int, int]] = frozenset()
         self._trip_planned_at = 0
         self._whirl_guess = 0
-        # _walk_out_of_town's last tiles, to see a two-tile pace.
-        self._walkout_hist: deque[tuple[int, int]] = deque(maxlen=4)
         # Headwind hold (_move_toward): turns held in a row, and the wind held for.
         self._wind_hold_n = 0
         self._wind_hold_wind = None
@@ -1525,14 +1523,7 @@ class AutoPlayController:
         def _clear(xy) -> bool:
             return all(max(abs(xy[0] - hx), abs(xy[1] - hy)) >= 2 for hx, hy in hunters)
 
-        # A pace between two tiles (Death Gulch's armour shop with the guards
-        # hunting: (16,56)<->(16,57) forever) means the clear steps lead
-        # nowhere: then the route is taken, and a person on it is attacked.
-        hist = self._walkout_hist
-        if not hist or hist[-1] != (px, py):
-            hist.append((px, py))
-        pacing = len(hist) >= 4 and hist[-1] == hist[-3] and hist[-2] == hist[-4] and hist[-1] != hist[-2]
-        if fallback and hunters and not pacing and (d is None or not _clear((px + d.dx, py + d.dy))):
+        if fallback and hunters and (d is None or not _clear((px + d.dx, py + d.dy))):
             best = None
             for cand in (Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST):
                 nxt = (px + cand.dx, py + cand.dy)
@@ -1546,36 +1537,12 @@ class AutoPlayController:
                     gmap, nxt, exits, Transport.FOOT, party=party,
                     avoid_tiles=npc_tiles, prefer_paths=True, allow_locked_doors=has_key,
                 )[1]
-                if cost is None and nxt not in exits:
-                    continue  # no way out from there past the people: no help
-                key = 0 if nxt in exits else cost
+                key = 0 if nxt in exits else (cost if cost is not None else 10**9)
                 if best is None or key < best[0]:
                     best = (key, cand)
             if best is not None:
                 d = best[1]
-        if d is None and hunters:
-            # No way out at all: people block it (a guard in Death Gulch's
-            # one gap at (26,56)). Fight the nearest hunter: attack one
-            # beside the party, else walk up to one.
-            for dd in (Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST):
-                if (px + dd.dx, py + dd.dy) in hunters:
-                    self._key_queue.append(_DIR_TO_KEY[dd])
-                    return self._emit_key(state_machine, pygame.K_a)
-            beside = {
-                (hx + dd.dx, hy + dd.dy)
-                for hx, hy in hunters
-                for dd in (Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST)
-            } - npc_tiles
-            d = find_2d_step(
-                gmap, (px, py), beside, Transport.FOOT, party=party,
-                prefer_paths=True, allow_locked_doors=has_key,
-            )
         if d is not None:
-            if hunters and (px + d.dx, py + d.dy) in npc_tiles:
-                # Someone stands on the only way out: attack them (LairWare
-                # Attack, a direction then AttackCode), as a hunter would.
-                self._key_queue.append(_DIR_TO_KEY[d])
-                return self._emit_key(state_machine, pygame.K_a)
             return self._step_or_unlock(state_machine, gmap, party, px, py, d)
         return self._emit_key(state_machine, pygame.K_SPACE)
 
