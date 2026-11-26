@@ -126,12 +126,22 @@ class BaseScreen(ABC):
             if autoplay_on
             else None
         )
-        map_id = getattr(self, "map_id", getattr(self.party, "map_id", 0))
+        # A screen with no map of its own (combat) shows where it was
+        # raised from: party.map_id stays 0 on Ambrosia and doesn't name
+        # the town or dungeon level.
+        src = self
+        while (
+            not hasattr(src, "map_id")
+            and getattr(src, "return_screen", None) is not None
+        ):
+            src = src.return_screen
+        map_id = getattr(src, "map_id", getattr(self.party, "map_id", 0))
         label = MAP_ID_TO_LABEL.get(map_id) or f"Map {map_id}"
-        if hasattr(self, "state") and hasattr(self.state, "z"):
-            location_text = f"{label} L{self.state.z + 1} ({self.state.x},{self.state.y})"
-        elif hasattr(self, "avatar_x"):
-            location_text = f"{label} ({self.avatar_x},{self.avatar_y})"
+        state = getattr(src, "state", None)
+        if state is not None and hasattr(state, "z"):
+            location_text = f"{label} L{state.z + 1} ({state.x},{state.y})"
+        elif hasattr(src, "avatar_x"):
+            location_text = f"{label} ({src.avatar_x},{src.avatar_y})"
         else:
             location_text = f"{label} ({self.party.x},{self.party.y})"
         self.stats_panel.render(
