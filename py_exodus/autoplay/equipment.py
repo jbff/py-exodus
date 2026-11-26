@@ -224,6 +224,11 @@ def best_owned_armor(member: Character) -> ArmorType | None:
     return best
 
 
+def _keeps_spare_bow(member, wt: WeaponType) -> bool:
+    """``wt`` is the member's one spare Bow (item B): never handed on."""
+    return wt == SPARE_BOW and wants_spare_bow(member) and member.weapons.get(SPARE_BOW, 0) <= 1
+
+
 def best_hand_transfer(party: Party, prefer_ranged: bool = True) -> tuple[int, int] | None:
     """Find a useful ``H`` (Hand Equipment) transfer from one member to another.
 
@@ -240,9 +245,12 @@ def best_hand_transfer(party: Party, prefer_ranged: bool = True) -> tuple[int, i
         if best_owned_weapon(m1, prefer_ranged) is not None or best_owned_armor(m1) is not None:
             continue
 
+        # A member's one spare Bow (item B) stays with it: the pick goes on
+        # to its next item, its armour included (review of 42a1142: the
+        # Bow ended the member's turn and its armour was never handed on).
         picked_w: WeaponType | None = None
         for w, cnt in m1.weapons.items():
-            if cnt > 0 and w != m1.weapon:
+            if cnt > 0 and w != m1.weapon and not _keeps_spare_bow(m1, w):
                 picked_w = w
                 break
 
@@ -251,9 +259,6 @@ def best_hand_transfer(party: Party, prefer_ranged: bool = True) -> tuple[int, i
             # rank, a spare Exotic went to a bow-armed Fighter on a ship,
             # who kept the bow, so it went back, every step (batch 1c7525f
             # seed 17: 16,500 steps parked handing it to and fro, starved).
-            # A member's one spare Bow (item B) stays with it.
-            if picked_w == SPARE_BOW and wants_spare_bow(m1) and m1.weapons.get(SPARE_BOW, 0) <= 1:
-                continue
             for j, m2 in enumerate(party.members):
                 if j == i or m2.is_dead():
                     continue
@@ -294,7 +299,7 @@ def hand_item(member) -> tuple[str, str] | None:
     ``member``: ``("w", letter)`` or ``("a", letter)`` (LairWare HandEquip
     letters, B-P / B-H, UltimaMain.c:1886-1939), in its selection order."""
     for w, cnt in member.weapons.items():
-        if cnt > 0 and w != member.weapon:
+        if cnt > 0 and w != member.weapon and not _keeps_spare_bow(member, w):
             return "w", chr(ord("a") + list(WeaponType).index(w))
     for a, cnt in member.armors.items():
         if cnt > 0 and a != member.armor:

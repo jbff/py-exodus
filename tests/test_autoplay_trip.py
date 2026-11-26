@@ -2045,6 +2045,29 @@ def test_autoplay_answers_the_lairware_hand_prompts(pygame_setup, asset_mgr):
     assert taker.armors.get(ArmorType.PLATE, 0) == 1 or taker.armor == ArmorType.PLATE
 
 
+def test_a_kept_spare_bow_doesnt_block_the_members_armour_hand_off():
+    """Review of 42a1142: best_hand_transfer's spare-Bow skip ended the
+    member's turn, so armour it carried spare was never handed on. The Bow
+    stays; the pick goes on to the armour, and the H answers name it."""
+    from py_exodus.autoplay.equipment import best_hand_transfer, hand_item
+
+    p = _make_party(level=25, weapon=WeaponType.EXOTIC, armor=ArmorType.EXOTIC)
+    fighter = p.members[1]
+    assert fighter.profession == Profession.FIGHTER
+    fighter.weapons[WeaponType.BOW] = 1
+    fighter.armors[ArmorType.CHAIN] = 1
+    for m in (p.members[0], p.members[2], p.members[3]):
+        m.weapons.clear()
+        m.weapons[WeaponType.DAGGER] = 1
+        m.weapon = WeaponType.DAGGER
+        m.armors.clear()
+        m.armors[ArmorType.CLOTH] = 1
+        m.armor = ArmorType.CLOTH
+    t = best_hand_transfer(p)
+    assert t is not None and t[0] == 2
+    assert hand_item(fighter) == ("a", chr(ord("a") + list(ArmorType).index(ArmorType.CHAIN)))
+
+
 def test_autoplay_answers_the_rod_for_each_member_without_s(pygame_setup, monkeypatch):
     """LairWare dungeonmech (UltimaDngn.c:300-318; user ruling 2026-11-25,
     ledger D-12): standing on a mark, every command asks "who will touch?"
