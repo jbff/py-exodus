@@ -351,7 +351,6 @@ def test_hurt_party_turns_back_and_never_climbs_down_again(am):
     for m in party.members:
         m.hp = 250  # need(z 2) = 300
         m.mp = 0
-    party.food = 500
     sm, ds = _dungeon(am, party, SNAKE, (11, 11, 1))
     ctrl = AutoPlayController(enabled=True)
     keys = []

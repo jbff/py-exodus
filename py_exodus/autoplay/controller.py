@@ -17,6 +17,7 @@ from py_exodus.autoplay.equipment import (
     SPARE_BOW_PRICE,
     spare_bow_purchase,
     best_hand_transfer,
+    food_hand_off,
     hand_item,
     best_owned_armor,
     best_owned_weapon,
@@ -630,6 +631,13 @@ class AutoPlayController:
         dmap = getattr(screen, "dungeon_map", None) or getattr(screen, "dmap", None) or screen.state.dmap
         goal = evaluate_goal(party, map_id=self._screen_map_id(screen, party))
 
+        # A member out of food is fed from the others before anything else
+        # (seed 3: the Fighter at 0 while two others had 100 in the Fires
+        # of Hell; it starved to death and kept dying after each raising).
+        feed_key = self._maybe_feed(state_machine, party)
+        if feed_key is not None:
+            return feed_key
+
         # A fight in here can end with a member's spare Bow readied (brief
         # item B, user ruling 2026-11-25): ready the Exotic again first. On
         # the surface and in towns ``_maybe_manage_gear`` does it.
@@ -927,6 +935,12 @@ class AutoPlayController:
             escape_key = self._threat_escape(state_machine, screen, party, px, py)
             if escape_key is not None:
                 return escape_key
+
+        # A member out of food is fed from the others first (seed 3), the
+        # dead included, so a raised member does not starve again at once.
+        feed_key = self._maybe_feed(state_machine, party)
+        if feed_key is not None:
+            return feed_key
 
         # Cast resurrection spell on the spot if a Cleric has enough MP
         dead_idx = next((i + 1 for i, m in enumerate(party.members) if m.status == Status.DEAD), None)
@@ -3316,6 +3330,17 @@ class AutoPlayController:
                     return self._emit_key(state_machine, _DIR_TO_KEY[d])
                 self._patrol_idx += 1
         return self._emit_key(state_machine, pygame.K_SPACE)
+
+    def _maybe_feed(self, state_machine: StateMachine, party) -> int | None:
+        """``H`` food from the fullest member to one under ``FEED_BELOW``
+        (equipment.food_hand_off; LairWare HandEquip 'F',
+        UltimaMain.c:1791-1814): from, to, F, the amount and Return."""
+        feed = food_hand_off(party)
+        if feed is None:
+            return None
+        giver, taker, amount = feed
+        self._queue_text(f"{giver}{taker}f{amount}", enter=True)
+        return self._emit_key(state_machine, pygame.K_h)
 
     def _maybe_manage_gear(
         self,

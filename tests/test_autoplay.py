@@ -1597,7 +1597,8 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
 
     # Stranded on island for BUY_FOOD uses reachable moongate or frigate instead of passing turns
     p_isl = _make_party(level=5, exp=500, gold=100, food=50)
-    p_isl.food = 50
+    for _m in p_isl.members:  # 48 in all, spread: none to hand round
+        _m.food = 12
     p_isl.x, p_isl.y = 58, 44  # Snake Island, unreachable on foot from Britain
     ow_i = OverworldScreen(party=p_isl, asset_mgr=am, random_encounters=False)
     ow_i.creatures = []
@@ -1611,7 +1612,8 @@ def test_autoplay_stops_on_game_over_and_evades_sea_monsters_early(pygame_setup)
 
     # BUY_FOOD picks Yew (34, 16) when closer than Britain, and skips closed Dawn
     p_yew = _make_party(level=5, exp=500, gold=100, food=50)
-    p_yew.food = 50
+    for _m in p_yew.members:  # 48 in all, spread: none to hand round
+        _m.food = 12
     p_yew.x, p_yew.y = 33, 16
     ow_y = OverworldScreen(party=p_yew, asset_mgr=am, random_encounters=False)
     ow_y.creatures = []
@@ -1716,8 +1718,10 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
     ctrl.step(sm)
     assert not resting()  # took_hit_here: no rest trip
 
-    # Starving (food == 0) also skips the rest
-    p.members[0].food = 0
+    # Starving (food == 0) also skips the rest. Everyone: one member alone
+    # at 0 would be fed from the others first (batch 1 item 1).
+    for _m in p.members:
+        _m.food = 0
     ctrl._prev_ow_hp_state = None
     ctrl._trip = None
     ctrl.step(sm)

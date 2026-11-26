@@ -1388,6 +1388,10 @@ def test_a_starving_member_turns_the_party_for_the_exit(pygame_setup, monkeypatc
     assert to_mark != to_exit
     ctrl._step_dungeon(sm, ds)
     assert keys[-1] == to_mark
+    # Too little for the others to spare (batch 1 item 1 feeds a member
+    # at 0 from a fuller one first).
+    for m in party.members:
+        m.food = 15
     party.members[1].food = 0
     ctrl._step_dungeon(sm, ds)
     assert keys[-1] == to_exit

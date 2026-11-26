@@ -294,6 +294,42 @@ def best_hand_transfer(party: Party, prefer_ranged: bool = True) -> tuple[int, i
     return None
 
 
+#: A member under this much food is fed from the fullest member at once.
+FEED_BELOW = 10
+
+
+def food_hand_off(party: Party) -> tuple[int, int, int] | None:
+    """``(from, to, amount)`` (1-based) for an ``H``-``F`` that feeds a member
+    under ``FEED_BELOW`` food from the fullest other member, or ``None``.
+
+    LairWare HandEquip 'F' (UltimaMain.c:1791-1814) moves food between any
+    two members; it checks only that both slots hold a character
+    (``Player[..][17]``, UltimaMain.c:1757-1783), so the dead give and take
+    too. Seed 3 at bdbd73a: the Fighter sat at 0 food while two others had
+    100, died, and was raised at 0 HP and 0 food again and again, dying on
+    the next food tick (EatFood, UltimaMisc.c:1468-1486), until the gold ran
+    out. Living members are fed first, then a dead one (fed before the
+    healer raises it). The giver keeps at least what the taker gets, and
+    the taker ends at ``FEED_BELOW`` or more, so it never hands back.
+    """
+    members = list(enumerate(party.members))
+    hungry = sorted(
+        (im for im in members if im[1].food < FEED_BELOW),
+        key=lambda im: (im[1].is_disabled(), im[1].food),
+    )
+    for t, taker in hungry:
+        g, giver = max(
+            ((i, m) for i, m in members if i != t),
+            key=lambda im: im[1].food,
+            default=(None, None),
+        )
+        if giver is None or giver.food - taker.food < 2 * FEED_BELOW:
+            continue
+        amount = min((giver.food - taker.food) // 2, 9999 - taker.food)
+        return g + 1, t + 1, amount
+    return None
+
+
 def hand_item(member) -> tuple[str, str] | None:
     """The ``H`` answers for what ``best_hand_transfer`` hands from
     ``member``: ``("w", letter)`` or ``("a", letter)`` (LairWare HandEquip
