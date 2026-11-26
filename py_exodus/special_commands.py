@@ -83,7 +83,10 @@ def do_bribe(
     if npc is None and creatures:
         creature = next(
             (c for c in creatures
-             if int(c.get("x", -1)) == tx and int(c.get("y", -1)) == ty),
+             if int(c.get("x", -1)) == tx and int(c.get("y", -1)) == ty
+             # MonsterHere scans Monsters[] only (UltimaMisc.c:429-442); the
+             # whirlpool (WhirlX/WhirlY) is not there: NotHere, free (W-22).
+             and str(c.get("tile_name") or c.get("tile") or "").lower() != "whirlpool"),
             None,
         )
     if npc is None and creature is None:

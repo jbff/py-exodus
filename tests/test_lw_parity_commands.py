@@ -1200,3 +1200,23 @@ def test_enter_shrine_wording(overworld):
     from py_exodus.world import shrine
 
     assert (shrine.MSG_WHO, shrine.PROMPT_WHO) == ("Enter shrine!", "Who enters?-")
+
+
+def test_bribe_at_the_whirlpool_is_not_here_and_free(asset_mgr):
+    """LairWare Bribe looks only in Monsters[] (``object = MonsterHere(xs,
+    ys); if (object > 127) { NotHere(); return; }``, UltimaMisc.c:2457-2461;
+    MonsterHere, UltimaMisc.c:429-442). The whirlpool is WhirlX/WhirlY,
+    outside that table (ledger W-22): bribing it is NotHere and costs
+    nothing (the port charged 100 gold for NoEffect)."""
+    from py_exodus import special_commands as sc
+    from py_exodus.constants import Direction
+    from py_exodus.screens.overworld import OverworldScreen
+
+    gm = _lcb(asset_mgr)
+    gm.npcs = []
+    wp = OverworldScreen._lw_start_whirlpool()
+    wp["x"], wp["y"] = 11, 10
+    creatures = [wp]
+    m = _pm(gold=250)
+    assert sc.do_bribe(m, 10, 10, Direction.EAST, gm, creatures) == sc.NOT_HERE
+    assert m.gold == 250 and creatures == [wp]
