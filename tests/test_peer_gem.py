@@ -14,14 +14,10 @@ Java truth:
   the view opens.
 - ``exodus/DungeonScreen.java:1012-1015`` — dungeon P is only the minimap
   toggle (gems never enter it); covered by test_dungeon_commands.
-- ``exodus/Util/Utils.java:865-1042`` — the gem picture: a region of map
-  tiles around the party (wrapped for Sosaria, whole city for towns) with
-  people/creatures as WHITE cells and the party position marked.
-
-Presentation adaptation (documented at py_exodus/ui/gem_view.py): whole-map
-colored-cell blit centered on the screen when the map fits at a usable cell
-size (Java's city view), else a party-centered window at fixed 8px cells
-(Java's world view); party marker YELLOW.
+- The picture is LairWare DrawMiniMap (UltimaGraphics.c:1433-1495): the
+  whole map from shrunken real tiles in the map pane only, people and
+  monsters at their places, the party in a blinking YELLOW box (see
+  py_exodus/ui/gem_view.py).
 """
 from __future__ import annotations
 
@@ -36,21 +32,15 @@ from py_exodus.constants import Profession, Race
 from py_exodus.screens import overworld as overworld_module
 from py_exodus.screens.overworld import OverworldScreen
 from py_exodus.screens.town import TownScreen
+from py_exodus.ui import gem_view
 from py_exodus.ui.gem_view import (
-    CELL,
     PEER_MESSAGE,
-    WHOLE_MAP_MIN_CELL,
+    marker_visible,
+    peer_cell,
+    peer_map_rect,
     render_gem_view,
-    whole_map_cell,
 )
-from py_exodus.ui.text_log import (
-    EGA_BLACK,
-    EGA_BROWN,
-    EGA_DARK_GRAY,
-    EGA_GREEN,
-    EGA_WHITE,
-    EGA_YELLOW,
-)
+from py_exodus.ui.text_log import EGA_WHITE, EGA_YELLOW
 from py_exodus.world.map import GameMap, MapNpc, MapType
 
 
@@ -178,30 +168,46 @@ def test_town_gem_view_render_deterministic_320x200(town, sample_party):
     assert pygame.image.tobytes(s1, "RGB") == pygame.image.tobytes(s2, "RGB")
 
 
-def test_gem_view_marks_party_cell_yellow(ow, sample_party):
-    sample_party.members[0].gems = 1
-    peer(ow)
-    surf = pygame.Surface((320, 200))
-    ow.render(surf)
-    # The 64x64 overworld fits whole-map mode; the party mark lands at its
-    # TRUE map-scaled cell (Java city view, Utils.java:938-944), not the
-    # region center.
-    gm = ow.game_map
-    cell = whole_map_cell(surf.get_width(), surf.get_height(), gm.width, gm.height)
-    assert cell >= WHOLE_MAP_MIN_CELL  # whole-map mode is engaged
-    off_x = (surf.get_width() - gm.width * cell) // 2
-    off_y = (surf.get_height() - gm.height * cell) // 2
-    assert surf.get_at((off_x + ow.party.x * cell, off_y + ow.party.y * cell))[
-        :3
-    ] == EGA_YELLOW
+def test_peer_cell_size_64x64_both_resolutions():
+    """LairWare minSize = pane / mapsize: 8 px cells in the 528 px pane at
+    960x600, 2 px in the 176 px pane at 320x200; centred in the pane."""
+    assert peer_cell(528, 64, 64, 3) == 8
+    assert peer_cell(176, 64, 64, 1) == 2
+    assert peer_cell(528, 32, 32, 3) == 16
+    assert peer_cell(10, 64, 64, 1) == 1  # never 0
+    r = peer_map_rect(pygame.Rect(0, 0, 528, 528), 64, 64, 3)
+    assert r == pygame.Rect(8, 8, 512, 512)
+    r = peer_map_rect(pygame.Rect(0, 0, 176, 176), 64, 64, 1)
+    assert r == pygame.Rect(24, 24, 128, 128)
 
 
-def test_gem_view_whole_map_party_and_corner_tiles(sample_party):
-    """Java's city presentation (Utils.java:887-944): the WHOLE map blits
-    centered on the screen, so far-from-party corner tiles are visible and
-    the party mark sits at its true scaled position."""
+@pytest.mark.parametrize("size", [(960, 600), (320, 200)])
+@pytest.mark.parametrize("screen_name", ["ow", "town"])
+def test_peer_picture_confined_to_map_pane(request, sample_party, size, screen_name):
+    """The picture replaces only the map pane: the party panel and the
+    message log are drawn exactly as without Peer."""
+    scr = request.getfixturevalue(screen_name)
+    scale = 3 if size[0] >= 640 else 1
+    pane = 176 * scale
+    plain = pygame.Surface(size)
+    scr.render(plain)
+    scr.gem_view_active = True
+    peered = pygame.Surface(size)
+    scr.render(peered)
+
+    def crop(s, rect):
+        return pygame.image.tobytes(s.subsurface(rect), "RGB")
+
+    side = pygame.Rect(pane, 0, size[0] - pane, size[1])
+    log = pygame.Rect(0, pane, pane, size[1] - pane)
+    assert crop(peered, side) == crop(plain, side)
+    assert crop(peered, log) == crop(plain, log)
+    assert crop(peered, pygame.Rect(0, 0, pane, pane)) != crop(plain, pygame.Rect(0, 0, pane, pane))
+
+
+def _small_map(asset_mgr, npcs=()):
     tiles = [TileDef(index=3, name="water") for _ in range(32 * 32)]
-    gmap = GameMap(
+    return GameMap(
         id=99,
         name="Small",
         fname="SMALL.ULT",
@@ -210,130 +216,88 @@ def test_gem_view_whole_map_party_and_corner_tiles(sample_party):
         height=32,
         border_behavior="exit",
         tiles=tiles,
+        npcs=list(npcs),
+    )
+
+
+def _cell_pixels(surf, rect, cell, x, y):
+    """RGB bytes of the interior of map cell (x, y)."""
+    return pygame.image.tobytes(
+        surf.subsurface(pygame.Rect(rect.x + x * cell, rect.y + y * cell, cell, cell)), "RGB"
+    )
+
+
+def _tile_pixels(asset_mgr, name, cell):
+    s = pygame.Surface((cell, cell))
+    s.blit(gem_view._shrunk(asset_mgr.get_tile_surface(name, 0), cell), (0, 0))
+    return pygame.image.tobytes(s, "RGB")
+
+
+def test_peer_draws_real_tiles_people_and_monsters_at_their_positions(asset_mgr):
+    gmap = _small_map(
+        asset_mgr,
         npcs=[MapNpc(x=20, y=8, tile_index=3, tile_name="guard", start_x=20, start_y=8)],  # type: ignore
     )
-    corner_names = {(0, 0): "forest", (31, 0): "hills", (0, 31): "mountains", (31, 31): "brush"}
-    for (cx, cy), name in corner_names.items():
-        tiles[cy * 32 + cx] = TileDef(index=3, name=name)
-    surf = pygame.Surface((320, 200))
-    # Party away from the corners; whole-map mode makes them visible anyway.
-    render_gem_view(surf, gmap, 5, 7, marks=[(20, 8)])
-
-    cell = whole_map_cell(surf.get_width(), surf.get_height(), 32, 32)
-    assert cell >= WHOLE_MAP_MIN_CELL
-    off_x = (surf.get_width() - 32 * cell) // 2
-    off_y = (surf.get_height() - 32 * cell) // 2
-
-    for (cx, cy), name in corner_names.items():
-        assert surf.get_at((off_x + cx * cell, off_y + cy * cell))[:3] == {
-            "forest": EGA_GREEN,
-            "hills": EGA_BROWN,
-            "mountains": EGA_DARK_GRAY,
-            "brush": EGA_GREEN,
-        }[name], (cx, cy)
-    # NPC mark at its true scaled cell; party at its own.
-    assert surf.get_at((off_x + 20 * cell, off_y + 8 * cell))[:3] == EGA_WHITE
-    assert surf.get_at((off_x + 5 * cell, off_y + 7 * cell))[:3] == EGA_YELLOW
+    gmap.tiles[0] = TileDef(index=3, name="forest")
+    surf = pygame.Surface((960, 600))
+    pane = pygame.Rect(0, 0, 528, 528)
+    sprites = gem_view.peer_sprites(gmap, None, [{"x": 3, "y": 4, "tile_name": "orc"}], asset_mgr)
+    assert (20, 8, "guard") in sprites and (3, 4, "orc") in sprites
+    render_gem_view(surf, pane, gmap, asset_mgr, (5, 7), sprites=sprites, party_tile="ranger", marker_on=False)
+    rect = peer_map_rect(pane, 32, 32, 3)
+    cell = peer_cell(528, 32, 32, 3)
+    assert _cell_pixels(surf, rect, cell, 0, 0) == _tile_pixels(asset_mgr, "forest", cell)
+    assert _cell_pixels(surf, rect, cell, 1, 0) == _tile_pixels(asset_mgr, "water", cell)
+    assert _cell_pixels(surf, rect, cell, 20, 8) == _tile_pixels(asset_mgr, "guard", cell)
+    assert _cell_pixels(surf, rect, cell, 3, 4) == _tile_pixels(asset_mgr, "orc", cell)
+    assert _cell_pixels(surf, rect, cell, 5, 7) == _tile_pixels(asset_mgr, "ranger", cell)
+    # White frame just outside the map.
+    assert surf.get_at((rect.x - 1, rect.y + 10))[:3] == EGA_WHITE
 
 
-def test_gem_view_window_fallback_clips_off_map_cells_black():
-    """Maps too large to fit whole (128x128 exceeds 320x200 at 3px cells)
-    use the party-centered window; cells past the map edge stay black."""
-    gmap = GameMap(
-        id=99,
-        name="Big",
-        fname="BIG.ULT",
-        map_type=MapType.CITY,
-        width=128,
-        height=128,
-        border_behavior="exit",
-        tiles=[TileDef(index=3, name="floor") for _ in range(128 * 128)],
+def test_peer_sprites_include_parked_ship_and_whirlpool(asset_mgr, sample_party):
+    gmap = _small_map(asset_mgr)
+    gmap.id = 0
+    sample_party.dynamic_objects.append({"x": 2, "y": 3, "tile": "frigate"})
+    sample_party.objects_map_id = 0
+    sprites = gem_view.peer_sprites(
+        gmap, sample_party, [{"x": 9, "y": 9, "tile_name": "whirlpool", "tile": "whirlpool"}], asset_mgr
     )
-    assert whole_map_cell(320, 200, 128, 128) == 0  # window fallback engaged
-    surf = pygame.Surface((320, 200))
-    render_gem_view(surf, gmap, 1, 1)  # party near the map corner
-    # Windows clip at the map edge (Java world view blits a wrapped region
-    # only for wrap maps; non-wrap maps clip as the town-port adaptation).
-    assert surf.get_at((0, 0))[:3] == EGA_BLACK
-    px = (surf.get_width() // CELL // 2) * CELL
-    py = (surf.get_height() // CELL // 2) * CELL
-    assert surf.get_at((px, py))[:3] == EGA_YELLOW
+    assert (2, 3, "frigate") in sprites
+    assert (9, 9, "whirlpool") in sprites
 
 
-def test_gem_view_window_fallback_npcs_drawn_white():
-    gmap = GameMap(
-        id=99,
-        name="Big",
-        fname="BIG.ULT",
-        map_type=MapType.CITY,
-        width=128,
-        height=128,
-        border_behavior="exit",
-        tiles=[TileDef(index=3, name="floor") for _ in range(128 * 128)],
-        npcs=[MapNpc(x=63, y=63, tile_index=3, tile_name="guard", start_x=63, start_y=63)],  # type: ignore
-    )
-    surf = pygame.Surface((320, 200))
-    render_gem_view(surf, gmap, 64, 64, marks=[(63, 63)])
-    # Npc cell (map 63,63) is one cell left / one cell up of the party at
-    # the region center.
-    px = (surf.get_width() // CELL // 2) * CELL
-    py = (surf.get_height() // CELL // 2) * CELL
-    assert surf.get_at((px - CELL, py - CELL))[:3] == EGA_WHITE
+def test_peer_party_marker_yellow_and_blinks(asset_mgr):
+    """The party box is YELLOW and blinks: on 0.4 s, off 0.4 s on the
+    screen's 0.2 s animation frame."""
+    assert [marker_visible(f) for f in range(8)] == [True, True, False, False] * 2
+    gmap = _small_map(asset_mgr)
+    pane = pygame.Rect(0, 0, 528, 528)
+    rect = peer_map_rect(pane, 32, 32, 3)
+    cell = peer_cell(528, 32, 32, 3)
+    on = pygame.Surface((960, 600))
+    off = pygame.Surface((960, 600))
+    render_gem_view(on, pane, gmap, asset_mgr, (5, 7), marker_on=True)
+    render_gem_view(off, pane, gmap, asset_mgr, (5, 7), marker_on=False)
+    # The box sits just outside the party's cell.
+    edge = (rect.x + 5 * cell - 1, rect.y + 7 * cell + cell // 2)
+    assert on.get_at(edge)[:3] == EGA_YELLOW
+    assert off.get_at(edge)[:3] != EGA_YELLOW
 
 
-def test_gem_view_window_wrap_marks_cross_the_seam():
-    """The wrap branch of the mark math (WorldRenderer.map_to_viewport
-    shortest-delta): a party at the seam edge draws NPCs from across the
-    map edge at their wrapped window position, and window tiles come from
-    the wrapped map side of the seam."""
-    gmap = GameMap(
-        id=99,
-        name="WrapBig",
-        fname="WRAPBIG.ULT",
-        map_type=MapType.WORLD,
-        width=128,
-        height=128,
-        border_behavior="wrap",
-        tiles=[TileDef(index=3, name="water") for _ in range(128 * 128)],
-        npcs=[MapNpc(x=127, y=127, tile_index=3, tile_name="guard", start_x=127, start_y=127)],  # type: ignore
-    )
-    # A distinct tile at the wrapped coordinate seen by the top-left window
-    # cell (party (1,1): start (-19,-11) wraps to (109, 117)).
-    gmap.tiles[117 * 128 + 109] = TileDef(index=3, name="mountains")
-    assert whole_map_cell(320, 200, 128, 128) == 0  # window fallback engaged
-    surf = pygame.Surface((320, 200))
-    render_gem_view(surf, gmap, 1, 1, marks=[(127, 127)])
-    # Wrapped seam tile visible at the window's top-left cell.
-    assert surf.get_at((0, 0))[:3] == EGA_DARK_GRAY
-    # NPC at (127,127) shortest-delta is (-2,-2) around the party: two cells
-    # left/up of the window center.
-    px = (surf.get_width() // CELL // 2) * CELL
-    py = (surf.get_height() // CELL // 2) * CELL
-    assert surf.get_at((px - 2 * CELL, py - 2 * CELL))[:3] == EGA_WHITE
-
-
-def test_gem_view_party_on_wrapped_window_seam():
-    """Party across the seam from the window origin: the window tiles come
-    from the wrapped side while the YELLOW party marker stays at the
-    region center."""
-    gmap = GameMap(
-        id=99,
-        name="WrapBig",
-        fname="WRAPBIG.ULT",
-        map_type=MapType.WORLD,
-        width=128,
-        height=128,
-        border_behavior="wrap",
-        tiles=[TileDef(index=3, name="water") for _ in range(128 * 128)],
-    )
-    # Party at (2,2): window start (-18,-10) wraps leftmost cell to (110,118).
-    gmap.tiles[118 * 128 + 110] = TileDef(index=3, name="mountains")
-    surf = pygame.Surface((320, 200))
-    render_gem_view(surf, gmap, 2, 2)
-    assert surf.get_at((0, 0))[:3] == EGA_DARK_GRAY
-    px = (surf.get_width() // CELL // 2) * CELL
-    py = (surf.get_height() // CELL // 2) * CELL
-    assert surf.get_at((px, py))[:3] == EGA_YELLOW
+def test_overworld_peer_marker_toggles_with_anim_frame(ow, sample_party):
+    ow.gem_view_active = True
+    gm = ow.game_map
+    rect = peer_map_rect(pygame.Rect(0, 0, 528, 528), gm.width, gm.height, 3)
+    cell = peer_cell(528, gm.width, gm.height, 3)
+    edge = (rect.x + ow.party.x * cell - 1, rect.y + ow.party.y * cell + cell // 2)
+    seen = []
+    for frame in (0, 2):
+        ow.anim_frame = frame
+        s = pygame.Surface((960, 600))
+        ow.render(s)
+        seen.append(s.get_at(edge)[:3] == EGA_YELLOW)
+    assert seen == [True, False]
 
 
 # --- Task 25 (D4): VIEDA cast routes to the same gem-view render path ---

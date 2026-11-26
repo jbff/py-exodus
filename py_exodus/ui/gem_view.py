@@ -10,285 +10,195 @@ timer, so no turn passes while the view is up. P itself has no early return
 view opens. Dungeons never use it: DungeonScreen.java:1012-1015 makes P a
 plain minimap toggle instead.
 
-The picture is drawn by ``Util/Utils.peerGem`` (Utils.java:865-1042): for
-the world map it blits a region of real tiles around the avatar (wrapping
-the map edges), painting creatures/objects WHITE and the center (party)
-tile WHITE as well; for a city it blits the WHOLE map and paints the
-party's own tile YELLOW (Utils.java:938-944). Dungeon maps draw nothing
-(the HUD minimap already covers them).
-
-Presentation adaptation from the Java/libGDX renderer to this port's
-colored-cell HUD precedent (dungeon_screen._render_minimap):
-- WHOLE MAP when it fits (Java's city presentation, Utils.java:887-944):
-  whenever the map's full extent fits the view at a cell size of at least
-  WHOLE_MAP_MIN_CELL px (a 64x64 map becomes 192x192 at 3px inside the
-  320x200 base surface), the entire map is blitted centered on the screen
-  exactly as Java blits all 64x64 city tiles, with the party marked YELLOW
-  at its true map-scaled cell (Utils.java:938-944) and NPC marks WHITE
-  anywhere in the map.
-- Otherwise a fixed 8px colored-cell window centered on the party (Java's
-  world presentation, Utils.java:946-1042 — a party-centered wrapped
-  region); 8px fills the 320x200 base surface with a 40x25-grid window, as
-  the task presentation guidance prescribes ("enough tiles to fill the
-  screen at a reasonable cell size").
-- Terrain colors come from a fixed name->EGA table with a deterministic
-  CRC32 fallback for rare names, so repeated renders are byte-identical.
-- The WHOLE-map mode reuses the city rule; the party-centered region is
-  WRAPPED for wrap-border maps (matching Java's world peerGem modulo math)
-  but CLIPPED at bounds elsewhere.
-- People/creatures/objects are WHITE cells (Utils.java:899-931, 1003-1020)
-  and the party cell is YELLOW (the city coloring — unifies Java's white
-  center tile on the world map with the yellow city party marker).
+The picture follows LairWare DrawMiniMap (UltimaGraphics.c:1433-1495): the
+WHOLE map, drawn from shrunken real tiles into the MAP PANE only (the party
+panel and the message log stay up), each cell ``pane / mapsize`` px, the
+map centred in the pane over a grey drop shadow and inside a white/black
+frame. LairWare keeps townspeople and wandering monsters in the map grid,
+so they show at their places; the port draws them (and the whirlpool and
+parked ships/horses) as their own shrunken tiles over the terrain. The
+party's cell carries its own tile and a YELLOW box that blinks (user
+addition to the approved mockup), 0.4 s on and 0.4 s off on the screen's
+0.2 s animation frame.
 """
 from __future__ import annotations
 
-import zlib
+from collections.abc import Iterable
+from typing import Any
 
 import pygame
 
-from py_exodus.ui.text_log import (
-    EGA_BLACK,
-    EGA_BLUE,
-    EGA_BRIGHT_BLUE,
-    EGA_BRIGHT_CYAN,
-    EGA_BRIGHT_GREEN,
-    EGA_BRIGHT_MAGENTA,
-    EGA_BRIGHT_RED,
-    EGA_BROWN,
-    EGA_CYAN,
-    EGA_DARK_GRAY,
-    EGA_GREEN,
-    EGA_LIGHT_GRAY,
-    EGA_MAGENTA,
-    EGA_RED,
-    EGA_WHITE,
-    EGA_YELLOW,
-)
+from py_exodus.ui.text_log import EGA_BLACK, EGA_WHITE, EGA_YELLOW
 
 # GameScreen.java:1081 (peer log).
 PEER_MESSAGE = "Peer at a Gem!"
 
-CELL = 8
+# Grey of LairWare's blended drop shadow (OpColor 24576 over the pane).
+SHADOW_COLOR = (90, 90, 90, 160)
+# Cell painted where a tile has no art in the loaded tile set.
+MISSING_TILE_COLOR = (40, 40, 40)
 
-# Java's city gem view blits the whole 64x64 map as 10px tiles on the
-# screen (Utils.java:874-880). The port matches that whole-map presentation
-# whenever the full extent fits the surface at a usable cell size: a 64x64
-# map becomes 192x192 at 3px cells inside the 320x200 base surface. Maps too
-# large to fit that way fall back to the world presentation — a
-# party-centered window at CELL px (Utils.java:946-1042).
-WHOLE_MAP_MIN_CELL = 3
-
-_TILE_COLORS = {
-    "water": EGA_BLUE,
-    "grass": EGA_BRIGHT_GREEN,
-    "brush": EGA_GREEN,
-    "forest": EGA_GREEN,
-    "mountains": EGA_DARK_GRAY,
-    "hills": EGA_BROWN,
-    "dungeon": EGA_LIGHT_GRAY,
-    "towne": EGA_BRIGHT_RED,
-    "castle": EGA_BRIGHT_CYAN,
-    "floor": EGA_LIGHT_GRAY,
-    "chest": EGA_BROWN,
-    "horse": EGA_BROWN,
-    "frigate": EGA_BROWN,
-    "whirlpool": EGA_BRIGHT_BLUE,
-    "serpent": EGA_BRIGHT_MAGENTA,
-    "squid": EGA_BRIGHT_MAGENTA,
-    "pirate": EGA_MAGENTA,
-    "merchant": EGA_BRIGHT_MAGENTA,
-    "jester": EGA_BRIGHT_MAGENTA,
-    "guard": EGA_BRIGHT_MAGENTA,
-    "lord_british": EGA_BRIGHT_MAGENTA,
-    "fighter": EGA_BRIGHT_MAGENTA,
-    "cleric": EGA_BRIGHT_MAGENTA,
-    "wizard": EGA_BRIGHT_MAGENTA,
-    "thief": EGA_BRIGHT_MAGENTA,
-    "orc": EGA_GREEN,
-    "skeleton": EGA_WHITE,
-    "giant": EGA_WHITE,
-    "daemon": EGA_WHITE,
-    "pincher": EGA_WHITE,
-    "dragon": EGA_WHITE,
-    "balron": EGA_WHITE,
-    "exodus": EGA_WHITE,
-    "energy_field": EGA_BRIGHT_RED,
-    "lava": EGA_BRIGHT_RED,
-    "moongate": EGA_BRIGHT_MAGENTA,
-    "wall": EGA_WHITE,
-    "blank": EGA_BLACK,
-    "space": EGA_BLACK,
-    "A": EGA_CYAN,
-    "B": EGA_YELLOW,
-    "C": EGA_CYAN,
-    "D": EGA_CYAN,
-    "E": EGA_CYAN,
-    "F": EGA_CYAN,
-    "G": EGA_CYAN,
-    "H": EGA_CYAN,
-    "I": EGA_CYAN,
-    "V": EGA_CYAN,
-    "Y": EGA_YELLOW,
-    "L": EGA_CYAN,
-    "M": EGA_CYAN,
-    "N": EGA_CYAN,
-    "O": EGA_CYAN,
-    "P": EGA_CYAN,
-    "W": EGA_CYAN,
-    "R": EGA_CYAN,
-    "S": EGA_CYAN,
-    "T": EGA_CYAN,
-}
-
-_FALLBACK_PALETTE = (
-    EGA_RED,
-    EGA_GREEN,
-    EGA_BLUE,
-    EGA_MAGENTA,
-    EGA_LIGHT_GRAY,
-    EGA_BROWN,
-)
+# Shrunken tile cache: (id(source frame), cell) -> (source, shrunk). The
+# source is kept so a recycled id() can never hand back a stale picture.
+_SHRUNK: dict[tuple[int, int], tuple[pygame.Surface, pygame.Surface]] = {}
 
 
-def _tile_color(tile_name: str):
-    color = _TILE_COLORS.get(tile_name)
-    if color is None:
-        # Deterministic hash (str.__hash__ is salted per process; CRC32 is
-        # not) so repeated renders of the same map are byte-identical.
-        color = _FALLBACK_PALETTE[zlib.crc32(tile_name.encode()) % len(_FALLBACK_PALETTE)]
-    return color
+def peer_cell(pane: int, map_w: int, map_h: int, scale: int) -> int:
+    """Cell size in px for the whole map in a ``pane``-px square map pane:
+    LairWare ``minSize = (blkSiz * 22) / gCurMapSize`` (at least 1), less a
+    small margin so the frame and shadow stay inside the pane. A 64x64 map
+    gets 8 px at 960x600 (pane 528) and 2 px at 320x200 (pane 176)."""
+    size = max(map_w, map_h, 1)
+    return max(1, (pane - 4 * scale) // size)
 
 
-def whole_map_cell(width: int, height: int, map_w: int, map_h: int) -> int:
-    """Cell size the WHOLE map uses on a width x height surface, or 0 when
-    the extent does not fit at WHOLE_MAP_MIN_CELL (window fallback)."""
-    if map_w <= 0 or map_h <= 0:
-        return 0
-    cell = min(CELL, width // map_w, height // map_h)
-    return cell if cell >= WHOLE_MAP_MIN_CELL else 0
+def marker_visible(anim_frame: int) -> bool:
+    """The party box blinks: on for two 0.2 s animation frames, off for
+    two (0.4 s each way)."""
+    return (anim_frame // 2) % 2 == 0
+
+
+def _shrunk(src: pygame.Surface, cell: int) -> pygame.Surface:
+    key = (id(src), cell)
+    hit = _SHRUNK.get(key)
+    if hit is not None and hit[0] is src:
+        return hit[1]
+    # Opaque, like LairWare's mini tiles. Smooth shrinking keeps the EGA
+    # dither from aliasing; the tile sheets are 8-bit, which smoothscale
+    # refuses, so go via 32-bit.
+    out = pygame.Surface(src.get_size(), depth=32)
+    out.blit(src, (0, 0))
+    if out.get_size() != (cell, cell):
+        out = pygame.transform.smoothscale(out, (cell, cell))
+    _SHRUNK[key] = (src, out)
+    return out
+
+
+def _tile(asset_mgr: Any, name: str | None, cell: int) -> pygame.Surface | None:
+    if asset_mgr is None or not name:
+        return None
+    try:
+        src = asset_mgr.get_tile_surface(str(name), 0)
+    except (KeyError, AttributeError):
+        return None
+    return _shrunk(src, cell)
+
+
+def _sprite_name(thing: Any, asset_mgr: Any) -> str | None:
+    """Tile name of a map object, creature or NPC (as WorldRenderer draws
+    them in the normal view)."""
+    if isinstance(thing, dict):
+        name = thing.get("tile_name") or thing.get("name")
+        tile = thing.get("tile")
+        if tile is not None and not thing.get("tile_name"):
+            name = tile.name if hasattr(tile, "name") else str(tile)
+        variant = str(thing.get("name", "")).lower()
+        tiles = getattr(asset_mgr, "tiles", None) or {}
+        if thing.get("variant") and variant in tiles:
+            name = variant
+        return str(name) if name else None
+    name = getattr(thing, "tile_name", None)
+    if not name and getattr(thing, "tile_def", None) is not None:
+        name = thing.tile_def.name
+    return str(name) if name else None
+
+
+def peer_sprites(game_map: Any, party: Any, creatures: Iterable[Any], asset_mgr: Any) -> list[tuple[int, int, str]]:
+    """Everything that stands on the map besides the party, as
+    ``(x, y, tile_name)``: parked ships/horses and dropped chests on their
+    own surface map, creatures (wandering monsters, the whirlpool, horses)
+    and townspeople at their current positions."""
+    from py_exodus.entities.party import objects_on
+
+    out: list[tuple[int, int, str]] = []
+    things: list[Any] = list(objects_on(party, game_map)) if getattr(game_map, "id", 0) in (0, 13) else []
+    things.extend(creatures)
+    things.extend(getattr(game_map, "npcs", ()))
+    for thing in things:
+        name = _sprite_name(thing, asset_mgr)
+        if not name:
+            continue
+        if isinstance(thing, dict):
+            x, y = thing.get("x", 0), thing.get("y", 0)
+        else:
+            x, y = getattr(thing, "x", 0), getattr(thing, "y", 0)
+        out.append((int(x), int(y), name))
+    return out
+
+
+def peer_map_rect(pane: pygame.Rect, map_w: int, map_h: int, scale: int) -> pygame.Rect:
+    """Where the whole map lands: centred in the pane (DrawMiniMap
+    mapRect)."""
+    cell = peer_cell(min(pane.w, pane.h), map_w, map_h, scale)
+    w, h = map_w * cell, map_h * cell
+    return pygame.Rect(pane.x + (pane.w - w) // 2, pane.y + (pane.h - h) // 2, w, h)
 
 
 def render_gem_view(
     surface: pygame.Surface,
-    game_map,
-    center_x: int,
-    center_y: int,
-    marks=(),
+    pane: pygame.Rect,
+    game_map: Any,
+    asset_mgr: Any,
+    party_xy: tuple[int, int],
+    *,
+    sprites: Iterable[tuple[int, int, str]] = (),
+    party_tile: str | None = None,
+    marker_on: bool = True,
 ) -> None:
-    """Draw the gem-vision picture: the WHOLE map as colored cells centered
-    on the screen when it fits at a usable cell size (Java's city view,
-    Utils.java:887-944), otherwise the party-centered map region
-    (Java's world view, Utils.java:946-1042). People/marks are WHITE and
-    the party cell YELLOW (see module docstring for the Java->port
-    adaptation)."""
+    """Draw the Peer picture into ``pane`` (the map pane) of ``surface``:
+    LairWare DrawMiniMap. Nothing outside the pane is touched."""
+    scale = 3 if surface.get_width() >= 640 else 1
+    map_w, map_h = game_map.width, game_map.height
+    cell = peer_cell(min(pane.w, pane.h), map_w, map_h, scale)
+    rect = peer_map_rect(pane, map_w, map_h, scale)
 
-    surface.fill(EGA_BLACK)
+    old_clip = surface.get_clip()
+    surface.set_clip(pane.clip(old_clip) if old_clip else pane)
+    try:
+        surface.fill(EGA_BLACK, pane)
 
-    width = surface.get_width()
-    height = surface.get_height()
-    map_w = game_map.width
-    map_h = game_map.height
+        # Drop shadow, down and right of the map (blend grey in LW).
+        off = 2 * scale
+        shadow = pygame.Surface(rect.size, pygame.SRCALPHA)
+        shadow.fill(SHADOW_COLOR)
+        surface.blit(shadow, rect.move(off, off))
+        surface.fill(EGA_BLACK, rect)
 
-    cell = whole_map_cell(width, height, map_w, map_h)
-    if cell >= WHOLE_MAP_MIN_CELL:
-        _draw_whole_map(
-            surface, game_map, center_x, center_y, marks, cell, width, height
-        )
-    else:
-        _draw_centered_window(surface, game_map, center_x, center_y, marks)
+        # Terrain, then everyone standing on it.
+        for my in range(map_h):
+            y = rect.y + my * cell
+            for mx in range(map_w):
+                tile = game_map.get_tile(mx, my)
+                img = _tile(asset_mgr, tile.name if tile is not None else None, cell)
+                if img is None:
+                    surface.fill(MISSING_TILE_COLOR, (rect.x + mx * cell, y, cell, cell))
+                else:
+                    surface.blit(img, (rect.x + mx * cell, y))
 
+        def on_map(x: int, y: int) -> bool:
+            return 0 <= x < map_w and 0 <= y < map_h
 
-def _cell_rect(x: int, y: int, cell: int) -> pygame.Rect:
-    """Top-left pixel origin of map cell (x, y) at the given cell size,
-    minus the grid gap."""
-    return pygame.Rect(x * cell, y * cell, cell - 1, cell - 1)
+        for x, y, name in sprites:
+            img = _tile(asset_mgr, name, cell)
+            if img is not None and on_map(x, y):
+                surface.blit(img, (rect.x + x * cell, rect.y + y * cell))
 
+        px, py = party_xy
+        if on_map(px, py):
+            img = _tile(asset_mgr, party_tile, cell)
+            if img is not None:
+                surface.blit(img, (rect.x + px * cell, rect.y + py * cell))
 
-def _draw_whole_map(
-    surface, game_map, center_x: int, center_y: int, marks, cell: int,
-    width: int, height: int,
-) -> None:
-    """Java city peerGem (Utils.java:873-944): every tile of the map at the
-    given cell size, the blit centered on the screen so the party can be
-    marked at its TRUE map-scaled cell anywhere in it."""
-    map_w = game_map.width
-    map_h = game_map.height
-    off_x = (width - map_w * cell) // 2
-    off_y = (height - map_h * cell) // 2
+        # Frame: white, then black outside it (FrameRect twice).
+        pygame.draw.rect(surface, EGA_WHITE, rect.inflate(2, 2), 1)
+        pygame.draw.rect(surface, EGA_BLACK, rect.inflate(4, 4), 1)
 
-    for my in range(map_h):
-        for mx in range(map_w):
-            tile = game_map.get_tile(mx, my)
-            if tile is None:
-                continue
-            rect = _cell_rect(mx, my, cell).move(off_x, off_y)
-            surface.fill(_tile_color(tile.name), rect)
-
-    # People/creatures/objects anywhere in the map as WHITE cells.
-    for (ex, ey) in marks:
-        if not (0 <= ex < map_w and 0 <= ey < map_h):
-            continue
-        surface.fill(EGA_WHITE, _cell_rect(ex, ey, cell).move(off_x, off_y))
-
-    # Party marker: YELLOW at its true map-scaled cell (Utils.java:938-944).
-    if 0 <= center_x < map_w and 0 <= center_y < map_h:
-        surface.fill(
-            EGA_YELLOW, _cell_rect(center_x, center_y, cell).move(off_x, off_y)
-        )
-
-
-def _draw_centered_window(
-    surface, game_map, center_x: int, center_y: int, marks
-) -> None:
-    """Java world peerGem (Utils.java:946-1042): the region of tiles around
-    the party at CELL px, wrapped at map borders where the map wraps and
-    clipped outside its bounds elsewhere."""
-
-    width = surface.get_width()
-    height = surface.get_height()
-    cols = max(1, width // CELL)
-    rows = max(1, height // CELL)
-    start_x = center_x - cols // 2
-    start_y = center_y - rows // 2
-
-    is_wrap = game_map.border_behavior == "wrap"
-    map_w = game_map.width
-    map_h = game_map.height
-
-    for row in range(rows):
-        for col in range(cols):
-            mx = start_x + col
-            my = start_y + row
-            if is_wrap:
-                mx %= map_w
-                my %= map_h
-            elif not (0 <= mx < map_w and 0 <= my < map_h):
-                continue
-            tile = game_map.get_tile(mx, my)
-            if tile is None:
-                continue
-            surface.fill(_tile_color(tile.name), _cell_rect(col, row, CELL))
-
-    # People/creatures/objects on the viewed region as WHITE cells.
-    for (ex, ey) in marks:
-        if is_wrap:
-            # Shortest signed delta (WorldRenderer.map_to_viewport wrap
-            # math) so marks keep their true position across the seam.
-            col = cols // 2 + ((ex - center_x + map_w // 2) % map_w) - (map_w // 2)
-            row = rows // 2 + ((ey - center_y + map_h // 2) % map_h) - (map_h // 2)
-        else:
-            col = ex - start_x
-            row = ey - start_y
-        if 0 <= col < cols and 0 <= row < rows:
-            surface.fill(
-                EGA_WHITE,
-                pygame.Rect(col * CELL, row * CELL, CELL - 1, CELL - 1),
-            )
-
-    # Party marker: a YELLOW cell at the region center.
-    p_col = cols // 2
-    p_row = rows // 2
-    surface.fill(
-        EGA_YELLOW,
-        pygame.Rect(p_col * CELL, p_row * CELL, CELL - 1, CELL - 1),
-    )
+        # Party marker: a blinking yellow box around the party's cell.
+        if marker_on and on_map(px, py):
+            pad = max(1, scale - 1)
+            box = pygame.Rect(rect.x + px * cell, rect.y + py * cell, cell, cell).inflate(2 * pad, 2 * pad)
+            if scale > 1:
+                pygame.draw.rect(surface, EGA_BLACK, box.inflate(4, 4), 2)
+            pygame.draw.rect(surface, EGA_YELLOW, box, pad)
+    finally:
+        surface.set_clip(old_clip)

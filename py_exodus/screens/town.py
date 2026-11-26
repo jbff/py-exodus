@@ -1386,17 +1386,6 @@ class TownScreen(BaseScreen):
         surface.fill(EGA_BLACK)
         w, h = surface.get_width(), surface.get_height()
 
-        # Peer Gem view (Java PeerGemInputAdapter): the gem picture replaces
-        # the whole screen (GameScreen.java:1119-1129); the port drops to a
-        # plain colored-cell map, see py_exodus/ui/gem_view.py.
-        if self.gem_view_active and self.game_map is not None:
-            from py_exodus.ui.gem_view import render_gem_view
-
-            marks = [(npc.x, npc.y) for npc in self.game_map.npcs]
-            marks.extend((c["x"], c["y"]) for c in self.creatures)
-            render_gem_view(surface, self.game_map, self.avatar_x, self.avatar_y, marks=marks)
-            return
-
         scale = 3 if w >= 640 else 1
         v_size = 176 * scale
 
@@ -1458,3 +1447,22 @@ class TownScreen(BaseScreen):
                 rect=pygame.Rect(0, 176, 176, log_h),
                 draw_border=True,
             )
+
+        if self.gem_view_active and self.game_map is not None:
+            self._render_peer(surface, v_size)
+
+    def _render_peer(self, surface: pygame.Surface, pane: int) -> None:
+        """Peer Gem picture over the map pane (LairWare DrawMiniMap, see
+        py_exodus/ui/gem_view.py); the party panel and log stay up."""
+        from py_exodus.ui.gem_view import marker_visible, peer_sprites, render_gem_view
+
+        render_gem_view(
+            surface,
+            pygame.Rect(0, 0, pane, pane),
+            self.game_map,
+            self.asset_mgr,
+            (self.avatar_x, self.avatar_y),
+            sprites=peer_sprites(self.game_map, self.party, self.creatures, self.asset_mgr),
+            party_tile="ranger",
+            marker_on=marker_visible(self.anim_frame),
+        )
