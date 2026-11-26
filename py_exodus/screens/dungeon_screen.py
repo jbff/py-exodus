@@ -60,6 +60,8 @@ _NOT_DNG_CMD_KEYS = frozenset(
 class DungeonScreen(BaseScreen):
     """First-person 3D wireframe dungeon navigation screen."""
 
+    allows_quick_reference = True
+
     def __init__(
         self,
         party: Party,

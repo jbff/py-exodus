@@ -58,6 +58,8 @@ COMBAT_PASS_POLLS = 0x2F - 1
 class CombatScreen(BaseScreen):
     """Interactive screen for 11x11 tactical turn-based combat encounters."""
 
+    allows_quick_reference = True
+
     def __init__(
         self,
         party: Party,

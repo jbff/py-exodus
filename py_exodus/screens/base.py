@@ -10,6 +10,10 @@ import pygame
 class BaseScreen(ABC):
     """Abstract base class for all game screens in py-exodus."""
 
+    #: F3/F4 open the quick-reference cards over this screen (the map,
+    #: town, dungeon and combat screens; not the title, intro or roster).
+    allows_quick_reference: bool = False
+
     def __init__(
         self,
         return_screen: BaseScreen | None = None,
@@ -179,3 +183,17 @@ class BaseScreen(ABC):
             self.next_screen = book
             self.is_finished = True
         return book
+
+    def open_quick_reference(self, card: str = "commands") -> Any:
+        """Push a quick-reference card over this screen (F3/F4). Like the
+        Book, the screen beneath gets no update while the card is up, so
+        the game is paused."""
+        from py_exodus.screens.quickref import QuickRefScreen
+
+        ref = QuickRefScreen(card=card, return_screen=self, manager=self.manager)
+        if self.manager is not None:
+            self.manager.push_screen(ref)
+        else:
+            self.next_screen = ref
+            self.is_finished = True
+        return ref

@@ -35,6 +35,8 @@ class StateMachine:
         # player's own windowed game turns it on (GameApp); headless runs,
         # batches and tests never write the save (save_system.autosave_allowed).
         self.autosave_enabled: bool = False
+        # The spell card F4 opens: the one last shown (Tab switches it).
+        self.quickref_spell_card: str = "wizard"
 
         if initial_screen is not None:
             self.set_screen(initial_screen)
@@ -97,13 +99,29 @@ class StateMachine:
         # Java truth: exodus/BaseScreen.java:86-97 — every screen mounts a
         # Book button; the port binds F1 globally so the Book of Lore can be
         # opened from the title screen and each game screen.
+        # Quick-reference cards (py-exodus addition): F3 commands, F4 spells,
+        # over any game screen. An open card takes F3/F4 itself (switch or
+        # close) and F1 closes it like any other key.
+        from py_exodus.screens.quickref import QuickRefScreen
+
+        if (
+            event.type == pygame.KEYDOWN
+            and event.key in (pygame.K_F3, pygame.K_F4)
+            and not isinstance(cur, QuickRefScreen)
+        ):
+            if getattr(cur, "allows_quick_reference", False) and not cur.is_finished:
+                cur.open_quick_reference(
+                    "commands" if event.key == pygame.K_F3 else self.quickref_spell_card
+                )
+            return
+
         if event.type == pygame.KEYDOWN and event.key == pygame.K_F1:
             from py_exodus.screens.book import BookScreen
 
             # Defensive: never mount the book over a finished screen whose
             # transition is still pending — Java is synchronous (setScreen
             # inside the listener) and has no equivalent guard.
-            if not isinstance(cur, BookScreen) and not cur.is_finished:
+            if not isinstance(cur, (BookScreen, QuickRefScreen)) and not cur.is_finished:
                 cur.open_book()
                 return
 

@@ -364,6 +364,8 @@ def render_sky_strip(
 class OverworldScreen(BaseScreen):
     """Exploration screen for the Sosaria world map and Ambrosia continent."""
 
+    allows_quick_reference = True
+
     def __init__(
         self,
         party: Party,

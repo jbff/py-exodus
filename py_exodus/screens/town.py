@@ -75,6 +75,8 @@ CASTLE_MAP_IDS = frozenset({"1", "2"})
 class TownScreen(BaseScreen):
     """Town and castle navigation screen supporting NPC dialogues and vendor shopping."""
 
+    allows_quick_reference = True
+
     def __init__(
         self,
         party: Party,
