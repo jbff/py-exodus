@@ -56,7 +56,7 @@ python3 -m py_exodus
 - **`F4`:** quick-reference cards of the Wizard and Cleric spells, with cost, where they work and what they do. `Tab` switches between the two; `F3` shows the commands.
 - **`TAB`** (or `F2`): Auto-Combat on or off during a battle.
 - **`F9`:** Full Autoplay on or off. `[` slows it down and `]` speeds it up.
-- **`F10`:** the debug menu, with `--debug` only.
+- **`F10`:** the debug menu, with `--debug` only. Its cheats include a free Peer: `P` shows the map anywhere, for no gem.
 
 Saving follows LairWare's classic AutoSave, with one save slot. The game saves when you enter or leave a town, castle or dungeon, on the whirlpool trip, and when a member dies. `Q` also saves, on Sosaria only. Nothing is saved while autoplay is on, or after the ending.
 
@@ -100,7 +100,7 @@ uv run python -m py_exodus.autoplay.batch --seeds 0-99 --workers 2 --out-dir tra
 uv run python -m pytest
 ```
 
-There are **2,273 tests**. They cover the mechanics, parity with LairWare, Java and the Game Boy Color port, the shops, the dungeons, combat, rendering and autoplay. Most autoplay fixes come with a test that fails on the old code.
+There are **2,377 tests**. They cover the mechanics, parity with LairWare, Java and the Game Boy Color port, the shops, the dungeons, combat, rendering and autoplay. Most autoplay fixes come with a test that fails on the old code.
 
 ---
 
@@ -110,7 +110,7 @@ The rest of the rules follow LairWare. Every rule decision, with its LairWare so
 
 1. **The game ends when Exodus falls,** as in the 8-bit originals. LairWare's play after the win is not ported.
 2. **No starter party:** the roster starts empty. The Magical Orbs are gone.
-3. **Dungeons:** they are drawn as a first-person wireframe, with a map overlay on by default (`P` hides it).
+3. **Dungeons:** only the look differs. They are drawn in a first-person "Stone" view: torchlit stone blocks that fade with distance, with close-up pictures for fountains and the red-hot rod. The rules are LairWare's: there is no free map, `P` peers at a gem, and Vieda shows the level map.
 4. **Spells:** spell menus keep fixed A–P letters.
 5. **Druids:** they regain 2 MP per tick, as the Book of Lore says.
 6. **LairWare bugs not copied:**
@@ -128,7 +128,6 @@ The rest of the rules follow LairWare. Every rule decision, with its LairWare so
 ## Planned (look & feel)
 
 - **The victory ending:** LairWare-style colour flashes, an "EXODUS VANQUISHED" page with the move count, then the epilogue in serif lettering. The design is chosen.
-- **A new dungeon view:** "Stone" style, with solid torchlit walls, fog with distance, and close-up pictures for fountains and the red-hot rod. The map overlay will then be off by default. The design is chosen.
 
 ## Possible loose ends
 
