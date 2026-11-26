@@ -168,6 +168,18 @@ _PIRATE_SEA_MAPS: tuple[int, ...] = (_MAP_SOSARIA, _MAP_AMBROSIA)
 _UNSAFE_REST_TOWN_MAPS: tuple[int, ...] = (_MAP_EXODUS, _MAP_DEATH_GULCH)
 # ~2x a typical mainland town food run; leaves HP margin before starvation ticks kill a 0-food party.
 _STARVING_AVOID_MAX_STEPS = 40
+# A ship's headwind hold (_move_toward). It holds only when no step the wind
+# allows gets nearer by the wind-free route, and for at most
+# min(_WIND_HOLD_MAX, detour's extra turns) turns in a row: waiting no
+# longer than the detour would add never costs more than twice the better
+# choice in hindsight. 20 turns is about a wind period at autoplay's default
+# pace (DoWind re-rolls every 33 polls, 2.75 s of play, ~34 steps at 0.08 s;
+# the new wind is the headwind again only 1 time in 7). Then it sails the
+# wind-legal route, unless that adds more than _WIND_DETOUR_MAX turns (a
+# trip round a continent or the world): the wind changes on the clock, so
+# waiting it out is cheaper there.
+_WIND_HOLD_MAX = 20
+_WIND_DETOUR_MAX = 60
 _TOWN_DASH_STEPS = 4  # this close to a town gate, firing lanes don't block the walk in
 
 # EXODUS card panels: (x, y, bit_mask, card_letter, card_index)
@@ -307,6 +319,9 @@ class AutoPlayController:
         self._trip_frigates: frozenset[tuple[int, int]] = frozenset()
         self._trip_planned_at = 0
         self._whirl_guess = 0
+        # Headwind hold (_move_toward): turns held in a row, and the wind held for.
+        self._wind_hold_n = 0
+        self._wind_hold_wind = None
         self._whirl_missing = False
         self._trip_stuck = 0
         self._trip_still = 0  # turns on one tile; only a move resets it
@@ -3526,11 +3541,34 @@ class AutoPlayController:
             if free_d is not None and free_cost is not None and (
                 d is None or (wind_cost is not None and wind_cost * 2 > free_cost * 3)
             ):
-                if free_d == headwind(wind):
-                    return self._emit_key(state_machine, pygame.K_SPACE)
-                # Advance along the wind-free shortest route while its next heading is allowed,
-                # holding only when reaching the pinch/turn where wind actually blocks free_d.
-                d = free_d
+                if free_d != headwind(wind):
+                    # Advance along the wind-free shortest route while its next
+                    # heading is allowed.
+                    d = free_d
+                    self._wind_hold_n = 0
+                else:
+                    prog = self._wind_progress_step(
+                        game_map, start, goals, party, wind, avoid, has_key, free_cost
+                    )
+                    extra = (wind_cost - free_cost) if wind_cost is not None else None
+                    if self._wind_hold_wind != wind:
+                        self._wind_hold_wind, self._wind_hold_n = wind, 0
+                    if prog is not None:
+                        d = prog
+                        self._wind_hold_n = 0
+                    elif (
+                        d is None
+                        or extra is None
+                        or extra > _WIND_DETOUR_MAX
+                        or self._wind_hold_n < min(_WIND_HOLD_MAX, extra)
+                    ):
+                        # Headwind on the short route and no allowed step
+                        # gains on it: wait for the wind (see _WIND_HOLD_MAX).
+                        self._wind_hold_n += 1
+                        return self._emit_key(state_machine, pygame.K_SPACE)
+                    # Held long enough: sail the wind-legal route (d).
+        else:
+            self._wind_hold_n = 0
         if d is None and avoid:
             # Drop the soft avoidance but keep the hard threats (pirate lanes,
             # squid reach): the lane guard would refuse those steps anyway.
@@ -3574,6 +3612,38 @@ class AutoPlayController:
                     return self._emit_key(state_machine, pygame.K_u)
             return self._emit_key(state_machine, _DIR_TO_KEY[d])
         return self._emit_key(state_machine, pygame.K_SPACE)
+
+    @staticmethod
+    def _wind_progress_step(game_map, start, goals, party, wind, avoid, has_key, free_cost):
+        """A heading the wind allows whose next tile is nearer the goal by the
+        wind-free route than ``start`` (cost below ``free_cost``), nearest
+        first; None when every allowed step loses ground."""
+        blocked = headwind(wind)
+        w, h = game_map.width, game_map.height
+        wraps = getattr(game_map, "border_behavior", "exit") == "wrap"
+        best = None
+        for dd in (Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST):
+            if dd == blocked:
+                continue
+            nx, ny = start[0] + dd.dx, start[1] + dd.dy
+            if wraps:
+                nx, ny = nx % w, ny % h
+            elif not (0 <= nx < w and 0 <= ny < h):
+                continue
+            nxt = (nx, ny)
+            if nxt in goals:
+                return dd
+            if avoid and nxt in avoid:
+                continue
+            if not can_move_to(game_map, nx, ny, transport=party.transport, party=party):
+                continue
+            _d, cost = find_2d_step_and_cost(
+                game_map, start=nxt, goals=goals, transport=party.transport, party=party,
+                avoid_tiles=avoid, ignore_wind=True, allow_locked_doors=has_key,
+            )
+            if cost is not None and cost < free_cost and (best is None or cost < best[0]):
+                best = (cost, dd)
+        return best[1] if best is not None else None
 
     @staticmethod
     def _shop_spot(game_map, pos: tuple[int, int], stand: tuple[int, int]) -> tuple[int, int]:

@@ -2330,3 +2330,62 @@ def test_ambrosia_ship_sails_for_the_dexterity_shrine_through_the_water_door(
     ctrl = AutoPlayController(enabled=True)
     keys = [ctrl.step(sm) for _ in range(3)]
     assert (party.x, party.y) != (17, 58), keys
+
+
+def _ship_at(asset_mgr, xy, wind):
+    party = _all_cards_party(keys=4, gold=3000)
+    for m in party.members:
+        m.max_hp = m.hp = 2550
+    party.x, party.y = xy
+    party.transport = Transport.SHIP
+    party.wind_direction = wind
+    sm, ow = _overworld(asset_mgr, party)
+    return sm, ow, party
+
+
+def test_headwind_hold_takes_an_allowed_step_that_gains_on_the_route(pygame_setup, asset_mgr):
+    """User 2026-11-25 (around turn 87,500): the ship sat still while the
+    wind changed although it could have gone some way meanwhile. From
+    (19, 45) to (18, 53) the wind-free route's first heading is south,
+    into a south wind, and no wind-legal route exists; but a step west
+    is as short a way, so the ship takes it instead of passing."""
+    sm, ow, party = _ship_at(asset_mgr, (19, 45), Direction.SOUTH)
+    ctrl = AutoPlayController(enabled=True)
+    key = ctrl._move_toward(sm, ow.game_map, party, (19, 45), {(18, 53)})
+    assert key != pygame.K_SPACE
+    assert (party.x, party.y) != (19, 45)
+
+
+def test_headwind_hold_is_capped_then_sails_the_wind_legal_route(pygame_setup, asset_mgr, monkeypatch):
+    """A hold with nothing to gain lasts at most min(_WIND_HOLD_MAX, the
+    detour's extra turns) in a row under one wind; then the ship sails the
+    wind-legal route. A detour longer than _WIND_DETOUR_MAX is never
+    taken (the wind changes on the clock)."""
+    sm, ow, party = _ship_at(asset_mgr, (40, 40), Direction.EAST)
+
+    def fake(gmap, start, goals, transport=None, party=None, wind_direction=None,
+             avoid_tiles=None, ignore_wind=False, **kw):
+        if ignore_wind:
+            return Direction.EAST, 6
+        return Direction.NORTH, 6 + extra
+
+    monkeypatch.setattr(controller_mod, "find_2d_step_and_cost", fake)
+    monkeypatch.setattr(AutoPlayController, "_wind_progress_step", staticmethod(lambda *a: None))
+    sent = []
+    monkeypatch.setattr(AutoPlayController, "_emit_key", lambda self, sm_, k, guarded=True: sent.append(k) or k)
+
+    extra = 30
+    ctrl = AutoPlayController(enabled=True)
+    keys = [ctrl._move_toward(sm, ow.game_map, party, (40, 40), {(46, 40)}) for _ in range(25)]
+    assert keys[: controller_mod._WIND_HOLD_MAX] == [pygame.K_SPACE] * controller_mod._WIND_HOLD_MAX
+    assert keys[controller_mod._WIND_HOLD_MAX:] == [pygame.K_UP] * 5
+
+    extra = 4  # a short detour: hold no longer than it would add
+    ctrl = AutoPlayController(enabled=True)
+    keys = [ctrl._move_toward(sm, ow.game_map, party, (40, 40), {(46, 40)}) for _ in range(6)]
+    assert keys == [pygame.K_SPACE] * 4 + [pygame.K_UP] * 2
+
+    extra = controller_mod._WIND_DETOUR_MAX + 1
+    ctrl = AutoPlayController(enabled=True)
+    keys = [ctrl._move_toward(sm, ow.game_map, party, (40, 40), {(46, 40)}) for _ in range(40)]
+    assert keys == [pygame.K_SPACE] * 40
