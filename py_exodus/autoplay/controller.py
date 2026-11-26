@@ -3358,7 +3358,12 @@ class AutoPlayController:
             Destination(frozenset({ship}), Transport.SHIP, "whirl_reboard"),
         )
         if key is None or key is _ARRIVED:
-            return None
+            # No way back this turn: pass it rather than fall through to the
+            # goal's trip, which would drive the trip a second time in one
+            # step (89c1bf4 review). Bounded: the reboard trip is dropped,
+            # and the cooldown keeps the next turn from starting another.
+            self._trip = None
+            return self._emit_key(state_machine, pygame.K_SPACE)
         return key
 
     def _whirl_hold_step(self, near: bool) -> bool:
@@ -3367,21 +3372,23 @@ class AutoPlayController:
         Bounded: a hold lasts _WHIRL_HOLD_TURNS at most, then the party goes
         ashore and accepts the risk, and no hold starts again for
         _WHIRL_HOLD_COOLDOWN turns, so landings can't hold-and-replan in a
-        loop. The whirlpool moving out of reach ends the hold at once."""
+        loop. The whirlpool moving out of reach lets the ship land at once,
+        but doesn't end the hold's window: a whirlpool drifting in and out
+        of reach gets the _WHIRL_HOLD_TURNS once, not afresh each time
+        (89c1bf4 review), and the cooldown runs from the window's end."""
         turn = self._ow_turn
-        if not near:
+        start = self._whirl_hold_from
+        if start is not None and turn - start >= _WHIRL_HOLD_TURNS:
             self._whirl_hold_from = None
+            self._whirl_hold_until = start + _WHIRL_HOLD_TURNS + _WHIRL_HOLD_COOLDOWN
             return False
-        if self._whirl_hold_from is None:
+        if not near:
+            return False
+        if start is None:
             if turn < self._whirl_hold_until:
                 return False
             self._whirl_hold_from = turn
-            return True
-        if turn - self._whirl_hold_from < _WHIRL_HOLD_TURNS:
-            return True
-        self._whirl_hold_from = None
-        self._whirl_hold_until = turn + _WHIRL_HOLD_COOLDOWN
-        return False
+        return True
 
     @staticmethod
     def _off_route(plan: TripPlan, pos: tuple[int, int], gmap) -> bool:

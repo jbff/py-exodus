@@ -213,3 +213,52 @@ def test_landing_wait_does_not_restart_within_its_cooldown():
     assert ctrl._whirl_hold_step(near=True) is False
     ctrl._ow_turn += ctl._WHIRL_HOLD_COOLDOWN
     assert ctrl._whirl_hold_step(near=True) is True
+
+
+def test_landing_wait_budget_is_not_renewed_by_a_whirlpool_drifting_in_and_out():
+    """89c1bf4 review: leaving the 2-tile zone for a turn reset the hold, so
+    a whirlpool drifting in and out held the ship for ever. The window is
+    _WHIRL_HOLD_TURNS from the hold's start, out-of-reach turns included."""
+    ctrl = AutoPlayController(enabled=True)
+    ctrl._ow_turn = 1000
+    held = 0
+    for i in range(4 * HOLD):
+        near = i % 3 != 2  # two turns in reach, one out
+        if ctrl._whirl_hold_step(near=near):
+            held += 1
+        ctrl._ow_turn += 1
+    assert held < HOLD, held
+    # Then the cooldown, counted from the window's end.
+    assert ctrl._whirl_hold_until == 1000 + HOLD + ctl._WHIRL_HOLD_COOLDOWN
+
+
+def test_failed_reboard_passes_without_driving_the_trip_twice():
+    """89c1bf4 review: a reboard whose trip gave no key fell through to the
+    goal's trip in the same step, driving the trip (and its counters) twice."""
+    from py_exodus.autoplay.trip import Transition
+
+    rng, trng = random.getstate(), tile_effects._rng.getstate()
+    try:
+        random.seed(44)
+        tile_effects._rng.seed(44)
+        sm, ow, party, ctrl = _seed44_state(whirl=(30, 4))
+        ow._move_whirlpool = lambda: None
+        ctrl._emit_key(sm, pygame.K_x)  # leave the ship at (31, 3)
+        assert party.transport == Transport.FOOT
+        party.x, party.y = 32, 3
+        ctrl._last_transition = Transition("X", SHIP, ctrl._ow_turn)
+        drives = []
+        real = ctrl._trip_drive
+
+        def drive(state_machine, screen, gmap, party_, px, py, map_id, dest):
+            drives.append(dest.label)
+            if dest.label == "whirl_reboard":
+                return None
+            return real(state_machine, screen, gmap, party_, px, py, map_id, dest)
+
+        ctrl._trip_drive = drive
+        ctrl.step(sm)
+        assert drives == ["whirl_reboard"], drives
+    finally:
+        random.setstate(rng)
+        tile_effects._rng.setstate(trng)
