@@ -100,7 +100,7 @@ uv run python -m py_exodus.autoplay.batch --seeds 0-99 --workers 2 --out-dir tra
 uv run python -m pytest
 ```
 
-There are **2,422 tests**. They cover the mechanics, parity with LairWare, Java and the Game Boy Color port, the shops, the dungeons, combat, rendering and autoplay. Most autoplay fixes come with a test that fails on the old code.
+There are **2,447 tests**. They cover the mechanics, parity with LairWare, Java and the Game Boy Color port, the shops, the dungeons, combat, rendering and autoplay. Most autoplay fixes come with a test that fails on the old code.
 
 ---
 
@@ -108,7 +108,7 @@ There are **2,422 tests**. They cover the mechanics, parity with LairWare, Java 
 
 The rest of the rules follow LairWare. Every rule decision, with its LairWare source lines, is recorded in the parity ledger, [`docs/superpowers/plans/lw-parity-ledger.md`](docs/superpowers/plans/lw-parity-ledger.md); its "User rulings" section lists the deliberate changes.
 
-1. **The game ends when Exodus falls,** as in the 8-bit originals. LairWare's play after the win is not ported.
+1. **The game ends when Exodus falls,** as in the 8-bit originals. LairWare's play after the win is not ported. The ending is LairWare's: the congratulations, the colour flashes over the map, and the closing words fading in. An "EXODUS VANQUISHED" page with the move count and the party is added between the flashes and the closing words. A key closes the page, and another the closing words.
 2. **No starter party:** the roster starts empty. The Magical Orbs are gone.
 3. **Dungeons:** only the look differs. They are drawn in a first-person "Stone" view: torchlit stone blocks that fade with distance, with close-up pictures for the fountains, the red-hot rod and the Time Lord, shown while each one's event lasts. The rules are LairWare's: there is no free map, `P` peers at a gem, and Vieda shows the level map.
 4. **Spells:** spell menus keep fixed A–P letters.
@@ -124,10 +124,6 @@ The rest of the rules follow LairWare. Every rule decision, with its LairWare so
    - saves and rosters are JSON;
    - a shopkeeper asks each question once;
    - the wind is named in words.
-
-## Planned (look & feel)
-
-- **The victory ending:** LairWare-style colour flashes, an "EXODUS VANQUISHED" page with the move count, then the epilogue in serif lettering. The design is chosen.
 
 ## Possible loose ends
 

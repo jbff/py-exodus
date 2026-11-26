@@ -101,8 +101,9 @@ def test_final_screen_wrong_sequence():
     assert scr.last_message != ""
 
 
-def test_final_screen_epilogue_and_effects():
-    """Verify victory fanfare, screen shake/crumbling effects, and epilogue text scroll."""
+def test_final_screen_ending_starts_with_the_flashes():
+    """The fourth card starts LairWare's ending: the flashes first, and the
+    old shake, debris and scrolling text are gone."""
     p = Party()
     c = Character("Hero", "M", Race.HUMAN, Profession.FIGHTER)
     c.cards = [1, 1, 1, 1]
@@ -114,19 +115,15 @@ def test_final_screen_epilogue_and_effects():
         assert scr.insert_card(card, member_idx=0, pos=(px, 12)) is True
 
     assert scr.victory is True
-    assert scr.screen_shake is True
-    assert scr.fanfare_played is True
-    assert "EXODUS" in scr.epilogue_text
-    assert "ULTIMA IV" in scr.epilogue_text
+    assert scr.phase == "flash"
+    for gone in ("screen_shake", "shake_timer", "particles", "scroll_y", "epilogue_text"):
+        assert not hasattr(scr, gone)
 
-    # Updating simulates shake timer and epilogue text scrolling
-    initial_scroll = scr.scroll_y
-    scr.update(1.0)
-    assert scr.scroll_y != initial_scroll or scr.shake_timer > 0
-
-    # Rendering during victory
+    # Updating and rendering during the ending, with no screen underneath
     surface = pygame.Surface((320, 200))
+    scr.update(1.0)
     scr.render(surface)
+    assert scr.flash_colours
 
 
 def test_base_screen_interface():

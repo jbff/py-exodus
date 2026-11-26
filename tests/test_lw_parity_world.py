@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pygame
 import pytest
+from conftest import play_out_ending
 
 from py_exodus.constants import Profession, Race, Status, Transport
 from py_exodus.entities.character import Character
@@ -237,8 +238,7 @@ def test_the_game_ends_when_exodus_falls(pygame_setup, asset_mgr):
     _key(scr, pygame.K_d, "d")
     assert isinstance(sm.current_screen, final.FinalScreen)
     assert sm.current_screen.victory and p.exodus_defeated == 1
-    _key(sm.current_screen, pygame.K_SPACE)
-    sm.update(0.0)
+    play_out_ending(sm)
     assert isinstance(sm.current_screen, StartScreen)
     assert sm.screen_stack == [sm.current_screen]  # the castle is gone
     assert sm.current_screen.party is p
@@ -246,7 +246,7 @@ def test_the_game_ends_when_exodus_falls(pygame_setup, asset_mgr):
 
 @pytest.mark.parametrize("k", [pygame.K_RETURN, pygame.K_ESCAPE])
 def test_every_closing_key_of_the_ending_goes_to_the_title(pygame_setup, asset_mgr, k):
-    """Enter and Escape close the ending as Space does: to the title."""
+    """Enter and Escape work the ending's key waits as Space does: to the title."""
     from py_exodus.screens import final
     from py_exodus.screens.start import StartScreen
 
@@ -255,8 +255,7 @@ def test_every_closing_key_of_the_ending_goes_to_the_title(pygame_setup, asset_m
     final.prompt_insert_card(scr, 33, 12)
     _key(scr, pygame.K_1, "1")
     _key(scr, pygame.K_d, "d")
-    _key(sm.current_screen, k)
-    sm.update(0.0)
+    play_out_ending(sm, k)
     assert isinstance(sm.current_screen, StartScreen)
 
 
@@ -318,8 +317,7 @@ def test_live_autoplay_stops_cleanly_at_the_ending(pygame_setup, asset_mgr, monk
         ctrl.step(sm)
     assert isinstance(sm.current_screen, FinalScreen)
     assert ctrl.step(sm) is None  # the ending is left to the player
-    _key(sm.current_screen, pygame.K_SPACE)
-    sm.update(0.0)
+    play_out_ending(sm)
     assert isinstance(sm.current_screen, StartScreen)
     assert ctrl.step(sm) is None
     assert not ctrl.enabled and not sm.autoplay_enabled
@@ -601,8 +599,7 @@ def test_no_autosave_after_victory(autosaving):
     final.prompt_insert_card(castle, 33, 12)
     _key(castle, pygame.K_1, "1")
     _key(castle, pygame.K_d, "d")
-    _key(sm.current_screen, pygame.K_SPACE)
-    sm.update(0.0)
+    play_out_ending(sm)
     assert isinstance(sm.current_screen, StartScreen)
     assert Path("saves/party.json").read_text() == before
     assert _saved()["exodus_defeated"] == 0
@@ -693,8 +690,7 @@ def test_after_victory_the_title_forgets_the_won_party(autosaving):
     final.prompt_insert_card(castle, 33, 12)
     _key(castle, pygame.K_1, "1")
     _key(castle, pygame.K_d, "d")
-    _key(sm.current_screen, pygame.K_SPACE)
-    sm.update(0.0)
+    play_out_ending(sm)
     title = sm.current_screen
     assert isinstance(title, StartScreen) and not title.game_over
     assert title.party is p and p.exodus_defeated == 1  # autoplay and the trace

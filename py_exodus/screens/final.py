@@ -1,7 +1,14 @@
-"""Castle of Exodus confrontation, victory fanfare, and epilogue sequence."""
+"""Castle of Exodus: the four Cards, then LairWare's ending.
+
+The ending follows LairWare's INSERT (UltimaMisc.c:2357-2424): the
+congratulations in the message window, 21 colour flashes over the map with
+a hit on each, then the WinText epilogue fading in, a key, and the fade
+out. Between the flashes and the epilogue sits our own victory page
+(user-approved design, 2026-11-25): EXODUS VANQUISHED under the intro's
+stalactites, LairWare's congratulations and the four heroes.
+"""
 from __future__ import annotations
 
-import math
 import random
 from typing import TYPE_CHECKING, Any
 
@@ -10,13 +17,14 @@ import pygame
 from py_exodus.assets import MAP_NAME_TO_ID
 from py_exodus.entities.party import PartyDeathException
 from py_exodus.screens.base import BaseScreen
+from py_exodus.ui.pixel_font import BLOCK, LOGO, SERIF, TINY, render_banner
+from py_exodus.ui.roster_view import sprite as class_sprite
 from py_exodus.ui.text_log import (
     EGA_BLACK,
     EGA_BRIGHT_CYAN,
     EGA_BRIGHT_GREEN,
     EGA_BRIGHT_RED,
     EGA_DARK_GRAY,
-    EGA_LIGHT_GRAY,
     EGA_WHITE,
     EGA_YELLOW,
     get_hud_font,
@@ -28,17 +36,58 @@ if TYPE_CHECKING:
     from py_exodus.entities.party import Party
     from py_exodus.world.map import GameMap
 
-EPILOGUE_TEXT = (
-    "And so it came to pass\n\n"
-    "that on this day\n\n"
-    "EXODUS,\n\n"
-    "hell-born incarnate of evil,\n\n"
-    "was vanquished from Sosaria.\n\n"
-    "What now lies ahead\n\n"
-    "in the ULTIMA saga\n\n"
-    "can only be pure speculation!\n\n"
-    "Onward to ULTIMA IV!"
+TICK = 1 / 60.0  # a LairWare tick
+
+# The congratulations (UltimaMisc.c:2363-2379): Messages 255 (the modern
+# appearance's wording), the move count, then Message 242.
+LW_CONGRATULATIONS = "CONGRATULATIONS! Thou hast compleated EXODUS: ULTIMA III in"
+LW_MOVES = " MOVES"
+LW_REPORT = "REPORT THY FEAT!"
+#: The same words set out on the victory page, in capitals.
+PAGE_LINES = ("CONGRATULATIONS!", "THOU HAST COMPLEATED", "EXODUS: ULTIMA III", "IN")
+
+# The flashes (UltimaMisc.c:2392-2404): `for (input = 0; input <= 20; ...)`
+# paints the map pane a random colour, plays Hit and sleeps 10 ticks.
+FLASH_COUNT = 21
+FLASH_TICKS = 10
+
+# The epilogue fades (UltimaMisc.c:2407-2423): 16 greys up from 0 in steps
+# of 16, a key, then 16 greys down from 255. A step up is ThreadSleepTicks(1)
+# plus the wait for the next tick; a step down is the wait alone.
+FADE_STEPS = 16
+FADE_IN_TICKS = 2
+FADE_OUT_TICKS = 1
+
+#: WinText (UltimaText.c:736-745), LairWare's twenty-column lines exactly.
+EPILOGUE_LINES = (
+    "   And so it came to",
+    "pass  that  on  this",
+    "day EXODUS,hell-born",
+    "incarnate  of  evil,",
+    "was vanquished  from",
+    "SOSARIA.   What  now",
+    "lies  ahead  in  the",
+    "ULTIMA saga can only",
+    "be pure speculation!",
+    "Onward to ULTIMA IV!",
 )
+
+# The ending is laid out on a 320x200 page, drawn at 3x on the big screen.
+PAGE_W, PAGE_H = 320, 200
+MAP_PANE = 176  # the map pane of the game screens, top left
+STALACTITES_ART = ("graphics", "title", "stalactites.png")
+# The colours of the pyExodus title art.
+PAGE_WHITE = (255, 255, 255)
+PAGE_GREY = (170, 170, 170)
+PAGE_YELLOW = (238, 238, 119)
+
+
+def congratulation_lines(party: Any) -> list[str]:
+    """LairWare's congratulations for the message window, in its order:
+    the words, the party's move count and "MOVES", "REPORT THY FEAT!"."""
+    moves = int(getattr(party, "moves", 0) or 0)
+    return [LW_CONGRATULATIONS, f"{moves}{LW_MOVES}", LW_REPORT]
+
 
 # Render order of the four machine panels; insertion itself is order-free.
 PANEL_DISPLAY = ["love", "sol", "moons", "death"]
@@ -153,6 +202,8 @@ def prompt_insert_card(screen: BaseScreen, x: int, y: int) -> None:
             status = screen.party.exodus_cards_status
             apply_exodus_card_tiles(screen.game_map, screen.asset_mgr, status)
             if all_cards_inserted(status):
+                for line in congratulation_lines(screen.party):
+                    screen.text_log.add_message(line)
                 if screen.manager is not None:
                     screen.manager.push_screen(final_scr)
                 else:
@@ -167,7 +218,7 @@ def prompt_insert_card(screen: BaseScreen, x: int, y: int) -> None:
 
 
 class FinalScreen(BaseScreen):
-    """Exodus confrontation panels and victory epilogue.
+    """The Exodus machine's card rules, and the ending once it falls.
 
     ``insert_card`` is the shared entry point for the INSERT flow (overworld
     and town OtherCommand) — Java keeps insertion on the EXODUS map
@@ -176,6 +227,11 @@ class FinalScreen(BaseScreen):
     order Love, Sol, Moons, Death (UltimaMisc.c:2333-2343), sets the
     ``exodusCardsStatus`` bit; anything else costs the inserting member
     ``health + 1`` (lethal).
+
+    The ending runs through ``phase``: ``flash`` (LairWare's 21 flashes over
+    the screen this one was pushed on; no key shortens them), ``page`` (the
+    victory page, until a key), ``fade_in``, ``epilogue`` (until a key) and
+    ``fade_out``, which ends at the title.
     """
 
     def __init__(
@@ -184,6 +240,7 @@ class FinalScreen(BaseScreen):
         return_screen: BaseScreen | None = None,
         audio: AudioManager | None = None,
         asset_mgr: Any = None,
+        rng: random.Random | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(return_screen=return_screen, **kwargs)
@@ -193,25 +250,23 @@ class FinalScreen(BaseScreen):
         # Journey Onward overworld has no renderer and draws black.
         self.asset_mgr = asset_mgr
         self.victory: bool = False
-        self.screen_shake: bool = False
-        self.shake_timer: float = 0.0
-        self.shake_intensity: float = 0.0
-        self.shake_offset: tuple[int, int] = (0, 0)
-        self.fanfare_played: bool = False
         self.last_message: str = ""
         self.log_messages: list[str] = [
             "You stand before the great machine of EXODUS!",
             "Four card slots pulse with dark energy...",
         ]
 
-        # Epilogue text scrolling
-        self.epilogue_text = EPILOGUE_TEXT
-        self.scroll_y: float = 220.0
-        self.scroll_speed: float = 24.0  # pixels per second
-        self.elapsed_time: float = 0.0
-
-        # Crumbling debris particles
-        self.particles: list[list[float]] = []  # [x, y, dx, dy, color_idx]
+        # The ending. The flash colours come from their own generator, so
+        # the ending never moves the game's random stream.
+        self.phase: str | None = None
+        self.rng = rng if rng is not None else random.Random()
+        self.flash_colours: list[tuple[int, int, int]] = []
+        self.grey: int = 0  # the epilogue's brightness, LairWare's 0-255
+        self._clock: float = 0.0
+        #: What the last render of the page or epilogue drew: (name, rect).
+        self.layout: list[tuple[str, pygame.Rect]] = []
+        self._stalactites: pygame.Surface | None = None
+        self._stalactites_tried = False
 
     def _normalize_card(self, card_name: str) -> str:
         """Normalize card string to standard name."""
@@ -310,44 +365,52 @@ class FinalScreen(BaseScreen):
         return False
 
     def _trigger_victory(self) -> None:
-        """Activate victory fanfare, screen shake, and epilogue narration."""
+        """Exodus falls: set the win flag and start the ending."""
         self.victory = True
         # LW truth: landing the final card sets the beat-Exodus flag
         # (UltimaMisc.c:2359 — Party[16] = 1). No rule reads it any more
         # (the game ends here, user ruling 2026-11-25); autoplay, batches
         # and the trace read it as the win.
         self.party.exodus_defeated = 1
-        self.screen_shake = True
-        self.shake_timer = 6.0
-        self.shake_intensity = 6.0
-        self.fanfare_played = True
-        self.scroll_y = 220.0
+        # gSongCurrent = gSongNext = 10 (UltimaMisc.c:2362): the fanfare.
+        if self.audio is not None:
+            self.audio.play_music("fanfare")
+        self._enter("flash")
 
-        self.log_messages.append("EXODUS ROARS AS THE MACHINE CRUMBLES!")
-        self.log_messages.append("Sosaria is saved from the great darkness!")
+    # ------------------------------------------------------------------
+    # The ending's beats
+    # ------------------------------------------------------------------
+    def _enter(self, phase: str) -> None:
+        self.phase = phase
+        self._clock = 0.0
 
-        # Spawn crumbling stone particles
-        for _ in range(40):
-            self.particles.append([
-                random.uniform(50, 270),
-                random.uniform(20, 100),
-                random.uniform(-30, 30),
-                random.uniform(40, 120),
-                random.choice([0, 1, 2]),
-            ])
+    def _flash(self) -> None:
+        """One flash (UltimaMisc.c:2394-2403): a random colour and a hit."""
+        self.flash_colours.append(
+            (self.rng.randrange(256), self.rng.randrange(256), self.rng.randrange(256))
+        )
+        if self.audio is not None:
+            self.audio.play_sfx("Hit")
 
     def handle_event(self, event: pygame.event.Event) -> None:
-        """Handle keyboard input for card insertion and epilogue navigation."""
-        if event.type != pygame.KEYDOWN:
+        """Card shortcuts before the fall; after it, the ending's two key waits."""
+        if self.victory:
+            # LairWare waits for a key or a click (WaitKeyMouse) once the
+            # epilogue is up; the victory page waits the same way. Keys
+            # pressed during the flashes or a fade do nothing and are not
+            # kept. User ruling 2026-11-25: the game ends when Exodus
+            # falls, so the fade out goes to the title; nothing is saved.
+            if event.type not in (pygame.KEYDOWN, pygame.MOUSEBUTTONDOWN):
+                return
+            if self.phase == "page":
+                self._enter("fade_in")
+                self.grey = 0
+            elif self.phase == "epilogue":
+                self._enter("fade_out")
+                self.grey = 255
             return
 
-        if self.victory:
-            # User ruling 2026-11-25: the game ends when Exodus falls, as
-            # the 8-bit originals did. The closing key returns to the title,
-            # the dead party's way (check_party_death); nothing is saved, so
-            # the last save stays the one made before entering the castle.
-            if event.key in (pygame.K_SPACE, pygame.K_RETURN, pygame.K_ESCAPE):
-                self.return_to_title(won=True)
+        if event.type != pygame.KEYDOWN:
             return
 
         if event.key == pygame.K_ESCAPE:
@@ -372,113 +435,203 @@ class FinalScreen(BaseScreen):
                 self.check_party_death()
 
     def update(self, dt: float) -> None:
-        """Update screen shake, particle physics, and scrolling text."""
-        self.elapsed_time += dt
+        """Advance the ending on LairWare's clock."""
+        if not self.victory:
+            return
+        self._clock += dt
+        eps = 1e-9
+        if self.phase == "flash":
+            step = FLASH_TICKS * TICK
+            while (
+                len(self.flash_colours) < FLASH_COUNT
+                and self._clock + eps >= len(self.flash_colours) * step
+            ):
+                self._flash()
+            if self._clock + eps >= FLASH_COUNT * step:
+                self._enter("page")
+        elif self.phase == "fade_in":
+            step = int((self._clock + eps) / (FADE_IN_TICKS * TICK))
+            if step >= FADE_STEPS:
+                # LairWare's last step up is WinText(240), and there it waits.
+                self.grey = 16 * (FADE_STEPS - 1)
+                self._enter("epilogue")
+            else:
+                self.grey = 16 * step
+        elif self.phase == "fade_out":
+            step = int((self._clock + eps) / (FADE_OUT_TICKS * TICK))
+            if step >= FADE_STEPS:
+                self.grey = 0
+                self.phase = "done"
+                self.return_to_title(won=True)
+            else:
+                self.grey = 255 - 16 * step
 
-        if self.shake_timer > 0:
-            self.shake_timer = max(0.0, self.shake_timer - dt)
-            decay = self.shake_timer / 6.0
-            amp = self.shake_intensity * decay
-            self.shake_offset = (
-                int(math.sin(self.elapsed_time * 40.0) * amp),
-                int(math.cos(self.elapsed_time * 35.0) * amp),
-            )
-            if self.shake_timer <= 0:
-                self.screen_shake = False
-                self.shake_offset = (0, 0)
-
-        # Update crumbling debris particles
-        for p in self.particles:
-            p[0] += p[2] * dt
-            p[1] += p[3] * dt
-            p[3] += 120.0 * dt  # Gravity
-
-        # Scroll epilogue text upward
-        if self.victory:
-            self.scroll_y -= self.scroll_speed * dt
-
+    # ------------------------------------------------------------------
+    # Rendering
+    # ------------------------------------------------------------------
     def render(self, surface: pygame.Surface) -> None:
-        """Render confrontation chamber or victory epilogue."""
+        """The machine before the fall; after it, the ending's current beat."""
+        if not self.victory:
+            self._render_machine(surface)
+        elif self.phase == "flash":
+            self._render_flash(surface)
+        elif self.phase == "page":
+            self._render_page(surface)
+        else:
+            self._render_epilogue(surface)
+
+    @staticmethod
+    def _page_frame(surface: pygame.Surface) -> tuple[int, int, int]:
+        """(scale, x, y) of the 320x200 page centred on the surface."""
+        w, h = surface.get_size()
+        scale = 3 if w >= 640 else 1
+        return scale, (w - PAGE_W * scale) // 2, (h - PAGE_H * scale) // 2
+
+    def _render_flash(self, surface: pygame.Surface) -> None:
+        """The game screen under the ending, its map pane flashed.
+
+        LairWare adds each colour to the pane with QuickDraw's addOver and
+        leaves the last one there; here every flash goes on a fresh frame.
+        """
+        backdrop = self.return_screen
+        if backdrop is not None:
+            backdrop.render(surface)
+        else:
+            surface.fill(EGA_BLACK)
+        if not self.flash_colours:
+            return
+        scale = 3 if surface.get_width() >= 640 else 1
+        pane = pygame.Rect(0, 0, MAP_PANE * scale, MAP_PANE * scale).clip(surface.get_rect())
+        surface.fill(self.flash_colours[-1], pane, special_flags=pygame.BLEND_RGB_ADD)
+
+    def _stalactite_art(self) -> pygame.Surface | None:
+        if not self._stalactites_tried:
+            self._stalactites_tried = True
+            if self.asset_mgr is not None:
+                from py_exodus.assets import load_image_surface
+
+                try:
+                    self._stalactites = load_image_surface(
+                        self.asset_mgr.resolve_path(*STALACTITES_ART)
+                    )
+                except (OSError, pygame.error):
+                    self._stalactites = None
+        return self._stalactites
+
+    def _render_page(self, surface: pygame.Surface) -> None:
+        """The victory page: EXODUS VANQUISHED, LairWare's congratulations
+        with the move count, the party, and REPORT THY FEAT!"""
+        surface.fill(EGA_BLACK)
+        scale, ox, oy = self._page_frame(surface)
+        self.layout = []
+
+        def put(name: str, img: pygame.Surface, y: int, cx: float = PAGE_W / 2) -> None:
+            """Blit ``img`` centred on page column ``cx`` with its top at page row ``y``."""
+            rect = img.get_rect()
+            rect.midtop = (ox + round(cx * scale), oy + y * scale)
+            surface.blit(img, rect)
+            self.layout.append((name, rect))
+
+        art = self._stalactite_art()
+        if art is not None:
+            if scale != 1:
+                art = pygame.transform.scale(
+                    art, (art.get_width() * scale, art.get_height() * scale)
+                )
+            put("stalactites", art, 0)
+
+        put("EXODUS", render_banner(LOGO, "EXODUS", scale, 2), 21)
+        put("VANQUISHED", render_banner(LOGO, "VANQUISHED", scale), 46)
+        y = 64
+        for line in PAGE_LINES:
+            put(line, BLOCK.render(line, PAGE_WHITE, scale), y)
+            y += 10
+        moves = int(getattr(self.party, "moves", 0) or 0)
+        put("moves", render_banner(LOGO, f"{moves:,}", scale), y)
+        put(LW_MOVES.strip(), BLOCK.render(LW_MOVES.strip(), PAGE_WHITE, scale), y + 16)
+
+        members = list(getattr(self.party, "members", None) or [])[:4]
+        for i, member in enumerate(members):
+            cx = PAGE_W * (2 * i + 1) / (2 * len(members))
+            char = getattr(member, "player", member)
+            sprite = class_sprite(self.asset_mgr, getattr(char, "profession", None), 16 * scale)
+            if sprite is not None:
+                put(f"sprite {i}", sprite, 135, cx)
+            name = str(getattr(member, "name", "") or "")[:12]
+            put(f"name {i}", BLOCK.render(name, PAGE_WHITE, scale), 154, cx)
+            job = str(getattr(getattr(char, "profession", None), "name", "") or "?")
+            who = f"{job.replace('_', ' ')} LV {int(getattr(char, 'level', 0) or 0)}"
+            put(f"class {i}", TINY.render(who, PAGE_GREY, scale), 164, cx)
+
+        put(LW_REPORT, BLOCK.render(LW_REPORT, PAGE_YELLOW, scale), 185)
+
+    def _render_epilogue(self, surface: pygame.Surface) -> None:
+        """WinText: the ten lines at the current grey, the last in yellow."""
+        surface.fill(EGA_BLACK)
+        scale, ox, oy = self._page_frame(surface)
+        self.layout = []
+        if self.grey <= 0:
+            return
+        cols = max(len(line) for line in EPILOGUE_LINES)
+        left = (PAGE_W - SERIF.width(" " * cols)) // 2
+        for k, line in enumerate(EPILOGUE_LINES):
+            base = PAGE_YELLOW if k == len(EPILOGUE_LINES) - 1 else PAGE_WHITE
+            colour = tuple(c * self.grey // 255 for c in base)
+            img = SERIF.render(line, colour, scale)
+            rect = img.get_rect(topleft=(ox + left * scale, oy + (10 + 18 * k) * scale))
+            surface.blit(img, rect)
+            self.layout.append((line, rect))
+
+    def _render_machine(self, surface: pygame.Surface) -> None:
+        """The four card panels (before the fall)."""
         width = surface.get_width()
         height = surface.get_height()
-
-        # Target render surface to allow shake offset
-        target_surf = pygame.Surface((width, height))
-        target_surf.fill(EGA_BLACK)
+        surface.fill(EGA_BLACK)
 
         font = get_hud_font(16)
         small_font = get_hud_font(12)
 
-        if not self.victory:
-            # Draw Chamber of Exodus
-            title_surf = font.render("CASTLE OF EXODUS - INNER SANCTUM", True, EGA_BRIGHT_RED)
-            target_surf.blit(title_surf, (width // 2 - title_surf.get_width() // 2, 10))
+        title_surf = font.render("CASTLE OF EXODUS - INNER SANCTUM", True, EGA_BRIGHT_RED)
+        surface.blit(title_surf, (width // 2 - title_surf.get_width() // 2, 10))
 
-            # Machine of Exodus visual representation
-            machine_rect = pygame.Rect(width // 2 - 120, 36, 240, 70)
-            pygame.draw.rect(target_surf, (40, 10, 10), machine_rect)
-            pygame.draw.rect(target_surf, EGA_BRIGHT_RED, machine_rect, 2)
+        # Machine of Exodus visual representation
+        machine_rect = pygame.Rect(width // 2 - 120, 36, 240, 70)
+        pygame.draw.rect(surface, (40, 10, 10), machine_rect)
+        pygame.draw.rect(surface, EGA_BRIGHT_RED, machine_rect, 2)
 
-            mach_label = font.render("=== EXODUS MACHINE ===", True, EGA_YELLOW)
-            target_surf.blit(mach_label, (width // 2 - mach_label.get_width() // 2, 42))
+        mach_label = font.render("=== EXODUS MACHINE ===", True, EGA_YELLOW)
+        surface.blit(mach_label, (width // 2 - mach_label.get_width() // 2, 42))
 
-            # Render 4 Card Panels (filled state from exodusCardsStatus bits)
-            status = self.card_status
-            panel_w, panel_h = 48, 36
-            start_x = width // 2 - 110
-            for i, card_type in enumerate(PANEL_DISPLAY):
-                _panel_x, mask = CARD_PANELS[card_type]
-                is_filled = bool(status & mask)
+        # Render 4 Card Panels (filled state from exodusCardsStatus bits)
+        status = self.card_status
+        panel_w, panel_h = 48, 36
+        start_x = width // 2 - 110
+        for i, card_type in enumerate(PANEL_DISPLAY):
+            _panel_x, mask = CARD_PANELS[card_type]
+            is_filled = bool(status & mask)
 
-                rect = pygame.Rect(start_x + i * 56, 64, panel_w, panel_h)
-                border_color = EGA_BRIGHT_GREEN if is_filled else EGA_DARK_GRAY
-                fill_color = (0, 80, 0) if is_filled else (20, 20, 20)
+            rect = pygame.Rect(start_x + i * 56, 64, panel_w, panel_h)
+            border_color = EGA_BRIGHT_GREEN if is_filled else EGA_DARK_GRAY
+            fill_color = (0, 80, 0) if is_filled else (20, 20, 20)
 
-                pygame.draw.rect(target_surf, fill_color, rect)
-                pygame.draw.rect(target_surf, border_color, rect, 1)
+            pygame.draw.rect(surface, fill_color, rect)
+            pygame.draw.rect(surface, border_color, rect, 1)
 
-                label = small_font.render(f"P{i + 1}", True, EGA_WHITE)
-                target_surf.blit(label, (rect.centerx - label.get_width() // 2, 66))
+            label = small_font.render(f"P{i + 1}", True, EGA_WHITE)
+            surface.blit(label, (rect.centerx - label.get_width() // 2, 66))
 
-                status_txt = card_type.upper() if is_filled else "EMPTY"
-                status_color = EGA_YELLOW if is_filled else EGA_DARK_GRAY
-                status_surf = small_font.render(status_txt[:5], True, status_color)
-                target_surf.blit(status_surf, (rect.centerx - status_surf.get_width() // 2, 82))
+            status_txt = card_type.upper() if is_filled else "EMPTY"
+            status_color = EGA_YELLOW if is_filled else EGA_DARK_GRAY
+            status_surf = small_font.render(status_txt[:5], True, status_color)
+            surface.blit(status_surf, (rect.centerx - status_surf.get_width() // 2, 82))
 
-            # Prompt instructions
-            prompt = font.render("Insert card: [L]ove  [S]ol  [M]oons  [D]eath", True, EGA_BRIGHT_CYAN)
-            target_surf.blit(prompt, (width // 2 - prompt.get_width() // 2, 114))
+        # Prompt instructions
+        prompt = font.render("Insert card: [L]ove  [S]ol  [M]oons  [D]eath", True, EGA_BRIGHT_CYAN)
+        surface.blit(prompt, (width // 2 - prompt.get_width() // 2, 114))
 
-            # Message log at bottom
-            y_log = height - 50
-            for msg in self.log_messages[-3:]:
-                m_surf = small_font.render(msg, True, EGA_WHITE)
-                target_surf.blit(m_surf, (16, y_log))
-                y_log += 14
-
-        else:
-            # VICTORY EPILOGUE
-            # Draw crumbling debris particles
-            p_colors = [EGA_YELLOW, EGA_BRIGHT_RED, EGA_LIGHT_GRAY]
-            for p in self.particles:
-                color = p_colors[int(p[4]) % len(p_colors)]
-                pygame.draw.circle(target_surf, color, (int(p[0]), int(p[1])), 2)
-
-            # Render scrolling epilogue text lines
-            lines = self.epilogue_text.split("\n")
-            cur_y = self.scroll_y
-            for line in lines:
-                if line.strip():
-                    color = EGA_YELLOW if "EXODUS" in line or "ULTIMA" in line else EGA_WHITE
-                    line_surf = font.render(line, True, color)
-                    target_surf.blit(line_surf, (width // 2 - line_surf.get_width() // 2, int(cur_y)))
-                cur_y += 18
-
-            # Skip hint at bottom
-            skip_surf = small_font.render("[SPACE / ESC] Continue", True, EGA_DARK_GRAY)
-            target_surf.blit(skip_surf, (width // 2 - skip_surf.get_width() // 2, height - 16))
-
-        # Blit target surface with shake offset onto a cleared display surface
-        surface.fill(EGA_BLACK)
-        ox, oy = self.shake_offset
-        surface.blit(target_surf, (ox, oy))
+        # Message log at bottom
+        y_log = height - 50
+        for msg in self.log_messages[-3:]:
+            m_surf = small_font.render(msg, True, EGA_WHITE)
+            surface.blit(m_surf, (16, y_log))
+            y_log += 14

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import pygame
 import pytest
+from conftest import play_out_ending
 
 from py_exodus.assets import AssetManager
 from py_exodus.constants import Profession, Race, Status, Transport
@@ -440,7 +441,7 @@ def test_title_after_victory_keeps_assets(pygame_setup, asset_mgr):
     assert isinstance(final_scr, FinalScreen) and final_scr.victory
     assert final_scr.asset_mgr is asset_mgr
 
-    final_scr.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RETURN))
+    play_out_ending(sm, pygame.K_RETURN)
     title = sm.current_screen
     assert isinstance(title, StartScreen)
     assert title.asset_mgr is asset_mgr
