@@ -19,7 +19,21 @@ A Python 3 / Pygame-CE reimplementation of *Ultima III: Exodus* (1983), by Richa
 - **Auto-Combat (`TAB`):** each living member heals, cures, casts or attacks as LairWare's auto-combat would. You can take back control at any moment.
 - **Full Autoplay (`F9`):** plays the whole game through the real UI, pressing the same keys you would.
 
-## Installation & running
+## Download
+
+Ready-to-play builds are attached to each [release](https://github.com/jbff/py-exodus/releases), with no Python needed:
+
+- **Windows:** `py-exodus-<version>-windows-setup.exe` installs the game with a Start-menu entry. `…-windows-portable.zip` runs from any folder.
+- **macOS:** `…-macos-arm64.dmg` for Apple silicon, `…-macos-intel.dmg` for Intel Macs. Drag py-exodus to Applications.
+- **Linux:** `…-linux-x86_64.tar.gz`. Unpack it and run `py-exodus/py-exodus`. Sound needs PortAudio (`libportaudio2` on Debian and Ubuntu).
+
+The builds aren't code-signed, so the system warns on first launch:
+- **Windows SmartScreen:** click **More info**, then **Run anyway**.
+- **macOS:** open the app once, then go to System Settings → Privacy & Security and click **Open Anyway**. If macOS says the app "is damaged", run `xattr -dr com.apple.quarantine /Applications/py-exodus.app` in Terminal.
+
+The builds are made by `.github/workflows/release.yml` with PyInstaller (`packaging/`), whenever a `v*` tag is pushed.
+
+## Installation & running from source
 
 Managed with [uv](https://docs.astral.sh/uv/) and a committed `uv.lock`. Needs Python 3.10 or later, tested through 3.14.
 
@@ -100,7 +114,7 @@ uv run python -m py_exodus.autoplay.batch --seeds 0-99 --workers 2 --out-dir tra
 uv run python -m pytest
 ```
 
-There are **2,461 tests**. They cover the mechanics, parity with LairWare, Java and the Game Boy Color port, the shops, the dungeons, combat, rendering and autoplay. Most autoplay fixes come with a test that fails on the old code.
+There are **2,465 tests**. They cover the mechanics, parity with LairWare, Java and the Game Boy Color port, the shops, the dungeons, combat, rendering and autoplay. Most autoplay fixes come with a test that fails on the old code.
 
 ---
 

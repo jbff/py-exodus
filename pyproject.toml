@@ -2,9 +2,13 @@
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools.dynamic]
+version = { attr = "py_exodus.__version__" }
+
 [tool.setuptools]
 packages = [
     "py_exodus",
+    "py_exodus.autoplay",
     "py_exodus.combat",
     "py_exodus.entities",
     "py_exodus.screens",
@@ -14,7 +18,7 @@ packages = [
 
 [project]
 name = "py-exodus"
-version = "1.0.0b2"
+dynamic = ["version"]
 description = "Ultima III: Exodus reimplementation in Python"
 readme = "README.md"
 requires-python = ">=3.10"

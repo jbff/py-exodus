@@ -181,6 +181,11 @@ class StartScreen(BaseScreen):
             t = small.render(line, True, EGA_DARK_GRAY if i == 0 else EGA_LIGHT_GRAY)
             surface.blit(t, ((w - t.get_width()) // 2, yb + i * small.get_linesize()))
 
+        from py_exodus import display_version
+
+        v = small.render(display_version(), True, EGA_DARK_GRAY)
+        surface.blit(v, (w - v.get_width() - px(8), h - px(8) - v.get_height()))
+
     def _start_journey(self) -> None:
         """Begin or resume the adventure in the overworld.
 

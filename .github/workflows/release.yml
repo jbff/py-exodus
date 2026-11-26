@@ -1,0 +1,142 @@
+# Desktop builds for a release tag: a Windows installer and portable zip,
+# macOS apps (Apple silicon and Intel) in .dmg images, and a Linux tarball.
+# They are attached to the tag's GitHub release; if none exists yet, a
+# draft pre-release is created for the maintainer to review and publish.
+name: Release builds
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build (for example v1.0.0-beta.2)"
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: windows
+          - os: macos-latest
+            target: macos-arm64
+          - os: macos-15-intel
+            target: macos-intel
+          - os: ubuntu-22.04
+            target: linux-x86_64
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Linux audio library
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libportaudio2
+
+      - name: Version
+        run: |
+          VERSION=$(uv run --no-project python -c "import py_exodus; print(py_exodus.__version__)")
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "Building py-exodus $VERSION for ${{ matrix.target }}"
+
+      - name: Install
+        run: uv sync --frozen --no-dev
+
+      - name: Build with PyInstaller
+        run: uv run --with pyinstaller --with pillow pyinstaller --noconfirm packaging/py-exodus.spec
+
+      - name: Smoke test (the build starts and lists its tile sets)
+        if: runner.os != 'macOS'
+        timeout-minutes: 5
+        env:
+          SDL_VIDEODRIVER: dummy
+          SDL_AUDIODRIVER: dummy
+        run: |
+          mkdir -p smoke && cd smoke
+          ../dist/py-exodus/py-exodus --tiles list
+
+      - name: Smoke test (macOS)
+        if: runner.os == 'macOS'
+        timeout-minutes: 5
+        env:
+          SDL_VIDEODRIVER: dummy
+          SDL_AUDIODRIVER: dummy
+        run: |
+          mkdir -p smoke && cd smoke
+          ../dist/py-exodus.app/Contents/MacOS/py-exodus --tiles list
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force out | Out-Null
+          Compress-Archive -Path dist\py-exodus -DestinationPath "out\py-exodus-$env:VERSION-windows-portable.zip"
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          & $iscc "/DAppVersion=$env:VERSION" "/DSourceDir=$pwd\dist\py-exodus" "/DOutputDir=$pwd\out" packaging\windows\py-exodus.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p out dmg
+          cp -R dist/py-exodus.app dmg/
+          ln -s /Applications dmg/Applications
+          hdiutil create -volname "py-exodus" -srcfolder dmg -ov -format UDZO \
+            "out/py-exodus-$VERSION-${{ matrix.target }}.dmg"
+
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p out
+          tar -C dist -czf "out/py-exodus-$VERSION-${{ matrix.target }}.tar.gz" py-exodus
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: py-exodus-${{ matrix.target }}
+          path: out/*
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -l out
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            PRE=""; case "$TAG" in *-*) PRE="--prerelease";; esac
+            gh release create "$TAG" --draft $PRE --verify-tag \
+              --title "py-exodus ${TAG#v}" --notes "Desktop builds for $TAG."
+          fi
+          gh release upload "$TAG" out/* --clobber

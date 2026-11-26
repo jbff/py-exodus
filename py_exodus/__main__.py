@@ -79,7 +79,7 @@ class GameApp:
         except Exception:
             pass
 
-        sound_path = self.assets_dir / "sound"
+        sound_path = self.asset_mgr.assets_dir / "sound"
         self.audio = AudioManager(sound_dir=sound_path, enabled=sound_enabled)
 
         # State machine

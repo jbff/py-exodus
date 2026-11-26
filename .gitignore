@@ -25,3 +25,7 @@ traces/
 
 # Claude Code local state (settings.local.json, agent worktrees)
 .claude/
+
+# PyInstaller output (packaging/py-exodus.spec)
+/build/
+/dist/

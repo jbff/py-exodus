@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
+import sys
 from pathlib import Path
 
 import pygame
@@ -402,6 +403,10 @@ class AssetManager:
         repo_root = Path(__file__).resolve().parent.parent
         cwd = Path.cwd()
 
+        if getattr(sys, "frozen", False):
+            # A packaged build (PyInstaller) carries its own assets beside
+            # the package; never pick up an unrelated assets/ from the cwd.
+            candidates.append(repo_root / "assets")
         candidates.extend([
             cwd / "src/main/resources/assets",
             cwd / "assets",
