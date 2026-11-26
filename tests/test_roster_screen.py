@@ -242,5 +242,12 @@ def test_roster_rows_follow_lairware_organize_party(pygame_setup):
     assert scr._in_party(a) and not scr._in_party(b)
     surf = pygame.Surface((960, 600))
     scr.render(surf)
-    # Slot 20's band is drawn even with two characters on the roster.
-    assert surf.get_at((960 - 20, 393))[:3] != (0, 0, 0)
+    # The roster redesign (L&F item 8) replaced LairWare's green bands with
+    # one 20-row list: the party member's row carries a "party" chip, the
+    # dead one a "dead" tag, and empty rows follow the two characters.
+    from py_exodus.ui import roster_view
+
+    drawn = [t for t, _, _ in roster_view.render_roster(surf, scr).log]
+    assert drawn.count("party") == 1
+    assert "dead" in drawn
+    assert drawn.count("·  empty") == 8

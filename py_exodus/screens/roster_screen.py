@@ -16,15 +16,7 @@ from py_exodus.constants import (
 from py_exodus.entities.character import Character
 from py_exodus.entities.party import Party
 from py_exodus.screens.base import BaseScreen
-from py_exodus.ui.text_log import (
-    EGA_BLACK,
-    EGA_BRIGHT_CYAN,
-    EGA_DARK_GRAY,
-    EGA_WHITE,
-    EGA_YELLOW,
-    TextLog,
-    get_hud_font,
-)
+from py_exodus.ui.text_log import TextLog
 
 if TYPE_CHECKING:
     from py_exodus.assets import AssetManager
@@ -106,7 +98,8 @@ class RosterScreen(BaseScreen):
         self.selected_party_idx: int = 0
         self.focus_panel: str = "roster"  # "roster" or "party"
 
-        self.text_log = TextLog(max_lines=3, wrap_width=45)
+        # No wrapping: the screen shows the newest message whole on one line.
+        self.text_log = TextLog(max_lines=3)
         if self.party_formed:
             self.text_log.add_message(
                 "A party is in use: Journey Onward resumes it, [X] disperses it."
@@ -114,9 +107,15 @@ class RosterScreen(BaseScreen):
         else:
             self.text_log.add_message("Form a party of up to four, then Enter to embark.")
 
-        # Creation wizard state
+        # Creation wizard state: the step (0 name .. 4 stats, None when not
+        # creating), the highlighted choice of a choosing step, the stat the
+        # arrows adjust and the last note the wizard gave.
         self._creating_char: bool = False
         self._new_char_data: dict[str, Any] = {}
+        self._create_step: int | None = None
+        self._create_cursor: int = 0
+        self._stat_sel: int = 0
+        self._create_note: str = ""
 
     def _load_initial_roster(self) -> list[Character]:
         """Load characters from the roster file, else start empty.
@@ -190,6 +189,11 @@ class RosterScreen(BaseScreen):
         if event.type != pygame.KEYDOWN:
             return
 
+        # The creation steps take the arrows, Enter and Esc first; letters,
+        # digits and the name still go to the step's prompt as before.
+        if self._create_step is not None and self._handle_create_key(event):
+            return
+
         # If text_log prompt is active (e.g. during character creation)
         if self.text_log.is_waiting_for_input:
             self.text_log.handle_event(event)
@@ -233,6 +237,17 @@ class RosterScreen(BaseScreen):
             self._embark()
         elif event.key == pygame.K_ESCAPE:  # Exit to start screen
             self.exit_screen()
+        self._follow_selection()
+
+    def _follow_selection(self) -> None:
+        """Scroll the 20-row list so the selected row is among the ten shown."""
+        from py_exodus.ui.roster_view import VISIBLE_ROWS, scroll_offset
+
+        if self.roster:
+            self.selected_roster_idx = max(0, min(self.selected_roster_idx, len(self.roster) - 1))
+        self.roster_scroll_offset = scroll_offset(
+            self.selected_roster_idx, self.roster_scroll_offset, VISIBLE_ROWS, ROSTER_SLOTS
+        )
 
     def _refuse_party_in_use(self) -> bool:
         """LairWare's "(Party in use)" (UltimaNew.c:128-134): True, with the
@@ -420,8 +435,52 @@ class RosterScreen(BaseScreen):
 
         self.text_log.prompt("Delete? (Y/N):", _on_confirm, single_char=True)
 
+    # The choosing steps' options: (letter, word, note). The letters are the
+    # ones the prompts have always taken; the first of each list is what an
+    # unknown letter has always given (Human, Fighter).
+    SEX_OPTIONS = (("M", "Male", ""), ("F", "Female", ""), ("O", "Other", ""))
+    _RACE_ORDER = (Race.HUMAN, Race.ELF, Race.DWARF, Race.BOBBIT, Race.FUZZY)
+    _PROF_ORDER = (
+        ("F", Profession.FIGHTER), ("C", Profession.CLERIC), ("W", Profession.WIZARD),
+        ("T", Profession.THIEF), ("P", Profession.PALADIN), ("B", Profession.BARBARIAN),
+        ("R", Profession.RANGER), ("L", Profession.LARK), ("I", Profession.ILLUSIONIST),
+        ("D", Profession.DRUID), ("A", Profession.ALCHEMIST),
+    )
+    STAT_NAMES = ("Strength", "Dexterity", "Intelligence", "Wisdom")
+
+    @classmethod
+    def creation_options(cls, step: int) -> list[tuple[str, str, str]]:
+        """(letter, word, note) for choosing step 1 (sex), 2 (race), 3 (class)."""
+        if step == 1:
+            return list(cls.SEX_OPTIONS)
+        if step == 2:
+            return [
+                (r.code, r.name.title(),
+                 f"STR {r.max_str}  DEX {r.max_dex}  INT {r.max_int}  WIS {r.max_wis}")
+                for r in cls._RACE_ORDER
+            ]
+        if step == 3:
+            return [(code, p.name.title(), "") for code, p in cls._PROF_ORDER]
+        return []
+
+    def _note(self, msg: str) -> None:
+        """A creation message: logged, and shown on the creation screen."""
+        self._create_note = msg
+        self.text_log.add_message(msg)
+
+    def _end_creation(self) -> None:
+        self._create_step = None
+        self._creating_char = False
+
     def _start_create_character(self) -> None:
-        """Initiate interactive text prompt sequence to create a character.
+        """Start the five creation steps: name, sex, race, class, stats.
+
+        Each step keeps its text prompt, so typing works as it always has
+        (a name and Enter; M/F/O; the race and class letters; each stat's
+        number and Enter). Up/Down choose and Enter takes the highlighted
+        choice; at the stats Up/Down choose a stat, Left/Right adjust it,
+        and Enter accepts once all 50 points are shared. Esc goes back a
+        step, or cancels at the name.
 
         Java truth: ``exodus/ManagePartyScreen.java:165-199,355-367`` — the
         stat sliders allocate each of STR/DEX/INT/WIS in 5..25, the total may
@@ -433,177 +492,310 @@ class RosterScreen(BaseScreen):
         validation is delegated to ``Character.validate_creation``.
         """
         self._new_char_data = {}
-        stat_names = ["Strength", "Dexterity", "Intelligence", "Wisdom"]
+        self._create_note = ""
+        self._creating_char = True
+        self._prompt_name()
 
-        def _start_stat_allocation() -> None:
-            self._new_char_data["stats"] = [0, 0, 0, 0]
-            self._new_char_data["stat_step"] = 0
-            self.text_log.add_message("Allocate stats: each 5-25, total must not exceed 50.")
-            _prompt_next_stat()
+    # -- the steps' prompts --------------------------------------------------
 
-        def _prompt_next_stat() -> None:
-            step = self._new_char_data["stat_step"]
-            self.text_log.prompt(
-                f"{stat_names[step]} (5-25):",
-                _step_stat,
-                single_char=False,
-            )
+    def _prompt_name(self, prefill: str = "") -> None:
+        self._create_step = 0
+        self.text_log.prompt(f"Character Name (up to {CREATION_MAX_NAME} chars):", self._step_name)
+        self.text_log.input_buffer = prefill
 
-        def _step_stat(raw: str) -> None:
-            step = self._new_char_data["stat_step"]
-            try:
-                value = int(raw.strip())
-            except ValueError:
-                self.text_log.add_message(f"{stat_names[step]}: enter a number 5-25.")
-                _prompt_next_stat()
-                return
-            if not (CREATION_MIN_STAT <= value <= CREATION_MAX_STAT):
-                self.text_log.add_message(f"{stat_names[step]} ({value}) must be 5-25.")
-                _prompt_next_stat()
-                return
-            self._new_char_data["stats"][step] = value
-            self._new_char_data["stat_step"] = step + 1
-            if self._new_char_data["stat_step"] < len(stat_names):
-                _prompt_next_stat()
-                return
-            _assemble_character()
+    def _prompt_sex(self) -> None:
+        # Sex: [M]ale [F]emale [O]ther — "Other" reinstated per original
+        # rules (user-directed deviation from Java's SexType, which has
+        # only Male/Female; see Sex.OTHER in constants.py). Invalid input
+        # re-prompts, matching the wizard's stat re-prompt behavior.
+        self._enter_choice_step(1, self._new_char_data.get("sex"))
+        self.text_log.prompt("Sex: [M]ale [F]emale [O]ther:", self._step_sex, single_char=True)
 
-        def _assemble_character() -> None:
-            name = self._new_char_data["name"]
-            sex = self._new_char_data["sex"]
-            race = self._new_char_data["race"]
-            prof = self._new_char_data["prof"]
-            st, dx, in_, wi = self._new_char_data["stats"]
+    def _prompt_race(self) -> None:
+        self._enter_choice_step(2, self._new_char_data.get("race"))
+        self.text_log.prompt("Race: [H]uman [E]lf [D]warf [B]obit [F]uzzy:", self._step_race, single_char=True)
 
-            # 5-25 per stat and total <= 50 (ManagePartyScreen.java:176-180),
-            # via the shared validator wired here.
-            valid, err = Character.validate_creation(
-                race=race,
-                profession=prof,
-                strength=st,
-                dexterity=dx,
-                intelligence=in_,
-                wisdom=wi,
-                max_points=CREATION_MAX_POINTS,
-                min_stat=CREATION_MIN_STAT,
-                max_stat=CREATION_MAX_STAT,
-            )
-            if not valid:
-                self.text_log.add_message(err)
-                # Java refuses the apply and keeps the allocation UI open:
-                # restart the stat prompts with nothing committed.
-                _start_stat_allocation()
-                return
+    def _prompt_class(self) -> None:
+        self._enter_choice_step(3, self._new_char_data.get("prof"))
+        self.text_log.prompt(
+            "Class: [F]ight [C]leric [W]iz [T]hief [P]al [R]ang [B]arb:", self._step_profession, single_char=True
+        )
 
-            if len(self.roster) >= ROSTER_SLOTS:
-                self.text_log.add_message("The roster is full (20 adventurers)!")
-                return
+    def _enter_choice_step(self, step: int, chosen: Any) -> None:
+        """Open a choosing step with its earlier choice (if any) highlighted."""
+        self._create_step = step
+        values = self._step_values(step)
+        self._create_cursor = values.index(chosen) if chosen in values else 0
 
-            # Starting record: health/food/gold = 150 (ManagePartyScreen.java:
-            # 185-192), plus LairWare's starting kit: one Dagger and one Cloth,
-            # both readied (LairWare UltimaMain.c:814-817, Player[41]/[40]
-            # Cloth readied, Player[49]/[48] Dagger readied). Max MP is
-            # derived from profession/stats, not chosen here.
-            new_char = Character(
-                name=name,
-                sex=sex,
-                race=race,
-                profession=prof,
-                strength=st,
-                dexterity=dx,
-                intelligence=in_,
-                wisdom=wi,
-                hp=150,
-                max_hp=150,
-                food=150,
-                gold=150,
-                weapon=WeaponType.DAGGER,
-                armor=ArmorType.CLOTH,
-                roster_slot=self._free_slot(),
-                # portrait_index keeps its default (43): the field survives for
-                # save compatibility but the creation wizard never asks for it
-                # and no UI renders it (user ruling, see _step_profession).
-            )
-            # Starting spell points: original-rules parity (user-directed
-            # deviation). Java's own creator (ManagePartyScreen.java) never
-            # touches mana — created casters ticked up to 1 MP via the first
-            # endTurn meal regeneration instead (SaveGame.java:387 clamps
-            # mana to getMaxMana()). The C64 original starts a caster with
-            # spell points equal to the max computed by the same formula as
-            # CharacterRecord.getMaxMana (SaveGame.java:340-376), so a
-            # casting profession starts full and a non-caster (capability 0)
-            # starts at 0.
-            new_char.mp = new_char.compute_max_mp()
-            self.roster.append(new_char)
-            self.selected_roster_idx = len(self.roster) - 1
-            self.text_log.add_message(f"Created {name} ({prof.name})! Added to roster.")
+    @classmethod
+    def _step_values(cls, step: int) -> list[Any]:
+        if step == 1:
+            return [Sex.MALE, Sex.FEMALE, Sex.OTHER]
+        if step == 2:
+            return list(cls._RACE_ORDER)
+        return [p for _, p in cls._PROF_ORDER]
 
-        def _step_profession(prof_str: str) -> None:
-            prof_map = {
-                "F": Profession.FIGHTER,
-                "C": Profession.CLERIC,
-                "W": Profession.WIZARD,
-                "T": Profession.THIEF,
-                "P": Profession.PALADIN,
-                "B": Profession.BARBARIAN,
-                "R": Profession.RANGER,
-                "L": Profession.LARK,
-                "I": Profession.ILLUSIONIST,
-                "D": Profession.DRUID,
-                "A": Profession.ALCHEMIST,
-            }
-            code = prof_str.strip().upper()[:1]
-            self._new_char_data["prof"] = prof_map.get(code, Profession.FIGHTER)
-            # Note: the old portrait-number prompt step was removed (user
-            # ruling: "dump the faces/images for characters" — the original
-            # game had no character portraits). The wizard goes straight from
-            # Class to stat allocation; portrait_index stays a save-only field.
-            _start_stat_allocation()
+    def _start_stat_allocation(self) -> None:
+        self._create_step = 4
+        self._new_char_data["stats"] = [CREATION_MIN_STAT] * 4
+        self._new_char_data["typed"] = set()
+        self._new_char_data["stat_step"] = 0
+        self._stat_sel = 0
+        self.text_log.add_message("Allocate stats: each 5-25, total must not exceed 50.")
+        self._prompt_next_stat()
 
-        def _step_race(race_str: str) -> None:
-            race_map = {
-                "H": Race.HUMAN,
-                "E": Race.ELF,
-                "D": Race.DWARF,
-                "B": Race.BOBBIT,
-                "F": Race.FUZZY,
-            }
-            code = race_str.strip().upper()[:1]
-            self._new_char_data["race"] = race_map.get(code, Race.HUMAN)
-            self.text_log.prompt("Class: [F]ight [C]leric [W]iz [T]hief [P]al [R]ang [B]arb:", _step_profession, single_char=True)
+    def _prompt_next_stat(self) -> None:
+        step = self._new_char_data["stat_step"]
+        self._stat_sel = step
+        self.text_log.prompt(f"{self.STAT_NAMES[step]} (5-25):", self._step_stat, single_char=False)
 
-        def _sex_prompt() -> None:
-            # Sex: [M]ale [F]emale [O]ther — "Other" reinstated per original
-            # rules (user-directed deviation from Java's SexType, which has
-            # only Male/Female; see Sex.OTHER in constants.py). Invalid input
-            # re-prompts, matching the wizard's stat re-prompt behavior.
-            self.text_log.prompt("Sex: [M]ale [F]emale [O]ther:", _step_sex, single_char=True)
+    # -- the steps' answers (typed, or the highlighted choice) ---------------
 
-        def _step_sex(sex_str: str) -> None:
-            code = sex_str.strip().upper()[:1]
-            if code == "M":
-                self._new_char_data["sex"] = Sex.MALE
-            elif code == "F":
-                self._new_char_data["sex"] = Sex.FEMALE
-            elif code == "O":
-                self._new_char_data["sex"] = Sex.OTHER
-            else:
-                self.text_log.add_message("Enter M, F, or O.")
-                _sex_prompt()
-                return
-            self.text_log.prompt("Race: [H]uman [E]lf [D]warf [B]obit [F]uzzy:", _step_race, single_char=True)
+    def _step_name(self, name_str: str) -> None:
+        # A name is at most 12 letters: LairWare cuts the name field at
+        # 12 (UltimaMacIF.c:2430-2432) and stores name bytes 0..11
+        # (UltimaMacIF.c:2492-2496). Java allowed 16.
+        name = name_str.strip()[:CREATION_MAX_NAME]
+        if not name:
+            name = f"Hero{len(self.roster) + 1}"
+        self._new_char_data["name"] = name
+        self._create_note = ""
+        self._prompt_sex()
 
-        def _step_name(name_str: str) -> None:
-            # A name is at most 12 letters: LairWare cuts the name field at
-            # 12 (UltimaMacIF.c:2430-2432) and stores name bytes 0..11
-            # (UltimaMacIF.c:2492-2496). Java allowed 16.
-            name = name_str.strip()[:CREATION_MAX_NAME]
-            if not name:
-                name = f"Hero{len(self.roster) + 1}"
-            self._new_char_data["name"] = name
-            _sex_prompt()
+    def _step_sex(self, sex_str: str) -> None:
+        code = sex_str.strip().upper()[:1]
+        sexes = {"M": Sex.MALE, "F": Sex.FEMALE, "O": Sex.OTHER}
+        if code not in sexes:
+            self._note("Enter M, F, or O.")
+            self._prompt_sex()
+            return
+        self._new_char_data["sex"] = sexes[code]
+        self._create_note = ""
+        self._prompt_race()
 
-        self.text_log.prompt(f"Character Name (up to {CREATION_MAX_NAME} chars):", _step_name)
+    def _step_race(self, race_str: str) -> None:
+        race_map = {r.code: r for r in self._RACE_ORDER}
+        code = race_str.strip().upper()[:1]
+        self._new_char_data["race"] = race_map.get(code, Race.HUMAN)
+        self._create_note = ""
+        self._prompt_class()
+
+    def _step_profession(self, prof_str: str) -> None:
+        prof_map = dict(self._PROF_ORDER)
+        code = prof_str.strip().upper()[:1]
+        self._new_char_data["prof"] = prof_map.get(code, Profession.FIGHTER)
+        self._create_note = ""
+        # Note: the old portrait-number prompt step was removed (user
+        # ruling: "dump the faces/images for characters" — the original
+        # game had no character portraits). The wizard goes straight from
+        # Class to stat allocation; portrait_index stays a save-only field.
+        self._start_stat_allocation()
+
+    def _step_stat(self, raw: str) -> None:
+        step = self._new_char_data["stat_step"]
+        name = self.STAT_NAMES[step]
+        try:
+            value = int(raw.strip())
+        except ValueError:
+            self._note(f"{name}: enter a number 5-25.")
+            self._prompt_next_stat()
+            return
+        if not (CREATION_MIN_STAT <= value <= CREATION_MAX_STAT):
+            self._note(f"{name} ({value}) must be 5-25.")
+            self._prompt_next_stat()
+            return
+        self._new_char_data["stats"][step] = value
+        typed = self._new_char_data.setdefault("typed", set())
+        typed.add(step)
+        if len(typed) == len(self.STAT_NAMES):
+            # All four typed (in order, the way the prompts ask): done.
+            self._assemble_character()
+            return
+        # The next stat not typed yet, after this one.
+        self._new_char_data["stat_step"] = next(
+            i % 4 for i in range(step + 1, step + 5) if i % 4 not in typed
+        )
+        self._prompt_next_stat()
+
+    # -- the arrows, Enter and Esc -------------------------------------------
+
+    def _handle_create_key(self, event: pygame.event.Event) -> bool:
+        """The creation steps' own keys; False leaves the key to the prompt."""
+        key = event.key
+        step = self._create_step
+        if key == pygame.K_ESCAPE:
+            self._create_back()
+            return True
+        enter = key in (pygame.K_RETURN, pygame.K_KP_ENTER)
+        if step in (1, 2, 3):
+            n = len(self._step_values(step))
+            if key in (pygame.K_UP, pygame.K_DOWN):
+                self._create_cursor = (self._create_cursor + (1 if key == pygame.K_DOWN else -1)) % n
+                return True
+            if enter:
+                code = self.creation_options(step)[self._create_cursor][0]
+                self.text_log.submit_input(code)
+                return True
+            return False
+        if step == 4:
+            if key in (pygame.K_UP, pygame.K_DOWN):
+                # The typed number goes to the stat the arrows chose.
+                sel = (self._stat_sel + (1 if key == pygame.K_DOWN else -1)) % 4
+                self._new_char_data["stat_step"] = sel
+                self._prompt_next_stat()
+                return True
+            if key in (pygame.K_LEFT, pygame.K_RIGHT):
+                self._adjust_stat(1 if key == pygame.K_RIGHT else -1)
+                return True
+            if enter and not self.text_log.input_buffer.strip():
+                self._accept_stats()
+                return True
+        return False
+
+    def stat_limit(self, idx: int) -> int:
+        """The most stat ``idx`` may start with: 25, or the race's maximum."""
+        race = self._new_char_data.get("race", Race.HUMAN)
+        caps = (race.max_str, race.max_dex, race.max_int, race.max_wis)
+        return min(CREATION_MAX_STAT, caps[idx])
+
+    def points_left(self) -> int:
+        return CREATION_MAX_POINTS - sum(self._new_char_data.get("stats", [CREATION_MIN_STAT] * 4))
+
+    def _adjust_stat(self, delta: int) -> None:
+        stats = self._new_char_data["stats"]
+        i = self._stat_sel
+        new = stats[i] + delta
+        if new < CREATION_MIN_STAT or new > self.stat_limit(i) or (delta > 0 and self.points_left() <= 0):
+            if self.audio is not None:
+                self.audio.play_sfx("negative")
+            return
+        stats[i] = new
+        self._create_note = ""
+
+    def _accept_stats(self) -> None:
+        """Enter with nothing typed: the shared points, once none are left."""
+        left = self.points_left()
+        if left != 0:
+            self._note(f"{left} points left to share." if left > 0 else f"{-left} points too many.")
+            return
+        self.text_log.handle_escape()  # the stat prompt is answered by the arrows
+        self._assemble_character()
+
+    def _create_back(self) -> None:
+        """Esc: back one step, or cancel the creation at the name."""
+        step = self._create_step
+        self.text_log.handle_escape()
+        self._create_note = ""
+        if step == 0:
+            self._end_creation()
+            self.text_log.add_message("Creation cancelled.")
+        elif step == 1:
+            self._prompt_name(self._new_char_data.get("name", ""))
+        elif step == 2:
+            self._prompt_sex()
+        elif step == 3:
+            self._prompt_race()
+        else:
+            self._prompt_class()
+
+    def creation_view(self) -> dict[str, Any]:
+        """What the creation screen shows: each step's value (the highlighted
+        choice included, so the preview fills in as you go)."""
+        d = self._new_char_data
+        step = self._create_step if self._create_step is not None else 0
+        hover = None
+        if step in (1, 2, 3):
+            hover = self._step_values(step)[self._create_cursor]
+        name = self.text_log.input_buffer.strip() if step == 0 else d.get("name", "")
+        return {
+            "step": step,
+            "name": name,
+            "sex": hover if step == 1 else d.get("sex") if step > 1 else None,
+            "race": hover if step == 2 else d.get("race") if step > 2 else None,
+            "prof": hover if step == 3 else d.get("prof") if step > 3 else None,
+            "name_done": d.get("name", "") if step > 0 else "",
+            "sex_done": d.get("sex") if step > 1 else None,
+            "race_done": d.get("race") if step > 2 else None,
+            "prof_done": d.get("prof") if step > 3 else None,
+            "options": self.creation_options(step),
+            "cursor": self._create_cursor,
+            "stats": list(d.get("stats", [CREATION_MIN_STAT] * 4)),
+            "left": self.points_left(),
+            "stat_sel": self._stat_sel,
+            "note": self._create_note,
+        }
+
+    def _assemble_character(self) -> None:
+        name = self._new_char_data["name"]
+        sex = self._new_char_data["sex"]
+        race = self._new_char_data["race"]
+        prof = self._new_char_data["prof"]
+        st, dx, in_, wi = self._new_char_data["stats"]
+
+        # 5-25 per stat and total <= 50 (ManagePartyScreen.java:176-180),
+        # via the shared validator wired here.
+        valid, err = Character.validate_creation(
+            race=race,
+            profession=prof,
+            strength=st,
+            dexterity=dx,
+            intelligence=in_,
+            wisdom=wi,
+            max_points=CREATION_MAX_POINTS,
+            min_stat=CREATION_MIN_STAT,
+            max_stat=CREATION_MAX_STAT,
+        )
+        if not valid:
+            self._note(err)
+            # Java refuses the apply and keeps the allocation UI open:
+            # restart the stat prompts with nothing committed.
+            self._start_stat_allocation()
+            return
+
+        self._end_creation()
+        if len(self.roster) >= ROSTER_SLOTS:
+            self.text_log.add_message("The roster is full (20 adventurers)!")
+            return
+
+        # Starting record: health/food/gold = 150 (ManagePartyScreen.java:
+        # 185-192), plus LairWare's starting kit: one Dagger and one Cloth,
+        # both readied (LairWare UltimaMain.c:814-817, Player[41]/[40]
+        # Cloth readied, Player[49]/[48] Dagger readied). Max MP is
+        # derived from profession/stats, not chosen here.
+        new_char = Character(
+            name=name,
+            sex=sex,
+            race=race,
+            profession=prof,
+            strength=st,
+            dexterity=dx,
+            intelligence=in_,
+            wisdom=wi,
+            hp=150,
+            max_hp=150,
+            food=150,
+            gold=150,
+            weapon=WeaponType.DAGGER,
+            armor=ArmorType.CLOTH,
+            roster_slot=self._free_slot(),
+            # portrait_index keeps its default (43): the field survives for
+            # save compatibility but the creation wizard never asks for it
+            # and no UI renders it (user ruling, see _step_profession).
+        )
+        # Starting spell points: original-rules parity (user-directed
+        # deviation). Java's own creator (ManagePartyScreen.java) never
+        # touches mana — created casters ticked up to 1 MP via the first
+        # endTurn meal regeneration instead (SaveGame.java:387 clamps
+        # mana to getMaxMana()). The C64 original starts a caster with
+        # spell points equal to the max computed by the same formula as
+        # CharacterRecord.getMaxMana (SaveGame.java:340-376), so a
+        # casting profession starts full and a non-caster (capability 0)
+        # starts at 0.
+        new_char.mp = new_char.compute_max_mp()
+        self.roster.append(new_char)
+        self.selected_roster_idx = len(self.roster) - 1
+        self._follow_selection()
+        self.text_log.add_message(f"Created {name} ({prof.name})! Added to roster.")
 
     def _embark(self) -> None:
         """Form the chosen party and launch a new game on Sosaria.
@@ -641,12 +833,7 @@ class RosterScreen(BaseScreen):
             self.next_screen = overworld
             self.is_finished = True
 
-    # LairWare DrawOrganizeMenu colors: a banded row per slot.
-    _BAND_NUM = (64, 255, 64)
-    _BAND_NAME = (0, 128, 0)
-    _BAND_LVL = (0, 96, 0)
-    _BAND_DESC = (0, 64, 0)
-    _STATUS_INK = {"P": (64, 255, 64), "D": (255, 64, 64), "A": (192, 192, 192)}
+    # LairWare DrawOrganizeMenu's row words.
     _STATUS_WORD = {"P": "Poisoned ", "D": "Dead ", "A": "Ashes "}
     _SEX_WORD = {"M": "Male", "F": "Female", "O": "Other"}
 
@@ -663,92 +850,14 @@ class RosterScreen(BaseScreen):
         return f"{cls._STATUS_WORD.get(st, '')}{race} {prof} {sex}".strip()
 
     def render(self, surface: pygame.Surface) -> None:
-        surface.fill(EGA_BLACK)
-        w, h = surface.get_width(), surface.get_height()
-        k = w / 960.0
-        px = lambda v: max(1, int(round(v * k)))  # noqa: E731
-        f_title = get_hud_font(size=px(26), font_name="BarlowSemiCondensed-SemiBold.ttf")
-        f_row = get_hud_font(size=px(17))
-        f_bold = get_hud_font(size=px(17), font_name="BarlowSemiCondensed-SemiBold.ttf")
-        f_small = get_hud_font(size=px(14))
+        """THE PARTY, or A NEW ADVENTURER while one is being created
+        (py_exodus.ui.roster_view draws both)."""
+        from py_exodus.ui import roster_view
+        from py_exodus.ui.stats_panel import _equipment_display_names
 
-        def center_y(img, top, height):
-            return top + (height - img.get_height()) // 2
-
-        y = px(10)
-        title = f_title.render("Organize Party", True, EGA_WHITE)
-        surface.blit(title, ((w - title.get_width()) // 2, y))
-        y += title.get_height() + px(8)
-
-        # The party: four slots across.
-        slot_w = (w - px(40)) // 4
-        slot_h = px(30)
-        lbl = f_small.render("PARTY", True, (125, 143, 160))
-        surface.blit(lbl, (px(16), y))
-        y += lbl.get_height() + px(2)
-        for i in range(4):
-            r = pygame.Rect(px(16) + i * (slot_w + px(3)), y, slot_w, slot_h)
-            sel = self.focus_panel == "party" and self.selected_party_idx == i
-            pygame.draw.rect(surface, self._BAND_NAME if i < len(self.party.members) else (20, 20, 20), r)
-            if i < len(self.party.members):
-                m = self.party.members[i]
-                img = f_bold.render(m.name.upper(), True, EGA_YELLOW)
-                surface.blit(img, (r.x + px(8), center_y(img, r.y, r.h)))
-                lv = f_small.render(f"Lvl {m.level}", True, EGA_WHITE)
-                surface.blit(lv, (r.right - lv.get_width() - px(8), center_y(lv, r.y, r.h)))
-            else:
-                img = f_small.render("empty", True, EGA_DARK_GRAY)
-                surface.blit(img, (r.x + px(8), center_y(img, r.y, r.h)))
-            if sel:
-                pygame.draw.rect(surface, EGA_YELLOW, r, max(1, px(2)))
-        y += slot_h + px(12)
-
-        # The roster: 20 slots in two columns of 10.
-        lbl = f_small.render(f"ROSTER  {len(self.roster)}/{ROSTER_SLOTS}", True, (125, 143, 160))
-        surface.blit(lbl, (px(16), y))
-        y += lbl.get_height() + px(2)
-        row_h = px(26)
-        col_w = (w - px(40)) // 2
-        widths = (px(30), px(130), px(58))
-        for slot in range(ROSTER_SLOTS):
-            col, row = divmod(slot, 10)
-            x0 = px(16) + col * (col_w + px(8))
-            ry = y + row * (row_h + px(2))
-            cells = (
-                pygame.Rect(x0, ry, widths[0], row_h),
-                pygame.Rect(x0 + widths[0], ry, widths[1], row_h),
-                pygame.Rect(x0 + widths[0] + widths[1], ry, widths[2], row_h),
-                pygame.Rect(x0 + sum(widths), ry, col_w - sum(widths), row_h),
-            )
-            for cell, band in zip(cells, (self._BAND_NUM, self._BAND_NAME, self._BAND_LVL, self._BAND_DESC)):
-                pygame.draw.rect(surface, band, cell)
-            char = self.roster[slot] if slot < len(self.roster) else None
-            in_party = char is not None and self._in_party(char)
-            num = f_row.render(str(slot + 1), True, EGA_WHITE if in_party else EGA_BLACK)
-            surface.blit(num, (cells[0].right - num.get_width() - px(5), center_y(num, ry, row_h)))
-            if char is not None:
-                nm = (f_bold if in_party else f_row).render(
-                    char.name.upper(), True, EGA_YELLOW if in_party else EGA_WHITE)
-                surface.blit(nm, (cells[1].x + px(6), center_y(nm, ry, row_h)))
-                lv = f_row.render(f"Lvl {char.level}", True, EGA_WHITE)
-                surface.blit(lv, (cells[2].x + px(6), center_y(lv, ry, row_h)))
-                st = getattr(char.status, "value", str(char.status))[:1]
-                ds = f_row.render(self.describe(char), True, self._STATUS_INK.get(st, EGA_WHITE))
-                surface.blit(ds, (cells[3].x + px(6), center_y(ds, ry, row_h)))
-            if self.focus_panel == "roster" and slot == self.selected_roster_idx and self.roster:
-                pygame.draw.rect(surface, EGA_YELLOW, pygame.Rect(x0, ry, col_w, row_h), max(1, px(2)))
-        y += 10 * (row_h + px(2)) + px(6)
-
-        # Keys
-        keys = ("[A] Add   [R] Remove   [X] Disperse   [C] Create   [D] Delete   "
-                "[P] Save   [Tab] Party/roster   [Enter] Embark   [Esc] Back")
-        img = f_small.render(keys, True, EGA_BRIGHT_CYAN)
-        surface.blit(img, ((w - img.get_width()) // 2, y))
-        y += img.get_height() + px(6)
-
-        self.text_log.render(
-            surface,
-            rect=pygame.Rect(px(6), y, w - px(12), max(px(40), h - y - px(4))),
-            draw_border=True,
-            font=f_small,
-        )
+        names = _equipment_display_names(self.asset_mgr)
+        if self._create_step is not None:
+            roster_view.render_creation(surface, self, names)
+        else:
+            self._follow_selection()
+            roster_view.render_roster(surface, self, names)
