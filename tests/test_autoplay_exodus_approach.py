@@ -168,6 +168,65 @@ def test_hungry_party_by_the_exodus_gate_reaches_food(phase):
     assert min(m.food for m in party.members) > 0
 
 
+@pytest.mark.parametrize("phase", range(24))
+def test_every_phase_from_the_east_strip_reaches_food(phase):
+    """Review of 4458b6f: the party never stands on the site now, so the
+    trip's stuck guard (60 turns on one tile, then bar the next tile) no
+    longer saw a waiting gate leg and barred the site itself every 60
+    turns. From (12, 54) with food 37, phases 0 and 17-23 took 352-687
+    steps and phase 18 arrived at food 0. Every phase gets through within
+    a moon cycle (96 turns) plus the walk, with the site never barred."""
+    party = _ready_party(food=37)
+    party.x, party.y = 12, 54
+    party.moon_phase = phase
+    party.dynamic_objects = [{"tile": "frigate", "x": POND_FRIGATE[0], "y": POND_FRIGATE[1]}]
+    sm, _ow = _world(party, 2)
+    ctrl = AutoPlayController(enabled=True)
+    barred: list[int] = []
+    orig_update = sm.update
+
+    def watch(dt):
+        orig_update(dt)
+        if GATE5 in ctrl._blocked_tiles:
+            barred.append(ctrl._ow_turn)
+
+    sm.update = watch
+    steps = _run(sm, party, ctrl, 450, lambda: type(sm.current_screen).__name__ == "TownScreen")
+    assert type(sm.current_screen).__name__ == "TownScreen", (steps, party.x, party.y)
+    assert not barred
+    assert min(m.food for m in party.members) >= 15
+
+
+def test_gate_leg_gives_up_after_two_moon_cycles_and_tries_again():
+    """``_GATE_LEG_MAX_TURNS`` (192) near the gate: the leg gives up, the
+    site is barred for ``_BLOCK_TURNS`` and the trip replans. On the east
+    strip the gate is the only way out (no frigate here), so the bar runs
+    out and the next leg goes through: the cycle ends in a town."""
+    from py_exodus.autoplay import controller as ctl
+
+    party = _ready_party(food=37)
+    party.x, party.y = 12, 54
+    party.moon_phase = 14
+    sm, ow = _world(party, 2)
+    gmap = ow.game_map
+    ctrl = AutoPlayController(enabled=True)
+    keys: list[int] = []
+    real_emit = ctrl._emit_key
+    ctrl._emit_key = lambda _sm, key, **_kw: keys.append(key) or 0
+    leg = Leg(Transport.FOOT, GATE5, "GATE", gate_src=5, gate_dest=0)
+    ctrl._gate_wait = [(5, 0), ctl._GATE_LEG_MAX_TURNS]
+    ctrl._trip = object()  # any plan: the give-up drops it
+    ctrl._drive_gate(sm, ow, gmap, party, (12, 54), leg)
+    assert keys == [pygame.K_SPACE]
+    assert ctrl._trip is None and ctrl._gate_wait is None
+    assert ctrl._blocked_tiles[GATE5] == ctrl._ow_turn + ctl._BLOCK_TURNS
+
+    ctrl._emit_key = real_emit
+    steps = _run(sm, party, ctrl, 600, lambda: type(sm.current_screen).__name__ == "TownScreen")
+    assert type(sm.current_screen).__name__ == "TownScreen", (steps, party.x, party.y)
+    assert min(m.food for m in party.members) > 0
+
+
 # ---------------------------------------------------------------------------
 # The pond: a ship at (10, 56) behind a parked frigate at (10, 55)
 # ---------------------------------------------------------------------------

@@ -111,7 +111,7 @@ Borrowed in concept from the LairWare port: **`TAB`** (or `F2`) during any battl
 - **The dead first**: with a member dead, food waits (until someone is down to 40) so the gold goes to the resurrection.
 - **Poison**: a Cleric or Druid who can reach ALCORT's 35 MP cures on the spot once the MP is back, as long as the poisoned can afford the wait; otherwise a healer (100 gold).
 - **Endgame**: only once every planned stat is bought, and with 200 rations a member (it buys them first when it has 700 gold or more; never once past the serpent), yells `EVOCARE` to pass the Great Earth Serpent, heals everyone to full HP and waits for every caster's MP to fill at the castle gate, fights through Castle Exodus and inserts the four Cards. Its ship from the serpent ends in the castle's five-tile pond, often behind the frigate it ferried across in last time: it leaves the ship there, steps onto the frigate, boards it and sails on.
-- **Moongates**: a trip takes a gate when that is the cheapest way. Waiting for the opening it wants, it roams near the gate fighting what comes and is beside it in time, but never steps onto or stands on any gate site except to go through: the moon can turn on that very step, and a gate opening the wrong way under the party would carry it off. Two full moon cycles (192 turns) near a gate without getting through, and the trip gives that gate up for a while and plans another way.
+- **Moongates**: a trip takes a gate when that is the cheapest way. Waiting for the opening it wants, it roams near the gate fighting what comes and is beside it in time, but never steps onto or stands on any gate site except to go through: the moon can turn on that very step, and a gate opening the wrong way under the party would carry it off. Waiting there is never taken for being stuck (the 60-turns-on-one-tile rule leaves a gate leg alone within 5 tiles of its gate). Two full moon cycles (192 turns) near a gate without getting through, and the trip gives that gate up for a while and plans another way; where the gate is the only way out, it tries it again once the bar runs out.
 - **After the win**: once the four Cards are in, autoplay has no goal left and switches itself off: it leaves the ending to the player and doesn't resume a save from the title screen. A headless batch counts the run as WON there.
 
 ### Status
@@ -176,7 +176,7 @@ Each seed prints `WON@<steps>`, `WIPED@<steps>` or `STEP_CAP@<steps>`. A trace r
 uv run python -m pytest
 ```
 
-**2,080 tests** covering mechanics, LairWare/Java/GBC parity, vendors, dungeons, combat, rendering and autoplay regressions (most autoplay fixes come with a test that fails on the old code).
+**2,105 tests** covering mechanics, LairWare/Java/GBC parity, vendors, dungeons, combat, rendering and autoplay regressions (most autoplay fixes come with a test that fails on the old code).
 
 ---
 

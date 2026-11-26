@@ -2849,6 +2849,21 @@ class AutoPlayController:
                 self._gate_wait = None
         frig_sig = frozenset(self._frigate_costs(party, screen))
         waiting = plan is not None and plan.legs and plan.legs[0].action in ("GATE", "CAPTURE") and pos == plan.legs[0].end
+        # A gate leg never stands on its site (4b7046c): it waits beside it
+        # or roams within _GATE_ROAM_RADIUS, and its own bound is
+        # _GATE_LEG_MAX_TURNS. Barring tiles there after _TRIP_STILL_TURNS
+        # barred the site itself every 60 turns (review of 4458b6f: the
+        # 3-tile east strip by Castle Exodus, phase 18 reached food 0).
+        if (
+            not waiting and plan is not None and plan.legs and plan.legs[0].action == "GATE"
+            and plan.legs[0].gate_src is not None
+        ):
+            gates = getattr(gmap, "moongates", ()) or ()
+            src = plan.legs[0].gate_src
+            if src < len(gates):
+                waiting = manhattan(
+                    gmap.width, gmap.height, pos, (gates[src].x, gates[src].y)
+                ) <= _GATE_ROAM_RADIUS
         # No-progress guard. _trip_stuck drives the replan at
         # _TRIP_STUCK_TURNS and is reset by every replan; _trip_still only
         # by a change of tile. A replan that gives the same plan again means
