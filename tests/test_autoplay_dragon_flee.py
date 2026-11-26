@@ -132,6 +132,39 @@ def test_party_walks_into_britain_when_the_dragon_shows_up():
         assert max(y for _s, _x, y, _hp in trail if _s == "OverworldScreen") <= 22, (seed, trail)
 
 
+def test_party_fights_the_dragon_instead_of_fleeing_south():
+    """Step 23,783: the party at (44, 21), the dragon five tiles north at
+    (44, 16). Both gates are cut off now (it reaches (44, 18) and (45, 19)
+    first), so no refuge; today the escape runs south down column 44 to a
+    wipe. Now, after at most _ESCAPE_CAP_TURNS of breath, the party turns
+    and fights. The K turns in line cost up to about a third of the HP
+    (seed 3: three big breaths, 30%); the old escape lost ~57% before the
+    orcs."""
+    for seed in (57, 1, 2, 3):
+        sm, _ow, party, _ctrl, trail = _run(seed, _fought_or_indoors)
+        assert type(sm.current_screen).__name__ in ("CombatScreen", "TownScreen"), (seed, trail)
+        assert _lost(party) <= sum(MAX_HP) // 3, (seed, _lost(party), trail)
+        ys = [y for _s, _x, y, _hp in trail if _s == "OverworldScreen"]
+        assert max(ys) <= PARTY_AT[1] + K + 3, (seed, trail)
+
+
+def test_escape_cap_in_open_country():
+    """No gate within reach: the dragon follows the escape across the
+    grass south of Britain. After _ESCAPE_CAP_TURNS turns in range with the
+    HP falling, the escape changes mode and the party fights. Today it runs
+    south down column 41 for 16 turns and the Cleric dies to the breath
+    before the dragon closes."""
+    for seed in (57, 4, 5):
+        sm, _ow, party, _ctrl, trail = _run(
+            seed, _fought_or_indoors, dragon=(40, 22), pos=(40, 26), max_steps=80
+        )
+        assert type(sm.current_screen).__name__ == "CombatScreen", (seed, trail)
+        overworld = [t for t in trail if t[0] == "OverworldScreen"]
+        # A turn or two of grind first, K escape turns, a step up and the fight.
+        assert len(overworld) <= K + 6, (seed, len(overworld), trail)
+        assert all(not m.is_dead() for m in party.members), (seed, trail)
+
+
 def test_no_in_and_out_loop_at_the_gate_while_the_dragon_waits():
     """The party walks into Castle British with a dragon in line north of
     the gate, and the dragon stays there (pinned). Coming out it is in the

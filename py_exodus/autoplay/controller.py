@@ -172,6 +172,12 @@ _REFUGE_STEPS = 6
 # the fight, not a step back in. One town visit, rest included, is about
 # 20-200 turns; any later refuge is a fresh threat.
 _REFUGE_COOLDOWN = 200
+# The escape has failed after this many turns with a dragon still in view
+# and the party's HP lower than when it began. An escape that works leaves
+# a dragon's 3-tile breath in 1-3 steps; one still in range after 4 is
+# following, and at a 50% breath rate four turns without a hit is 1 in 16,
+# so "HP lower" is a reliable second test.
+_ESCAPE_CAP_TURNS = 4
 # Map ids never taken as a refuge: Exodus and Death Gulch are hostile (user
 # ruling: no town fights), Dawn is rarely there.
 _NO_REFUGE_MAPS = (2, 10, 11)
@@ -437,7 +443,9 @@ class AutoPlayController:
         self._ow_turn = 0
         self._blocked_tiles: dict[tuple[int, int], int] = {}
         self._fleeing = False
-        # The turn before which no new dragon refuge starts.
+        # Dragon breath on foot: [first turn, HP then, last turn] of the
+        # escape, and the turn before which no new refuge starts.
+        self._escape_log: list[int] | None = None
         self._refuge_until = 0
         # A member lacking a wanted mark is not safe for its rod (dungeon).
         self._rod_heal_wanted = False
@@ -1997,12 +2005,14 @@ class AutoPlayController:
            Inside, the usual town rules heal or rest. At most one refuge per
            _REFUGE_COOLDOWN turns, so the dragon waiting at the gate can't
            make the party bounce in and out.
-        2. A refuge was just used and the dragon is still in view: a party
-           that can take the breath steps up to it and fights. Otherwise
-           None (the old escape).
+        2. The escape has run _ESCAPE_CAP_TURNS turns with the dragon still
+           in view and HP lower than at its start, or a refuge was just
+           used and the dragon is still there: a party that can take the
+           breath steps up to it and fights. Otherwise None (the old escape).
         Pirates are left to the lane escape: they can't leave the water, so
         walking inland does get out of range."""
         if party.transport != Transport.FOOT or not dragon_lanes:
+            self._escape_log = None
             return None
         w, h = gmap.width, gmap.height
         chasing = [
@@ -2013,8 +2023,18 @@ class AutoPlayController:
         ]
         dragons = [d for d in chasing if _cheb(w, h, pos, d) <= _SHOOT_VIEW]
         if not chasing:
+            self._escape_log = None
             return None
         now = party.moves
+        hp = sum(m.hp for m in party.members if not m.is_dead())
+        log = self._escape_log
+        if log is not None and now - log[2] > 2:
+            log = None
+        if log is None and th.unsafe_end(pos):
+            log = [now, hp, now]
+        if log is not None:
+            log[2] = now
+        self._escape_log = log
 
         # Chasing (within _CHASE_RADIUS) is enough: the dragon comes on
         # whatever the party does, and by the time it is in view the gate
@@ -2025,6 +2045,7 @@ class AutoPlayController:
             if route is not None:
                 if not route:
                     self._refuge_until = now + _REFUGE_COOLDOWN
+                    self._escape_log = None
                     return self._emit_key(state_machine, pygame.K_e, guarded=False)
                 nxt = route[0]
                 d = next(
@@ -2033,8 +2054,9 @@ class AutoPlayController:
                 )
                 return self._emit_key(state_machine, _DIR_TO_KEY[d], guarded=False)
 
+        failed = log is not None and now - log[0] >= _ESCAPE_CAP_TURNS and hp < log[1]
         refuge_spent = now < self._refuge_until
-        if dragons and refuge_spent and not party_has_low_hp(party) and self._can_take_broadsides(party):
+        if dragons and (failed or refuge_spent) and not party_has_low_hp(party) and self._can_take_broadsides(party):
             for d in (Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST):
                 if ((pos[0] + d.dx) % w, (pos[1] + d.dy) % h) in dragons:
                     return self._attack(state_machine, d)
