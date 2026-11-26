@@ -1760,10 +1760,25 @@ def test_zstats_displays_inventory(pygame_setup, asset_mgr, sample_party):
     m.weapons[WeaponType.BOW] = 2
     m.armors[ArmorType.CHAIN] = 1
 
+    from py_exodus.ui import ztats_view
+
+    drawn = []
+    real = ztats_view.render_ztats
+
+    def spy(surface, pane, member, number, *args, **kwargs):
+        drawn.append((member, number))
+        return real(surface, pane, member, number, *args, **kwargs)
+
     # Toggle Zstats to inspect member 1
     ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_z))
     ow.text_log.submit_input("1")  # Ztats for #- (UltimaMain.c:2595)
     assert ow.stats_panel.inspect_index == 0
+    ztats_view.render_ztats = spy
+    try:
+        ow.render(pygame.Surface((960, 600)))
+    finally:
+        ztats_view.render_ztats = real
+    assert drawn == [(m, 1)]
     from py_exodus.ui.stats_panel import _equipment_display_names
     from py_exodus.ui.ztats_view import gear_chips
 

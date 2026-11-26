@@ -563,6 +563,10 @@ class AutoPlayController:
         # the game screen to come back.
         if screen_name in ("BookScreen", "QuickRefScreen"):
             return None
+        # The player's Ztats window is up (modal, any key closes it): leave
+        # it for the player rather than closing it with a queued key.
+        if getattr(getattr(screen, "stats_panel", None), "inspect_index", None) is not None:
+            return None
         if screen_name == "FinalScreen":
             self._key_queue.clear()
             return None

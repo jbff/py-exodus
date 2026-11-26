@@ -75,6 +75,9 @@ CASTLE_MAP_IDS = frozenset({"1", "2"})
 class TownScreen(BaseScreen):
     """Town and castle navigation screen supporting NPC dialogues and vendor shopping."""
 
+    #: Where spells are cast from here (the Ztats window's spell chips).
+    spell_map_type = "city"
+
     allows_quick_reference = True
 
     def __init__(

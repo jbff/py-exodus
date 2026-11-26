@@ -60,6 +60,9 @@ _NOT_DNG_CMD_KEYS = frozenset(
 class DungeonScreen(BaseScreen):
     """First-person 3D wireframe dungeon navigation screen."""
 
+    #: Where spells are cast from here (the Ztats window's spell chips).
+    spell_map_type = "dungeon"
+
     allows_quick_reference = True
 
     def __init__(

@@ -19,7 +19,7 @@ from typing import Any
 import pygame
 
 from py_exodus.combat.resolver import hit_chance, player_damage_range
-from py_exodus.constants import ArmorType, Spell, WeaponType
+from py_exodus.constants import ArmorType, MapType, Spell, Status, WeaponType
 from py_exodus.ui import party_panel as pp
 from py_exodus.ui.party_panel import _Flow, _title
 from py_exodus.ui.text_log import get_hud_font
@@ -32,7 +32,10 @@ TILE_BG = (24, 24, 24)
 SPELL_DIM = (60, 110, 130)
 DISCIPLINE_LABEL = {"wizard": "Wizard", "cleric": "Cleric"}
 BOOK_TITLE = {"wizard": "SORCERY", "cleric": "PRAYERS"}
-SPELL_LEGEND = "(lit: castable now · dim: needs MP)"
+# A spell within reach that can't be cast here and now: outline only.
+SPELL_FAINT_EDGE = (40, 80, 92)
+SPELL_FAINT_TEXT = (64, 110, 124)
+SPELL_LEGEND = "(lit: castable now · dim: needs MP · faint: not here)"
 
 
 # -- what the window shows (pure, tested) -----------------------------------
@@ -48,22 +51,28 @@ def window_rect(pane: pygame.Rect) -> pygame.Rect:
 def stat_tiles(member: Any) -> list[tuple[str, int, str]]:
     """(label, value, what it does) for STR, DEX, INT and WIS: the readied
     weapon's damage range, the to-hit chance, and the MP max INT and WIS
-    give this member's class ("-" when they give none)."""
+    give this member's class ("-" when they give none; for a Druid or
+    Ranger, "(counts)" marks the one their MP max takes)."""
     low, high = player_damage_range(member)
     from_int, from_wis = member.mp_max_parts()
-    both = from_int is not None and from_wis is not None
-    which = ", lower" if getattr(member.profession, "name", "") == "RANGER" else ", higher"
+    counts = None
+    if from_int is not None and from_wis is not None:
+        # A Druid gets the higher of the two, a Ranger the lower.
+        if getattr(member.profession, "name", "") == "RANGER":
+            counts = "int" if from_int <= from_wis else "wis"
+        else:
+            counts = "int" if from_int >= from_wis else "wis"
 
-    def mp(part: int | None) -> str:
+    def mp(part: int | None, stat: str) -> str:
         if part is None:
             return "-"
-        return f"MP max {part}" + (which if both else "")
+        return f"MP max {part}" + (" (counts)" if counts == stat else "")
 
     return [
         ("STR", member.str, f"dmg {low}–{high}"),
         ("DEX", member.dex, f"hit {round(100 * hit_chance(member.dex))}%"),
-        ("INT", member.int, mp(from_int)),
-        ("WIS", member.wis, mp(from_wis)),
+        ("INT", member.int, mp(from_int, "int")),
+        ("WIS", member.wis, mp(from_wis, "wis")),
     ]
 
 
@@ -86,11 +95,23 @@ def gear_chips(counts: dict, enum_cls: type, names: dict, readied: Any) -> list[
     return chips
 
 
-def spell_books(member: Any) -> list[tuple[str, list[tuple[Spell, str]]]]:
-    """Per discipline the member casts: each spell with its state, "lit"
-    (castable now with the MP in hand), "dim" (within the MP max, needs
-    MP) or "off" (beyond this member: over the MP max or not the class)."""
+def spell_books(
+    member: Any, map_type: MapType | None = None, negated: bool = False
+) -> list[tuple[str, list[tuple[Spell, str]]]]:
+    """Per discipline the member casts: each spell with its state, by the
+    cast checks (combat/magic.py cast_spell, spell_menu.letter_resolution):
+
+    - "off": beyond this member (over the MP max, or not the class);
+    - "faint": not castable here and now: the wrong place for it
+      (``map_type``, "Not Here!"), the caster dead or ashes, or a Negate
+      aura up;
+    - "dim": needs MP;
+    - "lit": castable now.
+
+    ``map_type`` None skips the place check."""
     from py_exodus.combat.magic import get_castable_spell_types
+
+    blocked = negated or member.status in (Status.DEAD, Status.ASH)
 
     books = []
     for discipline in get_castable_spell_types(member.profession):
@@ -98,6 +119,8 @@ def spell_books(member: Any) -> list[tuple[str, list[tuple[Spell, str]]]]:
         for spell in sorted((s for s in Spell if s.spell_type == discipline), key=lambda s: s.code):
             if spell.cost > member.max_mp or not spell.can_cast(member.profession):
                 state = "off"
+            elif blocked or (map_type is not None and not spell.can_cast_location(map_type)):
+                state = "faint"
             elif spell.cost <= member.mp:
                 state = "lit"
             else:
@@ -143,6 +166,8 @@ def render_ztats(
     number: int,
     asset_mgr: Any = None,
     names: tuple[dict, dict] = ({}, {}),
+    map_type: MapType | None = None,
+    negated: bool = False,
 ) -> pygame.Rect:
     """Dim the map pane and draw member ``number`` (1-4)'s Ztats window in
     it. Nothing outside ``pane`` is touched. Returns the window rect."""
@@ -159,7 +184,8 @@ def render_ztats(
         pygame.draw.rect(surface, pp.GOLDEN, win, width=max(1, round(2 * k)),
                          border_radius=max(2, round(4 * k)))
         if pane.width >= 400:
-            _render_full(surface, win, member, number, asset_mgr, names, _Fonts(k))
+            _render_full(surface, win, member, number, asset_mgr, names, _Fonts(k),
+                         spell_books(member, map_type, negated))
         else:
             _render_small(surface, win, member, number, names)
     finally:
@@ -204,7 +230,21 @@ def _section(s, x, y, w, title, body, line_h, gap=12) -> int:
     return y + 6
 
 
-def _render_full(s, win, m, number, asset_mgr, names, f: _Fonts) -> None:
+def _spell_chip(fl: _Flow, font, text: str, state: str) -> None:
+    """A spell chip: filled lit/dim, a teal outline when faint (not here
+    or now), the plain grey outline when beyond the member."""
+    if state != "faint":
+        fl.chip(font, text, {"lit": pp.MP_BLUE, "dim": SPELL_DIM}.get(state))
+        return
+    img = font.render(text, True, SPELL_FAINT_TEXT)
+    w = img.get_width() + 12
+    x, y = fl._place(w)
+    r = pygame.Rect(x, y + 1, w, fl.line_h - 2)
+    pygame.draw.rect(fl.s, SPELL_FAINT_EDGE, r, width=1, border_radius=r.height // 2)
+    fl.s.blit(img, (x + 6, r.y + (r.height - img.get_height()) // 2))
+
+
+def _render_full(s, win, m, number, asset_mgr, names, f: _Fonts, books) -> None:
     weapon_names, armor_names = names
     line = f.body.get_linesize() + 5
     pad = 16
@@ -285,8 +325,6 @@ def _render_full(s, win, m, number, asset_mgr, names, f: _Fonts) -> None:
 
     y = _section(s, left, y, full, head("QUEST"), quest, line + 2)
 
-    books = spell_books(m)
-    colour = {"lit": pp.MP_BLUE, "dim": SPELL_DIM, "off": None}
     tiny_line = f.tiny.get_linesize() + 7
     if len(books) == 1:
         discipline, spells = books[0]
@@ -294,8 +332,8 @@ def _render_full(s, win, m, number, asset_mgr, names, f: _Fonts) -> None:
 
         def book(fl):
             for spell, state in spells:
-                fl.chip(f.tiny, f"{spell.code} {spell_display_name(spell)} {spell.cost}",
-                        colour[state])
+                _spell_chip(fl, f.tiny, f"{spell.code} {spell_display_name(spell)} {spell.cost}",
+                            state)
 
         _section(s, left, y, full, head(f"{BOOK_TITLE[discipline]}  {SPELL_LEGEND}"),
                  book, tiny_line, 6)
@@ -306,7 +344,7 @@ def _render_full(s, win, m, number, asset_mgr, names, f: _Fonts) -> None:
             for discipline, spells in books:
                 fl.text(f.body, DISCIPLINE_LABEL[discipline], pp.INK)
                 for spell, state in spells:
-                    fl.chip(f.tiny, spell.code, colour[state])
+                    _spell_chip(fl, f.tiny, spell.code, state)
                 fl.newline()
 
         _section(s, left, y, full, head(f"SPELLS  {SPELL_LEGEND}"), both, tiny_line + 2, 5)

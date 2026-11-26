@@ -13,6 +13,8 @@ class BaseScreen(ABC):
     #: F3/F4 open the quick-reference cards over this screen (the map,
     #: town, dungeon and combat screens; not the title, intro or roster).
     allows_quick_reference: bool = False
+    #: MapType value spells are cast under on this screen (None: no casting).
+    spell_map_type: str | None = None
 
     def __init__(
         self,
@@ -171,7 +173,11 @@ class BaseScreen(ABC):
         from py_exodus.ui.stats_panel import _equipment_display_names
         from py_exodus.ui.ztats_view import render_ztats
 
+        from py_exodus.aura import AuraType
+        from py_exodus.constants import MapType
+
         asset_mgr = getattr(self, "asset_mgr", None)
+        aura = getattr(party, "aura", None)
         render_ztats(
             surface,
             pygame.Rect(0, 0, pane, pane),
@@ -179,6 +185,8 @@ class BaseScreen(ABC):
             index + 1,
             asset_mgr,
             _equipment_display_names(asset_mgr),
+            map_type=MapType(self.spell_map_type) if self.spell_map_type else None,
+            negated=aura is not None and aura.get_type() == AuraType.NEGATE,
         )
 
     def on_exit(self) -> None:

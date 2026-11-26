@@ -340,6 +340,9 @@ def sky_info(party: Any, trammel: int | None = None, felucca: int | None = None)
 class OverworldScreen(BaseScreen):
     """Exploration screen for the Sosaria world map and Ambrosia continent."""
 
+    #: Where spells are cast from here (the Ztats window's spell chips).
+    spell_map_type = "world"
+
     allows_quick_reference = True
 
     def __init__(

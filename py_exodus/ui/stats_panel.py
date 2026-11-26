@@ -124,7 +124,9 @@ def inspect_rows(
     asset_mgr: object | None = None,
     per_row: int = 2,
 ) -> list[str]:
-    """Zstats inspection rows for one member, in Java getZstats order
+    """Kept for tests only (the Ztats window replaced the sidebar listing).
+
+    Zstats inspection rows for one member, in Java getZstats order
     (exodus/Party.java:669-715): the name/race/class/sex/status identity
     line, HEALTH/MAXHEALTH, MANA/LV, the STR/DEX/INT/WIS stat pairs with
     EXP, the readied weapon and worn armor, torch/gem/key/powder counts,

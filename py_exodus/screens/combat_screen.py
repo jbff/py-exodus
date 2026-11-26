@@ -58,6 +58,9 @@ COMBAT_PASS_POLLS = 0x2F - 1
 class CombatScreen(BaseScreen):
     """Interactive screen for 11x11 tactical turn-based combat encounters."""
 
+    #: Where spells are cast from here (the Ztats window's spell chips).
+    spell_map_type = "combat"
+
     allows_quick_reference = True
 
     def __init__(

@@ -13,7 +13,7 @@ import pygame
 import pytest
 
 from py_exodus.combat.resolver import hit_chance, lw_weapon_index, player_damage_range
-from py_exodus.constants import ArmorType, Profession, Race, Spell, Status, Transport, WeaponType
+from py_exodus.constants import ArmorType, MapType, Profession, Race, Spell, Status, Transport, WeaponType
 from py_exodus.entities.character import Character
 from py_exodus.entities.party import Party
 from py_exodus.screens.member_prompts import show_ztats
@@ -94,9 +94,9 @@ def test_mp_parts_agree_with_max_mp_for_every_class():
         (Profession.WIZARD, dict(str=10, dex=20, int=40, wis=5, weapon=WeaponType.DAGGER),
          ("MP max 40", "-")),
         (Profession.DRUID, dict(str=10, dex=20, int=30, wis=24, weapon=WeaponType.DAGGER),
-         ("MP max 15, higher", "MP max 12, higher")),
+         ("MP max 15 (counts)", "MP max 12")),
         (Profession.RANGER, dict(str=10, dex=20, int=30, wis=24, weapon=WeaponType.BOW),
-         ("MP max 15, lower", "MP max 12, lower")),
+         ("MP max 15", "MP max 12 (counts)")),
     ],
 )
 def test_stat_tiles_match_the_rules(prof, stats, expect):
@@ -137,6 +137,39 @@ def test_spell_chips_lit_dim_and_off():
     assert state[Spell.ALCORT] == "dim"  # 35
     assert state[Spell.SEQUITU] == "off"  # 40: past the MP max
     assert [s.code for s, _ in spells] == list("ABCDEFGHIJKLMNOP")
+
+
+def _states(m, map_type=None, negated=False):
+    return {s: st for _, spells in zv.spell_books(m, map_type, negated) for s, st in spells}
+
+
+def test_pontori_lit_in_combat_not_on_sosaria():
+    m = cleric()
+    assert _states(m, MapType.COMBAT)[Spell.PONTORI] == "lit"
+    assert _states(m, MapType.WORLD)[Spell.PONTORI] == "faint"
+    # Sanctu works anywhere.
+    assert _states(m, MapType.WORLD)[Spell.SANCTU] == "lit"
+
+
+def test_luminae_lit_only_in_a_dungeon():
+    m = cleric()
+    for place in MapType:
+        if place is MapType.SHRINE:
+            continue
+        want = "lit" if place is MapType.DUNGEON else "faint"
+        assert _states(m, place)[Spell.LUMINAE] == want, place
+
+
+@pytest.mark.parametrize("status", [Status.DEAD, Status.ASH])
+def test_dead_caster_chips_never_lit(status):
+    m = cleric()
+    m.status = status
+    for place in (MapType.WORLD, MapType.CITY, MapType.DUNGEON, MapType.COMBAT):
+        assert "lit" not in _states(m, place).values()
+
+
+def test_negate_aura_unlights_every_chip():
+    assert "lit" not in _states(cleric(), MapType.COMBAT, negated=True).values()
 
 
 def test_spell_books_by_class():
@@ -251,3 +284,39 @@ def test_window_on_town_dungeon_and_combat(pygame_setup, asset_mgr, make):
     ]
     assert len(changed) > 1000
     assert all(x < 528 and y < 528 for x, y in changed)
+
+
+def test_screen_passes_its_place_to_the_spell_chips(pygame_setup, asset_mgr, monkeypatch):
+    seen = {}
+    real = zv.render_ztats
+
+    def spy(*args, **kwargs):
+        seen.update(kwargs)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(zv, "render_ztats", spy)
+    party = overworld(asset_mgr).party
+    for make, place in ((lambda am, p: OverworldScreen(party=p, asset_mgr=am), MapType.WORLD),
+                        (_town, MapType.CITY), (_dungeon, MapType.DUNGEON),
+                        (_combat, MapType.COMBAT)):
+        screen = make(asset_mgr, party)
+        screen.text_log.add_message = lambda msg: None
+        show_ztats(screen.text_log, screen.stats_panel, screen.party, 1)
+        screen.render(pygame.Surface((960, 600)))
+        assert seen["map_type"] is place
+        assert seen["negated"] is False
+
+
+def test_autoplay_leaves_an_open_ztats_window(pygame_setup, asset_mgr):
+    from py_exodus.autoplay.controller import AutoPlayController
+    from py_exodus.state_machine import StateMachine
+
+    screen = overworld(asset_mgr)
+    sm = StateMachine(asset_mgr=asset_mgr, initial_screen=screen)
+    show_ztats(screen.text_log, screen.stats_panel, screen.party, 0)
+    ctrl = AutoPlayController(enabled=True)
+    ctrl._key_queue.extend([pygame.K_a])
+    for _ in range(5):
+        assert ctrl.step(sm) is None
+    assert screen.stats_panel.inspect_index == 0
+    assert list(ctrl._key_queue) == [pygame.K_a]

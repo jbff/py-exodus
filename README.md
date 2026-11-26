@@ -100,7 +100,7 @@ uv run python -m py_exodus.autoplay.batch --seeds 0-99 --workers 2 --out-dir tra
 uv run python -m pytest
 ```
 
-There are **2,245 tests**. They cover the mechanics, parity with LairWare, Java and the Game Boy Color port, the shops, the dungeons, combat, rendering and autoplay. Most autoplay fixes come with a test that fails on the old code.
+There are **2,252 tests**. They cover the mechanics, parity with LairWare, Java and the Game Boy Color port, the shops, the dungeons, combat, rendering and autoplay. Most autoplay fixes come with a test that fails on the old code.
 
 ---
 
