@@ -175,3 +175,65 @@ def test_a_hungry_party_beside_fawn_buys_its_food_there(seed, pirate):
     assert sm.current_screen.game_map is not None
     assert str(sm.current_screen.map_id) == "12", sm.current_screen.map_id
     assert all(scr != "OverworldScreen" or x <= 31 for scr, x, y in trail), trail
+
+
+def _pond_state():
+    """Live seed 90 at 3f89e86, step 17,225 (DIG_EXOTICS): levels 8/9/3/6
+    on foot at (44, 37) beside a frigate on the pond at (43, 38), a chest
+    at (43, 35), a dragon at (45, 41) and an orc at (46, 40); the trip
+    walks to its frigate at (6, 42), and a pirate is out at (59, 13)."""
+    from py_exodus.constants import Direction
+
+    sm, ow, party, ctrl = _seed90_state(
+        pos=(44, 37), hp=(744, 781, 304, 577), ship=False, pirate=(59, 13), food=416,
+    )
+    gear = [
+        (8, 850, 0, 0, WeaponType.BOW, ArmorType.LEATHER, 0),
+        (9, 950, 0, 0, WeaponType.BOW, ArmorType.PLATE, 2),
+        (3, 350, 6, 431, WeaponType.MACE, ArmorType.CHAIN, 0),
+        (6, 650, 2, 1100, WeaponType.DAGGER, ArmorType.CLOTH, 0),
+    ]
+    for m, (lv, mh, mp, gold, wpn, arm, torches) in zip(party.members, gear):
+        m.level, m.max_hp, m.mp, m.gold = lv, mh, mp, gold
+        m.weapon, m.armor, m.torches, m.keys = wpn, arm, torches, 0
+    party.wind_direction = Direction.EAST
+    party.dynamic_objects += [
+        {"tile": "frigate", "x": 6, "y": 42},
+        {"tile": "chest", "x": 43, "y": 35},
+        {"tile": "frigate", "x": 43, "y": 38},
+    ]
+    ow.creatures += [
+        {"name": "Dragon", "tile_name": "dragon", "tile": "dragon", "variant": 0, "x": 45, "y": 41},
+        {"name": "Orc", "tile_name": "orc", "tile": "orc", "variant": 0, "x": 46, "y": 40},
+    ]
+    return sm, ow, party, ctrl
+
+
+def test_the_dash_leaves_a_frigate_the_trip_does_not_board_alone():
+    """The dash walked to the nearest frigate (a pond's, (43, 38)) while the
+    trip walked to its own at (6, 42); a chest pickup and the trip pulled
+    back, ~12,000 steps between (43, 37) and (43, 38) until the party died."""
+    rng, trng = random.getstate(), tile_effects._rng.getstate()
+    try:
+        random.seed(90)
+        tile_effects._rng.seed(90)
+        batch._seed_dungeon_rngs()
+        sm, ow, party, ctrl = _pond_state()
+        trail = []
+        orig = ctrl.step
+
+        def counted(s):
+            trail.append((type(s.current_screen).__name__, party.x, party.y))
+            return orig(s)
+
+        ctrl.step = counted
+        while len(trail) < 120:
+            ctrl.update(batch.FRAME_DT, sm)
+            sm.update(batch.FRAME_DT)
+    finally:
+        random.setstate(rng)
+        tile_effects._rng.setstate(trng)
+    tiles = [(x, y) for scr, x, y in trail if scr == "OverworldScreen"]
+    paces = sum(1 for a, b in zip(tiles, tiles[1:]) if {a, b} == {(43, 37), (43, 38)})
+    assert paces <= 4, trail
+    assert (43, 38) not in tiles, trail  # never onto the pond's frigate

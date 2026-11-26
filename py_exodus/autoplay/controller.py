@@ -4067,6 +4067,18 @@ class AutoPlayController:
         if plan is None or not plan.legs or plan.legs[0].action not in ("B", "CAPTURE"):
             return None
         frigates = set(self._frigate_costs(party, screen))
+        leg = plan.legs[0]
+        terr = terrain_for(gmap, party, getattr(gmap, "id", 0))
+        if leg.action == "B":
+            # The trip's own frigate only: walking to another one fought the
+            # trip's walk to its own (seed 90 live at 3f89e86: a frigate on
+            # a pond at (43, 38), the trip's at (6, 42), ~12,000 steps).
+            frigates &= {leg.end}
+        else:
+            # A capture's water: a frigate on another body of water is no
+            # way on.
+            comps = {terr.sea_comp[n] for n in terr.neighbours(*leg.end) if n in terr.sea_comp}
+            frigates = {f for f in frigates if terr.sea_comp.get(f) in comps}
         if not frigates:
             return None
         if pos in frigates:
@@ -4077,7 +4089,6 @@ class AutoPlayController:
             return _YIELD_TO_TRIP
         if party_has_low_hp(party):
             return None
-        terr = terrain_for(gmap, party, getattr(gmap, "id", 0))
         occupied = {
             (c["x"], c["y"]) for c in getattr(screen, "creatures", ()) or ()
             if "x" in c and "y" in c
@@ -4114,6 +4125,8 @@ class AutoPlayController:
         # Each turn ending in a lane is a possible hit; boarding on a lane
         # tile is one more turn there.
         hits = sum(1 for t in path if t in th.lanes) + (1 if found in th.lanes else 0)
+        if hits == 0:
+            return None  # no lane on the way: the trip walks it as usual
         if any(not m.is_dead() and m.hp <= hits * _BROADSIDE_MAX for m in party.members):
             return None
         step = path[0]
