@@ -92,6 +92,18 @@ def test_scrolled_list_draws_rows_eleven_on(pygame_setup):
     _no_overflow(cv, surf)
 
 
+def test_twelve_wide_letters_show_in_full_on_list_and_party_cards(pygame_setup):
+    """A 12-letter name of the widest letter fits the roster row and the
+    party card at 960x600 (review 2026-11-26)."""
+    wide = _char("WWWWWWWWWWWW")
+    scr = RosterScreen(party=Party(members=[wide]), roster=[wide])
+    surf = pygame.Surface((960, 600))
+    cv = roster_view.render_roster(surf, scr)
+    assert sum(t == "WWWWWWWWWWWW" for t, _, _ in cv.log) >= 2
+    assert "WWWWWWWWWWWW" not in cv.cut
+    _no_overflow(cv, surf)
+
+
 # -- the keys keep their outcomes ---------------------------------------------
 
 

@@ -146,6 +146,7 @@ class Canvas:
     def __init__(self, surface: pygame.Surface) -> None:
         self.s = surface
         self.log: list[tuple[str, pygame.Rect, pygame.Rect]] = []
+        self.cut: list[str] = []  # texts drawn shortened with "…"
 
     @staticmethod
     def font(size: int, bold: bool = False) -> pygame.font.Font:
@@ -169,6 +170,8 @@ class Canvas:
             x -= img.get_width()
         elif align == "center":
             x -= img.get_width() // 2
+        if cut != t:
+            self.cut.append(t)
         x = max(box.x, min(x, box.right - img.get_width()))
         r = img.get_rect(topleft=(x, y))
         self.s.blit(img, r)
@@ -268,9 +271,9 @@ def _render_roster_full(s: pygame.Surface, scr: Any, names: tuple[dict, dict]) -
             pygame.draw.rect(s, PANEL, r, border_radius=8)
             chosen = scr.focus_panel == "party" and scr.selected_party_idx == i
             pygame.draw.rect(s, GOLD if chosen else EDGE, r, 2 if not chosen else 3, border_radius=8)
-            _blit_sprite(s, am, ch.profession, 64, r.x + 12, r.y + 16)
-            inner = pygame.Rect(r.x + 88, r.y, r.width - 88 - 22, r.height)
-            cv.text(ch.name.upper(), inner.x, r.y + 12, 22, GOLD, box=inner, bold=True, min_size=15)
+            _blit_sprite(s, am, ch.profession, 48, r.x + 12, r.y + 24)
+            inner = pygame.Rect(r.x + 68, r.y, r.width - 68 - 22, r.height)
+            cv.text(ch.name.upper(), inner.x, r.y + 12, 22, GOLD, box=inner, bold=True, min_size=13)
             cv.text(f"{words(ch.race)} {words(ch.profession)}", inner.x, r.y + 40, 15, FG,
                     box=pygame.Rect(inner.x, r.y, r.right - 10 - inner.x, r.h))
             tag = status_tag(ch)
@@ -309,9 +312,9 @@ def _render_roster_full(s: pygame.Surface, scr: Any, names: tuple[dict, dict]) -
             ch = scr.roster[idx]
             _blit_sprite(s, am, ch.profession, 24, lx + 36, y + 3)
             cv.text(ch.name.upper(), lx + 70, y + 4, 18, GOLD if selected else FG,
-                    box=pygame.Rect(lx + 70, y, 116, 30), min_size=13)
-            cv.text(f"{words(ch.race)} {words(ch.profession)}", lx + 190, y + 6, 15, DIM,
-                    box=pygame.Rect(lx + 190, y, 146, 30))
+                    box=pygame.Rect(lx + 70, y, 124, 30), min_size=13)
+            cv.text(f"{words(ch.race)} {words(ch.profession)}", lx + 194, y + 6, 15, DIM,
+                    box=pygame.Rect(lx + 194, y, 142, 30))
             cv.text(f"Lv {ch.level}", lx + 340, y + 6, 15, DIM, box=pygame.Rect(lx + 340, y, 36, 30))
             chip_x = lx + 378
             if scr._in_party(ch):
