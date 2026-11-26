@@ -75,8 +75,12 @@ CHAPTER_KEYS = "123456789ABCDEFGHI"
 _CHAPTER_KEYCODES: dict[int, int] = {
     getattr(pygame, f"K_{ch.lower()}"): i for i, ch in enumerate(CHAPTER_KEYS)
 }
+# keypad digits work like the top-row digits
+_CHAPTER_KEYCODES.update({getattr(pygame, f"K_KP{n}"): n - 1 for n in range(1, 10)})
+#: Keys that return to the contents page.
+_CONTENTS_KEYS = (pygame.K_0, pygame.K_KP0, pygame.K_HOME)
 
-SPREAD_HINT = "Left/Right turn   Up/Down chapter   C contents   Esc close"
+SPREAD_HINT = "Left/Right turn   Up/Down chapter   0 contents   Esc close"
 CONTENTS_HINT = "1-9 / A-I or Up/Down choose   Enter open   Esc close"
 
 #: Book colours (the approved mockup's palette).
@@ -409,6 +413,7 @@ class BookLayout:
     header_y: int
     body_top: int
     body_bottom: int
+    footer_rule_y: int
     footer_y: int
     page_x: tuple[int, ...]
     page_width: int
@@ -430,7 +435,8 @@ class BookLayout:
                 frame=pygame.Rect(20, 16, width - 40, height - 32),
                 header_y=30,
                 body_top=72,
-                body_bottom=height - 64,
+                body_bottom=height - 70,
+                footer_rule_y=height - 62,
                 footer_y=height - 52,
                 page_x=(44, width // 2 + 40),
                 page_width=width // 2 - 84,
@@ -445,7 +451,8 @@ class BookLayout:
             frame=pygame.Rect(4, 3, width - 8, height - 6),
             header_y=7,
             body_top=24,
-            body_bottom=height - 20,
+            body_bottom=height - 22,
+            footer_rule_y=height - 19,
             footer_y=height - 16,
             page_x=(12,),
             page_width=width - 24,
@@ -507,7 +514,8 @@ class BookScreen(BaseScreen):
         self.view_index: int = 0
         #: Highlighted chapter on the contents page.
         self.highlight: int = 0
-        self.layout = self._build_layout(960, 600)
+        #: Built on first use for the surface size actually drawn to.
+        self._layout: BookLayout | None = None
 
     # -- layout -------------------------------------------------------
 
@@ -516,18 +524,28 @@ class BookScreen(BaseScreen):
         layout.build(self.chapters)
         return layout
 
+    @property
+    def layout(self) -> BookLayout:
+        """The current layout; 960x600 until a surface has been drawn to."""
+        if self._layout is None:
+            self._layout = self._build_layout(960, 600)
+        return self._layout
+
     def _ensure_layout(self, width: int, height: int) -> None:
-        """Re-lay the book for a new surface size, keeping the place."""
-        if (self.layout.width, self.layout.height) == (width, height):
+        """Lay the book out for this surface size, keeping the place."""
+        if self._layout is None:
+            self._layout = self._build_layout(width, height)
             return
-        old = self.layout
+        if (self._layout.width, self._layout.height) == (width, height):
+            return
+        old = self._layout
         new = self._build_layout(width, height)
         chapter = self.current_chapter
         if chapter >= 0:
             page_in_chapter = (self.view_index - old.chapter_first_view[chapter]) * old.pages_per_view
             views = new.chapter_views(chapter)
             self.view_index = min(views.start + page_in_chapter // new.pages_per_view, views.stop - 1)
-        self.layout = new
+        self._layout = new
 
     # -- state --------------------------------------------------------
 
@@ -568,12 +586,13 @@ class BookScreen(BaseScreen):
         self.view_index = max(self.view_index - 1, 0)
 
     def next_chapter(self) -> None:
-        self.open_chapter(min(self.current_chapter + 1, len(self.chapters) - 1))
+        """Jump to the next chapter's start; nothing in the last chapter."""
+        if self.current_chapter + 1 < len(self.chapters):
+            self.open_chapter(self.current_chapter + 1)
 
     def previous_chapter(self) -> None:
-        if self.current_chapter <= 0:
-            self.show_contents()
-        else:
+        """Jump to the previous chapter's start; nothing in the first."""
+        if self.current_chapter > 0:
             self.open_chapter(self.current_chapter - 1)
 
     # -- input --------------------------------------------------------
@@ -600,9 +619,7 @@ class BookScreen(BaseScreen):
                 self.turn_forward()
             return
 
-        # In the spreads C is the contents key, so chapter C (Last Minute
-        # Counsel) opens from the contents page.
-        if key == pygame.K_c:
+        if key in _CONTENTS_KEYS:
             self.show_contents()
         elif key in _CHAPTER_KEYCODES:
             self.open_chapter(_CHAPTER_KEYCODES[key])
@@ -647,8 +664,7 @@ class BookScreen(BaseScreen):
     def _render_footer_rule(self, surface: pygame.Surface) -> None:
         lay = self.layout
         x0, x1 = lay.page_x[0], lay.width - lay.page_x[0]
-        y = lay.footer_y - (10 if lay.pages_per_view == 2 else 3)
-        pygame.draw.line(surface, RULE, (x0, y), (x1, y))
+        pygame.draw.line(surface, RULE, (x0, lay.footer_rule_y), (x1, lay.footer_rule_y))
 
     def _render_contents(self, surface: pygame.Surface) -> None:
         lay = self.layout

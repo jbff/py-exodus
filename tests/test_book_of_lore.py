@@ -122,8 +122,9 @@ class TestChapters:
         assert "A. PONTORI" in _chapter_text("Clerical Prayers")
 
     def test_spell_chapters_lead_with_the_reference(self):
-        wizard = load_chapters()[16]
-        cleric = load_chapters()[17]
+        by_title = {c.title: c for c in load_chapters()}
+        wizard = by_title["Wizard Sorceries"]
+        cleric = by_title["Clerical Prayers"]
         assert wizard.lines[:16] == spell_reference_lines("wizard")
         assert cleric.lines[:16] == spell_reference_lines("cleric")
 
@@ -233,7 +234,71 @@ class TestLayout:
                 )
                 assert height <= lay.body_bottom - lay.body_top
                 assert not rows or (rows[0].kind != "gap" and rows[-1].kind != "gap")
-        assert lay.body_bottom <= lay.footer_y
+        # a real gap between the last body row and the footer rule
+        assert lay.body_bottom <= lay.footer_rule_y - (6 if size[0] >= 640 else 2)
+        assert lay.footer_rule_y < lay.footer_y
+
+    @pytest.mark.parametrize("size", [(960, 600), (320, 200)])
+    def test_every_word_of_the_lore_is_laid_out(self, size):
+        """Word multisets: ultima3.txt minus headings and *break markers,
+        against the laid-out pages minus the spell reference rows."""
+        from collections import Counter
+        from pathlib import Path
+
+        from py_exodus.screens.book import CHAPTER_HEADINGS
+
+        source: Counter[str] = Counter()
+        for line in Path("assets/data/ultima3.txt").read_text(encoding="utf-8").splitlines():
+            key = line.strip()
+            if key in CHAPTER_HEADINGS or key.startswith("*break"):
+                continue
+            source.update(line.split())
+
+        lay = BookLayout.for_size(*size)
+        lay.build(load_chapters())
+        laid: Counter[str] = Counter()
+        for view in lay.views:
+            for page in view.pages:
+                for row in page or []:
+                    laid.update(row.plain.split())
+        for line in spell_reference_lines("wizard") + spell_reference_lines("cleric"):
+            laid.subtract(line.split())
+        assert +laid == source and not -laid
+
+    @pytest.mark.parametrize("content", [None, ""])
+    def test_missing_or_empty_lore_still_opens(self, tmp_path, content):
+        class FakeAssets:
+            def resolve_path(self, *parts):
+                return tmp_path / "ultima3.txt"
+
+        if content is not None:
+            (tmp_path / "ultima3.txt").write_text(content, encoding="utf-8")
+        scr = BookScreen(asset_mgr=FakeAssets())
+        assert [c.title for c in scr.chapters] == ["Wizard Sorceries", "Clerical Prayers"]
+        for size in ((960, 600), (320, 200)):
+            surface = pygame.Surface(size)
+            scr.render(surface)
+            _key(scr, pygame.K_2)
+            assert scr.current_chapter == 1
+            scr.render(surface)
+            _key(scr, pygame.K_9)  # no ninth chapter: ignored
+            assert scr.current_chapter == 1
+            _key(scr, pygame.K_0)
+            assert scr.on_contents
+
+    def test_layout_is_built_lazily_for_the_first_surface(self, asset_mgr, monkeypatch):
+        built = []
+        real = BookLayout.for_size.__func__
+
+        def spy(cls, width, height):
+            built.append((width, height))
+            return real(cls, width, height)
+
+        monkeypatch.setattr(BookLayout, "for_size", classmethod(spy))
+        scr = BookScreen(asset_mgr=asset_mgr)
+        assert built == []
+        scr.render(pygame.Surface((320, 200)))
+        assert built == [(320, 200)]
 
     def test_spreads_at_960_and_single_pages_at_320(self, asset_mgr):
         assert BookLayout.for_size(960, 600).pages_per_view == 2
@@ -319,16 +384,36 @@ class TestNavigation:
         _key(scr, pygame.K_a)
         assert scr.current_chapter == 9
 
-    def test_c_returns_to_contents_with_the_chapter_highlighted(self, asset_mgr):
+    @pytest.mark.parametrize("key", [pygame.K_0, pygame.K_KP0, pygame.K_HOME])
+    def test_zero_returns_to_contents_with_the_chapter_highlighted(self, asset_mgr, key):
         scr = BookScreen(asset_mgr=asset_mgr)
         _key(scr, pygame.K_8)
         _key(scr, pygame.K_RIGHT)
-        _key(scr, pygame.K_c)
+        _key(scr, key)
         assert scr.on_contents
         assert scr.highlight == 7
-        # on the contents page C is chapter C (Last Minute Counsel)
+
+    def test_c_is_only_chapter_c(self, asset_mgr):
+        scr = BookScreen(asset_mgr=asset_mgr)
+        _key(scr, pygame.K_8)
+        _key(scr, pygame.K_c)
+        assert scr.current_chapter == 11  # Last Minute Counsel
+        _key(scr, pygame.K_0)
         _key(scr, pygame.K_c)
         assert scr.current_chapter == 11
+
+    def test_keypad_digits_open_chapters(self, asset_mgr):
+        for i in range(9):
+            scr = BookScreen(asset_mgr=asset_mgr)
+            _key(scr, getattr(pygame, f"K_KP{i + 1}"))
+            assert scr.current_chapter == i
+            _key(scr, pygame.K_KP1)
+            assert scr.current_chapter == 0
+
+    def test_footer_hint_names_the_zero_key(self):
+        from py_exodus.screens.book import SPREAD_HINT
+
+        assert "0 contents" in SPREAD_HINT and "C contents" not in SPREAD_HINT
 
     def test_left_right_turn_spreads(self, asset_mgr):
         scr = BookScreen(asset_mgr=asset_mgr)
@@ -365,14 +450,26 @@ class TestNavigation:
         assert scr.current_chapter == 1
         assert scr.view_index == scr.layout.chapter_first_view[1]
         _key(scr, pygame.K_UP)
-        _key(scr, pygame.K_UP)
-        assert scr.on_contents
+        assert scr.current_chapter == 0
 
-    def test_down_stops_at_the_last_chapter(self, asset_mgr):
+    def test_down_in_the_last_chapter_does_nothing(self, asset_mgr):
         scr = BookScreen(asset_mgr=asset_mgr)
         _key(scr, pygame.K_i)
+        _key(scr, pygame.K_RIGHT)
+        where = scr.view_index
+        assert where > scr.layout.chapter_first_view[-1]
         _key(scr, pygame.K_DOWN)
+        assert scr.view_index == where
         assert scr.current_chapter == len(EXPECTED_CHAPTERS) - 1
+
+    def test_up_in_the_first_chapter_does_nothing(self, asset_mgr):
+        scr = BookScreen(asset_mgr=asset_mgr)
+        _key(scr, pygame.K_1)
+        _key(scr, pygame.K_RIGHT)
+        where = scr.view_index
+        _key(scr, pygame.K_UP)
+        assert scr.view_index == where
+        assert scr.current_chapter == 0
 
     @pytest.mark.parametrize("key", [pygame.K_ESCAPE, pygame.K_q, pygame.K_F1])
     def test_close_keys_return_to_caller(self, asset_mgr, key):
