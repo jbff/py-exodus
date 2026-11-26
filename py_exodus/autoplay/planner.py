@@ -36,11 +36,21 @@ class Goal(str, Enum):
     DONE = "done"
 
 
-def needs_heal(party: Party) -> bool:
-    """Return True if any living member is below 85% HP or poisoned and missing HP."""
+# A town or castle rest starts under this share of max HP (user ruling
+# 2026-11-25, the surface rest line): Lord British adds 100 max HP a level
+# with no healing (LairWare Transact), so at 85% a level-up alone kept the
+# party passing beside him for hundreds of turns (trace_20261125-184644).
+TOWN_REST_BELOW_PCT = 70
+HEAL_BELOW_PCT = 85
+
+
+def needs_heal(party: Party, below_pct: int = HEAL_BELOW_PCT) -> bool:
+    """Return True if any living member is below ``below_pct``% HP (85 by
+    default) or poisoned and missing HP."""
     for m in party.members:
         if not m.is_dead() and m.max_hp > 0 and (
-            m.hp * 20 < m.max_hp * 17 or (m.status == Status.POISONED and m.hp + 30 < m.max_hp)
+            m.hp * 100 < m.max_hp * below_pct
+            or (m.status == Status.POISONED and m.hp + 30 < m.max_hp)
         ):
             return True
     return False

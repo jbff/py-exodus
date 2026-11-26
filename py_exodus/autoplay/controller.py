@@ -40,6 +40,7 @@ from py_exodus.autoplay.planner import (
     gold_has_a_use,
     next_shrine_goal,
     needs_heal,
+    TOWN_REST_BELOW_PCT,
     prefer_ranged_weapons,
     raid_gold_target,
     DESCEND_MP,
@@ -921,9 +922,11 @@ class AutoPlayController:
                 self._queue_text(self._cleric_cast(party, caster[0], f"h{poison_idx}"), enter=False)
                 return self._emit_key(state_machine, pygame.K_c)
 
-        # Heal detour if hurt (skip during BUY_FOOD/starvation, and skip/save MP during CURE_POISON unless <= 25 HP)
+        # Heal detour if hurt (skip during BUY_FOOD/starvation, and skip/save MP during CURE_POISON unless <= 25 HP).
+        # In a town or castle it is the town rest's decision (70% to start).
+        in_town = type(screen).__name__ == "TownScreen"
         if (
-            needs_heal(party)
+            (self._town_heal_due(screen, party) if in_town else needs_heal(party))
             and goal != Goal.BUY_FOOD
             and party.food > 0
             and (
@@ -998,7 +1001,7 @@ class AutoPlayController:
             map_id not in _UNSAFE_REST_TOWN_MAPS
             and (px, py) not in full_danger
             and not british_levels
-            and needs_heal(party)
+            and self._town_heal_due(screen, party)
             and self._can_rest_indoors(party, goal)
         ):
             return self._emit_key(state_machine, pygame.K_SPACE)
@@ -2258,6 +2261,26 @@ class AutoPlayController:
             # (_step_town rests there under the same conditions).
             return _REST_INDOORS
         return None
+
+    _town_heal_visit: int | None = None
+
+    def _town_heal_due(self, screen, party) -> bool:
+        """Rest or heal in a town or castle (user ruling 2026-11-25): start
+        when a living member is under 70% of max HP (``TOWN_REST_BELOW_PCT``,
+        the surface rest line), then go on until all are at 85% again
+        (``needs_heal``), for the rest of this visit. Lord British adds 100
+        max HP a level and heals nothing (LairWare Transact), so at 85% a
+        level-up alone kept the party passing or casting beside him for up
+        to ~550 turns a visit (trace_20261125-184644). Poison still counts
+        (``needs_heal``'s poison clause)."""
+        visit = id(screen)
+        if needs_heal(party, TOWN_REST_BELOW_PCT):
+            self._town_heal_visit = visit
+            return True
+        if self._town_heal_visit == visit and needs_heal(party):
+            return True
+        self._town_heal_visit = None
+        return False
 
     @staticmethod
     def _can_rest_indoors(party, goal: Goal) -> bool:
