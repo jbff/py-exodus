@@ -13,6 +13,8 @@ class BaseScreen(ABC):
     #: F3/F4 open the quick-reference cards over this screen (the map,
     #: town, dungeon and combat screens; not the title, intro or roster).
     allows_quick_reference: bool = False
+    #: F1 opens the Book of Lore over this screen (StateMachine.handle_event).
+    allows_book: bool = True
     #: MapType value spells are cast under on this screen (None: no casting).
     spell_map_type: str | None = None
 

@@ -497,9 +497,10 @@ def test_autoplay_controller_exodus_insert_to_final_screen(pygame_setup, asset_m
 
     ctrl = AutoPlayController(enabled=True, step_interval=0.01)
     for _ in range(100):
-        if isinstance(sm.current_screen, FinalScreen):
+        if getattr(sm.current_screen, "victory", False):
             break
         ctrl.step(sm)
+        sm.update(0.5)  # each card's flicker plays out before the next
 
     assert isinstance(sm.current_screen, FinalScreen)
     assert party.exodus_cards_status == 0xF

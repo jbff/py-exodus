@@ -312,9 +312,10 @@ def test_live_autoplay_stops_cleanly_at_the_ending(pygame_setup, asset_mgr, monk
     sm.set_screen(_castle_screen_factory(asset_mgr)(party))
     ctrl = AutoPlayController(enabled=True, step_interval=0.01)
     for _ in range(300):
-        if isinstance(sm.current_screen, FinalScreen):
+        if getattr(sm.current_screen, "victory", False):
             break
         ctrl.step(sm)
+        sm.update(0.5)  # each card's flicker plays out before the next
     assert isinstance(sm.current_screen, FinalScreen)
     assert ctrl.step(sm) is None  # the ending is left to the player
     play_out_ending(sm)

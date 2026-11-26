@@ -725,9 +725,10 @@ def test_autoplay_inserts_all_four_cards_in_one_visit(pygame_setup, asset_mgr):
     assert p.exodus_cards_status == 0
     ctrl = AutoPlayController(enabled=True, step_interval=0.01)
     for _ in range(200):
-        if isinstance(sm.current_screen, FinalScreen):
+        if getattr(sm.current_screen, "victory", False):
             break
         ctrl.step(sm)
+        sm.update(0.5)  # each card's flicker plays out before the next
     assert isinstance(sm.current_screen, FinalScreen)
     assert p.exodus_cards_status == 0xF
     assert p.exodus_defeated == 1

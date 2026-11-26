@@ -34,6 +34,25 @@ MUSIC_TRACKS: dict[str, str] = {
     "splash": "title_fade.ogg",
 }
 
+#: LairWare's song numbers (gSongCurrent / gSongNext; MusicUpdate plays
+#: Music/Song_<n>.mov, 10 and 11 as Song_A and Song_B) as our soundtrack
+#: names them. There is no song 9. Matched by ear of the machine,
+#: 2026-11-26: the notes of each Song_*.mov against each of our tracks
+#: (chroma, time-warped); 1-7 and 10 match clearly, 8 and 11 less so but
+#: each is the best match and the only track left.
+LW_SONGS: dict[int, str] = {
+    1: "wander",
+    2: "towns",
+    3: "castles",
+    4: "dungeon",
+    5: "combat",
+    6: "shopping",
+    7: "exodus",
+    8: "rule britannia",
+    10: "alive",
+    11: "fanfare",
+}
+
 
 class AudioManager:
     """Manages background music playback and sound effect caching and playback."""

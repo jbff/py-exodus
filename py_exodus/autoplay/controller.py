@@ -567,10 +567,6 @@ class AutoPlayController:
         # it for the player rather than closing it with a queued key.
         if getattr(getattr(screen, "stats_panel", None), "inspect_index", None) is not None:
             return None
-        if screen_name == "FinalScreen":
-            self._key_queue.clear()
-            return None
-
         screen_party = getattr(screen, "party", None)
         # The game is won: no goal is left, so autoplay switches itself off
         # (the way the toggle does) and never answers the player's prompts.
@@ -580,6 +576,10 @@ class AutoPlayController:
             self._key_queue.clear()
             self.enabled = False
             state_machine.autoplay_enabled = False
+            return None
+        # A card's flicker holds the keys (the won game is caught above).
+        if screen_name == "FinalScreen":
+            self._key_queue.clear()
             return None
         if (
             screen_name not in ("StartScreen", "RosterScreen")

@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any, Iterator
 
 import pygame
 
+from py_exodus.audio import LW_SONGS
 from py_exodus.screens.base import BaseScreen
 from py_exodus.ui.hit_orb import HIT_ORB_COLOURS, draw_hit_orb
 from py_exodus.ui.text_log import get_hud_font
@@ -37,9 +38,8 @@ if TYPE_CHECKING:
 
 TICK = 1 / 60.0
 DEMO_COLS, DEMO_ROWS = 19, 6
-# The View's songs (DemoUpdate songnum, as our soundtrack names them).
-VIEW_SONGS = ("wander", "towns", "castles", "dungeon", "combat", "shopping",
-              "alive", "exodus", "rule britannia", "fanfare")
+# The View's songs: DemoUpdate's songnum order (UltimaGraphics.c:918).
+VIEW_SONGS = tuple(LW_SONGS[n] for n in (1, 2, 3, 4, 5, 6, 7, 8, 10, 11))
 # FightScene's frame order (animorder) and its three passes.
 _ANIM_ORDER = (0, 1, 2, 3, 2)
 

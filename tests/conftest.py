@@ -24,11 +24,11 @@ def asset_mgr():
 
 
 def play_out_ending(sm, key=pygame.K_SPACE):
-    """Play the victory ending through to the title: the flashes run their
-    time, ``key`` closes the victory page, the epilogue fades in, ``key``
-    again, and the fade out ends at the title."""
+    """Play the victory ending through to the title: the fourth card's
+    flicker and the flashes run their time, ``key`` closes the victory page,
+    the epilogue fades in, ``key`` again, and the fade out ends at the title."""
     scr = sm.current_screen
-    for _ in range(900):
+    for _ in range(1200):
         if sm.current_screen is not scr:
             return
         if scr.phase in ("page", "epilogue"):

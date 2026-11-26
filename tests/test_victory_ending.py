@@ -60,22 +60,58 @@ def _party(moves: int = 23417) -> Party:
     return p
 
 
-def _won(party=None, seed: int = 7, **kw) -> FinalScreen:
-    """A FinalScreen just after the fourth card."""
+def _flicker_out(scr: FinalScreen) -> None:
+    for _ in range(200):
+        if scr.phase != "card":
+            break
+        scr.update(FRAME)
+    assert scr.phase != "card"
+
+
+def _won(party=None, seed: int = 7, flicker: bool = True, **kw) -> FinalScreen:
+    """A FinalScreen after the fourth card: with its flicker played out, at
+    the first flash; with ``flicker=False``, straight after the insert."""
     party = party or _party()
     scr = FinalScreen(party=party, rng=random.Random(seed), **kw)
     for card, px in CARDS:
         assert scr.insert_card(card, member_idx=0, pos=(px, 12))
-    assert scr.victory and scr.phase == "flash"
+    assert scr.victory and scr.phase == "card"
+    if flicker:
+        _flicker_out(scr)
+        assert scr.phase == "flash"
+        audio = kw.get("audio")
+        if audio is not None:
+            audio.sfx.clear()
     return scr
 
 
 def _to_page(scr: FinalScreen) -> None:
-    for _ in range(400):
-        if scr.phase != "flash":
+    for _ in range(600):
+        if scr.phase not in ("card", "flash"):
             break
         scr.update(FRAME)
     assert scr.phase == "page"
+
+
+def _castle(asset_mgr, party, audio=None, x=33, status=0x7):
+    """A state machine on Castle Exodus with the party at panel ``x``."""
+    from py_exodus.screens.town import TownScreen
+
+    sm = StateMachine(asset_mgr=asset_mgr)
+    town = TownScreen(party=party, map_id=2, asset_mgr=asset_mgr, start_x=x, start_y=12, audio=audio)
+    town.avatar_x, town.avatar_y = x, 12
+    town.game_map.npcs = []
+    sm.set_screen(town)
+    party.exodus_cards_status = status
+    return sm, town
+
+
+def _insert(town, x, letter) -> None:
+    final.prompt_insert_card(town, x, 12)
+    town.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_1, unicode="1"))
+    town.handle_event(
+        pygame.event.Event(pygame.KEYDOWN, key=getattr(pygame, f"K_{letter}"), unicode=letter)
+    )
 
 
 def _key(scr, key=pygame.K_SPACE) -> None:
@@ -118,7 +154,7 @@ def test_the_words_are_lairwares():
 
 
 def test_the_words_match_the_lairware_sources_when_present():
-    root = Path("refs/ultima3")
+    root = Path(__file__).resolve().parents[1] / "refs/ultima3"
     if not root.exists():
         pytest.skip("LairWare reference checkout not present")
     import plistlib
@@ -159,9 +195,11 @@ def test_pixel_text_scales_by_whole_pixels(pygame_setup):
     big = BLOCK.render("EXODUS", (255, 255, 255), 3)
     assert big.get_size() == (small.get_width() * 3, small.get_height() * 3)
     assert small.get_size() == (BLOCK.width("EXODUS"), 7)
-    # a lower-case name draws in the capitals; an unknown sign leaves a gap
+    # a lower-case name draws in the capitals; an unknown sign draws as "?"
     assert BLOCK.ink("exodus") == BLOCK.ink("EXODUS")
-    assert BLOCK.width("A~A") == BLOCK.width("A A")
+    assert BLOCK.missing("A~A") == {"~"}
+    assert BLOCK.ink("A~A") == BLOCK.ink("A?A") != BLOCK.ink("A A")
+    assert BLOCK.ink("A A") == BLOCK.ink("A") | {(x + 12, y) for x, y in BLOCK.ink("A")}
     banner = render_banner(LOGO, "EXODUS", 1, 2)
     assert banner.get_size() == (LOGO.width("EXODUS") * 2 + 2, 22)
 
@@ -169,23 +207,78 @@ def test_pixel_text_scales_by_whole_pixels(pygame_setup):
 # ---------------------------------------------------------------------------
 # Beat 1: the flashes
 # ---------------------------------------------------------------------------
-def test_the_fourth_card_plays_the_fanfare_and_logs_the_congratulations(pygame_setup, asset_mgr):
-    from py_exodus.screens.town import TownScreen
+def test_lw_song_table_is_shared():
+    """One table of LairWare's song numbers (audio.LW_SONGS), read by the
+    intro's jukebox (UltimaGraphics.c:918) and the ending (song 10)."""
+    from py_exodus.audio import LW_SONGS, MUSIC_TRACKS
+    from py_exodus.screens import intro
 
+    assert sorted(LW_SONGS) == [1, 2, 3, 4, 5, 6, 7, 8, 10, 11]  # no Song_9
+    assert len(set(LW_SONGS.values())) == 10
+    assert all(name in MUSIC_TRACKS for name in LW_SONGS.values())
+    assert intro.VIEW_SONGS == tuple(LW_SONGS[n] for n in (1, 2, 3, 4, 5, 6, 7, 8, 10, 11))
+    assert LW_SONGS[10] == "alive" and LW_SONGS[11] == "fanfare"
+    assert LW_SONGS[7] == "exodus" and LW_SONGS[8] == "rule britannia"
+
+
+def test_each_card_flickers_its_panel_with_ten_hits(pygame_setup, asset_mgr):
+    """UltimaMisc.c:2344-2355: five times the ball goes on the panel and
+    comes off, a Hit and 15 ticks each half; then play goes on."""
+    p = _party()
+    audio = _Audio()
+    sm, town = _castle(asset_mgr, p, audio, x=30, status=0)
+    _insert(town, 30, "l")
+    scr = sm.current_screen
+    assert isinstance(scr, FinalScreen) and scr.phase == "card" and not scr.victory
+    assert p.exodus_cards_status == 0x1  # the card counts at once
+    assert "DivineMed" not in audio.sfx
+    hits, frames = [], 0
+    surface = pygame.Surface((960, 600))
+    plain = pygame.Surface((960, 600))
+    town.render(plain)
+    panel = pygame.Rect(5 * 48, 4 * 48, 48, 48)  # the tile north of the party
+    looks = set()
+    while sm.current_screen is scr and frames < 400:
+        _key(scr)  # keys do nothing while it flickers
+        sm.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_F1))
+        sm.update(FRAME)
+        frames += 1
+        hits.append(audio.sfx.count("Hit"))
+        if sm.current_screen is scr:
+            scr.render(surface)
+            looks.add(pygame.image.tobytes(surface.subsurface(panel), "RGB"))
+            outside = pygame.Rect(0, 5 * 48, 528, 6 * 48)
+            assert pygame.image.tobytes(surface.subsurface(outside), "RGB") == pygame.image.tobytes(
+                plain.subsurface(outside), "RGB"
+            )
+    assert final.CARD_FLICKERS == 5 and final.CARD_FLICKER_TICKS == 15
+    assert hits[0] == 1 and hits[13] == 1 and hits[16] == 2
+    assert hits[-1] == 10
+    assert abs(frames - 150) <= 2  # ten halves of 15 ticks
+    assert len(looks) == 2  # the panel with the ball on it, and without
+    # back in the castle, which takes keys again; the Book was never opened
+    assert sm.current_screen is town and sm.screen_stack == [town]
+    assert not audio.music or audio.music[-1] != "alive"
+    assert "CONGRATULATIONS" not in " ".join(town.text_log.history)
+
+
+def test_the_fourth_card_flickers_then_song_ten_and_the_congratulations(pygame_setup, asset_mgr):
     p = _party(moves=1234)
     audio = _Audio()
-    sm = StateMachine(asset_mgr=asset_mgr)
-    town = TownScreen(party=p, map_id=2, asset_mgr=asset_mgr, start_x=33, start_y=12, audio=audio)
-    town.avatar_x, town.avatar_y = 33, 12
-    town.game_map.npcs = []
-    sm.set_screen(town)
-    p.exodus_cards_status = 0x7
-    final.prompt_insert_card(town, 33, 12)
-    town.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_1, unicode="1"))
-    town.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_d, unicode="d"))
+    sm, town = _castle(asset_mgr, p, audio)
+    _insert(town, 33, "d")
     scr = sm.current_screen
-    assert isinstance(scr, FinalScreen) and scr.phase == "flash"
-    assert audio.music[-1] == "fanfare"  # song 10, UltimaMisc.c:2362
+    assert isinstance(scr, FinalScreen) and scr.phase == "card" and scr.victory
+    assert p.exodus_defeated == 1
+    # LairWare's order: the flicker, then the song and the words
+    assert "alive" not in audio.music
+    assert "CONGRATULATIONS" not in " ".join(town.text_log.history)
+    for _ in range(200):
+        if scr.phase != "card":
+            break
+        sm.update(FRAME)
+    assert scr.phase == "flash" and audio.sfx.count("Hit") == 10
+    assert audio.music[-1] == "alive"  # song 10, UltimaMisc.c:2362
     log = " ".join(town.text_log.history)
     assert (
         log.index("CONGRATULATIONS! Thou hast compleated EXODUS: ULTIMA III in")
@@ -214,9 +307,52 @@ def test_the_fourth_card_plays_the_fanfare_and_logs_the_congratulations(pygame_s
         )
 
 
+def test_f1_does_not_open_the_book_over_the_ending(pygame_setup, asset_mgr):
+    """Through the state machine: F1 opens the Book over the castle, never
+    over the ending, where it is a key like any other."""
+    from py_exodus.screens.book import BookScreen
+
+    f1 = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_F1)
+    sm, town = _castle(asset_mgr, _party())
+    sm.handle_event(f1)
+    assert isinstance(sm.current_screen, BookScreen)
+    sm.pop_screen()
+    assert sm.current_screen is town
+    town.avatar_x, town.avatar_y = 33, 12
+    town.party.exodus_cards_status = 0x7
+    _insert(town, 33, "d")
+    scr = sm.current_screen
+    assert isinstance(scr, FinalScreen) and not scr.allows_book
+    seen = set()
+    for _ in range(1200):
+        if sm.current_screen is not scr:
+            break
+        seen.add(scr.phase)
+        sm.handle_event(f1)  # on the page and the epilogue, the closing key
+        assert not isinstance(sm.current_screen, BookScreen)
+        sm.update(FRAME)
+    assert seen >= {"card", "flash", "page", "fade_in", "epilogue", "fade_out"}
+    assert isinstance(sm.current_screen, StartScreen)
+    assert FinalScreen(party=_party()).allows_book  # nothing has gone in yet
+
+
+def test_an_odd_character_in_a_name_draws_as_a_question_mark(pygame_setup):
+    p = _party()
+    p.members[0].name = "Sh~dow"
+    scr = _won(p)
+    _to_page(scr)
+    surface = pygame.Surface((320, 200))
+    scr.render(surface)
+    rect = dict(scr.layout)["name 0"]
+    assert rect.size == BLOCK.render("SH?DOW", (255, 255, 255), 1).get_size()
+    drawn = {(x, y) for x in range(rect.w) for y in range(rect.h)
+             if surface.get_at((rect.x + x, rect.y + y))[:3] != (0, 0, 0)}
+    assert drawn == BLOCK.ink("SH?DOW")
+
+
 def test_twenty_one_flashes_ten_ticks_apart_with_a_hit_each(pygame_setup):
     audio = _Audio()
-    scr = _won(audio=audio)
+    scr = _won(audio=audio)  # the card's own ten hits are done and cleared
     assert audio.sfx.count("Hit") == 0 and scr.flash_colours == []
     seen = []
     for _ in range(400):
@@ -365,6 +501,7 @@ def test_epilogue_fades_in_as_lairware(pygame_setup):
         scr.update(FRAME)
         greys.append(scr.grey)
     # for (input = 0; input < 256; input += 16) WinText(input)
+    assert greys[0] == 0
     assert sorted(set(greys)) == list(range(0, 256, 16))
     assert greys == sorted(greys)
     assert scr.phase == "epilogue" and scr.grey == 240
@@ -419,7 +556,8 @@ def test_epilogue_waits_for_a_key_then_fades_out_to_the_title(pygame_setup, asse
         greys.append(scr.grey)
         scr.render(pygame.Surface((320, 200)))
     # for (input = 255; input >= 0; input -= 16) WinText(input)
-    assert sorted(set(greys) - {0}, reverse=True) == list(range(239, 0, -16))
+    assert greys[0] == 255  # the fade starts from full white
+    assert sorted(set(greys) - {0}, reverse=True) == list(range(255, 0, -16))
     assert greys == sorted(greys, reverse=True)
     title = sm.current_screen
     assert isinstance(title, StartScreen) and title.won and not title.game_over
@@ -454,7 +592,7 @@ def test_ending_renders_every_beat_at_both_sizes(pygame_setup, asset_mgr):
         sm.set_screen(scr)
         surface = pygame.Surface(size)
         seen = set()
-        for _ in range(900):
+        for _ in range(1200):
             if sm.current_screen is not scr:
                 break
             seen.add(scr.phase)
@@ -471,31 +609,65 @@ def test_the_win_counts_before_any_of_the_ending_plays(pygame_setup):
     card bits) straight after the insert: no key or frame of the ending is
     needed for a run to be recorded as WON."""
     p = _party()
-    scr = _won(p)
+    scr = _won(p, flicker=False)
     assert p.exodus_defeated == 1 and p.exodus_cards_status == 0xF
-    assert scr.phase == "flash" and scr.flash_colours == []
+    assert scr.phase == "card" and scr.card_hits == 0 and scr.flash_colours == []
+
+
+def test_autoplay_switches_off_when_the_game_is_won(pygame_setup, asset_mgr):
+    """The won check comes before the FinalScreen wait: on the ending
+    autoplay is off (as the README says), not merely silent."""
+    from py_exodus.autoplay import AutoPlayController
+
+    sm = StateMachine(asset_mgr=asset_mgr)
+    scr = _won(asset_mgr=asset_mgr, flicker=False)
+    sm.set_screen(scr)
+    sm.autoplay_enabled = True
+    ctrl = AutoPlayController(enabled=True, step_interval=0.01)
+    ctrl._key_queue.append(pygame.K_SPACE)
+    assert ctrl.step(sm) is None
+    assert not ctrl.enabled and not sm.autoplay_enabled and not ctrl._key_queue
+    assert scr.phase == "card"  # it pressed nothing
+
+
+def test_autoplay_waits_out_a_cards_flicker_and_stays_on(pygame_setup, asset_mgr):
+    from py_exodus.autoplay import AutoPlayController
+
+    p = _party()
+    sm, town = _castle(asset_mgr, p, x=30, status=0)
+    sm.autoplay_enabled = True
+    ctrl = AutoPlayController(enabled=True, step_interval=0.01)
+    _insert(town, 30, "l")
+    scr = sm.current_screen
+    assert isinstance(scr, FinalScreen) and not scr.victory
+    assert ctrl.step(sm) is None and ctrl.enabled and sm.autoplay_enabled
+    for _ in range(200):
+        if sm.current_screen is not scr:
+            break
+        ctrl.update(FRAME, sm)
+        sm.update(FRAME)
+    assert sm.current_screen is town and ctrl.enabled
 
 
 def test_autoplay_leaves_every_beat_of_the_ending_alone(pygame_setup, asset_mgr):
     from py_exodus.autoplay import AutoPlayController
 
     sm = StateMachine(asset_mgr=asset_mgr)
-    scr = _won(asset_mgr=asset_mgr)
+    scr = _won(asset_mgr=asset_mgr, flicker=False)
     sm.set_screen(scr)
     sm.autoplay_enabled = True
     ctrl = AutoPlayController(enabled=True, step_interval=0.01)
     seen = set()
-    for _ in range(900):
+    for _ in range(1200):
         if sm.current_screen is not scr:
             break
         seen.add(scr.phase)
         assert ctrl.step(sm) is None  # it presses nothing
-        if scr.phase in ("page", "epilogue") and scr._clock > 0.5:
+        if scr.phase in ("page", "epilogue"):
             _key(scr)  # the player's key
         ctrl.update(FRAME, sm)
         sm.update(FRAME)
-    assert seen >= {"flash", "page", "fade_in", "epilogue", "fade_out"}
+    assert seen >= {"card", "flash", "page", "fade_in", "epilogue", "fade_out"}
     assert isinstance(sm.current_screen, StartScreen)
-    # at the title it switches itself off instead of starting a new game
     assert ctrl.step(sm) is None
     assert not ctrl.enabled and not sm.autoplay_enabled

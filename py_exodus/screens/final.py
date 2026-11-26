@@ -1,9 +1,10 @@
 """Castle of Exodus: the four Cards, then LairWare's ending.
 
-The ending follows LairWare's INSERT (UltimaMisc.c:2357-2424): the
-congratulations in the message window, 21 colour flashes over the map with
-a hit on each, then the WinText epilogue fading in, a key, and the fade
-out. Between the flashes and the epilogue sits our own victory page
+Every card flickers its panel as LairWare's INSERT does
+(UltimaMisc.c:2344-2355). The ending follows it (UltimaMisc.c:2357-2424):
+the congratulations in the message window, 21 colour flashes over the map
+with a hit on each, then the WinText epilogue fading in, a key, and the
+fade out. Between the flashes and the epilogue sits our own victory page
 (user-approved design, 2026-11-25): EXODUS VANQUISHED under the intro's
 stalactites, LairWare's congratulations and the four heroes.
 """
@@ -15,20 +16,13 @@ from typing import TYPE_CHECKING, Any
 import pygame
 
 from py_exodus.assets import MAP_NAME_TO_ID
+from py_exodus.audio import LW_SONGS
 from py_exodus.entities.party import PartyDeathException
 from py_exodus.screens.base import BaseScreen
+from py_exodus.ui.hit_orb import HIT_ORB_COLOURS, draw_hit_orb
 from py_exodus.ui.pixel_font import BLOCK, LOGO, SERIF, TINY, render_banner
 from py_exodus.ui.roster_view import sprite as class_sprite
-from py_exodus.ui.text_log import (
-    EGA_BLACK,
-    EGA_BRIGHT_CYAN,
-    EGA_BRIGHT_GREEN,
-    EGA_BRIGHT_RED,
-    EGA_DARK_GRAY,
-    EGA_WHITE,
-    EGA_YELLOW,
-    get_hud_font,
-)
+from py_exodus.ui.text_log import EGA_BLACK
 
 if TYPE_CHECKING:
     from py_exodus.assets import AssetManager
@@ -45,6 +39,11 @@ LW_MOVES = " MOVES"
 LW_REPORT = "REPORT THY FEAT!"
 #: The same words set out on the victory page, in capitals.
 PAGE_LINES = ("CONGRATULATIONS!", "THOU HAST COMPLEATED", "EXODUS: ULTIMA III", "IN")
+
+# The card flicker (UltimaMisc.c:2344-2355): five times the hit ball goes on
+# the panel and comes off again, a Hit and 15 ticks for each half.
+CARD_FLICKERS = 5
+CARD_FLICKER_TICKS = 15
 
 # The flashes (UltimaMisc.c:2392-2404): `for (input = 0; input <= 20; ...)`
 # paints the map pane a random colour, plays Hit and sleeps 10 ticks.
@@ -88,9 +87,6 @@ def congratulation_lines(party: Any) -> list[str]:
     moves = int(getattr(party, "moves", 0) or 0)
     return [LW_CONGRATULATIONS, f"{moves}{LW_MOVES}", LW_REPORT]
 
-
-# Render order of the four machine panels; insertion itself is order-free.
-PANEL_DISPLAY = ["love", "sol", "moons", "death"]
 
 # Java truth: exodus/SecondaryInputProcessor.java:664-668 — key L/S/M/D maps to
 # card index, machine panel x, and exodusCardsStatus bit. Card rows are
@@ -201,14 +197,14 @@ def prompt_insert_card(screen: BaseScreen, x: int, y: int) -> None:
                 return
             status = screen.party.exodus_cards_status
             apply_exodus_card_tiles(screen.game_map, screen.asset_mgr, status)
-            if all_cards_inserted(status):
-                for line in congratulation_lines(screen.party):
-                    screen.text_log.add_message(line)
-                if screen.manager is not None:
-                    screen.manager.push_screen(final_scr)
-                else:
-                    screen.next_screen = final_scr
-                    screen.is_finished = True
+            # The card's flicker plays over this screen and holds the keys,
+            # as LairWare's does; after the fourth it runs on into the ending.
+            if screen.manager is not None:
+                screen.manager.push_screen(final_scr)
+            elif all_cards_inserted(status):
+                final_scr.return_screen = screen
+                screen.next_screen = final_scr
+                screen.is_finished = True
 
         screen.text_log.prompt("D, S, L, M: ", callback=_on_card, single_char=True)
 
@@ -218,20 +214,20 @@ def prompt_insert_card(screen: BaseScreen, x: int, y: int) -> None:
 
 
 class FinalScreen(BaseScreen):
-    """The Exodus machine's card rules, and the ending once it falls.
+    """The Exodus machine's card rules, each card's flicker, and the ending.
 
     ``insert_card`` is the shared entry point for the INSERT flow (overworld
-    and town OtherCommand) — Java keeps insertion on the EXODUS map
-    (``SecondaryInputProcessor.java:664-701``) and shows this screen only once
-    all four cards are registered. A card at its own panel, in LairWare's
-    order Love, Sol, Moons, Death (UltimaMisc.c:2333-2343), sets the
+    and town OtherCommand). A card at its own panel, in LairWare's order
+    Love, Sol, Moons, Death (UltimaMisc.c:2333-2343), sets the
     ``exodusCardsStatus`` bit; anything else costs the inserting member
     ``health + 1`` (lethal).
 
-    The ending runs through ``phase``: ``flash`` (LairWare's 21 flashes over
-    the screen this one was pushed on; no key shortens them), ``page`` (the
-    victory page, until a key), ``fade_in``, ``epilogue`` (until a key) and
-    ``fade_out``, which ends at the title.
+    The screen is pushed over the castle for every card that goes in and
+    runs through ``phase``: ``card`` (LairWare's flicker of the panel, ten
+    hits; then back to the castle, or on after the fourth card), ``flash``
+    (the 21 flashes; no key shortens them), ``page`` (the victory page,
+    until a key), ``fade_in``, ``epilogue`` (until a key) and ``fade_out``,
+    which ends at the title.
     """
 
     def __init__(
@@ -251,14 +247,12 @@ class FinalScreen(BaseScreen):
         self.asset_mgr = asset_mgr
         self.victory: bool = False
         self.last_message: str = ""
-        self.log_messages: list[str] = [
-            "You stand before the great machine of EXODUS!",
-            "Four card slots pulse with dark energy...",
-        ]
 
         # The ending. The flash colours come from their own generator, so
         # the ending never moves the game's random stream.
         self.phase: str | None = None
+        self.card_hits: int = 0  # hits played by the card's flicker
+        self._card_x: int | None = None  # the panel that flickers
         self.rng = rng if rng is not None else random.Random()
         self.flash_colours: list[tuple[int, int, int]] = []
         self.grey: int = 0  # the epilogue's brightness, LairWare's 0-255
@@ -277,7 +271,11 @@ class FinalScreen(BaseScreen):
 
     def _log(self, msg: str) -> None:
         self.last_message = msg
-        self.log_messages.append(msg)
+
+    @property
+    def allows_book(self) -> bool:
+        """F1 does not open the Book over a card's flicker or the ending."""
+        return self.phase is None
 
     @property
     def card_status(self) -> int:
@@ -351,11 +349,18 @@ class FinalScreen(BaseScreen):
             # LairWare INSERT (UltimaMisc.c:2328-2343) tests the card bit and
             # never clears it: the member keeps the card, right panel or not.
             self.party.exodus_cards_status = self.card_status | mask
-            if self.audio is not None:
-                self.audio.play_sfx("DivineMed")
             self._log(f"The Card of {name.capitalize()} vanishes into the machine!")
             if all_cards_inserted(self.party.exodus_cards_status):
-                self._trigger_victory()
+                self.victory = True
+                # LW truth: landing the final card sets the beat-Exodus flag
+                # (UltimaMisc.c:2359 — Party[16] = 1). No rule reads it any
+                # more (the game ends here, user ruling 2026-11-25);
+                # autoplay, batches and the trace read it as the win, so it
+                # is set at once, ahead of the flicker.
+                self.party.exodus_defeated = 1
+            self._card_x = panel_x
+            self.card_hits = 0
+            self._enter("card")
             return True
 
         if self.audio is not None:
@@ -364,17 +369,16 @@ class FinalScreen(BaseScreen):
         member.apply_damage(char.hp + 1, False)
         return False
 
-    def _trigger_victory(self) -> None:
-        """Exodus falls: set the win flag and start the ending."""
-        self.victory = True
-        # LW truth: landing the final card sets the beat-Exodus flag
-        # (UltimaMisc.c:2359 — Party[16] = 1). No rule reads it any more
-        # (the game ends here, user ruling 2026-11-25); autoplay, batches
-        # and the trace read it as the win.
-        self.party.exodus_defeated = 1
-        # gSongCurrent = gSongNext = 10 (UltimaMisc.c:2362): the fanfare.
+    def _begin_ending(self) -> None:
+        """After the fourth card's flicker: the song, the congratulations,
+        then the flashes (UltimaMisc.c:2361-2392)."""
+        # gSongCurrent = gSongNext = 10 (UltimaMisc.c:2362).
         if self.audio is not None:
-            self.audio.play_music("fanfare")
+            self.audio.play_music(LW_SONGS[10])
+        text_log = getattr(self.return_screen, "text_log", None)
+        if text_log is not None:
+            for line in congratulation_lines(self.party):
+                text_log.add_message(line)
         self._enter("flash")
 
     # ------------------------------------------------------------------
@@ -393,54 +397,42 @@ class FinalScreen(BaseScreen):
             self.audio.play_sfx("Hit")
 
     def handle_event(self, event: pygame.event.Event) -> None:
-        """Card shortcuts before the fall; after it, the ending's two key waits."""
-        if self.victory:
-            # LairWare waits for a key or a click (WaitKeyMouse) once the
-            # epilogue is up; the victory page waits the same way. Keys
-            # pressed during the flashes or a fade do nothing and are not
-            # kept. User ruling 2026-11-25: the game ends when Exodus
-            # falls, so the fade out goes to the title; nothing is saved.
-            if event.type not in (pygame.KEYDOWN, pygame.MOUSEBUTTONDOWN):
-                return
-            if self.phase == "page":
-                self._enter("fade_in")
-                self.grey = 0
-            elif self.phase == "epilogue":
-                self._enter("fade_out")
-                self.grey = 255
+        """The ending's two key waits; every other key is swallowed."""
+        # LairWare waits for a key or a click (WaitKeyMouse) once the
+        # epilogue is up; the victory page waits the same way. Keys pressed
+        # during a card's flicker, the flashes or a fade do nothing and are
+        # not kept. User ruling 2026-11-25: the game ends when Exodus falls,
+        # so the fade out goes to the title; nothing is saved.
+        if event.type not in (pygame.KEYDOWN, pygame.MOUSEBUTTONDOWN):
             return
-
-        if event.type != pygame.KEYDOWN:
-            return
-
-        if event.key == pygame.K_ESCAPE:
-            self.exit_screen()
-            return
-
-        # Keyboard shortcuts for inserting cards (Java: L/S/M/D keys,
-        # SecondaryInputProcessor.java:664-668)
-        key_name = None
-        if event.key == pygame.K_l:
-            key_name = "love"
-        elif event.key == pygame.K_s:
-            key_name = "sol"
-        elif event.key == pygame.K_m:
-            key_name = "moons"
-        elif event.key == pygame.K_d:
-            key_name = "death"
-        if key_name is not None:
-            try:
-                self.insert_card(key_name)
-            except PartyDeathException:
-                self.check_party_death()
+        if self.phase == "page":
+            self._enter("fade_in")
+            self.grey = 0
+        elif self.phase == "epilogue":
+            self._enter("fade_out")
+            self.grey = 255
 
     def update(self, dt: float) -> None:
-        """Advance the ending on LairWare's clock."""
-        if not self.victory:
+        """Advance the flicker and the ending on LairWare's clock."""
+        if self.phase is None:
             return
-        self._clock += dt
         eps = 1e-9
-        if self.phase == "flash":
+        if self.phase == "card":
+            self._clock += dt
+            step = CARD_FLICKER_TICKS * TICK
+            total = 2 * CARD_FLICKERS
+            while self.card_hits < total and self._clock + eps >= self.card_hits * step:
+                self.card_hits += 1
+                if self.audio is not None:
+                    self.audio.play_sfx("Hit")
+            if self._clock + eps >= total * step:
+                if self.victory:
+                    self._begin_ending()
+                else:
+                    self.phase = None
+                    self.exit_screen()
+        elif self.phase == "flash":
+            self._clock += dt
             step = FLASH_TICKS * TICK
             while (
                 len(self.flash_colours) < FLASH_COUNT
@@ -450,7 +442,10 @@ class FinalScreen(BaseScreen):
             if self._clock + eps >= FLASH_COUNT * step:
                 self._enter("page")
         elif self.phase == "fade_in":
+            # The step comes from the clock before this frame's time goes
+            # on, so each fade shows its first grey for a frame.
             step = int((self._clock + eps) / (FADE_IN_TICKS * TICK))
+            self._clock += dt
             if step >= FADE_STEPS:
                 # LairWare's last step up is WinText(240), and there it waits.
                 self.grey = 16 * (FADE_STEPS - 1)
@@ -459,6 +454,7 @@ class FinalScreen(BaseScreen):
                 self.grey = 16 * step
         elif self.phase == "fade_out":
             step = int((self._clock + eps) / (FADE_OUT_TICKS * TICK))
+            self._clock += dt
             if step >= FADE_STEPS:
                 self.grey = 0
                 self.phase = "done"
@@ -470,15 +466,24 @@ class FinalScreen(BaseScreen):
     # Rendering
     # ------------------------------------------------------------------
     def render(self, surface: pygame.Surface) -> None:
-        """The machine before the fall; after it, the ending's current beat."""
-        if not self.victory:
-            self._render_machine(surface)
-        elif self.phase == "flash":
-            self._render_flash(surface)
+        """The current beat: the castle under the flicker and the flashes,
+        then the victory page and the epilogue."""
+        if self.phase in ("fade_in", "epilogue", "fade_out", "done"):
+            self._render_epilogue(surface)
         elif self.phase == "page":
             self._render_page(surface)
         else:
-            self._render_epilogue(surface)
+            self._render_backdrop(surface)
+            if self.phase == "card":
+                self._render_card_flicker(surface)
+            elif self.phase == "flash" and self.flash_colours:
+                scale = 3 if surface.get_width() >= 640 else 1
+                pane = pygame.Rect(0, 0, MAP_PANE * scale, MAP_PANE * scale)
+                surface.fill(
+                    self.flash_colours[-1],
+                    pane.clip(surface.get_rect()),
+                    special_flags=pygame.BLEND_RGB_ADD,
+                )
 
     @staticmethod
     def _page_frame(surface: pygame.Surface) -> tuple[int, int, int]:
@@ -487,22 +492,44 @@ class FinalScreen(BaseScreen):
         scale = 3 if w >= 640 else 1
         return scale, (w - PAGE_W * scale) // 2, (h - PAGE_H * scale) // 2
 
-    def _render_flash(self, surface: pygame.Surface) -> None:
-        """The game screen under the ending, its map pane flashed.
+    def _render_backdrop(self, surface: pygame.Surface) -> None:
+        """The game screen this one was pushed on (black without one).
 
-        LairWare adds each colour to the pane with QuickDraw's addOver and
-        leaves the last one there; here every flash goes on a fresh frame.
+        The flashes go over it: LairWare adds each colour to the map pane
+        with QuickDraw's addOver and leaves the last one there; here every
+        flash goes on a fresh frame.
         """
         backdrop = self.return_screen
-        if backdrop is not None:
+        if backdrop is not None and backdrop is not self:
             backdrop.render(surface)
         else:
             surface.fill(EGA_BLACK)
-        if not self.flash_colours:
+
+    def _render_card_flicker(self, surface: pygame.Surface) -> None:
+        """The panel the card went in, with the hit ball on it for the first
+        half of each flicker (LairWare's tile 0xF0 over the Exodus tile,
+        then 0x7C again). The map already holds the floor LairWare lays at
+        the end, so the panel is drawn back over it until then."""
+        backdrop = self.return_screen
+        if backdrop is None or self._card_x is None or self.asset_mgr is None:
             return
         scale = 3 if surface.get_width() >= 640 else 1
-        pane = pygame.Rect(0, 0, MAP_PANE * scale, MAP_PANE * scale).clip(surface.get_rect())
-        surface.fill(self.flash_colours[-1], pane, special_flags=pygame.BLEND_RGB_ADD)
+        tile = 16 * scale
+        # The map pane is 11 tiles square with the party in the middle.
+        px = getattr(backdrop, "avatar_x", getattr(self.party, "x", self._card_x))
+        py = getattr(backdrop, "avatar_y", getattr(self.party, "y", PANEL_Y))
+        col = 5 + self._card_x - int(px)
+        row = 5 + (PANEL_Y - 1) - int(py)
+        if not (0 <= col < 11 and 0 <= row < 11):
+            return
+        rect = pygame.Rect(col * tile, row * tile, tile, tile)
+        try:
+            panel = self.asset_mgr.get_tile_surface("exodus")
+        except (KeyError, OSError, pygame.error):
+            return
+        surface.blit(pygame.transform.scale(panel, rect.size), rect)
+        if self.card_hits % 2 == 1:
+            draw_hit_orb(surface, rect.center, HIT_ORB_COLOURS["fire"], scale)
 
     def _stalactite_art(self) -> pygame.Surface | None:
         if not self._stalactites_tried:
@@ -581,57 +608,3 @@ class FinalScreen(BaseScreen):
             rect = img.get_rect(topleft=(ox + left * scale, oy + (10 + 18 * k) * scale))
             surface.blit(img, rect)
             self.layout.append((line, rect))
-
-    def _render_machine(self, surface: pygame.Surface) -> None:
-        """The four card panels (before the fall)."""
-        width = surface.get_width()
-        height = surface.get_height()
-        surface.fill(EGA_BLACK)
-
-        font = get_hud_font(16)
-        small_font = get_hud_font(12)
-
-        title_surf = font.render("CASTLE OF EXODUS - INNER SANCTUM", True, EGA_BRIGHT_RED)
-        surface.blit(title_surf, (width // 2 - title_surf.get_width() // 2, 10))
-
-        # Machine of Exodus visual representation
-        machine_rect = pygame.Rect(width // 2 - 120, 36, 240, 70)
-        pygame.draw.rect(surface, (40, 10, 10), machine_rect)
-        pygame.draw.rect(surface, EGA_BRIGHT_RED, machine_rect, 2)
-
-        mach_label = font.render("=== EXODUS MACHINE ===", True, EGA_YELLOW)
-        surface.blit(mach_label, (width // 2 - mach_label.get_width() // 2, 42))
-
-        # Render 4 Card Panels (filled state from exodusCardsStatus bits)
-        status = self.card_status
-        panel_w, panel_h = 48, 36
-        start_x = width // 2 - 110
-        for i, card_type in enumerate(PANEL_DISPLAY):
-            _panel_x, mask = CARD_PANELS[card_type]
-            is_filled = bool(status & mask)
-
-            rect = pygame.Rect(start_x + i * 56, 64, panel_w, panel_h)
-            border_color = EGA_BRIGHT_GREEN if is_filled else EGA_DARK_GRAY
-            fill_color = (0, 80, 0) if is_filled else (20, 20, 20)
-
-            pygame.draw.rect(surface, fill_color, rect)
-            pygame.draw.rect(surface, border_color, rect, 1)
-
-            label = small_font.render(f"P{i + 1}", True, EGA_WHITE)
-            surface.blit(label, (rect.centerx - label.get_width() // 2, 66))
-
-            status_txt = card_type.upper() if is_filled else "EMPTY"
-            status_color = EGA_YELLOW if is_filled else EGA_DARK_GRAY
-            status_surf = small_font.render(status_txt[:5], True, status_color)
-            surface.blit(status_surf, (rect.centerx - status_surf.get_width() // 2, 82))
-
-        # Prompt instructions
-        prompt = font.render("Insert card: [L]ove  [S]ol  [M]oons  [D]eath", True, EGA_BRIGHT_CYAN)
-        surface.blit(prompt, (width // 2 - prompt.get_width() // 2, 114))
-
-        # Message log at bottom
-        y_log = height - 50
-        for msg in self.log_messages[-3:]:
-            m_surf = small_font.render(msg, True, EGA_WHITE)
-            surface.blit(m_surf, (16, y_log))
-            y_log += 14

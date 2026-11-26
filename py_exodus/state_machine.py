@@ -121,7 +121,13 @@ class StateMachine:
             # Defensive: never mount the book over a finished screen whose
             # transition is still pending — Java is synchronous (setScreen
             # inside the listener) and has no equivalent guard.
-            if not isinstance(cur, (BookScreen, QuickRefScreen)) and not cur.is_finished:
+            # A screen can opt out (``allows_book``): the ending does, and
+            # F1 is then a key like any other to it.
+            if (
+                not isinstance(cur, (BookScreen, QuickRefScreen))
+                and not cur.is_finished
+                and getattr(cur, "allows_book", True)
+            ):
                 cur.open_book()
                 return
 

@@ -31,12 +31,15 @@ class PixelFont:
         spacing: int = 1,
         space_width: int | None = None,
         upper_only: bool = False,
+        fallback: str | None = None,
     ) -> None:
         self.name = name
         self.height = height
         self.spacing = spacing
         self.upper_only = upper_only
         self.glyphs = dict(glyphs)
+        #: Drawn for a character the face has no glyph for (else a blank).
+        self.fallback = fallback
         for ch, rows in self.glyphs.items():
             if len(rows) != height or len({len(r) for r in rows}) != 1:
                 raise ValueError(f"{name}: glyph {ch!r} is not a {height}-row grid")
@@ -54,8 +57,14 @@ class PixelFont:
         """The characters of ``text`` this face has no glyph for."""
         return {ch for ch in text if not self.has(ch)}
 
-    def _advance(self, ch: str) -> int:
+    def _rows(self, ch: str) -> tuple[str, ...] | None:
         rows = self.glyphs.get(self._key(ch))
+        if rows is None and ch != " " and self.fallback is not None:
+            rows = self.glyphs.get(self.fallback)
+        return rows
+
+    def _advance(self, ch: str) -> int:
+        rows = self._rows(ch)
         return len(rows[0]) if rows is not None else self.space_width
 
     def width(self, text: str) -> int:
@@ -66,11 +75,11 @@ class PixelFont:
 
     def ink(self, text: str) -> set[tuple[int, int]]:
         """The inked (x, y) font pixels of ``text``. A character without a
-        glyph leaves a blank the width of a space."""
+        glyph is drawn as the face's fallback, or left blank without one."""
         out: set[tuple[int, int]] = set()
         x = 0
         for ch in text:
-            rows = self.glyphs.get(self._key(ch))
+            rows = self._rows(ch)
             if rows is not None:
                 for y, row in enumerate(rows):
                     for dx, cell in enumerate(row):
@@ -183,7 +192,7 @@ Z ##### ....# ...#. ..#.. .#... #.... #####
 . ..... ..... ..... ..... ..... .##.. .##..
 - ..... ..... ..... ##### ..... ..... .....
 ' ..#.. ..#.. .#... ..... ..... ..... .....
-"""), upper_only=True)
+"""), upper_only=True, fallback="?")
 
 TINY = PixelFont("tiny", 5, _face(5, 0, """
 A .#. #.# ### #.# #.#

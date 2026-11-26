@@ -115,12 +115,15 @@ def test_final_screen_ending_starts_with_the_flashes():
         assert scr.insert_card(card, member_idx=0, pos=(px, 12)) is True
 
     assert scr.victory is True
-    assert scr.phase == "flash"
+    assert scr.phase == "card"  # the fourth card's flicker comes first
     for gone in ("screen_shake", "shake_timer", "particles", "scroll_y", "epilogue_text"):
         assert not hasattr(scr, gone)
 
     # Updating and rendering during the ending, with no screen underneath
     surface = pygame.Surface((320, 200))
+    scr.render(surface)
+    scr.update(3.0)
+    assert scr.phase == "flash"
     scr.update(1.0)
     scr.render(surface)
     assert scr.flash_colours
@@ -202,7 +205,7 @@ def test_final_victory_sets_exodus_defeated():
 
 
 def test_final_screen_card_from_any_party_member():
-    """Verify any party member carrying a card can insert it via key event."""
+    """Verify any party member carrying a card can insert it."""
     p = Party()
     c1 = Character("Fighter", "M", Race.HUMAN, Profession.FIGHTER)
     c2 = Character("Cleric", "F", Race.BOBBIT, Profession.CLERIC)
@@ -215,9 +218,8 @@ def test_final_screen_card_from_any_party_member():
     p.y = 12  # Love's machine panel
 
     scr = FinalScreen(party=p, return_screen=None)
-    # Press 'L' to insert the Love card without selecting a member
-    event_l = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_l)
-    scr.handle_event(event_l)
+    # Insert the Love card without selecting a member
+    assert scr.insert_card("love") is True
 
     assert p.exodus_cards_status == 0x1
     assert c2.cards[3] == 1  # inserted by c2, who keeps it (LairWare)
