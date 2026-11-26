@@ -642,6 +642,7 @@ class AutoPlayController:
         return self._emit_key(state_machine, pygame.K_e)
 
     def _step_combat(self, state_machine: StateMachine, screen) -> int | None:
+        self._grind_dead = 0  # a fight: the grind's spot is not dead
         if hasattr(screen, "auto_combat_interval"):
             screen.auto_combat_interval = self.step_interval
             if getattr(screen, "_auto_combat_timer", 0.0) > self.step_interval:
@@ -3755,6 +3756,22 @@ class AutoPlayController:
     # Britain loop gives way to the wide Sosaria patrol.
     _GRIND_QUIET_LIMIT = 150
     _grind_quiet = 0
+    # Grind turns with no fight and no land monster within _GRIND_SIGHT
+    # (batch 67c0de5 b7 seed 61: a level-25 party paced (40, 41)-(40, 42)
+    # for ~3,400 turns at a time, the chase walking north toward a monster
+    # 12 tiles off behind the water at (29-32, 41-44), the patrol walking
+    # back south once it was 13 off; each chase step reset the quiet count,
+    # so the wide patrol never started, and food runs spent 5,379 gold).
+    # LairWare never despawns and every monster steps toward the party each
+    # turn, so a spot nothing reaches has Sosaria's 32 slots full of
+    # monsters snagged on terrain: none spawn, none come. At
+    # _GRIND_DEAD_LIMIT the grind stops chasing monsters it can't see and
+    # takes the wide patrol until a fight or a monster in sight. 150, the
+    # quiet limit: with a free slot SpawnMonster adds one every ~19 turns
+    # (7 in 135), and they come on a tile a turn.
+    _GRIND_DEAD_LIMIT = 150
+    _GRIND_SIGHT = 8
+    _grind_dead = 0
 
     def _grind_local(self, state_machine, screen, gmap, party, px, py, living) -> int:
         # Actively chase nearby reachable land creatures (skip if hurt,
@@ -3768,6 +3785,14 @@ class AutoPlayController:
             # walking up to dragons). Fleeing is unchanged: chased, a
             # healthy party still fights them (user ruling 2026-11-21).
             green = any(m.level < _DRAGON_CHASE_LEVEL for m in living)
+            in_sight = any(
+                "x" in c and "y" in c
+                and creature_name(c) != "whirlpool" and creature_name(c) not in SEA_MONSTERS
+                and manhattan(gmap.width, gmap.height, (px, py), (c["x"], c["y"])) <= self._GRIND_SIGHT
+                for c in getattr(screen, "creatures", [])
+            )
+            self._grind_dead = 0 if in_sight else self._grind_dead + 1
+            reach = self._GRIND_SIGHT if self._grind_dead >= self._GRIND_DEAD_LIMIT else 12
             for c in getattr(screen, "creatures", []):
                 tname = creature_name(c)
                 if tname == "whirlpool" or tname in SEA_MONSTERS:
@@ -3777,7 +3802,7 @@ class AutoPlayController:
                 cx, cy = c.get("x"), c.get("y")
                 if cx is None or cy is None:
                     continue
-                if manhattan(gmap.width, gmap.height, (px, py), (cx, cy)) <= 12:
+                if manhattan(gmap.width, gmap.height, (px, py), (cx, cy)) <= reach:
                     land_targets.add((cx, cy))
             if land_targets:
                 d = find_2d_step(gmap, (px, py), land_targets, Transport.FOOT, party=party, avoid_tiles=self._overworld_avoid)
