@@ -23,6 +23,7 @@ addition to the approved mockup), 0.4 s on and 0.4 s off on the screen's
 """
 from __future__ import annotations
 
+import weakref
 from collections.abc import Iterable
 from typing import Any
 
@@ -33,23 +34,42 @@ from py_exodus.ui.text_log import EGA_BLACK, EGA_WHITE, EGA_YELLOW
 # GameScreen.java:1081 (peer log).
 PEER_MESSAGE = "Peer at a Gem!"
 
-# Grey of LairWare's blended drop shadow (OpColor 24576 over the pane).
-SHADOW_COLOR = (90, 90, 90, 160)
+# LairWare's blended drop shadow: OpColor 24576 (96/255 grey) blended
+# over the pane, once for a full block band and again for a half band.
+SHADOW_COLOR = (96, 96, 96, 160)
 # Cell painted where a tile has no art in the loaded tile set.
 MISSING_TILE_COLOR = (40, 40, 40)
 
-# Shrunken tile cache: (id(source frame), cell) -> (source, shrunk). The
-# source is kept so a recycled id() can never hand back a stale picture.
-_SHRUNK: dict[tuple[int, int], tuple[pygame.Surface, pygame.Surface]] = {}
+# Shrunken tile cache: source frame -> {cell: shrunk}. Weak on the
+# source, so a replaced AssetManager or tile set frees its shrunk tiles.
+_SHRUNK: weakref.WeakKeyDictionary[pygame.Surface, dict[int, pygame.Surface]] = (
+    weakref.WeakKeyDictionary()
+)
+
+# The composed terrain of the last map peered at: (key, surface). One
+# entry only; the key holds the map's tile names, so a changed tile (a door
+# opened, a field burnt) recomposes it.
+_TERRAIN: list[Any] = [None, None]
+
+
+def frame_width(scale: int) -> int:
+    """Width of each of the white and black frame lines."""
+    return max(1, (2 * scale) // 3)
+
+
+def shadow_width(scale: int) -> int:
+    """The drop shadow's full band (LW one blkSiz; its half band is half)."""
+    return 4 * scale
 
 
 def peer_cell(pane: int, map_w: int, map_h: int, scale: int) -> int:
     """Cell size in px for the whole map in a ``pane``-px square map pane:
-    LairWare ``minSize = (blkSiz * 22) / gCurMapSize`` (at least 1), less a
-    small margin so the frame and shadow stay inside the pane. A 64x64 map
-    gets 8 px at 960x600 (pane 528) and 2 px at 320x200 (pane 176)."""
+    LairWare ``minSize = (blkSiz * 22) / gCurMapSize`` (at least 1), less
+    room for the frame (top/left) and the drop shadow (bottom/right). A
+    64x64 map gets 8 px at 960x600 (pane 528) and 2 px at 320x200 (176)."""
     size = max(map_w, map_h, 1)
-    return max(1, (pane - 4 * scale) // size)
+    avail = pane - 2 * frame_width(scale) - shadow_width(scale)
+    return max(1, avail // size)
 
 
 def marker_visible(anim_frame: int) -> bool:
@@ -59,10 +79,10 @@ def marker_visible(anim_frame: int) -> bool:
 
 
 def _shrunk(src: pygame.Surface, cell: int) -> pygame.Surface:
-    key = (id(src), cell)
-    hit = _SHRUNK.get(key)
-    if hit is not None and hit[0] is src:
-        return hit[1]
+    sizes = _SHRUNK.setdefault(src, {})
+    hit = sizes.get(cell)
+    if hit is not None:
+        return hit
     # Opaque, like LairWare's mini tiles. Smooth shrinking keeps the EGA
     # dither from aliasing; the tile sheets are 8-bit, which smoothscale
     # refuses, so go via 32-bit.
@@ -70,7 +90,7 @@ def _shrunk(src: pygame.Surface, cell: int) -> pygame.Surface:
     out.blit(src, (0, 0))
     if out.get_size() != (cell, cell):
         out = pygame.transform.smoothscale(out, (cell, cell))
-    _SHRUNK[key] = (src, out)
+    sizes[cell] = out
     return out
 
 
@@ -128,10 +148,38 @@ def peer_sprites(game_map: Any, party: Any, creatures: Iterable[Any], asset_mgr:
 
 def peer_map_rect(pane: pygame.Rect, map_w: int, map_h: int, scale: int) -> pygame.Rect:
     """Where the whole map lands: centred in the pane (DrawMiniMap
-    mapRect)."""
+    mapRect) with its frame and drop shadow inside the pane."""
     cell = peer_cell(min(pane.w, pane.h), map_w, map_h, scale)
     w, h = map_w * cell, map_h * cell
-    return pygame.Rect(pane.x + (pane.w - w) // 2, pane.y + (pane.h - h) // 2, w, h)
+    lead = 2 * frame_width(scale)
+    trail = shadow_width(scale)
+    x = pane.x + lead + (pane.w - lead - trail - w) // 2
+    y = pane.y + lead + (pane.h - lead - trail - h) // 2
+    return pygame.Rect(x, y, w, h)
+
+
+def _terrain(game_map: Any, asset_mgr: Any, cell: int) -> pygame.Surface:
+    """The map's terrain from shrunken tiles, composed once and reused
+    until the map, its tiles, the tile set or the cell size change."""
+    map_w, map_h = game_map.width, game_map.height
+    names = tuple(
+        getattr(game_map.get_tile(mx, my), "name", None)
+        for my in range(map_h)
+        for mx in range(map_w)
+    )
+    key = (id(game_map), id(asset_mgr), id(getattr(asset_mgr, "tiles", None)), cell, map_w, names)
+    if _TERRAIN[0] == key:
+        return _TERRAIN[1]
+    out = pygame.Surface((map_w * cell, map_h * cell))
+    for i, name in enumerate(names):
+        mx, my = i % map_w, i // map_w
+        img = _tile(asset_mgr, name, cell)
+        if img is None:
+            out.fill(MISSING_TILE_COLOR, (mx * cell, my * cell, cell, cell))
+        else:
+            out.blit(img, (mx * cell, my * cell))
+    _TERRAIN[0], _TERRAIN[1] = key, out
+    return out
 
 
 def render_gem_view(
@@ -157,23 +205,22 @@ def render_gem_view(
     try:
         surface.fill(EGA_BLACK, pane)
 
-        # Drop shadow, down and right of the map (blend grey in LW).
-        off = 2 * scale
-        shadow = pygame.Surface(rect.size, pygame.SRCALPHA)
-        shadow.fill(SHADOW_COLOR)
-        surface.blit(shadow, rect.move(off, off))
-        surface.fill(EGA_BLACK, rect)
+        # Drop shadow (UltimaGraphics.c:1462-1469): a block-wide band right
+        # of and below the map, offset one block down/right, then a
+        # half-block band blended again over its inner half.
+        for band in (shadow_width(scale), shadow_width(scale) // 2):
+            if band <= 0:
+                continue
+            for r in (
+                pygame.Rect(rect.right, rect.top + band, band, rect.h),
+                pygame.Rect(rect.left + band, rect.bottom, rect.w - band, band),
+            ):
+                shade = pygame.Surface(r.size, pygame.SRCALPHA)
+                shade.fill(SHADOW_COLOR)
+                surface.blit(shade, r)
 
-        # Terrain, then everyone standing on it.
-        for my in range(map_h):
-            y = rect.y + my * cell
-            for mx in range(map_w):
-                tile = game_map.get_tile(mx, my)
-                img = _tile(asset_mgr, tile.name if tile is not None else None, cell)
-                if img is None:
-                    surface.fill(MISSING_TILE_COLOR, (rect.x + mx * cell, y, cell, cell))
-                else:
-                    surface.blit(img, (rect.x + mx * cell, y))
+        # Terrain (composed once), then everyone standing on it.
+        surface.blit(_terrain(game_map, asset_mgr, cell), rect)
 
         def on_map(x: int, y: int) -> bool:
             return 0 <= x < map_w and 0 <= y < map_h
@@ -190,8 +237,9 @@ def render_gem_view(
                 surface.blit(img, (rect.x + px * cell, rect.y + py * cell))
 
         # Frame: white, then black outside it (FrameRect twice).
-        pygame.draw.rect(surface, EGA_WHITE, rect.inflate(2, 2), 1)
-        pygame.draw.rect(surface, EGA_BLACK, rect.inflate(4, 4), 1)
+        fw = frame_width(scale)
+        pygame.draw.rect(surface, EGA_WHITE, rect.inflate(2 * fw, 2 * fw), fw)
+        pygame.draw.rect(surface, EGA_BLACK, rect.inflate(4 * fw, 4 * fw), fw)
 
         # Party marker: a blinking yellow box around the party's cell.
         if marker_on and on_map(px, py):

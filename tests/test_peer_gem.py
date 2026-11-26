@@ -175,10 +175,61 @@ def test_peer_cell_size_64x64_both_resolutions():
     assert peer_cell(176, 64, 64, 1) == 2
     assert peer_cell(528, 32, 32, 3) == 16
     assert peer_cell(10, 64, 64, 1) == 1  # never 0
+    # Frame room top/left, drop-shadow room bottom/right, all in the pane.
     r = peer_map_rect(pygame.Rect(0, 0, 528, 528), 64, 64, 3)
-    assert r == pygame.Rect(8, 8, 512, 512)
+    assert r == pygame.Rect(4, 4, 512, 512)
+    assert r.right + gem_view.shadow_width(3) <= 528
     r = peer_map_rect(pygame.Rect(0, 0, 176, 176), 64, 64, 1)
-    assert r == pygame.Rect(24, 24, 128, 128)
+    assert r == pygame.Rect(23, 23, 128, 128)
+
+
+def test_peer_drop_shadow_and_frame_scale_with_resolution(asset_mgr):
+    """LW shadow (UltimaGraphics.c:1462-1469): a block band plus a
+    half-block band blended grey, darker where both overlap; the frame's
+    white and black lines are scaled."""
+    gmap = _small_map(asset_mgr)
+    pane = pygame.Rect(0, 0, 528, 528)
+    surf = pygame.Surface((960, 600))
+    render_gem_view(surf, pane, gmap, asset_mgr, (5, 7), marker_on=False)
+    rect = peer_map_rect(pane, 32, 32, 3)
+    sw = gem_view.shadow_width(3)
+    mid = rect.centery
+    inner = surf.get_at((rect.right + sw // 2 - 1, mid))[:3]
+    outer = surf.get_at((rect.right + sw - 1, mid))[:3]
+    assert inner[0] > outer[0] > 0
+    assert surf.get_at((rect.right + sw // 2, rect.top + 1))[:3] == (0, 0, 0)  # offset down
+    fw = gem_view.frame_width(3)
+    assert fw == 2 and gem_view.frame_width(1) == 1
+    for i in range(fw):
+        assert surf.get_at((rect.x - 1 - i, mid))[:3] == EGA_WHITE
+
+
+def test_peer_terrain_recomposes_when_a_tile_changes(asset_mgr):
+    gmap = _small_map(asset_mgr)
+    pane = pygame.Rect(0, 0, 528, 528)
+    rect = peer_map_rect(pane, 32, 32, 3)
+    cell = peer_cell(528, 32, 32, 3)
+    surf = pygame.Surface((960, 600))
+    render_gem_view(surf, pane, gmap, asset_mgr, (5, 7))
+    first = gem_view._TERRAIN[1]
+    render_gem_view(surf, pane, gmap, asset_mgr, (5, 7))
+    assert gem_view._TERRAIN[1] is first  # reused, not recomposed
+    gmap.tiles[3 * 32 + 2] = TileDef(index=3, name="forest")  # a changed tile
+    render_gem_view(surf, pane, gmap, asset_mgr, (5, 7))
+    assert gem_view._TERRAIN[1] is not first
+    assert _cell_pixels(surf, rect, cell, 2, 3) == _tile_pixels(asset_mgr, "forest", cell)
+
+
+def test_peer_shrunk_tile_cache_is_weak():
+    import gc
+
+    src = pygame.Surface((16, 16))
+    gem_view._shrunk(src, 8)
+    assert src in gem_view._SHRUNK
+    n = len(gem_view._SHRUNK)
+    del src
+    gc.collect()
+    assert len(gem_view._SHRUNK) == n - 1
 
 
 @pytest.mark.parametrize("size", [(960, 600), (320, 200)])
