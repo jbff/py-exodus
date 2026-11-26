@@ -6,7 +6,7 @@ A Python 3 / Pygame-CE reimplementation of *Ultima III: Exodus* (1983), by Richa
 
 - **[pantinor/gdx-exodus](https://github.com/pantinor/gdx-exodus):** py-exodus began as a port of Paul Antinori's LibGDX version in Java. It supplied the sound effects, the soundtrack, the XML definitions, and the maps and rosters (now JSON).
 - **LairWare's Mac port of Ultima III (MIT):** the rules authority. The game logic has since been brought in line with it, and it supplies the tile sheets, some sounds and the intro data.
-- **Honourable mentions:** the Game Boy Color port and the NES version were consulted early on. Only a little came from them: the moongate tables and the ship cannon barrage.
+- **Honourable mentions:** the Game Boy Color port and the NES version were consulted early on, for the moongates and ship combat. Little of it remains: those rules now follow LairWare.
 
 ---
 
@@ -110,15 +110,13 @@ The rest of the rules follow LairWare. Every rule decision, with its LairWare so
 2. **No starter party:** the roster starts empty. The Magical Orbs are gone.
 3. **Dungeons:** they are drawn as a first-person wireframe, with a map overlay on by default (`P` hides it).
 4. **Spells:** spell menus keep fixed A–P letters.
-5. **Moongates:** they use the moongate tables from the Game Boy Color and NES versions.
-6. **Ship cannons:** they fire a barrage at the whole party, as in the Game Boy Color port.
-7. **Druids:** they regain 2 MP per tick, as the Book of Lore says.
-8. **LairWare bugs not copied:**
+5. **Druids:** they regain 2 MP per tick, as the Book of Lore says.
+6. **LairWare bugs not copied:**
    - a dungeon trap is avoided by a *good* DEX roll;
    - a force field needs the Mark of Force on every living member;
    - a cancelled Fal Divi charges nothing more;
    - the red-hot rod doesn't mark the dead.
-9. **Quality of life:**
+7. **Quality of life:**
    - `Q` saves only on Sosaria;
    - `APPAR UNEM` opens the chest underfoot without asking for a direction;
    - saves and rosters are JSON;
