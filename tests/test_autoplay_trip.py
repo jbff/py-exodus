@@ -2330,6 +2330,18 @@ def test_ambrosia_ship_sails_for_the_dexterity_shrine_through_the_water_door(
     ctrl = AutoPlayController(enabled=True)
     keys = [ctrl.step(sm) for _ in range(3)]
     assert (party.x, party.y) != (17, 58), keys
+    # On to the door: under a west wind every heading the route takes is
+    # allowed. The ship unlocks the door (a key goes) and sails through.
+    keys_before = sum(m.keys for m in party.members)
+    party.wind_direction = Direction.WEST
+    for _ in range(120):
+        party.wind_direction = Direction.WEST
+        ctrl.step(sm)
+        if party.x > 39:
+            break
+    assert party.x > 39, (party.x, party.y)
+    assert str(ow.game_map.get_tile(39, 61).name).lower() != "locked_door"
+    assert sum(m.keys for m in party.members) == keys_before - 1
 
 
 def _ship_at(asset_mgr, xy, wind):
