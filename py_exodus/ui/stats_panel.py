@@ -384,13 +384,19 @@ class StatsPanel:
                     from py_exodus.ui.party_panel import sky_wind_text
                     from py_exodus.screens.overworld import draw_moon_glyph
 
-                    txt = f_text.render(sky_wind_text(sky).upper(), True, EGA_LIGHT_GRAY)
+                    txt = f_text.render("MOONS", True, EGA_LIGHT_GRAY)
                     surface.blit(txt, (x_left, curr_y))
                     r = max(2, line_h // 3)
                     gx = x_left + txt.get_width() + r + 4
                     cy = curr_y + line_h // 2
                     draw_moon_glyph(surface, gx, cy, r, sky["trammel"])
                     draw_moon_glyph(surface, gx + 2 * r + 4, cy, r, sky["felucca"])
+                    wind = sky_wind_text(sky)
+                    if wind:
+                        surface.blit(
+                            f_text.render(wind.upper(), True, EGA_LIGHT_GRAY),
+                            (gx + 3 * r + 12, curr_y),
+                        )
                     curr_y += line_h
             if target_rect.bottom - curr_y >= line_h * 3 + 6:
                 draw_separator()

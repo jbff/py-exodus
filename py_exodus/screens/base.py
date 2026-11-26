@@ -158,7 +158,7 @@ class BaseScreen(ABC):
             auto_combat=autocombat_on,
             step_interval=step_interval,
             location_text=location_text,
-            sky=self.sky_info() if hasattr(self, "sky_info") else None,
+            sky=self._panel_sky(src),
         )
 
     def _render_ztats(self, surface: pygame.Surface, pane: int) -> None:
@@ -188,6 +188,27 @@ class BaseScreen(ABC):
             map_type=MapType(self.spell_map_type) if self.spell_map_type else None,
             negated=aura is not None and aura.get_type() == AuraType.NEGATE,
         )
+
+    def _panel_sky(self, src: Any) -> dict | None:
+        """The panel's sky row. LairWare's frame always draws the moons
+        (UltimaGraphics.c:133) but ShowWind hides the wind in dungeons and
+        combat (UltimaMain.c:3305-3340), so screens without their own sky
+        (combat, dungeons) show the moons alone; the panel keeps one layout."""
+        own = getattr(self, "sky_info", None)
+        if callable(own):
+            info = own()
+            if info is not None:
+                return info
+        party = getattr(self, "party", None)
+        if party is None:
+            return None
+        parent = getattr(src, "sky_info", None) if src is not self else None
+        info = parent() if callable(parent) else None
+        if info is None:
+            from py_exodus.screens.overworld import sky_info
+
+            info = sky_info(party)
+        return {**info, "wind": None, "show_wind": False, "aura": info.get("aura")}
 
     def on_exit(self) -> None:
         """Hook called when screen transitions away."""

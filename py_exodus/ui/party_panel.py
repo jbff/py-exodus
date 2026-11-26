@@ -72,7 +72,11 @@ def _title(enum_value) -> str:
     return str(getattr(enum_value, "name", enum_value) or "?").replace("_", " ").title()
 
 
-def sky_wind_text(sky: dict) -> str:
+def sky_wind_text(sky: dict) -> str | None:
+    """The wind words after the moons; None where LairWare hides the wind
+    (dungeons, combat)."""
+    if not sky.get("show_wind", True):
+        return None
     wind = sky.get("wind")
     return "Wind CALM" if wind is None else f"Wind {wind.name}"
 
@@ -288,11 +292,16 @@ class PartyPanel:
         self._kv(fl, f_body, f_bold, "Turn", _fmt(party.moves))
         fl.newline()
         if sky is not None:
-            # Trammel then Felucca, after the wind (LairWare's frame).
-            fl.text(f_body, sky_wind_text(sky), INK)
+            # Moons first (Trammel, Felucca) so they never move with the
+            # wind's length, then the wind where it is shown.
+            fl.text(f_body, "Moons", INK)
             radius = max(3, fl.line_h // 3)
             fl.moon(sky["trammel"], radius)
             fl.moon(sky["felucca"], radius)
+            fl.x += fl.gap
+            wind = sky_wind_text(sky)
+            if wind:
+                fl.text(f_body, wind, INK)
             aura = sky.get("aura")
             if aura is not None and getattr(aura, "name", "NONE") != "NONE":
                 fl.chip(f_body, aura.name.title(), GOLDEN)

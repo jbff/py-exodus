@@ -510,3 +510,31 @@ class TestMoveDrivenMoons:
         p2 = Party.from_dict(data)
         assert p2.moon_phase == 0
         assert p2.moon_turns == 0
+
+
+class TestPanelSkyEverywhere:
+    """The panel keeps the sky row in combat and dungeons (moons only), so the
+    Autoplay rows never jump (user 2026-11-26; LairWare draws the moons in
+    its frame always, UltimaGraphics.c:133, and hides only the wind)."""
+
+    def test_combat_shows_moons_without_wind(self, asset_mgr, party):
+        from py_exodus.screens.combat_screen import CombatScreen
+        from py_exodus.ui.party_panel import sky_wind_text
+        from py_exodus.world.loader import MapLoader
+
+        ow = OverworldScreen(party=party, map_id=0, asset_mgr=asset_mgr, start_x=45, start_y=19)
+        ow.moon_phase = 10
+        cm = MapLoader(asset_mgr).load_conflict_map("CNFLCT_A.ULT")
+        cs = CombatScreen(party=party, combat_map=cm, asset_mgr=asset_mgr, return_screen=ow)
+        sky = cs._panel_sky(ow)
+        assert (sky["trammel"], sky["felucca"]) == (ow.trammel_phase, ow.felucca_phase)
+        assert sky_wind_text(sky) is None
+
+    def test_screen_without_parent_still_gets_moons(self, asset_mgr, party):
+        from py_exodus.screens.combat_screen import CombatScreen
+        from py_exodus.world.loader import MapLoader
+
+        cm = MapLoader(asset_mgr).load_conflict_map("CNFLCT_A.ULT")
+        cs = CombatScreen(party=party, combat_map=cm, asset_mgr=asset_mgr)
+        sky = cs._panel_sky(cs)
+        assert sky is not None and sky["show_wind"] is False
