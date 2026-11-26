@@ -2299,3 +2299,34 @@ def test_no_whirlpool_never_waits_forever_on_a_guessed_tile(pygame_setup, asset_
     keys = [ctrl.step(sm) for _ in range(40)]
     assert (party.x, party.y) != (17, 48)
     assert keys.count(pygame.K_SPACE) < 20
+
+
+def test_ambrosia_ship_sails_for_the_dexterity_shrine_through_the_water_door(
+    pygame_setup, asset_mgr, monkeypatch
+):
+    """User live trace 2026-11-25 (trace_20261125-184644, steps 67,342-69,602
+    and 97,618-98,243): on a captured ship at (17, 58), bound for the
+    Dexterity shrine, autoplay passed ~2,260 and ~620 steps. The sea route
+    east goes through the locked water door at (39, 61); the wind-free
+    route was searched without keys, so it found no way, and the wind-legal
+    one needs every heading but the wind's: with a north wind (the route
+    ends going north) it had nothing and passed. With keys, the wind-free
+    route goes east and the ship sails."""
+    from py_exodus.autoplay import controller as C
+
+    monkeypatch.setattr(C, "next_shrine_goal", lambda p, *a: (0, "dexterity", "dexterity", 99))
+    party = _all_cards_party(keys=4, gold=3944)
+    for m in party.members:
+        m.max_hp = m.hp = 2550
+    party.x, party.y = 17, 58
+    party.transport = Transport.SHIP
+    party.wind_direction = Direction.NORTH
+    sm = StateMachine(asset_mgr=asset_mgr, audio=None)
+    ow = OverworldScreen(party=party, map_id=13, asset_mgr=asset_mgr, start_x=17, start_y=58,
+                         random_encounters=False)
+    ow.creatures = []
+    sm.set_screen(ow)
+    assert evaluate_goal(party, 13) == Goal.AMBROSIA_CARDS_SHRINES
+    ctrl = AutoPlayController(enabled=True)
+    keys = [ctrl.step(sm) for _ in range(3)]
+    assert (party.x, party.y) != (17, 58), keys

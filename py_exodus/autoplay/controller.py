@@ -3517,6 +3517,11 @@ class AutoPlayController:
                 party=party,
                 avoid_tiles=avoid,
                 ignore_wind=True,
+                # As the wind-legal search: without it a route through a
+                # locked water door (Ambrosia's at (39, 61)) was no route,
+                # and the ship passed until a wind allowed every heading the
+                # route takes (trace_20261125-184644, ~2,260 steps).
+                allow_locked_doors=has_key,
             )
             if free_d is not None and free_cost is not None and (
                 d is None or (wind_cost is not None and wind_cost * 2 > free_cost * 3)
