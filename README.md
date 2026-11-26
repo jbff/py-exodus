@@ -1,13 +1,19 @@
 # py-exodus
 
-A Python 3 / Pygame-CE reimplementation of *Ultima III: Exodus* (1983). It plays the whole game, from forming a party to the fall of Exodus, by the rules of the LairWare Mac port. It adds two helpers: **Auto-Combat**, which fights battles for you, and **Full Autoplay**, a watch mode that plays the entire game on its own.
+A Python 3 / Pygame-CE reimplementation of *Ultima III: Exodus* (1983), by Richard Garriott and Origin Systems. It plays the whole game, from forming a party to the fall of Exodus. It adds two helpers: **Auto-Combat**, which fights battles for you, and **Full Autoplay**, a watch mode that plays the entire game on its own.
+
+### Lineage
+
+- **[pantinor/gdx-exodus](https://github.com/pantinor/gdx-exodus):** py-exodus began as a port of Paul Antinori's LibGDX version in Java. It supplied the sound effects, the soundtrack, the XML definitions, and the maps and rosters (now JSON).
+- **LairWare's Mac port of Ultima III (MIT):** the rules authority. The game logic has since been brought in line with it, and it supplies the tile sheets, some sounds and the intro data.
+- **Honourable mentions:** the Game Boy Color port and the NES version were consulted early on. Only a little came from them: the moongate tables and the ship cannon barrage.
 
 ---
 
 ## Features
 
 - **The complete game:** Sosaria and Ambrosia, the towns and castles, the dungeons, the moongates, ships and the whirlpool, the Marks, the Exotics, the Cards, and Castle Exodus.
-- **LairWare's rules.** The game logic follows LairWare's Mac port (`refs/ultima3`): monster movement and attacks, combat maths, spells, shops, wind, time and food, dungeon fixtures, autosaves and more. Where the Java port or the classic releases disagree with it, LairWare wins, apart from a few deliberate changes (listed below).
+- **LairWare's rules.** The game logic follows LairWare's Mac port: monster movement and attacks, combat maths, spells, shops, wind, time and food, dungeon fixtures, autosaves and more. Where the Java port or the classic releases disagree with it, LairWare wins, apart from a few deliberate changes (listed below).
 - **Classic graphics:** LairWare's tile sheets, with the PC EGA set by default. The LairWare, Apple II, C64, MCGA and Ultima V sets are also available. Tiles animate as they do in LairWare.
 - **Its own look:** its own title art and intro, a party panel with cards for each member, and a quest tracker. The look and UI are deliberately not LairWare's.
 - **Auto-Combat (`TAB`):** each living member heals, cures, casts or attacks as LairWare's auto-combat would. You can take back control at any moment.
@@ -104,7 +110,7 @@ The rest of the rules follow LairWare. Every rule decision, with its LairWare so
 2. **No starter party:** the roster starts empty. The Magical Orbs are gone.
 3. **Dungeons:** they are drawn as a first-person wireframe, with a map overlay on by default (`P` hides it).
 4. **Spells:** spell menus keep fixed A–P letters.
-5. **Moongates:** they use the Game Boy Color and NES moongate tables.
+5. **Moongates:** they use the moongate tables from the Game Boy Color and NES versions.
 6. **Ship cannons:** they fire a barrage at the whole party, as in the Game Boy Color port.
 7. **Druids:** they regain 2 MP per tick, as the Book of Lore says.
 8. **LairWare bugs not copied:**
@@ -172,12 +178,10 @@ These are small things noted in development and left for now. Some of them may a
 
 ---
 
-## References & credits
+## Credits
 
 - **Original game:** [*Ultima III: Exodus*](https://wiki.ultimacodex.com/wiki/Ultima_III:_Exodus) (1983) by Richard Garriott and Origin Systems.
-- **Rules authority:** LairWare's Mac port of Ultima III (`refs/ultima3`, MIT). It also supplies the tile sheets, some sounds and the intro data.
-- **Port base:** [pantinor/gdx-exodus](https://github.com/pantinor/gdx-exodus), Paul Antinori's LibGDX version. py-exodus began as a port of it, and it supplied the sound effects, the soundtrack, the XML definitions, and the maps and rosters (now JSON).
-- **Other references:** the Game Boy Color port (`u3gbc`) for moongate routing and ship cannon barrages, and the NES `MoonGateTbl`.
+- **Ports:** gdx-exodus and LairWare's port, as described under Lineage at the top.
 - **Font:** [Barlow Semi Condensed](https://github.com/jpt/barlow) (SIL Open Font License).
 - **Project history:** design notes, plans and the parity ledger are in [`docs/`](docs/). The git history holds the reasoning behind each change. Earlier versions of this README describe every ported rule in detail.
 
