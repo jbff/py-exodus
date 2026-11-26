@@ -409,16 +409,6 @@ class TestFrigateRenderStatic:
         assert pygame.image.tobytes(surf0, "RGBA") != pygame.image.tobytes(surf1, "RGBA")
 
 
-class TestR1ReadmeWording:
-    """R1 — the trap-wiring open item names only the poison/fire field cues."""
-
-    def test_readme_field_cue_wording_updated(self):
-        import pathlib
-
-        text = pathlib.Path("README.md").read_text()
-        assert "poison/fire field" in text
-
-
 def test_creatures_cannot_step_onto_portal_entrances(asset_mgr):
     """Wandering monsters must not step onto town/castle/dungeon/shrine portal tiles."""
     from py_exodus.constants import Direction

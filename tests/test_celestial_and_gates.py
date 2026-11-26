@@ -265,7 +265,8 @@ class TestSkyStrip:
         ow13 = OW(party=party, map_id=13, asset_mgr=asset_mgr, start_x=32, start_y=57)
         # LairWare shows the wind on Ambrosia (it steers ships there too).
         assert ow13.sky_strip_active is True
-        assert ow0.moons_shown is True and ow13.moons_shown is False
+        # LairWare's frame always draws the moons; off Sosaria they are frozen.
+        assert ow0.moons_shown is True and ow13.moons_shown is True
 
     def test_strip_texts_wind_and_moons(self, asset_mgr, party):
         from py_exodus.aura import AuraType
@@ -367,14 +368,59 @@ class TestSkyStrip:
         )
         assert lit > 50  # wind text row plus both dark moon discs
 
-    def test_render_skips_strip_on_map13(self, asset_mgr, party, monkeypatch):
+    def test_render_shows_frozen_moons_on_map13(self, asset_mgr, party, monkeypatch):
         import py_exodus.screens.overworld as ow_module
 
         ow = OverworldScreen(party=party, map_id=13, asset_mgr=asset_mgr, start_x=32, start_y=57)
         calls: list[tuple] = []
         monkeypatch.setattr(ow_module, "draw_moon_glyph", lambda *a, **k: calls.append(a))
         ow.render(pygame.Surface((640, 400)))
-        assert calls == []
+        assert len(calls) == 2
+
+    def test_strip_is_centred_moons_top_wind_bottom(self, asset_mgr, party, monkeypatch):
+        """LairWare's frame: the moons centred on the map's top edge
+        (DrawMoonGateStuff), the wind centred on its bottom edge (ShowWind)."""
+        import py_exodus.screens.overworld as ow_module
+
+        ow = OverworldScreen(party=party, map_id=0, asset_mgr=asset_mgr, start_x=45, start_y=19)
+        glyphs: list[tuple[int, int]] = []
+        monkeypatch.setattr(
+            ow_module, "draw_moon_glyph",
+            lambda surface, cx, cy, *a, **k: glyphs.append((cx, cy)),
+        )
+        blits: list[tuple[int, int, int, int]] = []
+
+        class _Spy(pygame.Surface):
+            def blit(self, src, dest, *a, **k):
+                if isinstance(dest, tuple) and src.get_height() < 60:
+                    blits.append((dest[0], dest[1], src.get_width(), src.get_height()))
+                return super().blit(src, dest, *a, **k)
+
+        surf = _Spy((640, 400))
+        v = 176 * 3
+        ow._render_sky_strip(surf, pane_right=v, pane_top=0, pane_bottom=v)
+        (x1, y1), (x2, y2) = glyphs
+        assert y1 == y2 and y1 < 40
+        assert abs((x1 + x2) / 2 - v / 2) <= 1
+        bx, by, bw, bh = blits[-1]  # the wind text
+        assert abs(bx + bw / 2 - v / 2) <= 1
+        assert by + bh > v - 20
+
+
+class TestTownSkyStrip:
+    def test_town_draws_wind_and_moons(self, asset_mgr, party, monkeypatch):
+        import py_exodus.screens.overworld as ow_module
+        from py_exodus.screens.town import TownScreen
+
+        town = TownScreen(party=party, map_id=3, asset_mgr=asset_mgr)
+        glyphs: list[int] = []
+        monkeypatch.setattr(
+            ow_module, "draw_moon_glyph",
+            lambda surface, cx, cy, radius, phase, *a, **k: glyphs.append(phase),
+        )
+        party.moon_phase = 10
+        town.render(pygame.Surface((640, 400)))
+        assert glyphs == [3, 2]
 
 
 # --------------------------------------------------------------------------- #

@@ -98,7 +98,7 @@ uv run python -m py_exodus.autoplay.batch --seeds 0-99 --workers 2 --out-dir tra
 uv run python -m pytest
 ```
 
-There are **2,146 tests**. They cover the mechanics, parity with LairWare, Java and the Game Boy Color port, the shops, the dungeons, combat, rendering and autoplay. Most autoplay fixes come with a test that fails on the old code.
+There are **2,147 tests**. They cover the mechanics, parity with LairWare, Java and the Game Boy Color port, the shops, the dungeons, combat, rendering and autoplay. Most autoplay fixes come with a test that fails on the old code.
 
 ---
 
@@ -130,7 +130,6 @@ The rest of the rules follow LairWare. Every rule decision, with its LairWare so
 - **A Ztats window** over the map. The design is chosen.
 - **Quick-reference cards on `F3` or `F4`:** the letter commands, and the Cleric and Wizard spells.
 - **Peer Gem maps** drawn in the style of the rendered map PNGs, in towns and castles too.
-- **The wind and moon strip** centred, as in LairWare, and still shown in towns.
 - **The Book of Lore** reformatted, so it is no longer about 128 pages in a giant font.
 
 ## Possible loose ends
