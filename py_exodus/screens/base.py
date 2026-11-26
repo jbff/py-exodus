@@ -156,6 +156,7 @@ class BaseScreen(ABC):
             auto_combat=autocombat_on,
             step_interval=step_interval,
             location_text=location_text,
+            sky=self.sky_info() if hasattr(self, "sky_info") else None,
         )
 
     def on_exit(self) -> None:

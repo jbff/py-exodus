@@ -72,6 +72,11 @@ def _title(enum_value) -> str:
     return str(getattr(enum_value, "name", enum_value) or "?").replace("_", " ").title()
 
 
+def sky_wind_text(sky: dict) -> str:
+    wind = sky.get("wind")
+    return "Wind CALM" if wind is None else f"Wind {wind.name}"
+
+
 class _Flow:
     """Left-to-right runs of text and widgets that wrap inside a width."""
 
@@ -113,6 +118,13 @@ class _Flow:
             pygame.draw.rect(self.s, (68, 68, 68), r, width=1, border_radius=r.height // 2)
         self.s.blit(img, (x + 6, r.y + (r.height - img.get_height()) // 2))
 
+    def moon(self, phase, radius):
+        from py_exodus.screens.overworld import draw_moon_glyph
+
+        size = 2 * radius + 3
+        x, y = self._place(size)
+        draw_moon_glyph(self.s, x + size // 2, y + self.line_h // 2, radius, phase)
+
     def newline(self):
         self.x, self.y = self.x0, self.y + self.line_h
 
@@ -140,7 +152,7 @@ class PartyPanel:
         )
 
     def render(self, surface, party, rect, *, autoplay=False, auto_combat=False,
-               step_interval=None, location_text=None, goal=None) -> int:
+               step_interval=None, location_text=None, goal=None, sky=None) -> int:
         f_name, f_body, f_small, f_bold = self.fonts(rect.width)
         pad = max(4, rect.width // 72)
         line_h = f_body.get_linesize() + 5
@@ -160,7 +172,7 @@ class PartyPanel:
         # Where / turn / autoplay
         y = self._section(surface, inner, y, None, f_small, lambda fl: self._status(
             fl, party, f_body, f_bold, autoplay, auto_combat, step_interval,
-            location_text, goal), line_h)
+            location_text, goal, sky), line_h)
         return y
 
     # -- pieces ---------------------------------------------------------
@@ -270,11 +282,21 @@ class PartyPanel:
         fl.chip(f_body, "Armor", EXOTIC_ON if n and ea >= n else None)
 
     def _status(self, fl, party, f_body, f_bold, autoplay, auto_combat, step_interval,
-                location_text, goal):
+                location_text, goal, sky=None):
         if location_text:
             fl.text(f_body, location_text, CYAN)
         self._kv(fl, f_body, f_bold, "Turn", _fmt(party.moves))
         fl.newline()
+        if sky is not None:
+            # Trammel then Felucca, after the wind (LairWare's frame).
+            fl.text(f_body, sky_wind_text(sky), INK)
+            radius = max(3, fl.line_h // 3)
+            fl.moon(sky["trammel"], radius)
+            fl.moon(sky["felucca"], radius)
+            aura = sky.get("aura")
+            if aura is not None and getattr(aura, "name", "NONE") != "NONE":
+                fl.chip(f_body, aura.name.title(), GOLDEN)
+            fl.newline()
         fl.text(f_body, "Autoplay", INK, tight=True)
         if autoplay:
             speed = f" ({step_interval:.2f}s)" if step_interval is not None else ""

@@ -209,8 +209,10 @@ class StatsPanel:
         auto_combat: bool = False,
         step_interval: float | None = None,
         location_text: str | None = None,
+        sky: dict | None = None,
     ) -> None:
-        """Render party status sidebar to surface."""
+        """Render party status sidebar to surface. ``sky`` (wind, moons,
+        aura) adds the sky row where the screen shows one."""
         w, h = surface.get_width(), surface.get_height()
 
         # Compute sidebar target rect (right portion of screen)
@@ -280,6 +282,7 @@ class StatsPanel:
             curr_y = PartyPanel(_equipment_display_names(self.asset_mgr), self.font).render(
                 surface, party, target_rect, autoplay=autoplay, auto_combat=auto_combat,
                 step_interval=step_interval, location_text=location_text, goal=goal,
+                sky=sky,
             )
             self._render_debug(surface, f_text, x_left, curr_y, target_rect, is_large)
             return
@@ -373,6 +376,18 @@ class StatsPanel:
                 )
                 if party.torch_duration > 0:
                     draw_line(f"TORCH LIGHT: {party.torch_duration}", EGA_YELLOW)
+                if sky is not None and target_rect.bottom - curr_y >= line_h:
+                    from py_exodus.ui.party_panel import sky_wind_text
+                    from py_exodus.screens.overworld import draw_moon_glyph
+
+                    txt = f_text.render(sky_wind_text(sky).upper(), True, EGA_LIGHT_GRAY)
+                    surface.blit(txt, (x_left, curr_y))
+                    r = max(2, line_h // 3)
+                    gx = x_left + txt.get_width() + r + 4
+                    cy = curr_y + line_h // 2
+                    draw_moon_glyph(surface, gx, cy, r, sky["trammel"])
+                    draw_moon_glyph(surface, gx + 2 * r + 4, cy, r, sky["felucca"])
+                    curr_y += line_h
             if target_rect.bottom - curr_y >= line_h * 3 + 6:
                 draw_separator()
                 eff_auto_combat = bool(autoplay or auto_combat)

@@ -320,45 +320,21 @@ def moon_phases(moon_phase: int) -> tuple[int, int]:
     return (min(7, moon_phase // 3), moon_phase % 8)
 
 
-def render_sky_strip(
-    surface: pygame.Surface,
-    party: Any,
-    pane_right: int,
-    pane_top: int = 0,
-    pane_bottom: int | None = None,
-    trammel: int | None = None,
-    felucca: int | None = None,
-) -> None:
-    """LairWare's frame layout (UltimaGraphics.c:89-133; DrawMoonGateStuff,
-    UltimaMisc.c:1510-1550; ShowWind, UltimaMain.c:3305-3340): Trammel and
-    Felucca side by side, centred on the map's top edge, and the wind centred
-    on its bottom edge. The game frame always draws the moons, so towns,
-    castles and Ambrosia show them too, frozen (they turn only on Sosaria).
-    An active aura's label sits at the top left."""
-    scale = 3 if surface.get_width() >= 640 else 1
-    margin = 2 * scale
-    radius = max(2, 4 * scale)
-    f = get_hud_font(size=8 * scale if scale > 1 else 8)
-    if pane_bottom is None:
-        pane_bottom = pane_top + 176 * scale
+def sky_info(party: Any, trammel: int | None = None, felucca: int | None = None) -> dict[str, Any]:
+    """What the right panel shows of the sky: the wind, both moons and an
+    active aura. LairWare draws the moons and wind in its frame around the
+    map (UltimaGraphics.c:89-133; DrawMoonGateStuff, UltimaMisc.c:1510-1550;
+    ShowWind, UltimaMain.c:3305-3340), never over it; py-exodus has no frame,
+    so they sit in the panel. The moons only turn on Sosaria, so in towns,
+    castles and on Ambrosia they show frozen."""
     if trammel is None or felucca is None:
         trammel, felucca = moon_phases(int(getattr(party, "moon_phase", 0)))
-    cx = pane_right // 2
-
-    aura = party.aura.get_type()
-    if aura != AuraType.NONE:
-        surface.blit(f.render(aura.name, True, EGA_YELLOW), (margin, pane_top + margin))
-
-    size = 2 * radius + 3
-    cy = pane_top + margin + size // 2
-    gap = radius + 2 * scale
-    draw_moon_glyph(surface, cx - gap - radius, cy, radius, trammel)
-    draw_moon_glyph(surface, cx + gap + radius, cy, radius, felucca)
-
-    wind = party.wind_direction
-    wind_txt = "Wind CALM" if wind is None else f"Wind {wind.name}"
-    t = f.render(wind_txt, True, EGA_LIGHT_GRAY)
-    surface.blit(t, (cx - t.get_width() // 2, pane_bottom - margin - t.get_height()))
+    return {
+        "wind": party.wind_direction,
+        "trammel": trammel,
+        "felucca": felucca,
+        "aura": party.aura.get_type(),
+    }
 
 
 class OverworldScreen(BaseScreen):
@@ -501,25 +477,11 @@ class OverworldScreen(BaseScreen):
             aura=self.party.aura.get_type(),
         )
 
-    def _render_sky_strip(
-        self,
-        surface: pygame.Surface,
-        pane_right: int,
-        pane_top: int,
-        pane_bottom: int | None = None,
-    ) -> None:
-        """The wind and moons over the map pane (see ``render_sky_strip``)."""
+    def sky_info(self) -> dict[str, Any] | None:
+        """The right panel's sky row; None where the strip isn't shown."""
         if not self.sky_strip_active:
-            return
-        render_sky_strip(
-            surface,
-            self.party,
-            pane_right=pane_right,
-            pane_top=pane_top,
-            pane_bottom=pane_bottom,
-            trammel=self.trammel_phase,
-            felucca=self.felucca_phase,
-        )
+            return None
+        return sky_info(self.party, self.trammel_phase, self.felucca_phase)
 
     def _load_world_map(self) -> None:
         # A map switch drops every standing creature (wanderer or whirlpool
@@ -2783,7 +2745,6 @@ class OverworldScreen(BaseScreen):
             self._render_cannon_fx(temp_v)
             scaled_v = pygame.transform.scale(temp_v, (v_size, v_size))
             surface.blit(scaled_v, (0, 0))
-            self._render_sky_strip(surface, pane_right=v_size, pane_top=0, pane_bottom=v_size)
 
             # Right Sidebar (Party Stats) at native high resolution
             self._render_stats_panel(
@@ -2812,7 +2773,6 @@ class OverworldScreen(BaseScreen):
                     moon_phase=self.trammel_phase,
                 )
             self._render_cannon_fx(surface)
-            self._render_sky_strip(surface, pane_right=176, pane_top=0, pane_bottom=176)
             self._render_stats_panel(
                 surface,
                 pygame.Rect(176, 0, w - 176, h),

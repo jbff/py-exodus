@@ -1377,12 +1377,13 @@ class TownScreen(BaseScreen):
         if self._idle_polls >= realtime.IDLE_PASS_POLLS:
             self.handle_event(realtime.space_event())
 
-    def _render_sky_strip(self, surface: pygame.Surface, pane: int) -> None:
-        """LairWare's game frame shows the wind and the (frozen) moons in
-        towns and castles too (UltimaGraphics.c:127-133, ShowWind)."""
-        from py_exodus.screens.overworld import render_sky_strip
+    def sky_info(self) -> dict:
+        """LairWare's frame shows the wind and the (frozen) moons in towns
+        and castles too (UltimaGraphics.c:127-133, ShowWind); here they sit
+        in the right panel."""
+        from py_exodus.screens.overworld import sky_info
 
-        render_sky_strip(surface, self.party, pane_right=pane, pane_top=0, pane_bottom=pane)
+        return sky_info(self.party)
 
     def render(self, surface: pygame.Surface) -> None:
         surface.fill(EGA_BLACK)
@@ -1408,7 +1409,6 @@ class TownScreen(BaseScreen):
                 )
             scaled_v = pygame.transform.scale(temp_v, (v_size, v_size))
             surface.blit(scaled_v, (0, 0))
-            self._render_sky_strip(surface, v_size)
 
             # Right Sidebar (Party Stats) at native high resolution
             self._render_stats_panel(
@@ -1437,7 +1437,6 @@ class TownScreen(BaseScreen):
                     avatar_override="ranger",
                 )
 
-            self._render_sky_strip(surface, 176)
             self._render_stats_panel(
                 surface,
                 pygame.Rect(176, 0, w - 176, h),

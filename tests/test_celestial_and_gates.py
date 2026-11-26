@@ -337,74 +337,55 @@ class TestSkyStrip:
         # Phase 4 is the full moon: lit at center, and different from phase 0.
         assert glyphs[4].get_at(center)[:3] == EGA_WHITE
 
-    def test_render_draws_strip_on_map0(self, asset_mgr, party, monkeypatch):
+    def _glyphs(self, screen, monkeypatch, size=(960, 600)):
         import py_exodus.screens.overworld as ow_module
 
-        ow = OverworldScreen(party=party, map_id=0, asset_mgr=asset_mgr, start_x=45, start_y=19)
-        ow.moon_phase = 24  # Trammel 0, Felucca 0 (both glyphs still drawn)
-
-        # The real render path draws exactly the two moon glyphs on Sosaria.
         calls: list[tuple[int, int]] = []
-        real_glyph = ow_module.draw_moon_glyph
+        real = ow_module.draw_moon_glyph
 
         def spy(surface, cx, cy, radius, phase, *a, **k):
             calls.append((cx, phase))
-            return real_glyph(surface, cx, cy, radius, phase, *a, **k)
+            return real(surface, cx, cy, radius, phase, *a, **k)
 
         monkeypatch.setattr(ow_module, "draw_moon_glyph", spy)
-        ow.render(pygame.Surface((640, 400)))
-        assert len(calls) == 2
-        assert calls[0][1] == ow.trammel_phase
-        assert calls[1][1] == ow.felucca_phase
+        screen.render(pygame.Surface(size))
+        return calls
 
-        # On a clean surface the strip's wind text and glyph pixels appear.
-        strip = pygame.Surface((176, 40))
-        ow._render_sky_strip(strip, pane_right=176, pane_top=0)
-        lit = sum(
-            1
-            for x in range(176)
-            for y in range(40)
-            if strip.get_at((x, y))[:3] != (0, 0, 0)
-        )
-        assert lit > 50  # wind text row plus both dark moon discs
+    def test_moons_drawn_in_the_right_panel_not_on_the_map(self, asset_mgr, party, monkeypatch):
+        """The wind and moons sit in the right panel's bottom card (user
+        2026-11-26), clear of the map pane (528 px wide at 960x600)."""
+        ow = OverworldScreen(party=party, map_id=0, asset_mgr=asset_mgr, start_x=45, start_y=19)
+        ow.moon_phase = 10  # Trammel 3, Felucca 2
+        calls = self._glyphs(ow, monkeypatch)
+        assert [ph for _, ph in calls] == [ow.trammel_phase, ow.felucca_phase]
+        assert all(cx > 528 for cx, _ in calls)
+
+    def test_small_screen_panel_shows_the_moons(self, asset_mgr, party, monkeypatch):
+        ow = OverworldScreen(party=party, map_id=0, asset_mgr=asset_mgr, start_x=45, start_y=19)
+        calls = self._glyphs(ow, monkeypatch, size=(320, 200))
+        assert len(calls) == 2 and all(cx > 176 for cx, _ in calls)
 
     def test_render_shows_frozen_moons_on_map13(self, asset_mgr, party, monkeypatch):
-        import py_exodus.screens.overworld as ow_module
-
         ow = OverworldScreen(party=party, map_id=13, asset_mgr=asset_mgr, start_x=32, start_y=57)
-        calls: list[tuple] = []
-        monkeypatch.setattr(ow_module, "draw_moon_glyph", lambda *a, **k: calls.append(a))
-        ow.render(pygame.Surface((640, 400)))
-        assert len(calls) == 2
+        assert len(self._glyphs(ow, monkeypatch)) == 2
 
-    def test_strip_is_centred_moons_top_wind_bottom(self, asset_mgr, party, monkeypatch):
-        """LairWare's frame: the moons centred on the map's top edge
-        (DrawMoonGateStuff), the wind centred on its bottom edge (ShowWind)."""
-        import py_exodus.screens.overworld as ow_module
+    def test_sky_info_carries_wind_moons_and_aura(self, asset_mgr, party):
+        from py_exodus.aura import AuraType
 
         ow = OverworldScreen(party=party, map_id=0, asset_mgr=asset_mgr, start_x=45, start_y=19)
-        glyphs: list[tuple[int, int]] = []
-        monkeypatch.setattr(
-            ow_module, "draw_moon_glyph",
-            lambda surface, cx, cy, *a, **k: glyphs.append((cx, cy)),
-        )
-        blits: list[tuple[int, int, int, int]] = []
+        ow.moon_phase = 10
+        party.aura.set(AuraType.QUICKNESS, 10)
+        info = ow.sky_info()
+        assert (info["trammel"], info["felucca"]) == (3, 2)
+        assert info["wind"] == party.wind_direction
+        assert info["aura"] == AuraType.QUICKNESS
 
-        class _Spy(pygame.Surface):
-            def blit(self, src, dest, *a, **k):
-                if isinstance(dest, tuple) and src.get_height() < 60:
-                    blits.append((dest[0], dest[1], src.get_width(), src.get_height()))
-                return super().blit(src, dest, *a, **k)
+    def test_no_sky_in_combat(self, asset_mgr, party):
+        from py_exodus.screens.combat_screen import CombatScreen
+        from py_exodus.world.loader import MapLoader
 
-        surf = _Spy((640, 400))
-        v = 176 * 3
-        ow._render_sky_strip(surf, pane_right=v, pane_top=0, pane_bottom=v)
-        (x1, y1), (x2, y2) = glyphs
-        assert y1 == y2 and y1 < 40
-        assert abs((x1 + x2) / 2 - v / 2) <= 1
-        bx, by, bw, bh = blits[-1]  # the wind text
-        assert abs(bx + bw / 2 - v / 2) <= 1
-        assert by + bh > v - 20
+        cm = MapLoader(asset_mgr).load_conflict_map("CNFLCT_A.ULT")
+        assert not hasattr(CombatScreen(party=party, combat_map=cm, asset_mgr=asset_mgr), "sky_info")
 
 
 class TestTownSkyStrip:
@@ -419,7 +400,7 @@ class TestTownSkyStrip:
             lambda surface, cx, cy, radius, phase, *a, **k: glyphs.append(phase),
         )
         party.moon_phase = 10
-        town.render(pygame.Surface((640, 400)))
+        town.render(pygame.Surface((960, 600)))
         assert glyphs == [3, 2]
 
 
