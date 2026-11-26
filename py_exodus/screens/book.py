@@ -97,17 +97,6 @@ SPINE = EGA_BROWN
 # per-discipline ``s.code`` letters are FIXED (original-game alphabetical
 # A-P per discipline), so the reference lists name + letter + MP + where.
 
-#: Human-readable place words for the location bits (constants.MapType.mask;
-#: the player-facing mirror of spell_menu._CONTEXT_MAPTYPES). A location
-#: mask of 0xFF means every place.
-_LOCATION_LABELS: tuple[tuple[int, str], ...] = (
-    (0x01, "world"),
-    (0x02, "combat"),
-    (0x04, "town"),
-    (0x08, "dungeon"),
-    (0x10, "shrine"),
-)
-_LOCATION_ANYWHERE = "anywhere"
 
 #: A list item's key: "A)", "Spacebar)", "Tab / F2)", "[ / ])" or a spell
 #: reference row's "A -". Shown in cyan; such lines get no paragraph gap.
@@ -116,19 +105,6 @@ _KEY_RE = re.compile(r"^(?:[^(),]{1,24}\)|[A-P] -)(?= )")
 _LIST_RE = re.compile(r"^(?:-- |\d+\. )")
 #: A table row: cells separated by runs of two or more spaces.
 _CELL_SPLIT = re.compile(r"\s{2,}")
-
-
-def _location_phrase(spell: Spell) -> str:
-    """Where a spell may be cast, from its location mask (Constants.java)."""
-    if spell.location_mask == 0xFF:
-        return _LOCATION_ANYWHERE
-    if spell.location_mask == 0xFF & ~0x02:
-        return "not in combat"
-    places = [label for bit, label in _LOCATION_LABELS if spell.location_mask & bit]
-    return "/".join(places)
-
-
-# ---------------------------------------------------------------- text ---
 
 
 def _resolve_lore_path(asset_mgr: AssetManager | None) -> Any:
@@ -155,8 +131,11 @@ def spell_reference_lines(discipline: str) -> list[str]:
     with mana or context, and a spell the current place refuses prints
     "Not Here!" when attempted, per py_exodus/spell_menu.py).
     """
+    # One source with the F4 cards, so the two never disagree.
+    from py_exodus.screens.quickref import SPELL_EFFECTS, spell_display_name, spell_where
+
     return [
-        f"{s.code} - {s.name} ({s.mp_cost} MP, {_location_phrase(s)}): {s.desc}"
+        f"{s.code} - {spell_display_name(s)} ({s.mp_cost} MP, {spell_where(s)}): {SPELL_EFFECTS[s]}"
         for s in Spell
         if s.spell_type == discipline
     ]

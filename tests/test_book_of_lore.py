@@ -147,26 +147,32 @@ class TestSpellReference:
         return "\n".join(spell_reference_lines("wizard") + spell_reference_lines("cleric"))
 
     def test_every_row_carries_the_fixed_letter_column(self):
-        text = self._text()
-        for spell in Spell:
-            assert re.search(
-                rf"^{spell.code} - {spell.name} \(\d+ MP, .+\): ", text, re.MULTILINE
-            ), spell.name
-        assert "B - APPAR_UNEM (5 MP," in text
-        assert re.search(r"^C - SANCTU \(10 MP,", text, re.MULTILINE)
+        from py_exodus.screens.quickref import spell_display_name
 
-    def test_every_spell_listed_with_mp_cost_and_description(self):
         text = self._text()
         for spell in Spell:
-            assert f"{spell.name} ({spell.mp_cost} MP, " in text
-            assert spell.desc in text
+            name = re.escape(spell_display_name(spell))
+            assert re.search(rf"^{spell.code} - {name} \(\d+ MP, .+\): ", text, re.MULTILINE), spell.name
+        assert "B - Appar Unem (5 MP," in text
+        assert re.search(r"^C - Sanctu \(10 MP,", text, re.MULTILINE)
+
+    def test_rows_use_the_f4_cards_effect_lines(self):
+        """One source with the F4 cards (SPELL_EFFECTS), not Spell.desc."""
+        from py_exodus.screens.quickref import SPELL_EFFECTS, spell_display_name
+
+        text = self._text()
+        for spell in Spell:
+            assert f"{spell_display_name(spell)} ({spell.mp_cost} MP, " in text
+            assert SPELL_EFFECTS[spell] in text
+        assert "Weakens enemies" not in text  # the old, wrong Necorp line
 
     def test_rows_name_the_place_context(self):
+        from py_exodus.screens.quickref import spell_where
+
         text = self._text()
-        assert "B - MITTAR (5 MP, combat)" in text
-        assert "C - SANCTU (10 MP, anywhere)" in text
-        assert "B - APPAR_UNEM (5 MP, world/town/dungeon)" in text
-        assert "L - VIEDA (55 MP, world/town)" in text
+        for spell in (Spell.MITTAR, Spell.SANCTU, Spell.APPAR_UNEM, Spell.VIEDA):
+            assert f"({spell.mp_cost} MP, {spell_where(spell)})" in text
+        assert "B - Mittar (5 MP, combat)" in text
 
     def test_no_dynamic_letter_note_remains(self):
         text = _chapter_text("Wizard Sorceries") + _chapter_text("Clerical Prayers")
@@ -182,8 +188,8 @@ class TestSpellReference:
         """Wrapping keeps each row's cyan key and its text."""
         scr = BookScreen(asset_mgr=asset_mgr)
         text = _laid_out_text(scr)
-        assert "B - APPAR_UNEM (5 MP, world/town/dungeon)" in text
-        assert "REPOND" in text and "PONTORI" in text
+        assert "B - Appar Unem (5 MP," in text
+        assert "Repond" in text and "Pontori" in text
 
 
 class TestLayout:
