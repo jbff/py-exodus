@@ -125,6 +125,39 @@ _SHIP_CHEST_CLEAR = 6  # no sea monster this close to go ashore for a chest
 # wait or creature in the way that the first replan already covers.
 _TRIP_STILL_TURNS = 60
 _BLOCK_TURNS = 40  # a refused threatened tile stays barred this long
+# The whirlpool and a parked ship (batch 67c0de5 b5 seed 44). LairWare
+# WhirlPool (UltimaMain.c:2959-3013) moves it one tile, in any of eight
+# directions, every 4th key-wait poll: about one move per 4 autoplay turns
+# at the command line (none in prompts or combat). Seven times in eight it
+# keeps its heading; land ahead, or the 1-in-8 roll, gives it a new one. An
+# empty frigate on its next tile (0x2C) is sunk; the party's own ship is
+# engulfed instead (Ambrosia, and back aboard a frigate). So a parked ship
+# is at risk only from a whirlpool next to it (Chebyshev 1), and one two
+# tiles off needs two moves (~8 turns) on a heading straight at it.
+#
+# Landing: X waits aboard while the whirlpool is within _WHIRL_LANDING_CLEAR
+# of the landing tile: a walk ashore and back alone gives it those two moves.
+# Farther off, the party goes and the reboard guard watches the ship. The
+# wait stands off a tile when the whirlpool comes next to the ship, and is
+# bounded: _WHIRL_HOLD_TURNS (8 moves), then the party lands anyway, and no
+# new wait starts for _WHIRL_HOLD_COOLDOWN turns.
+_WHIRL_LANDING_CLEAR = 2
+_WHIRL_HOLD_TURNS = 32
+_WHIRL_HOLD_COOLDOWN = 200
+# Ashore: when the whirlpool comes next to the ship the party left, and the
+# ship is at most _WHIRL_REBOARD_STEPS away (under one move), the errand is
+# cut short and the party boards again; at most once per
+# _WHIRL_REBOARD_COOLDOWN turns, so land-reboard can't loop.
+_WHIRL_REBOARD_STEPS = 3
+_WHIRL_REBOARD_COOLDOWN = 200
+
+
+def _cheb(w: int, h: int, a: tuple[int, int], b: tuple[int, int]) -> int:
+    """Wrap-aware Chebyshev distance: the whirlpool's moves from a to b."""
+    dx, dy = abs(a[0] - b[0]) % w, abs(a[1] - b[1]) % h
+    return max(min(dx, w - dx), min(dy, h - dy))
+
+
 # Planning cost for entering a tile under threat when the trip is planned.
 _DANGER_HARD = 60.0
 _DANGER_SQUID_COAST = 5.0
@@ -358,6 +391,11 @@ class AutoPlayController:
         # (wind, goals) a hold was given up for: the wind-legal route rules.
         self._wind_commit = None
         self._whirl_missing = False
+        # Landing hold near the whirlpool: turn it began, and the turn
+        # before which no new hold starts.
+        self._whirl_hold_from: int | None = None
+        self._whirl_hold_until = 0
+        self._whirl_reboard_until = 0
         self._trip_stuck = 0
         self._trip_still = 0  # turns on one tile; only a move resets it
         self._cure_latch = None  # the dungeon state whose poison went dire
@@ -2092,6 +2130,13 @@ class AutoPlayController:
         cur_map_id = self._screen_map_id(screen, party)
         living = [m for m in party.members if not m.is_dead()]
 
+        # The whirlpool next to the ship the party left: board it again
+        # before it sinks (batch 67c0de5 b5 seed 44 starved on a two-tile
+        # island after it sank the ship parked two steps away).
+        key = self._whirl_reboard(state_machine, screen, gmap, party, (px, py), cur_map_id)
+        if key is not None:
+            return key
+
         # A chest dropped ashore by a fight fought from the ship (user rule
         # 2026-11-23): leave the ship, step over, open it, board again, a few
         # turns for gold and maybe gear, unless sea monsters are about or a
@@ -3001,6 +3046,11 @@ class AutoPlayController:
         if leg.action == "CAPTURE" and leg.end in self._foot_reachable(gmap, party, pos):
             return self._drive_capture(state_machine, screen, gmap, party, pos, leg, map_id)
 
+        if leg.action == "X" and map_id == 0:
+            key = self._whirl_landing_wait(state_machine, screen, gmap, party, pos, leg.end)
+            if key is not None:
+                return key
+
         if pos != leg.end:
             return self._move_toward(state_machine, gmap, party, pos, {leg.end})
 
@@ -3020,6 +3070,108 @@ class AutoPlayController:
         if leg.action == "CAPTURE":
             return self._drive_capture(state_machine, screen, gmap, party, pos, leg, map_id)
         return None
+
+    @staticmethod
+    def _whirl_tiles(screen) -> list[tuple[int, int]]:
+        return [
+            (c["x"], c["y"])
+            for c in getattr(screen, "creatures", ())
+            if creature_name(c) == "whirlpool" and "x" in c and "y" in c
+        ]
+
+    def _whirl_landing_wait(self, state_machine, screen, gmap, party, pos, landing) -> int | None:
+        """A key that keeps the ship off the landing while the whirlpool is
+        within _WHIRL_LANDING_CLEAR of it, or None to land as planned.
+
+        Only near the landing (3 tiles): farther out the ship sails on.
+        Waiting, the ship passes turns, or stands off a tile when the
+        whirlpool is next to it."""
+        w, h = gmap.width, gmap.height
+        whirls = self._whirl_tiles(screen)
+        if not whirls or manhattan(w, h, pos, landing) > 3:
+            return None
+        near = min(_cheb(w, h, landing, t) for t in whirls) <= _WHIRL_LANDING_CLEAR
+        if not self._whirl_hold_step(near):
+            return None
+
+        def room(t: tuple[int, int]) -> tuple[int, int]:
+            return (
+                min(_cheb(w, h, t, x) for x in whirls),
+                min(manhattan(w, h, t, x) for x in whirls),
+            )
+
+        here = room(pos)
+        if here[0] <= 1:
+            # Stand off: the sea step that puts the most water between ship
+            # and whirlpool, by Chebyshev then Manhattan distance, so a step
+            # that stays alongside but opens the gap still counts.
+            blocked = headwind(getattr(party, "wind_direction", None))
+            frig = set(self._frigate_costs(party, screen))
+            taken = {(c.get("x"), c.get("y")) for c in getattr(screen, "creatures", ())}
+            best = None
+            for d in (Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST):
+                if d == blocked or getattr(party, "wind_direction", None) is None:
+                    continue
+                n = ((pos[0] + d.dx) % w, (pos[1] + d.dy) % h)
+                if n in frig or n in taken or not can_move_to(gmap, n[0], n[1], Transport.SHIP, party=party):
+                    continue
+                r = room(n)
+                if r > here and (best is None or r > best[0]):
+                    best = (r, d)
+            if best is not None:
+                return self._emit_key(state_machine, _DIR_TO_KEY[best[1]])
+        return self._emit_key(state_machine, pygame.K_SPACE)
+
+    def _whirl_reboard(self, state_machine, screen, gmap, party, pos, map_id) -> int | None:
+        """Ashore with the whirlpool next to the ship the party left (its
+        next move may sink it): walk back and board, when the ship is at
+        most _WHIRL_REBOARD_STEPS away. None otherwise."""
+        lt = self._last_transition
+        if map_id != 0 or party.transport == Transport.SHIP or lt is None or lt.kind != "X":
+            return None
+        ship = lt.pos
+        w, h = gmap.width, gmap.height
+        if ship not in self._frigate_costs(party, screen):
+            return None
+        if not any(_cheb(w, h, ship, t) <= 1 for t in self._whirl_tiles(screen)):
+            return None
+        if manhattan(w, h, pos, ship) > _WHIRL_REBOARD_STEPS:
+            return None
+        trip = self._trip
+        reboarding = trip is not None and trip.dest.label == "whirl_reboard"
+        if not reboarding:
+            if self._ow_turn < self._whirl_reboard_until:
+                return None
+            self._whirl_reboard_until = self._ow_turn + _WHIRL_REBOARD_COOLDOWN
+        key = self._trip_drive(
+            state_machine, screen, gmap, party, pos[0], pos[1], map_id,
+            Destination(frozenset({ship}), Transport.SHIP, "whirl_reboard"),
+        )
+        if key is None or key is _ARRIVED:
+            return None
+        return key
+
+    def _whirl_hold_step(self, near: bool) -> bool:
+        """One turn of the landing hold: True holds the ship (pass a turn).
+
+        Bounded: a hold lasts _WHIRL_HOLD_TURNS at most, then the party goes
+        ashore and accepts the risk, and no hold starts again for
+        _WHIRL_HOLD_COOLDOWN turns, so landings can't hold-and-replan in a
+        loop. The whirlpool moving out of reach ends the hold at once."""
+        turn = self._ow_turn
+        if not near:
+            self._whirl_hold_from = None
+            return False
+        if self._whirl_hold_from is None:
+            if turn < self._whirl_hold_until:
+                return False
+            self._whirl_hold_from = turn
+            return True
+        if turn - self._whirl_hold_from < _WHIRL_HOLD_TURNS:
+            return True
+        self._whirl_hold_from = None
+        self._whirl_hold_until = turn + _WHIRL_HOLD_COOLDOWN
+        return False
 
     @staticmethod
     def _off_route(plan: TripPlan, pos: tuple[int, int], gmap) -> bool:
