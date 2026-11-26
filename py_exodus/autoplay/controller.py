@@ -229,6 +229,11 @@ _CAPTURE_STALL_TURNS = 5
 # One LairWare moveshoot hit costs each living member (rand & 0x77) + 8 HP
 # at most (threats.py). The dash walks a lane only if all can take two.
 _BROADSIDE_MAX = 0x77 + 8
+# A frigate this many foot steps away is walked to through the lanes
+# (_board_dash): Fawn's strip is three tiles from its gate's frigate.
+_BOARD_DASH_STEPS = 3
+# _board_dash on the frigate: leave the turn to the trip, which boards.
+_YIELD_TO_TRIP = -1
 # A stalled capture the party is too weak to dash leaves the pirate alone
 # this many capture turns (patrols the coast instead of pacing).
 _CAPTURE_SHUN_TURNS = 30
@@ -1900,6 +1905,14 @@ class AutoPlayController:
             and pos in self._frigate_costs(party, screen)
         ):
             return None
+
+        # A frigate a few steps away while the trip wants a ship: walk to
+        # it through the lanes and board (batch 89c1bf4 b9 seed 90).
+        board_key = self._board_dash(state_machine, screen, gmap, party, pos, th)
+        if board_key == _YIELD_TO_TRIP:
+            return None
+        if board_key is not None:
+            return board_key
 
         # A stalled capture's dash through the lanes: nothing else undoes it.
         dash_key = self._capture_dash(state_machine, screen, gmap, party, pos, th)
@@ -4018,6 +4031,86 @@ class AutoPlayController:
             self._cap_stall = 0
             return True
         return False
+
+    def _board_dash(self, state_machine, screen, gmap, party, pos, th) -> int | None:
+        """Walk through the firing lanes to a frigate within
+        _BOARD_DASH_STEPS and board it, when the trip's next leg needs a
+        ship (B or a capture) and every member can take a worst-case hit
+        on each lane turn of the walk. Emitted unguarded: the lane guard
+        and the lane escape would undo it.
+
+        Batch 89c1bf4 b9 seed 90: the party left its frigate at (31, 2) for
+        Fawn (30, 2), on a three-tile strip (27-29, 2). A pirate came to
+        (32, 2) behind the empty frigate; LairWare's MoveMonsters steps it
+        only west, onto the frigate's 0x2C, which ValidMonsterDir refuses
+        (UltimaMisc.c:263-272, 1191-1236), so it stays there for good,
+        its row shot reaching (29, 2) and (30, 2). The trip stepped onto
+        (29, 2), the escape stepped back, and the party paced (28, 2)-(29, 2)
+        for ~3,700 steps until it starved with 4,665 gold. Aboard at
+        (31, 2) the pirate is orthogonally next to the ship: the usual
+        rules fight it or sail away."""
+        if party.transport != Transport.FOOT or th is None or not th.pirates:
+            return None
+        plan = self._trip
+        if plan is None or not plan.legs or plan.legs[0].action not in ("B", "CAPTURE"):
+            return None
+        frigates = set(self._frigate_costs(party, screen))
+        if not frigates:
+            return None
+        if pos in frigates:
+            # On it: the trip, the one owner of B, boards (a capture plan is
+            # dropped so the replan from here is the B leg).
+            if plan.legs[0].action == "CAPTURE":
+                self._trip = None
+            return _YIELD_TO_TRIP
+        if party_has_low_hp(party):
+            return None
+        terr = terrain_for(gmap, party, getattr(gmap, "id", 0))
+        occupied = {
+            (c["x"], c["y"]) for c in getattr(screen, "creatures", ()) or ()
+            if "x" in c and "y" in c
+        }
+        # Shortest foot walk (BFS) to a frigate tile: land on the way, the
+        # frigate's water tile only as the last step.
+        prev: dict[tuple[int, int], tuple[int, int] | None] = {pos: None}
+        frontier = [pos]
+        found = None
+        for _ in range(_BOARD_DASH_STEPS):
+            nxt_front = []
+            for cur in frontier:
+                for n in terr.neighbours(*cur):
+                    if n in prev or n in occupied:
+                        continue
+                    if n in frigates:
+                        prev[n] = cur
+                        found = n
+                        break
+                    if n in terr.foot and can_move_to(gmap, n[0], n[1], Transport.FOOT, party=party):
+                        prev[n] = cur
+                        nxt_front.append(n)
+                if found is not None:
+                    break
+            if found is not None:
+                break
+            frontier = nxt_front
+        if found is None:
+            return None
+        path = [found]
+        while prev[path[-1]] != pos:
+            path.append(prev[path[-1]])
+        path.reverse()
+        # Each turn ending in a lane is a possible hit; boarding on a lane
+        # tile is one more turn there.
+        hits = sum(1 for t in path if t in th.lanes) + (1 if found in th.lanes else 0)
+        if any(not m.is_dead() and m.hp <= hits * _BROADSIDE_MAX for m in party.members):
+            return None
+        step = path[0]
+        w, h = gmap.width, gmap.height
+        d = next(
+            d for d in (Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST)
+            if ((pos[0] + d.dx) % w, (pos[1] + d.dy) % h) == step
+        )
+        return self._emit_key(state_machine, _DIR_TO_KEY[d], guarded=False)
 
     @staticmethod
     def _can_take_broadsides(party) -> bool:
