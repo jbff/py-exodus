@@ -529,6 +529,10 @@ class OverworldScreen(BaseScreen):
         # 2051-2058) follow only CreateNewMap, the "Kreate" random world.
 
     @staticmethod
+    def _is_whirlpool(c: dict[str, Any]) -> bool:
+        return str(c.get("tile_name") or c.get("tile") or "").lower() == "whirlpool"
+
+    @staticmethod
     def _lw_start_whirlpool() -> dict[str, Any]:
         """The Sosaria whirlpool as the LairWare map resource starts it."""
         return {
@@ -596,10 +600,13 @@ class OverworldScreen(BaseScreen):
         # starts its idle count afresh (UltimaMain.c:1040).
         self._idle_polls = 0
         self._play_overworld_music()
-        # Purge any creature at the party's tile to prevent combat re-trigger loops
+        # Purge any creature at the party's tile to prevent combat re-trigger
+        # loops. Never the whirlpool: LairWare keeps it outside Monsters[]
+        # (WhirlX/WhirlY), where nothing removes it.
         self.creatures = [
             c for c in self.creatures
-            if not (c.get("x") == self.party.x and c.get("y") == self.party.y)
+            if self._is_whirlpool(c)
+            or not (c.get("x") == self.party.x and c.get("y") == self.party.y)
         ]
 
     def _play_overworld_music(self) -> None:
@@ -1333,7 +1340,9 @@ class OverworldScreen(BaseScreen):
             found_creature = None
             found_idx = -1
             for idx, c in enumerate(self.creatures):
-                if c["x"] == tx and c["y"] == ty:
+                # LairWare Attack: MonsterHere, Monsters[] only
+                # (UltimaMain.c:1329-1340): never the whirlpool.
+                if c["x"] == tx and c["y"] == ty and not self._is_whirlpool(c):
                     found_creature = c
                     found_idx = idx
                     break
@@ -1579,8 +1588,14 @@ class OverworldScreen(BaseScreen):
             tx = (cx + direction.dx * step) % self.game_map.width
             ty = (cy + direction.dy * step) % self.game_map.height
             path.append((tx, ty))
+            # MonsterHere scans Monsters[] only (UltimaMisc.c:429-442); the
+            # whirlpool (WhirlX/WhirlY) is outside it, so the shot flies on.
             target = next(
-                (c for c in self.creatures if c.get("x") == tx and c.get("y") == ty), None
+                (
+                    c for c in self.creatures
+                    if c.get("x") == tx and c.get("y") == ty and not self._is_whirlpool(c)
+                ),
+                None,
             )
             if target is None:
                 continue

@@ -1,6 +1,7 @@
 """Live input-driver AutoPlayController for Full Autoplay ("Watch Mode")."""
 from __future__ import annotations
 
+import logging
 import sys
 
 import random
@@ -97,6 +98,13 @@ _KEY_TO_DIR: dict[int, Direction] = {v: k for k, v in _DIR_TO_KEY.items()}
 # Returned by the trip follower when the party stands at its destination.
 _ARRIVED = object()
 _REST_INDOORS = object()
+_log = logging.getLogger(__name__)
+
+# Where to look when Sosaria shows no whirlpool (it should never happen,
+# see the SAIL_WHIRLPOOL destination): LairWare's start (MAPS 420, 47,17),
+# then Java's two fixed spots.
+_WHIRLPOOL_GUESSES = ((47, 17), (50, 13), (17, 48))
+
 _TRIP_REPLAN_TURNS = 300
 _TRIP_STUCK_TURNS = 30
 _NEIGHBOURS4 = ((0, -1), (0, 1), (-1, 0), (1, 0))
@@ -298,6 +306,8 @@ class AutoPlayController:
         self._trip: TripPlan | None = None
         self._trip_frigates: frozenset[tuple[int, int]] = frozenset()
         self._trip_planned_at = 0
+        self._whirl_guess = 0
+        self._whirl_missing = False
         self._trip_stuck = 0
         self._trip_still = 0  # turns on one tile; only a move resets it
         self._cure_latch = None  # the dungeon state whose poison went dire
@@ -2478,10 +2488,31 @@ class AutoPlayController:
                 (c["x"], c["y"])
                 for c in getattr(screen, "creatures", ())
                 if creature_name(c) == "whirlpool" and "x" in c and "y" in c
-            ) or frozenset({(50, 13), (17, 48)})
+            )
+            if whirlpools:
+                self._whirl_missing = False
+                return (
+                    Destination(whirlpools, Transport.SHIP, "whirlpool", moving=True),
+                    lambda: self._emit_key(sm, pygame.K_SPACE),
+                )
+            # LairWare's whirlpool can't be removed (WhirlX/WhirlY sit outside
+            # Monsters[]), and the creature list is read afresh every tick.
+            # Should it be missing anyway, say so once and try the guessed
+            # spots in turn, moving on from each one reached: never pass on
+            # a guess (trace_20261125-184644 sat at Java's (17, 48) for
+            # ~11,000 steps).
+            if not getattr(self, "_whirl_missing", False):
+                self._whirl_missing = True
+                _log.warning("autoplay: no whirlpool on Sosaria; trying guessed spots")
+            guess = _WHIRLPOOL_GUESSES[self._whirl_guess % len(_WHIRLPOOL_GUESSES)]
+
+            def _next_guess() -> int:
+                self._whirl_guess += 1
+                return self._emit_key(sm, pygame.K_SPACE)
+
             return (
-                Destination(whirlpools, Transport.SHIP, "whirlpool", moving=True),
-                lambda: self._emit_key(sm, pygame.K_SPACE),
+                Destination(frozenset({guess}), Transport.SHIP, f"whirlpool?{guess[0]},{guess[1]}"),
+                _next_guess,
             )
 
         if goal == Goal.GET_MARK_KINGS:

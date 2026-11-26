@@ -2278,3 +2278,24 @@ def test_autoplay_does_not_wait_on_the_rod_while_starving(pygame_setup, monkeypa
     assert all(hp - 50 >= mx // 2 for _n, hp, mx in burns), burns
     assert not party.members[3].marks[1]
     assert positions[-1] != (5, 2, 0)
+
+
+def test_no_whirlpool_never_waits_forever_on_a_guessed_tile(pygame_setup, asset_mgr):
+    """User live trace 2026-11-25 (trace_20261125-184644): once the
+    whirlpool was gone, SAIL_WHIRLPOOL sailed to Java's old spot (17, 48)
+    and passed there for about 11,000 steps. With no whirlpool in the
+    creature list, autoplay tries each guessed spot in turn and never sits
+    on one."""
+    party = _all_cards_party(keys=8, gold=5391)
+    for m in party.members:
+        m.max_hp = m.hp = 2550
+        m.food = 400
+    party.x, party.y = 17, 48
+    party.transport = Transport.SHIP
+    assert evaluate_goal(party, 0) == Goal.SAIL_WHIRLPOOL
+    sm, ow = _overworld(asset_mgr, party)
+    ow.creatures = []
+    ctrl = AutoPlayController(enabled=True)
+    keys = [ctrl.step(sm) for _ in range(40)]
+    assert (party.x, party.y) != (17, 48)
+    assert keys.count(pygame.K_SPACE) < 20

@@ -206,3 +206,50 @@ def test_pirates_close_in_and_fire_each_turn(ow, monkeypatch):
     assert (ow.creatures[0]["x"], ow.creatures[0]["y"]) == (23, 20)
     assert ow.party.members[0].hp == 92
     assert not hasattr(ow.party, "ship_hull")
+
+
+def test_a_shot_passes_through_the_whirlpool_and_never_removes_it(ow, monkeypatch):
+    """LairWare Fire stops only where MonsterHere finds a monster
+    (UltimaMain.c:1541-1543), and MonsterHere scans Monsters[] alone
+    (UltimaMisc.c:429-442); the whirlpool is WhirlX/WhirlY, outside that
+    table, so a shot flies through it. User live trace 2026-11-25
+    (trace_20261125-184644, step ~110,048): autoplay fired at a sea monster
+    with the whirlpool between, "Whirlpools destroyed!", and Sosaria had no
+    whirlpool for the rest of the run."""
+    wp = ow._lw_start_whirlpool()
+    wp["x"], wp["y"] = 20, 21
+    squid = {"tile_name": "squid", "x": 20, "y": 22}
+    ow.creatures = [wp, squid]
+    _rolls(monkeypatch, 200, 200, 200)
+    ow._fire_cannons(Direction.SOUTH)
+    assert wp in ow.creatures
+    assert squid not in ow.creatures
+    ow.creatures = [wp]
+    _rolls(monkeypatch, 200, 200, 200)
+    ow._fire_cannons(Direction.SOUTH)
+    assert ow.creatures == [wp]
+    assert not any("Whirlpool" in m for m in ow.text_log.history)
+
+
+def test_attack_never_takes_the_whirlpool(ow):
+    """LairWare Attack: ``monNum = MonsterHere(xs, ys); if (monNum == 255)
+    NotHere();`` (UltimaMain.c:1329-1340): no fight with the whirlpool, and it
+    stays."""
+    wp = ow._lw_start_whirlpool()
+    wp["x"], wp["y"] = 21, 20
+    ow.creatures = [wp]
+    ow._prompt_attack_overworld()
+    ow.text_log._callback("E")
+    assert ow.creatures == [wp]
+
+
+def test_coming_back_onto_the_whirlpool_tile_keeps_it(ow):
+    """on_enter's purge of creatures on the party's tile (a fight's monster)
+    must not drop the whirlpool: back from a town or a fight with the
+    whirlpool drifted onto the party's tile, Sosaria still has it."""
+    wp = ow._lw_start_whirlpool()
+    wp["x"], wp["y"] = 20, 20
+    orc = {"tile_name": "orc", "x": 20, "y": 20}
+    ow.creatures = [wp, orc]
+    ow.on_enter()
+    assert ow.creatures == [wp]
