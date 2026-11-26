@@ -65,6 +65,7 @@ from py_exodus.autoplay.threats import (
     compute_threats,
     creature_name,
     foot_escape,
+    lane_tiles_for,
     manhattan,
     ship_escape,
     wrap_delta,
@@ -150,6 +151,30 @@ _WHIRL_HOLD_COOLDOWN = 200
 # _WHIRL_REBOARD_COOLDOWN turns, so land-reboard can't loop.
 _WHIRL_REBOARD_STEPS = 3
 _WHIRL_REBOARD_COOLDOWN = 200
+
+# A dragon on Sosaria follows the party on foot (batch 67c0de5 b6 seed 57):
+# LairWare MoveMonsters steps it toward the party every turn the party
+# moves, so dodging its breath in a straight line keeps it three tiles
+# behind, breathing, until the party is ruined. moveshoot fires only from
+# the 11x11 view, _SHOOT_VIEW tiles each way (UltimaMisc.c:1245-1278).
+_SHOOT_VIEW = 5
+# Refuge: a town or castle gate at most _REFUGE_STEPS steps away, reached
+# before any monster can engage (LairWare's greedy monster step simulated
+# along the walk). 6 is about the breath a party can afford on the walk:
+# a turn in line costs each member up to (rand & 0x77) + 8, half the time,
+# and a level-6 Cleric (557 of 650 HP in the trace) takes four worst-case
+# hits. Farther than that the walk costs what it saves, the simulation of
+# monster steps and spawns grows unreliable, and the path search (4^N)
+# gets dear.
+_REFUGE_STEPS = 6
+# After a refuge, no new one for this many turns: the dragon waits outside
+# (the overworld is still while the party is indoors), so the way out is
+# the fight, not a step back in. One town visit, rest included, is about
+# 20-200 turns; any later refuge is a fresh threat.
+_REFUGE_COOLDOWN = 200
+# Map ids never taken as a refuge: Exodus and Death Gulch are hostile (user
+# ruling: no town fights), Dawn is rarely there.
+_NO_REFUGE_MAPS = (2, 10, 11)
 
 
 def _cheb(w: int, h: int, a: tuple[int, int], b: tuple[int, int]) -> int:
@@ -412,6 +437,8 @@ class AutoPlayController:
         self._ow_turn = 0
         self._blocked_tiles: dict[tuple[int, int], int] = {}
         self._fleeing = False
+        # The turn before which no new dragon refuge starts.
+        self._refuge_until = 0
         # A member lacking a wanted mark is not safe for its rod (dungeon).
         self._rod_heal_wanted = False
         # Turning back in a dungeon (item 5), latched per dungeon visit.
@@ -1829,12 +1856,13 @@ class AutoPlayController:
         # A strong party fights a dragon rather than dodging its breath: the
         # escape can't close on one, so a level-25 party hopped between two
         # tiles in its range until it wiped (batch dbeb0c9 seed 159).
+        dragon_lanes = not self._strong_vs_pirates(party)
         th = compute_threats(
             gmap,
             party,
             getattr(screen, "creatures", ()) or (),
             fight_squids=fight_squids,
-            dragon_lanes=not self._strong_vs_pirates(party),
+            dragon_lanes=dragon_lanes,
         )
         self._threats = th
         pos = (px, py)
@@ -1884,6 +1912,12 @@ class AutoPlayController:
             hunt = self._pirate_hunt_step(gmap, party, pos, th)
             if hunt is not None:
                 return self._emit_key(state_machine, _DIR_TO_KEY[hunt], guarded=False)
+
+        # A dragon following on foot: walk into a nearby town, or stop
+        # running and fight it (batch 67c0de5 b6 seed 57).
+        key = self._outrun_or_engage(state_machine, screen, gmap, party, pos, th, dragon_lanes)
+        if key is not None:
+            return key
 
         if not th.unsafe_end(pos):
             return None
@@ -1951,6 +1985,159 @@ class AutoPlayController:
                 return self._emit_key(state_machine, pygame.K_u, guarded=False)
             return self._emit_key(state_machine, _DIR_TO_KEY[d], guarded=False)
         return self._emit_key(state_machine, pygame.K_SPACE, guarded=False)
+
+    def _outrun_or_engage(self, state_machine, screen, gmap, party, pos, th, dragon_lanes) -> int | None:
+        """A dragon chasing a party that dodges its breath on foot (batch
+        67c0de5 b6 seed 57: fled 13 tiles south with the dragon three
+        behind, ~2,000 HP lost, wiped). LairWare's dragon moves as fast as
+        the party, so the lane escape never gets out of range.
+
+        1. A town or castle gate within _REFUGE_STEPS that the party reaches
+           before any monster can engage: walk in (re-checked every turn).
+           Inside, the usual town rules heal or rest. At most one refuge per
+           _REFUGE_COOLDOWN turns, so the dragon waiting at the gate can't
+           make the party bounce in and out.
+        2. A refuge was just used and the dragon is still in view: a party
+           that can take the breath steps up to it and fights. Otherwise
+           None (the old escape).
+        Pirates are left to the lane escape: they can't leave the water, so
+        walking inland does get out of range."""
+        if party.transport != Transport.FOOT or not dragon_lanes:
+            return None
+        w, h = gmap.width, gmap.height
+        chasing = [
+            (c["x"], c["y"])
+            for c in getattr(screen, "creatures", ()) or ()
+            if "x" in c and "y" in c and creature_name(c) == "dragon"
+            and manhattan(w, h, pos, (c["x"], c["y"])) <= _CHASE_RADIUS
+        ]
+        dragons = [d for d in chasing if _cheb(w, h, pos, d) <= _SHOOT_VIEW]
+        if not chasing:
+            return None
+        now = party.moves
+
+        # Chasing (within _CHASE_RADIUS) is enough: the dragon comes on
+        # whatever the party does, and by the time it is in view the gate
+        # is often cut off (seed 57: Britain was open at distance 8 and
+        # closed at 5, the dragon at the castle wall beside both gates).
+        if now >= self._refuge_until:
+            route = self._refuge_route(screen, gmap, party, pos)
+            if route is not None:
+                if not route:
+                    self._refuge_until = now + _REFUGE_COOLDOWN
+                    return self._emit_key(state_machine, pygame.K_e, guarded=False)
+                nxt = route[0]
+                d = next(
+                    d for d in (Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST)
+                    if ((pos[0] + d.dx) % w, (pos[1] + d.dy) % h) == nxt
+                )
+                return self._emit_key(state_machine, _DIR_TO_KEY[d], guarded=False)
+
+        refuge_spent = now < self._refuge_until
+        if dragons and refuge_spent and not party_has_low_hp(party) and self._can_take_broadsides(party):
+            for d in (Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST):
+                if ((pos[0] + d.dx) % w, (pos[1] + d.dy) % h) in dragons:
+                    return self._attack(state_machine, d)
+            step = self._pirate_hunt_step(gmap, party, pos, th, pirates=dragons)
+            if step is not None:
+                return self._emit_key(state_machine, _DIR_TO_KEY[step], guarded=False)
+        return None
+
+    def _refuge_route(self, screen, gmap, party, pos) -> list[tuple[int, int]] | None:
+        """The walk (tiles after ``pos``) to a town or castle gate within
+        _REFUGE_STEPS on which no monster engages, with the fewest turns in
+        a dragon's or pirate's line, or None. Monsters move by LairWare's
+        MoveMonsters (UltimaMisc.c:1191-1236): engaged at distance 1, else
+        the diagonal step toward the party, then the vertical, then the
+        horizontal one; a first step onto the party engages. Each turn
+        ending in a shooter's line counts as a hit, and every member must be
+        able to take all of them at their worst."""
+        w, h = gmap.width, gmap.height
+        portals = getattr(gmap, "portals", ()) or ()
+        goals = {
+            (p.x, p.y) for p in portals
+            if 1 <= p.dest_map_id <= 12 and p.dest_map_id not in _NO_REFUGE_MAPS
+            and manhattan(w, h, pos, (p.x, p.y)) <= _REFUGE_STEPS
+        }
+        if not goals:
+            return None
+        if pos in goals:
+            return []
+        barred = {(p.x, p.y) for p in portals}
+        terrain_ok = getattr(screen, "_lw_monster_terrain_ok", None)
+        am = getattr(screen, "asset_mgr", None)
+        mons: list[tuple[str, tuple[int, int]]] = []
+        for c in getattr(screen, "creatures", ()) or ():
+            if "x" not in c or "y" not in c:
+                continue
+            kind = creature_name(c)
+            if kind == "whirlpool" or _cheb(w, h, pos, (c["x"], c["y"])) > _REFUGE_STEPS + 3:
+                continue
+            cr_def = am.get_creature(kind) if am is not None else None
+            if cr_def is not None and cr_def.wontattack and not c.get("hunts"):
+                continue
+            mons.append((kind, (c["x"], c["y"])))
+
+        def heading(delta: int, span: int) -> int:
+            delta = ((delta + span // 2) % span) - span // 2
+            return (delta > 0) - (delta < 0)
+
+        def monsters_turn(ms, at):
+            """LairWare's monster phase after the party steps onto ``at``:
+            (new positions, turns in a line) or None when one engages."""
+            out = list(ms)
+            hits = 0
+            for i, (kind, (cx, cy)) in enumerate(out):
+                if manhattan(w, h, (cx, cy), at) <= 1:
+                    return None
+                dx, dy = heading(at[0] - cx, w), heading(at[1] - cy, h)
+                if ((cx + dx) % w, (cy + dy) % h) == at:
+                    return None
+                others = {q for j, (_k, q) in enumerate(out) if j != i}
+                for sx, sy in ((dx, dy), (0, dy), (dx, 0)):
+                    if sx == 0 and sy == 0:
+                        continue
+                    t = ((cx + sx) % w, (cy + sy) % h)
+                    if t == at or t in barred or t in others:
+                        continue
+                    if terrain_ok is not None and terrain_ok(kind, *t):
+                        out[i] = (kind, t)
+                        break
+                if kind in ("dragon", "pirate") and at in lane_tiles_for(w, h, out[i][1], gmap):
+                    hits += 1
+            return out, hits
+
+        living = [m for m in party.members if not m.is_dead()]
+        min_hp = min((m.hp for m in living), default=0)
+        best: tuple[tuple[int, int], list[tuple[int, int]]] | None = None
+
+        def walk(cur, ms, path, hits):
+            nonlocal best
+            if best is not None and (hits, len(path)) >= best[0]:
+                return
+            if cur in goals:
+                best = ((hits, len(path)), list(path))
+                return
+            left = _REFUGE_STEPS - len(path)
+            for d in (Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST):
+                n = ((cur[0] + d.dx) % w, (cur[1] + d.dy) % h)
+                if n == pos or n in path or any(q == n for _k, q in ms):
+                    continue
+                if min(manhattan(w, h, n, g) for g in goals) > left - 1:
+                    continue
+                if not can_move_to(gmap, n[0], n[1], Transport.FOOT, party=party):
+                    continue
+                turn = monsters_turn(ms, n)
+                if turn is None:
+                    continue
+                if (hits + turn[1]) * _BROADSIDE_MAX >= min_hp:
+                    continue
+                path.append(n)
+                walk(n, turn[0], path, hits + turn[1])
+                path.pop()
+
+        walk(pos, mons, [], 0)
+        return best[1] if best is not None else None
 
     @staticmethod
     def _strong_vs_pirates(party) -> bool:
