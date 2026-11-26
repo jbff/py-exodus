@@ -83,7 +83,13 @@ def _seed90_state(pos=PARTY_AT, hp=HP, ship=True, pirate=PIRATE, food=293):
     return sm, ow, party, ctrl
 
 
-def _run(seed, until, max_steps=80, warmup=None, **kw):
+# Frames per autoplay step at most before a run counts as hung: a step is
+# 0.08 s (5 frames); prompts, fights and screen changes take a few more.
+# On the old code a loop that stopped emitting steps ran for minutes.
+_FRAMES_PER_STEP = 60
+
+
+def _run(seed, until, max_steps=80, warmup=None, on_step=None, **kw):
     """Drive the real loop from the seed-90 state until ``until(sm, party)``.
     ``warmup`` (a callable on the controller) runs first."""
     rng, trng = random.getstate(), tile_effects._rng.getstate()
@@ -103,10 +109,15 @@ def _run(seed, until, max_steps=80, warmup=None, **kw):
             steps += 1
             scr = s.current_screen
             trail.append((type(scr).__name__, party.x, party.y))
+            if on_step is not None:
+                on_step(s, party)
             return orig(s)
 
         ctrl.step = counted
+        frames = 0
         while steps < max_steps and not until(sm, party):
+            frames += 1
+            assert frames <= max_steps * _FRAMES_PER_STEP, ("hung", steps, trail[-20:])
             ctrl.update(batch.FRAME_DT, sm)
             sm.update(batch.FRAME_DT)
         return sm, ow, party, ctrl, trail
@@ -134,6 +145,55 @@ def test_party_boards_its_own_ship_past_the_stuck_pirate(seed):
     # The first turn's escape (no trip planned yet) and the walk back: no pace.
     assert _paces(trail) <= 2, trail
     assert all(not m.is_dead() for m in party.members)
+
+
+@pytest.mark.parametrize("seed", [90, 1, 2, 3])
+def test_a_hit_mid_lane_does_not_turn_the_dash_back(seed):
+    """4ecd649..9c73e92 review: the dash checked 40% HP on every step, and
+    one hit on (29, 2) can drop the Fighter from 700 to 573 (< 660). It
+    gave up mid-lane, the escape stepped back, it healed and dashed again.
+    The 40% bar is for starting a dash; once in the lane only the hit bar
+    counts. Here the Fighter is put at 600 / 1,650 on reaching (29, 2)."""
+    hit = []
+
+    def on_step(sm, party):
+        if not hit and (party.x, party.y) == (29, 2) and type(sm.current_screen).__name__ == "OverworldScreen":
+            party.members[1].hp = 600
+            hit.append(len(hit))
+
+    def at_frigate(sm, party):
+        return (party.x, party.y) == SHIP or _aboard_or_in_town(sm, party)
+
+    sm, ow, party, ctrl, trail = _run(
+        seed, at_frigate, max_steps=200, on_step=on_step, pos=(28, 2),
+    )
+    assert hit, trail
+    tiles = [(x, y) for scr, x, y in trail if scr == "OverworldScreen"]
+    first = tiles.index((29, 2))
+    assert (28, 2) not in tiles[first:], trail
+    assert at_frigate(sm, party), trail
+
+
+def test_the_dash_never_walks_into_a_dragon_lane():
+    """4ecd649..9c73e92 review: the hit bar is a pirate broadside's; a
+    dragon's breath is no part of it, so a route through a dragon's lane is
+    left to the usual rules. A dragon at (31, 5) breathes down column 31
+    onto the frigate's tile (31, 2), which no pirate lane covers."""
+    from py_exodus.autoplay.threats import compute_threats
+
+    sm, ow, party, ctrl = _seed90_state(pos=(28, 2))
+    ow.creatures.append(
+        {"name": "Dragon", "tile_name": "dragon", "tile": "dragon", "variant": 0, "x": 31, "y": 5}
+    )
+    th = compute_threats(ow.game_map, party, ow.creatures, dragon_lanes=True)
+    assert SHIP in th.lanes - set().union(*th.pirate_lanes.values())
+    from py_exodus.autoplay.trip import Destination, Leg, TripPlan
+
+    ctrl._trip = TripPlan(
+        Destination(frozenset({(31, 2)}), Transport.SHIP, "t"),
+        [Leg(Transport.FOOT, SHIP, "B")], 0.0, 0, [],
+    )
+    assert ctrl._board_dash(sm, ow, ow.game_map, party, (28, 2), th) is None
 
 
 @pytest.mark.parametrize("seed", [90, 1, 2])
@@ -227,7 +287,10 @@ def test_the_dash_leaves_a_frigate_the_trip_does_not_board_alone():
             return orig(s)
 
         ctrl.step = counted
+        frames = 0
         while len(trail) < 120:
+            frames += 1
+            assert frames <= 120 * _FRAMES_PER_STEP, ("hung", trail[-20:])
             ctrl.update(batch.FRAME_DT, sm)
             sm.update(batch.FRAME_DT)
     finally:

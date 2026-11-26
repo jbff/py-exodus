@@ -4087,7 +4087,12 @@ class AutoPlayController:
             if plan.legs[0].action == "CAPTURE":
                 self._trip = None
             return _YIELD_TO_TRIP
-        if party_has_low_hp(party):
+        # The 40% bar is for starting a dash only: one hit on the lane can
+        # take a member under it (the Fighter from 700 to 573 of 1,650 on
+        # (29, 2)), and giving up there handed the party back to the
+        # escape, to heal and dash again (4ecd649..9c73e92 review). Once
+        # in a lane, the hit bar below decides alone.
+        if pos not in th.lanes and party_has_low_hp(party):
             return None
         occupied = {
             (c["x"], c["y"]) for c in getattr(screen, "creatures", ()) or ()
@@ -4124,7 +4129,13 @@ class AutoPlayController:
         path.reverse()
         # Each turn ending in a lane is a possible hit; boarding on a lane
         # tile is one more turn there.
-        hits = sum(1 for t in path if t in th.lanes) + (1 if found in th.lanes else 0)
+        # The hit bar is a pirate broadside's (_BROADSIDE_MAX): a route
+        # through a dragon's lane (on while the party isn't strong) is left
+        # to the usual rules (4ecd649..9c73e92 review).
+        pirate_lanes = set().union(*th.pirate_lanes.values()) if th.pirate_lanes else set()
+        if any(t in th.lanes and t not in pirate_lanes for t in path):
+            return None
+        hits = sum(1 for t in path if t in pirate_lanes) + (1 if found in pirate_lanes else 0)
         if hits == 0:
             return None  # no lane on the way: the trip walks it as usual
         if any(not m.is_dead() and m.hp <= hits * _BROADSIDE_MAX for m in party.members):
