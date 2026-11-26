@@ -14,7 +14,7 @@ packages = [
 
 [project]
 name = "py-exodus"
-version = "0.1.0"
+version = "1.0.0b2"
 description = "Ultima III: Exodus reimplementation in Python"
 readme = "README.md"
 requires-python = ">=3.10"
