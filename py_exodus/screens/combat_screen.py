@@ -967,6 +967,7 @@ class CombatScreen(BaseScreen):
                 rect=pygame.Rect(0, 176, 176, log_h),
                 draw_border=True,
             )
+        self._render_ztats(surface, v_size)
 
     def _render_combat_fx(self, surface: pygame.Surface) -> None:
         """Render active weapon/spell projectile travelling orbs and hit/fire bursts."""

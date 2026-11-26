@@ -313,21 +313,14 @@ def prompt_hand(text_log: TextLog, party: Party) -> None:
 
 def show_ztats(text_log: TextLog, stats_panel, party: Party, index: int) -> None:
     """DoStats (UltimaMacIF.c:1385-1395): the member's stats, modal; the
-    next key closes them (each screen swallows it)."""
+    next key closes them (each screen swallows it). ``inspect_index`` names
+    the member whose Ztats window the screen draws over its map pane
+    (py_exodus/ui/ztats_view.py); the log gets one line."""
     member = party.get_member(index)
     if member is None:
         return
     stats_panel.inspect_index = index
     text_log.add_message(f"Zstats: {member.name} ({member.profession.name})")
-    cur_w = member.weapon.name if hasattr(member.weapon, "name") else str(member.weapon)
-    cur_a = member.armor.name if hasattr(member.armor, "name") else str(member.armor)
-    text_log.add_message(f"Readied: {cur_w}  Worn: {cur_a}")
-    wpn_list = [f"{wt.name}:{cnt}" for wt, cnt in member.weapons.items() if cnt > 0]
-    arm_list = [f"{at.name}:{cnt}" for at, cnt in member.armors.items() if cnt > 0]
-    if wpn_list:
-        text_log.add_message("Weapons: " + ", ".join(wpn_list))
-    if arm_list:
-        text_log.add_message("Armors: " + ", ".join(arm_list))
 
 
 def prompt_ztats(

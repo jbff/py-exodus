@@ -195,7 +195,7 @@ class StatsPanel:
         self.asset_mgr = asset_mgr
 
     def set_inspect(self, index: int | None) -> None:
-        """Set or clear member inspection mode (0-3 for member, -1 for pooled party supplies)."""
+        """Open (0-3) or close (None) the member's Ztats window."""
         self.inspect_index = index
 
     def render(
@@ -265,9 +265,11 @@ class StatsPanel:
         # page (exodus/Party.java getZstats): the party header strip and the
         # 4-member summary are suppressed so the stat rows plus the complete
         # equipment listings down to the mark/card rows fit the panel height.
-        member_inspect_index = (
-            inspect_index if inspect_index is not None else self.inspect_index
-        )
+        # ``self.inspect_index`` is the open Ztats window's member: the
+        # screen draws that window over its map pane and the sidebar stays
+        # the party panel. Only an explicit ``inspect_index`` argument asks
+        # for the old text listing here.
+        member_inspect_index = inspect_index
         member_inspect_active = (
             member_inspect_index is not None and 0 <= member_inspect_index < len(party.members)
         )
@@ -329,7 +331,7 @@ class StatsPanel:
                         EGA_LIGHT_GRAY if not is_active else EGA_YELLOW,
                     )
         # 5. Inspection Section
-        eff_inspect = inspect_index if inspect_index is not None else self.inspect_index
+        eff_inspect = inspect_index
         if eff_inspect is not None:
             draw_separator()
             if eff_inspect == -1:

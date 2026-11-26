@@ -1753,7 +1753,8 @@ def test_combat_fx_only_for_real_projectile_spells(pygame_setup, asset_mgr, samp
 
 
 def test_zstats_displays_inventory(pygame_setup, asset_mgr, sample_party):
-    """Verify Zstats displays non-zero weapon and armor inventory."""
+    """Zstats shows non-zero weapon and armor inventory as the window's
+    chips (py_exodus/ui/ztats_view.py), not as a dump in the log."""
     ow = OverworldScreen(party=sample_party, map_id=0, asset_mgr=asset_mgr)
     m = sample_party.members[0]
     m.weapons[WeaponType.BOW] = 2
@@ -1763,8 +1764,13 @@ def test_zstats_displays_inventory(pygame_setup, asset_mgr, sample_party):
     ow.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_z))
     ow.text_log.submit_input("1")  # Ztats for #- (UltimaMain.c:2595)
     assert ow.stats_panel.inspect_index == 0
-    assert any("BOW:2" in msg for msg in ow.text_log.history)
-    assert any("CHAIN:1" in msg for msg in ow.text_log.history)
+    from py_exodus.ui.stats_panel import _equipment_display_names
+    from py_exodus.ui.ztats_view import gear_chips
+
+    wn, an = _equipment_display_names(asset_mgr)
+    assert ("Bow ×2", False) in gear_chips(m.weapons, WeaponType, wn, m.weapon)
+    assert any(label == "Chain" for label, _ in gear_chips(m.armors, ArmorType, an, m.armor))
+    assert not any("BOW:2" in msg for msg in ow.text_log.history)
 
 
 def test_new_game_party_spawn_location(pygame_setup, asset_mgr):

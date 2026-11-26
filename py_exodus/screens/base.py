@@ -159,6 +159,28 @@ class BaseScreen(ABC):
             sky=self.sky_info() if hasattr(self, "sky_info") else None,
         )
 
+    def _render_ztats(self, surface: pygame.Surface, pane: int) -> None:
+        """The Ztats window over the ``pane``-px map pane while it is up
+        (``stats_panel.inspect_index`` names the member; see
+        py_exodus/ui/ztats_view.py). The party panel and log stay up."""
+        stats_panel = getattr(self, "stats_panel", None)
+        index = getattr(stats_panel, "inspect_index", None)
+        party = getattr(self, "party", None)
+        if index is None or party is None or not 0 <= index < len(party.members):
+            return
+        from py_exodus.ui.stats_panel import _equipment_display_names
+        from py_exodus.ui.ztats_view import render_ztats
+
+        asset_mgr = getattr(self, "asset_mgr", None)
+        render_ztats(
+            surface,
+            pygame.Rect(0, 0, pane, pane),
+            party.members[index],
+            index + 1,
+            asset_mgr,
+            _equipment_display_names(asset_mgr),
+        )
+
     def on_exit(self) -> None:
         """Hook called when screen transitions away."""
         self.is_active = False

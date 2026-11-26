@@ -15,7 +15,7 @@ A Python 3 / Pygame-CE reimplementation of *Ultima III: Exodus* (1983), by Richa
 - **The complete game:** Sosaria and Ambrosia, the towns and castles, the dungeons, the moongates, ships and the whirlpool, the Marks, the Exotics, the Cards, and Castle Exodus.
 - **LairWare's rules.** The game logic follows LairWare's Mac port: monster movement and attacks, combat maths, spells, shops, wind, time and food, dungeon fixtures, autosaves and more. Where the Java port or the classic releases disagree with it, LairWare wins, apart from a few deliberate changes (listed below).
 - **Classic graphics:** LairWare's tile sheets, with the PC EGA set by default. The LairWare, Apple II, C64, MCGA and Ultima V sets are also available. Tiles animate as they do in LairWare.
-- **Its own look:** its own title art and intro, a party panel with cards for each member, and a quest tracker. The look and UI are deliberately not LairWare's.
+- **Its own look:** its own title art and intro, a party panel with cards for each member, a Ztats window over the map with one member's full sheet, and a quest tracker. The look and UI are deliberately not LairWare's.
 - **Auto-Combat (`TAB`):** each living member heals, cures, casts or attacks as LairWare's auto-combat would. You can take back control at any moment.
 - **Full Autoplay (`F9`):** plays the whole game through the real UI, pressing the same keys you would.
 
@@ -100,7 +100,7 @@ uv run python -m py_exodus.autoplay.batch --seeds 0-99 --workers 2 --out-dir tra
 uv run python -m pytest
 ```
 
-There are **2,222 tests**. They cover the mechanics, parity with LairWare, Java and the Game Boy Color port, the shops, the dungeons, combat, rendering and autoplay. Most autoplay fixes come with a test that fails on the old code.
+There are **2,245 tests**. They cover the mechanics, parity with LairWare, Java and the Game Boy Color port, the shops, the dungeons, combat, rendering and autoplay. Most autoplay fixes come with a test that fails on the old code.
 
 ---
 
@@ -129,7 +129,6 @@ The rest of the rules follow LairWare. Every rule decision, with its LairWare so
 
 - **The victory ending:** LairWare-style colour flashes, an "EXODUS VANQUISHED" page with the move count, then the epilogue in serif lettering. The design is chosen.
 - **A new dungeon view:** "Stone" style, with solid torchlit walls, fog with distance, and close-up pictures for fountains and the red-hot rod. The map overlay will then be off by default. The design is chosen.
-- **A Ztats window** over the map. The design is chosen.
 
 ## Possible loose ends
 

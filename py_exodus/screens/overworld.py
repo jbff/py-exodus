@@ -2786,6 +2786,7 @@ class OverworldScreen(BaseScreen):
 
         if self.gem_view_active and self.game_map is not None:
             self._render_peer(surface, v_size)
+        self._render_ztats(surface, v_size)
 
     def _render_peer(self, surface: pygame.Surface, pane: int) -> None:
         """Peer Gem picture over the map pane (LairWare DrawMiniMap, see
