@@ -130,7 +130,6 @@ The rest of the rules follow LairWare. Every rule decision, with its LairWare so
 - **The victory ending:** LairWare-style colour flashes, an "EXODUS VANQUISHED" page with the move count, then the epilogue in serif lettering. The design is chosen.
 - **A new dungeon view:** "Stone" style, with solid torchlit walls, fog with distance, and close-up pictures for fountains and the red-hot rod. The map overlay will then be off by default. The design is chosen.
 - **A Ztats window** over the map. The design is chosen.
-- **The Book of Lore** reformatted, so it is no longer about 128 pages in a giant font.
 
 ## Possible loose ends
 

@@ -22,13 +22,14 @@ def init_pygame():
 
 
 def test_book_screen_loads_lore_and_spell_appendix():
-    """Book of Lore: ultima3.txt pages plus the Python-only spell appendix."""
+    """Book of Lore: ultima3.txt chapters plus the Python-only spell reference."""
     scr = BookScreen(return_screen=None)
     assert scr.page_count > 1
-    full_text = "\n".join(scr.pages)
+    full_text = "\n".join(c.text for c in scr.chapters)
     # Lore from Java BookScreen.java:53 (/assets/data/ultima3.txt)
-    assert "EXODUS ULTIMA III COMMANDS" in full_text
-    # Spell reference kept, appended last (Python-only invention)
+    assert scr.chapters[0].title == "Commands"
+    assert "A) Attack" in full_text
+    # Spell reference kept as the closing chapters (Python-only invention)
     assert "REPOND" in full_text
     assert "PONTORI" in full_text
 
@@ -38,11 +39,10 @@ def test_book_screen_navigation_and_rendering():
     dummy_return = BaseScreen()
     scr = BookScreen(return_screen=dummy_return)
 
-    # Page forward and back
-    down_event = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_DOWN)
-    scr.handle_event(down_event)
+    # Right turns from the contents page to the first spread
+    scr.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RIGHT))
     scr.update(0.016)
-    assert scr.page_index == 1
+    assert scr.view_index == 1
 
     # Render surface
     surface = pygame.Surface((320, 200))
@@ -147,29 +147,27 @@ def test_base_screen_interface():
 
 
 def test_book_screen_pagination():
-    """Verify BookScreen paginates forward and back without overlap."""
+    """Verify BookScreen turns forward and back through the spreads."""
     scr = BookScreen(return_screen=None)
     surface = pygame.Surface((320, 200))
 
-    # First lore page
-    assert scr.page_index == 0
+    assert scr.view_index == 0  # the contents page
     scr.render(surface)
 
-    # Turn forward through at least two pages
-    event_down = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_DOWN)
-    scr.handle_event(event_down)
-    assert scr.page_index == 1
+    event_right = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RIGHT)
+    scr.handle_event(event_right)
+    assert scr.view_index == 1
     scr.render(surface)
-    scr.handle_event(event_down)
-    assert scr.page_index == 2
+    scr.handle_event(event_right)
+    assert scr.view_index == 2
 
     # Space steps forward; LEFT steps back
     event_space = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_SPACE)
     scr.handle_event(event_space)
-    assert scr.page_index == 3
+    assert scr.view_index == 3
     event_left = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_LEFT)
     scr.handle_event(event_left)
-    assert scr.page_index == 2
+    assert scr.view_index == 2
 
 
 def test_party_exodus_defeated_roundtrip():
