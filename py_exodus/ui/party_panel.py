@@ -32,6 +32,28 @@ CYAN = (95, 224, 255)
 ON_GREEN = (125, 255, 125)
 OFF = (119, 119, 119)
 
+# Member card colours (option A, user 2026-11-26): labels go quiet and the
+# values carry the colour, so a detail stands out at a glance.
+LABEL = (140, 140, 140)
+NO_MP = (90, 90, 90)
+MP_TEXT = (120, 220, 255)
+FOOD_TEXT = (230, 190, 120)
+FOOD_LOW = (255, 110, 90)
+FOOD_LOW_BELOW = 100
+GOLD_TEXT = (255, 216, 74)
+XP_TEXT = (150, 220, 230)
+STAT_LETTER = {"S": (255, 120, 100), "D": (120, 230, 120), "I": (110, 170, 255), "W": (200, 150, 255)}
+
+
+def health_colours(frac: float) -> tuple[tuple[int, int, int], tuple[int, int, int]]:
+    """(bar, text) colours for an HP fraction: green above two thirds,
+    yellow above one third, red below."""
+    if frac > 2 / 3:
+        return (70, 200, 90), (110, 230, 110)
+    if frac > 1 / 3:
+        return (230, 190, 40), (240, 210, 80)
+    return HP_RED, (255, 90, 80)
+
 # Card edge and tag per status (spec item 5: status-colored edge).
 STATUS_LOOK = {
     Status.POISONED: ((63, 212, 63), "POISONED", (31, 111, 31), (191, 255, 191)),
@@ -200,27 +222,37 @@ class PartyPanel:
             pygame.draw.rect(s, look[2], tr, border_radius=2)
             s.blit(tag, (nx + 4, tr.y))
         sex = getattr(getattr(m, "sex", None), "value", getattr(m, "sex", ""))
-        who = f"{_title(m.race)} {_title(m.profession)} · {sex} · Lv {m.level}"
-        who_img = f_body.render(who, True, WHO)
-        s.blit(who_img, (x + w - who_img.get_width(), y + name_img.get_height() - who_img.get_height()))
+        who_imgs = [f_body.render(f"{_title(m.race)} {_title(m.profession)} · {sex} · ", True, WHO),
+                     f_body.render(f"Lv {m.level}", True, WHITE)]
+        wx = x + w - sum(i.get_width() for i in who_imgs)
+        for img in who_imgs:
+            s.blit(img, (wx, y + name_img.get_height() - img.get_height()))
+            wx += img.get_width()
         y += name_img.get_height()
         # line 2: HP, MP, food, gold
         fl = _Flow(s, x, y, w, line_h, 9)
-        fl.text(f_body, "HP", INK, tight=True)
-        fl.bar(m.hp / m.max_hp if m.max_hp else 0, HP_RED)
-        fl.text(f_body, f"{_fmt(m.hp)}/{_fmt(m.max_hp)}", INK)
+        frac = m.hp / m.max_hp if m.max_hp else 0
+        bar_col, hp_col = health_colours(frac)
+        fl.text(f_body, "HP", LABEL, tight=True)
+        fl.bar(frac, bar_col)
+        fl.text(f_body, f"{_fmt(m.hp)}/{_fmt(m.max_hp)}", hp_col)
         if m.max_mp > 0:
-            fl.text(f_body, "MP", INK, tight=True)
+            fl.text(f_body, "MP", LABEL, tight=True)
             fl.bar(m.mp / m.max_mp, MP_BLUE)
-            fl.text(f_body, f"{m.mp}/{m.max_mp}", INK)
+            fl.text(f_body, f"{m.mp}/{m.max_mp}", MP_TEXT)
         else:
-            fl.text(f_body, "MP —", INK)
-        fl.text(f_body, f"Food {_fmt(m.food)}", INK)
-        fl.text(f_body, f"Gold {_fmt(m.gold)}", INK)
+            fl.text(f_body, "MP —", NO_MP)
+        fl.text(f_body, "Food", LABEL, tight=True)
+        fl.text(f_body, _fmt(m.food), FOOD_LOW if m.food < FOOD_LOW_BELOW else FOOD_TEXT)
+        fl.text(f_body, "Gold", LABEL, tight=True)
+        fl.text(f_body, _fmt(m.gold), GOLD_TEXT)
         fl.newline()
         # line 3: stats, experience, gear
-        fl.text(f_body, f"S {m.str} D {m.dex} I {m.int} W {m.wis}", DIM)
-        fl.text(f_body, f"XP {_fmt(m.exp)}", DIM)
+        for letter, value in (("S", m.str), ("D", m.dex), ("I", m.int), ("W", m.wis)):
+            fl.text(f_body, letter, STAT_LETTER[letter], tight=True)
+            fl.text(f_body, str(value), WHITE)
+        fl.text(f_body, "XP", LABEL, tight=True)
+        fl.text(f_body, _fmt(m.exp), XP_TEXT)
         fl.text(f_body, self._gear(m), GEAR)
         y = fl.bottom() + 4
         box = pygame.Rect(inner.x, top, inner.width, y - top)

@@ -901,8 +901,10 @@ def test_stats_panel_party_hud_layout(pygame_setup, monkeypatch):
     surf = pygame.Surface((400, 600))
     panel.render(surf, party, rect=pygame.Rect(0, 0, 300, 500))
 
-    assert "GRUMM" in captured and "Dwarf Fighter · O · Lv 1" in captured
-    assert "XP 45" in captured and "Gold 145" in captured and "Food 592" in captured
+    # Labels and values are drawn apart (coloured values, 2026-11-26).
+    joined = " ".join(captured)
+    assert "GRUMM" in captured and "Dwarf Fighter · O ·  Lv 1" in joined
+    assert "XP 45" in joined and "Gold 145" in joined and "Food 592" in joined
     assert not any(s.startswith("[1]") or "[1]" in s for s in captured)
     member_idx = captured.index("GRUMM")
     party_idx = captured.index("PARTY")
