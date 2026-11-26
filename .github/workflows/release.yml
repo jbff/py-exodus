@@ -100,8 +100,13 @@ jobs:
           mkdir -p out dmg
           cp -R dist/py-exodus.app dmg/
           ln -s /Applications dmg/Applications
-          hdiutil create -volname "py-exodus" -srcfolder dmg -ov -format UDZO \
-            "out/py-exodus-$VERSION-${{ matrix.target }}.dmg"
+          # hdiutil on the hosted runners sometimes fails with "Resource busy".
+          for attempt in 1 2 3 4 5; do
+            hdiutil create -volname "py-exodus" -srcfolder dmg -ov -format UDZO \
+              "out/py-exodus-$VERSION-${{ matrix.target }}.dmg" && break
+            [ "$attempt" = 5 ] && exit 1
+            sleep 10
+          done
 
       - name: Package (Linux)
         if: runner.os == 'Linux'
