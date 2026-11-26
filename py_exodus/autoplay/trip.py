@@ -340,10 +340,16 @@ def plan_trip(
             if m == FOOT:
                 # Destination tiles (portals) are enterable even if not walkable;
                 # a frigate's water tile is enterable from land (to board it).
+                # A frigate's tile is walkable from water too, after X:
+                # LairWare leaves a ship on any water (UltimaMain.c:2523-
+                # 2538), so a ship behind a parked frigate in Exodus's pond
+                # (10, 56) behind (10, 55) gets out, steps aboard it and
+                # sails on (batch bdbd73a b1 seeds 4 and 10: no trip, the
+                # party passed turns at (10, 56) until it starved).
                 if (
                     (n in goal_tiles and dest.need in (None, FOOT))
                     or (n in terr.foot and n not in gate_blocked)
-                    or (n in frigates and not on_water)
+                    or n in frigates
                 ):
                     push(st, (n[0], n[1], FOOT), cost + WALK_STEP_COST + danger.get(n, 0.0), "step")
             # A ship never sails onto a parked frigate (the move is refused;
@@ -372,7 +378,7 @@ def plan_trip(
                     g = gates[d]
                     push(st, (g.x, g.y, FOOT), cost + GATE_COST, ("GATE", s, d))
         else:
-            if (x, y) in terr.landing:
+            if (x, y) in terr.landing or any(n in frigates for n in terr.neighbours(x, y)):
                 push(st, (x, y, FOOT), cost + EXIT_COST + reverse_penalty("X", (x, y)), "X")
 
     if found is None:

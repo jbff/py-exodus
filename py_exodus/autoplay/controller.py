@@ -115,6 +115,9 @@ _TRIP_STUCK_TURNS = 30
 _NEIGHBOURS4 = ((0, -1), (0, 1), (-1, 0), (1, 0))
 _GATE_WAIT_TURNS = 6  # be at the gate this many turns before it opens
 _GATE_ROAM_RADIUS = 5
+# Turns within _GATE_ROAM_RADIUS of a gate before its leg gives up: two
+# full moon cycles (96 turns each). One always brings the hop round.
+_GATE_LEG_MAX_TURNS = 2 * 96
 _CHASE_RADIUS = 8  # land monsters this close count as chasing
 _SHIP_CHEST_CLEAR = 6  # no sea monster this close to go ashore for a chest
 # Turns on one tile, whatever the replans, before the trip bars the next
@@ -341,6 +344,8 @@ class AutoPlayController:
         self._cure_mode = False
         self._trip_last_pos: tuple[int, int] | None = None
         self._patrol_target: tuple[int, int] | None = None
+        # [(gate src, dst), turns near it]: the bound on a moongate leg.
+        self._gate_wait: list | None = None
         # Land tile the pirate hunt committed to (see _hunt_target).
         self._hunt_target: tuple[int, int] | None = None
         self._reach_cache = None
@@ -2818,6 +2823,7 @@ class AutoPlayController:
             if gd is not None and gd < len(gates) and pos == (gates[gd].x, gates[gd].y):
                 plan.legs.pop(0)
                 self._trip_stuck = 0
+                self._gate_wait = None
         frig_sig = frozenset(self._frigate_costs(party, screen))
         waiting = plan is not None and plan.legs and plan.legs[0].action in ("GATE", "CAPTURE") and pos == plan.legs[0].end
         # No-progress guard. _trip_stuck drives the replan at
@@ -2859,6 +2865,8 @@ class AutoPlayController:
             return None
 
         leg = plan.legs[0]
+        if leg.action != "GATE":
+            self._gate_wait = None
         if leg.action == "ARRIVE":
             if pos in dest.tiles and (dest.need is None or dest.need == mode):
                 self._wind_commit = None  # a headwind commitment ends on arrival
@@ -2964,6 +2972,14 @@ class AutoPlayController:
         User rule (2026-11-21): watch the phases, roam the area fighting what
         comes until the gate is about to open, and be next to it in time.
         The phase steps every 4 surface turns; an open gate stays one phase.
+
+        No step but the one through lands on a gate site, and the party never
+        stands on one: the moon can turn on that very step, and whatever
+        gate opens under the party then takes it (live check seed 2 at
+        bdbd73a: the roam crossed (12, 55) as gate 5 opened to felucca 7,
+        every 96 turns, until the party starved with 6,223 gold).
+        Past ``_GATE_LEG_MAX_TURNS`` near the gate the leg gives up: the
+        site is barred for ``_BLOCK_TURNS`` and the trip replans.
         """
         gates = getattr(gmap, "moongates", ()) or ()
         src, dst = leg.gate_src, leg.gate_dest
@@ -2971,11 +2987,28 @@ class AutoPlayController:
             self._trip = None
             return self._emit_key(state_machine, pygame.K_SPACE)
         site = (gates[src].x, gates[src].y)
+        sites = frozenset((g.x, g.y) for g in gates)
         w, h = gmap.width, gmap.height
         self._trip_stuck = 0
         k = self._phases_until_gate(party, src, dst)
         turns_left = 4 * k
         dist = manhattan(w, h, pos, site)
+        if dist <= _GATE_ROAM_RADIUS:
+            if self._gate_wait is None or self._gate_wait[0] != (src, dst):
+                self._gate_wait = [(src, dst), 0]
+            self._gate_wait[1] += 1
+            if self._gate_wait[1] > _GATE_LEG_MAX_TURNS:
+                self._gate_wait = None
+                self._blocked_tiles[site] = self._ow_turn + _BLOCK_TURNS
+                self._trip = None
+                return self._emit_key(state_machine, pygame.K_SPACE)
+        adjacent = {
+            ((site[0] + dx) % w, (site[1] + dy) % h)
+            for dx, dy in _NEIGHBOURS4
+        } - sites
+        if pos in sites:
+            off = {((pos[0] + dx) % w, (pos[1] + dy) % h) for dx, dy in _NEIGHBOURS4} - sites
+            return self._move_toward(state_machine, gmap, party, pos, (adjacent & off) or off, never=sites)
         if dist == 1:
             if k == 0 and getattr(screen, "trammel_phase", -1) == src and getattr(screen, "felucca_phase", -1) == dst:
                 d = next(
@@ -2985,12 +3018,10 @@ class AutoPlayController:
                 return self._emit_key(state_machine, _DIR_TO_KEY[d])
             if turns_left <= _GATE_WAIT_TURNS:
                 return self._emit_key(state_machine, pygame.K_SPACE)  # opens in moments
-        adjacent = {
-            ((site[0] + dx) % w, (site[1] + dy) % h)
-            for dx, dy in _NEIGHBOURS4
-        }
         if turns_left <= dist + _GATE_WAIT_TURNS:
-            return self._move_toward(state_machine, gmap, party, pos, adjacent)
+            if pos in adjacent:
+                return self._emit_key(state_machine, pygame.K_SPACE)
+            return self._move_toward(state_machine, gmap, party, pos, adjacent, never=sites)
         # Roam near the gate: fight what is around, else wander a little.
         prey = {
             (c["x"], c["y"])
@@ -3000,15 +3031,17 @@ class AutoPlayController:
             and manhattan(w, h, site, (c["x"], c["y"])) <= _GATE_ROAM_RADIUS + 3
         }
         if prey:
-            return self._move_toward(state_machine, gmap, party, pos, prey)
-        reach = self._foot_reachable(gmap, party, pos)
+            return self._move_toward(state_machine, gmap, party, pos, prey, never=sites)
+        reach = self._foot_reachable(gmap, party, pos, barred=sites)
         if self._patrol_target is None or pos == self._patrol_target or self._patrol_target not in reach \
                 or manhattan(w, h, self._patrol_target, site) > _GATE_ROAM_RADIUS:
             near = [t for t in reach if 1 <= manhattan(w, h, t, site) <= _GATE_ROAM_RADIUS and t != pos]
             self._patrol_target = random.choice(near) if near else None
         if self._patrol_target is None:
-            return self._move_toward(state_machine, gmap, party, pos, adjacent)
-        return self._move_toward(state_machine, gmap, party, pos, {self._patrol_target})
+            if pos in adjacent:
+                return self._emit_key(state_machine, pygame.K_SPACE)
+            return self._move_toward(state_machine, gmap, party, pos, adjacent, never=sites)
+        return self._move_toward(state_machine, gmap, party, pos, {self._patrol_target}, never=sites)
 
     @staticmethod
     def _phases_until_gate(party, src: int, dst: int) -> int:
@@ -3183,9 +3216,10 @@ class AutoPlayController:
         self._hunt_target = best if best is not None else min(candidates)
         return self._hunt_target
 
-    def _foot_reachable(self, gmap, party, pos) -> frozenset[tuple[int, int]]:
-        """Land tiles reachable on foot from ``pos`` (cached per map/turn)."""
-        key = (id(gmap), pos, self._ow_turn)
+    def _foot_reachable(self, gmap, party, pos, barred=frozenset()) -> frozenset[tuple[int, int]]:
+        """Land tiles reachable on foot from ``pos`` without entering a
+        ``barred`` tile (cached per map/turn)."""
+        key = (id(gmap), pos, self._ow_turn, frozenset(barred))
         if self._reach_cache is not None and self._reach_cache[0] == key:
             return self._reach_cache[1]
         terr = terrain_for(gmap, party, getattr(gmap, "id", 0))
@@ -3194,7 +3228,7 @@ class AutoPlayController:
         while stack:
             cur = stack.pop()
             for n in terr.neighbours(*cur):
-                if n not in seen and n in terr.foot:
+                if n not in seen and n in terr.foot and n not in barred:
                     seen.add(n)
                     stack.append(n)
         out = frozenset(seen)
@@ -3564,13 +3598,18 @@ class AutoPlayController:
         party,
         start: tuple[int, int],
         goals: set[tuple[int, int]],
+        never: set[tuple[int, int]] | frozenset[tuple[int, int]] | None = None,
     ) -> int:
+        """Step toward ``goals``. ``never`` tiles stay out of every route,
+        the fallbacks' too (the soft avoid set is dropped when it walls the
+        party in; these are not)."""
         has_key = any(not m.is_dead() and m.keys > 0 for m in party.members)
+        never = set(never or ())
         starving_buy_food = (
             any(not m.is_dead() and m.food == 0 for m in party.members)
             and evaluate_goal(party, getattr(game_map, "id", getattr(party, "map_id", 0))) == Goal.BUY_FOOD
         )
-        avoid = getattr(self, "_overworld_avoid", None) or None
+        avoid = (set(getattr(self, "_overworld_avoid", None) or ()) | never) or None
         wind = getattr(party, "wind_direction", None)
         d, wind_cost = find_2d_step_and_cost(
             game_map,
@@ -3587,7 +3626,7 @@ class AutoPlayController:
             and avoid
             and (d is None or (wind_cost is not None and wind_cost > _STARVING_AVOID_MAX_STEPS))
         ):
-            avoid = (self._threats.hard_avoid() if self._threats is not None else None) or None
+            avoid = (set(self._threats.hard_avoid() if self._threats is not None else ()) | never) or None
             d, wind_cost = find_2d_step_and_cost(
                 game_map,
                 start=start,
@@ -3680,7 +3719,7 @@ class AutoPlayController:
         if d is None and avoid:
             # Drop the soft avoidance but keep the hard threats (pirate lanes,
             # squid reach): the lane guard would refuse those steps anyway.
-            hard = self._threats.hard_avoid() if self._threats is not None else set()
+            hard = set(self._threats.hard_avoid() if self._threats is not None else ()) | never
             d = find_2d_step(
                 game_map,
                 start=start,
@@ -3691,7 +3730,7 @@ class AutoPlayController:
                 avoid_tiles=hard or None,
                 allow_locked_doors=has_key,
             )
-            if d is None and hard:
+            if d is None and hard - never:
                 # Walled in by threats: take the plain route; _lane_guard lets a
                 # healthy party advance on the threat and bars the tile otherwise.
                 d = find_2d_step(
@@ -3701,6 +3740,7 @@ class AutoPlayController:
                     transport=party.transport,
                     party=party,
                     wind_direction=wind,
+                    avoid_tiles=never or None,
                     allow_locked_doors=has_key,
                 )
         if d is not None:

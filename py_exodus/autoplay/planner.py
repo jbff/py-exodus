@@ -78,6 +78,20 @@ AMBROSIA_ENTRY_FOOD = 200
 AMBROSIA_FOOD_FLOOR = 150
 AMBROSIA_SHRINE_BUDGET = 4500
 AMBROSIA_ABORT_FOOD = 80
+# Food every living member sets out for Castle Exodus with. BUY_FOOD fires
+# under 75 (needs_food), and once the party is past the serpent a food run
+# means the moongate out and back (up to a 96-turn wait each way). The trip
+# from Britain to the castle door ran ~550-600 moves in the batch traces
+# (seed 2 at bdbd73a: 134 -> 104 at the door, seed 4: 126 -> 113, seed 10:
+# 104 -> 88), the rest at the door to full HP and MP up to ~500 more
+# (seed 4: 113 -> 75, seed 10: 88 -> 74), and the castle itself ~100
+# (seed 1: 302 -> 298). A ration a member every 10 moves: ~120 food on top
+# of the 75 bar, so 200. A party that set out with 134 fell under the bar
+# at the door and went back out for food (seed 2, seeds 4 and 10).
+EXODUS_ENTRY_FOOD = 200
+# Gold for a food run that fills past EXODUS_ENTRY_FOOD: under it the grocer
+# fills to 150 only (controller _food_shop_target), and asking would loop.
+EXODUS_FOOD_RUN_GOLD = 700
 # A return trip for stats needs keys too. Doors relock between visits, and
 # the live trace of 2026-11-22 spent up to 5 a visit: (45,17), (58,3),
 # the water door (39,61), (50,6) chasing a pirate ship, (10,6) to the
@@ -1059,5 +1073,19 @@ def evaluate_goal(party: Party, map_id: int | str | None = None) -> Goal:
         # level 25+, 3 keys: no raid after step 53,837, and 5,549 gold went
         # on food until the party was broke).
         return Goal.GRIND_AND_LEVEL
+
+    # Set out with the food the whole visit takes (EXODUS_ENTRY_FOOD); never
+    # once at the castle (inside it, or in its enclosure past the serpent),
+    # where a food run is the moongate out and back.
+    in_enclosure = cur_map_id == 2 or (
+        cur_map_id == 0 and 7 <= party.x <= 13 and 51 <= party.y <= 56
+    )
+    if (
+        not in_enclosure
+        and cur_map_id not in (13, 15, 16, 17, 18, 19, 20)
+        and party.gold >= EXODUS_FOOD_RUN_GOLD
+        and any(m.food < EXODUS_ENTRY_FOOD for m in living)
+    ):
+        return Goal.BUY_FOOD
 
     return Goal.CONQUER_EXODUS

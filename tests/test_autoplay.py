@@ -384,6 +384,8 @@ def test_evaluate_goal_progression():
     ready_exodus.members[0].keys = 4
     assert evaluate_goal(ready_exodus) == Goal.GRIND_AND_LEVEL
     _max_shrine_stats(ready_exodus)
+    for m in ready_exodus.members:
+        m.food = 400  # the castle trip's food reserve (planner.EXODUS_ENTRY_FOOD)
     assert evaluate_goal(ready_exodus) == Goal.CONQUER_EXODUS
 
     # Exodus defeated -> DONE
@@ -1872,6 +1874,8 @@ def test_rest_guard_stack_and_broke_starving_trigger(pygame_setup):
     _max_shrine_stats(p_exodus)
     p_exodus.members[0].weapons[WeaponType.BOW] = 1
     p_exodus.members[1].weapons[WeaponType.BOW_P2] = 1
+    for m in p_exodus.members:
+        m.food = 400  # the castle trip's food reserve (planner.EXODUS_ENTRY_FOOD)
     assert evaluate_goal(p_exodus, map_id=0) == Goal.CONQUER_EXODUS
 
     # 13. Pre-Ambrosia gold target raises to 4500 when stats below cap; Death Gulch & Shrine stat-leveling
@@ -2216,6 +2220,8 @@ def test_no_castle_until_the_stat_plan_is_bought():
     assert evaluate_goal(party, map_id=0) == Goal.GRIND_AND_LEVEL
     fighter.strength = 99
     _max_shrine_stats(party)
+    for m in party.members:
+        m.food = 400  # the castle trip's food reserve (planner.EXODUS_ENTRY_FOOD)
     assert evaluate_goal(party, map_id=0) == Goal.CONQUER_EXODUS
 
 
