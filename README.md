@@ -1,139 +1,21 @@
 # py-exodus
 
-A Python 3 / Pygame-CE reimplementation of *Ultima III: Exodus*, with **Auto-Combat** (`TAB`) and a **Full Autoplay / Watch Mode** (`F9`) that plays the whole game, from party creation to Exodus.
+A Python 3 / Pygame-CE reimplementation of *Ultima III: Exodus* (1983). It plays the whole game, from forming a party to the fall of Exodus, by the rules of the LairWare Mac port. It adds two helpers: **Auto-Combat**, which fights battles for you, and **Full Autoplay**, a watch mode that plays the entire game on its own.
 
 ---
 
-## Reference Implementations & Assets
+## Features
 
-- **Original game**: [*Ultima III: Exodus*](https://wiki.ultimacodex.com/wiki/Ultima_III:_Exodus) (1983) by Richard Garriott / Origin Systems.
-- **Port base: [pantinor/gdx-exodus](https://github.com/pantinor/gdx-exodus)**. `py-exodus` started as a port of Paul Antinori's LibGDX Java implementation, which also supplied the sound effects, `.ogg` soundtrack (transcoded from MIDI), XML definitions (`maps.xml`, `vendor.xml`, `creatures.xml`, `weapons.xml`, `armors.xml`) and the world maps/rosters (now JSON).
-- **Graphics: the LairWare Mac port's tile sheets** (its PC EGA set by default; LairWare's own, Apple II, C64, MCGA and Ultima V sets with `--tiles`), animated the way LairWare animates them: people and monsters swap frames, water and lava scroll, Exodus blinks. Text is set in [Barlow Semi Condensed](https://github.com/jpt/barlow) (SIL Open Font License, `assets/fonts/OFL-Barlow.txt`).
-- **Rules authority: the LairWare Mac port** (`UltimaMain.c`, `UltimaMisc.c`, `UltimaSpellCombat.c`, ...). Where the Java port and the classic releases disagree, **LairWare is the correct implementation**. Recent LairWare ports include:
-  - **People move in towns and castles** (`MoveMonsters`): wanderers wander, shopkeepers follow, attackers close in and start a fight; in Castle Exodus the defenders come to you.
-  - **The dead leave the combat board** and no longer block the living.
-  - **Wind** steers ships on Ambrosia as on Sosaria, and is shown there too. A wind is named for where it blows from, as sailors name them: a NORTH wind stops a ship sailing north; a calm stops every ship. The wind changes on its own clock, about every 2.75 seconds of play (33 polls of 5/60 s), even while you stand idle, and not with your moves; it keeps time on the surface, in towns and in combat, but not in a dungeon. A new wind is never the old one: calm comes up 1 time in 9, each direction 2 in 9.
-  - **Monster attacks**: hit chance by armor (`RandNum(0, armor+16) < 8`), damage that grows with the target's max HP, and a location bonus (+16 dungeon, +32 town, +48 castles and Ambrosia). Castle Exodus is a real fight now. Dragon fire always hits.
-  - **Monster HP** in battle: 15 up to a cap set by the monster's kind (orcs 63, skeletons 95, clerics 111, giants 127, thieves and pirate crews 143, daemons and wizards 175, fighters and pinchers 207, dragons and serpents 239, balrons, Man-O-Wars and guards 255; merchants and jesters 47).
-  - **Party attacks**: half of all swings face a DEX check (a 0-99 roll above DEX misses), the rest land; a landed blow does 0 to STR (odd) + STR/2 + 3 per weapon rank (Dagger 1 .. Exotic 15) + 4.
-  - **Missiles** (sling, bows, a thrown dagger) fly over walls and water to the edge of the board, stopping only at a monster.
-  - **The battlefield**: floor and grass monsters always fight on their own arena (floor or grass, as LairWare's BackGround does); for the rest it is chosen by the ground the party stands on (grass, brush, forest or floor; anything else is grass), in towns too, not by the monster's tile.
-  - **Monsters move and attack diagonally** on Sosaria (the party still can't).
-  - **Monsters in battle** attack a member next to them, diagonals included; otherwise they step toward the nearest member they can reach, diagonally first (brush and forest never slow them, and they do not path around walls). Only dragons breathe fire (half their turns, along the line to their target, hitting the first member on it, no armour roll); serpents, Man-O-Wars, wizards, daemons, dragons and balrons may instead cast at a random party slot, but only at a member in good health (a poisoned, dead or empty slot and they move instead). Every attack or spell by a pincher, balron or Man-O-War poisons a healthy member one time in four, and every thief (pirate crews too) tries to pilfer a whole stack of one weapon or armour kind (never the readied or worn one), hit or miss.
-  - **Monster ground**: land monsters start on grass and walk only on grass, brush, forest and floor (never lava, nor a parked ship, a horse or a dropped chest); serpents, Man-O-Wars and pirates start and sail only on open water.
-  - **Selling weapons and armour** pays the shop's full price, only for what that shop stocks (Dawn's magic gear sells only at Dawn), never past 9999 gold (the sale is cancelled), a failed sale ("You don't own one of those!") ends the visit, and the readied weapon or worn armour can go too (back to hands or skin).
-  - **Buying weapons and armour** stops at 99 of a kind, the readied weapon or worn armour counted ("Not enough room!", nothing charged).
-  - **Grocers** sell rations at 1 gold each, as many as you like, never past 9,999 food ("Not enough room!"). Death Gulch, Montor West and Moon have one too; the cook in Castle British has no counter and only talks.
-  - **Pubs**: a drink costs 7 gold (less and you are thrown out); pay up to 99 and the barkeep's line depends on the whole amount, a tenth of it picking one of LairWare's ten (7-9 gold: "Thank you, kindly!", 90-99: the Lord of Time).
-  - **The oracle** takes one key, an offering of 0-9 hundred gold, each with its line of the rhyme (a typed "15" no longer costs 1,500 gold for nothing).
-  - **Healers**: curing 100, healing 200, resurrection 500, recalling 900 gold. A healing restores full HP to anyone, the dead and ashes too; resurrection and recalling only bring the member back, with the HP they had (0, unless healed first).
-  - **The guild** sells torches (5 for 30 gold), keys (50), powders (90) and gems (75), never past 99 of a kind (95 torches can't take another five: "Not enough room!").
-  - **Horses** are sold in Devil Guard (and Dawn), not Grey, at 200 gold for each member (800 for four).
-  - **Experience** stops at 9,899 (it used to run to 9,999).
-  - **Join Gold** tops the receiver up to 9999 and leaves the rest with the givers (it used to destroy anything past 9999).
-  - **Chest traps** are dodged by DEX, with a big bonus for Thieves; nobody is trap-proof.
-  - **Chest contents**: 30-100 gold, and one chest in four may also hold a weapon (Dagger to 2-Handed Sword, about one chest in fourteen) or armour (Cloth to Chain, about one in twenty-five); stacks cap at 99. An acid trap burns the opener for 0-55 HP, Mark of Fire or not, and only a living member can open a chest.
-  - **Letters as in LairWare**: `S` is Steal and `L` is Look (a direction, then the name of the monster there, plural outside towns and castles, or of the ground). There is no Search command: the Ambrosia cards come from the Other word `SEARCH`, and map spots give no items or experience to a search.
-  - **Other commands**: Steal (`S`) rolls on DEX, with a big bonus for Thieves and a smaller one for Barbarians, Illusionists, Rangers and Alchemists (the same as disarming), and needs a shop counter next to the thief and the chest three tiles out (it becomes floor; the take is a chest's), a failed steal brings the guards down on you one time in four; a bribe costs 100 gold whoever takes it, and only a guard leaves; Dig sets your Exotic count to one; Pray works only at (48, 48) in Yew; every Other word needs a living member. `STEAL` is not an Other word.
-  - **A beaten pirate** leaves a frigate on its tile only when you fought it from land; beat one from your own ship and the water stays open (it used to seal the Ambrosia channel).
-  - **Unlock** is the only way through a door: every door is locked, a member's key opens one east or west of you (the key is spent), and the door turns into the ground beside it (in towns too). There is no Open command, and walking into a door doesn't open it.
-  - **X-it** leaves a ship anywhere at sea (no shoreline needed) and a horse only on grass.
-  - **Entering**: every town starts you at its west gate (1, 32), every castle at its south gate (32, 62); the message is LairWare's own: "Enter town!", "Enter castle!" (Castle British and Castle Exodus), "Enter dungeon!" or "Enter shrine!".
-  - **Lord British** raises one level (100 max HP) per visit, with no healing or cure, up to 25; past level 5 he wants the Mark of Kings. Talking to anyone (him, shopkeepers, townsfolk) needs a living member.
-  - **Attack in towns**: `A` fights whoever stands in that direction, guards, merchants or townsfolk alike; beat one and a chest is left where it stood (unless on water), until you leave. Guards take weapon and spell damage and can be killed like anyone else (eight come to a guard fight; anyone else in a town, a merchant or Lord British, comes alone); Lord British takes no damage at all.
-  - **Fights in towns call the guards**: any fight in a town or castle, whoever starts it (your `A`, or a hostile townsperson such as Death Gulch's merchants reaching you), turns every guard and Lord British against you. They hunt the party for the rest of the visit and attack when they reach it; the town is back to normal on your next visit. A failed steal (one time in four) sets the guards on you the same way, though not Lord British.
-  - **Yell**: `EVOCARE` (with the Mark of Snake) carries the party three rows past the Great Earth Serpent, which stays; any other word works as an Other command.
-  - **INSERT**: the Cards go in Love, Sol, Moons, Death order, each at its own panel; a card out of order, at the wrong panel or a second time kills the member who inserts it. A card is never used up: the member keeps it. Castle Exodus resets like every town: cards inserted on one visit no longer count after the party leaves, and card progress is never saved, so the order starts over at Love on each visit.
-  - **The game ends when Exodus falls**, as in the 8-bit originals: the last card plays the ending, and its closing key returns to the title screen, as a dead party's game over does. Nothing is saved after the ending, so the last save is the one made on entering Castle Exodus (or at a death inside it); from the title, New Game / Roster and Journey Onward read that save, never the won party. A save from an older version that recorded a win loads as an unwon game. LairWare's play after the win (the castle emptied, harmless wanderers, Lord British past 25, shrines past the race cap, Dag Acron aboard ship) is gone.
-  - **Hand** (`H`): from, to, then **F**ood or **G**old with an amount (the taker holds at most 9,999), **E**quipment (gems, keys, powder, torches; at most 99), or one **W**eapon or **A**rmour by letter; the readied weapon or worn armour stays unless the giver has another.
-  - **Death**: a member brought down to 0 HP is dead (it used to take less than 0). Raising (Surmandum, Anju Sermani, or a healer's resurrection or recalling) keeps the HP the member had, so one raised with 0 HP is alive, but the next blow, however small, kills again.
-  - **Turns**: every letter command takes one turn, whether it works, is refused or is cancelled (one that starts a fight or leads into a new map is not given an extra turn on top), and that turn lets the monsters move once and counts stopped time down, `G`et included.
-  - **Attack spells**: Mittar hits for 16-31 or 48-56 (`RandNum(0, 40) | 16`), Fulgar for 75, Mentar for the caster's INT, Decorp and Excuun always kill. Noxum (75 each), Dag Mentar (twice the caster's INT), ZXKUQYB and UNSPEAKABLE (death) strike each monster three times in four. No spell hurts Lord British.
-  - **Repond and Pontori** get one try each per fight for the whole party, not per caster: the first cast uses it up, works half the time, and a later cast of the same spell that fight is refused. They work only on their own foe (orcs, skeletons): cast at the wrong kind they fail without using up the try. Auto-combat casts each only while its try is unused. **Altair** spends the caster's turn and holds the monsters for 20 rounds; winning the fight ends it.
-  - **Dag Acron** drops the party on a random grass tile anywhere on Sosaria (never a monster's or a parked ship's); aboard ship it never works.
-  - **Dag Lorum** is wizard spell I (Java's food spell Pabulum is gone): a long light, 250 turns of it in a dungeon. It casts anywhere, and in a fight it spends the turn.
-  - **Fal Divi** (wizard J) lets the same caster pick a cleric spell and cast it, paying for both (if the cleric spell costs more than is left, "M.P. too low!" and only Fal Divi is spent). It works anywhere, and in a fight it spends the turn.
-  - **Necorp** (wizard O, in a fight only) drops every living monster to 5 HP, and that is all: it leaves no weakness behind.
-  - **Light never gets shorter**: Lorum and Luminae give at least 10 turns of light, Sominae and Dag Lorum at least 250 (Sominae used to give 235), a torch 255; none of them cuts short a light that would last longer.
-  - **Who casts what**: only MP limits a caster, so a Ranger (up to 49 MP) can cast wizard I-J and cleric J too. Surmandum and Anju Sermani don't work in combat, and Dor Acron / Rec Du are refused on a dungeon's lowest level.
-  - **Ambrosia's creatures all hunt the party**, its two horses and the jester too, and each fights as itself (a horse brings horses to the fight).
-  - **Shrines**: no shrine screen. Enter on an Ambrosia shrine, name who enters, offer 0-9 hundred gold, all in the message log with the map still in view (no shrine picture or chant). The stat goes up by the offering, capped by race, and never past 99.
-  - **Opening**: LairWare's intro sequence, with py-exodus's own C64-style title art (pyExodus and Ultima III dissolving in, kept blocky by whole-pixel scaling), "by Lord British" written stroke by stroke, the copyright line (Ultima III © 1983 Lord British / Richard Garriott; py-exodus © 2026), the duel under pixel-art stalactites, with the party and dragon drawn from the current tile set and blocky EGA-coloured fire; the crackle plays only while each logo dissolves in), then the View, a scripted scene of Sosaria with its tiles animating at the in-game pace, attacks drawn as combat's hit orbs, and the songs playing one after another, until a key. The main menu is silent. Any key skips the intro; the main menu has "Return to the View". Never in headless or autoplay runs.
-  - **The turn**: left waiting at the command prompt with no key for 5 seconds (6 in a dungeon), the turn passes by itself, as Space would; it never does in a prompt, a menu, a shop or talk, Ztats (`Z` asks whose stats and shows only that member; it pauses the game, as in the original: any key closes it, and the wind and whirlpool stand still; in combat `Z` shows the active member and ends that member's turn), or while autoplay runs (LairWare's automatic healing while idle is not ported). In combat a member left waiting with no key for about 3.8 seconds (46 polls) passes, unless a prompt or Ztats is open, auto-combat is on or autoplay runs. A refused step (a wall, a mountain, the wind) still takes the turn; lava burns on the step onto it, not while you stand there; a town is left the moment you step onto its edge row or column. On horseback or aboard ship the monsters act only every other turn, and the people of a town or castle you ride into move only every other turn too; while time is stopped no new ones appear and nobody in a town or castle moves.
-  - **Time and the body** (LairWare `AgeChars`): one tick every turn on Sosaria and every 4th turn anywhere else (towns, castles, dungeons, Ambrosia) and every 4th round of a fight. Each tick eats a tenth of a ration, takes 1 HP from the poisoned ("POISON!") and 5 HP from anyone whose food has run out ("STARVING!", every tick until fed), and gives every caster 1 MP up to their maximum, the dead and ashes too (a Druid 2, as the Book of Lore has it). Every 10th tick every living member heals 1 HP, poisoned or starving. Fights count no moves, aboard ship too.
-  - **Stopped time** (`N`, a powder) holds the monsters for 10 turns on foot (about 20 on horse or ship, as they move only every other turn), counting only turns they would have moved; meals, moons, poison and healing carry on. Dungeon steps don't count it down.
-  - **The moons** turn only on Sosaria (Trammel every 12 turns, Felucca every 4); in towns, castles, dungeons and on Ambrosia they stand still.
-  - **Force fields** stop the party unless every living member has the Mark of Force; the first unmarked living member takes 99 HP (the dead and ashes don't count either way).
-  - **Castle Exodus throws fireballs**: each turn one chance in 144 that a ball lands on the party, every living member losing 8-127 HP; stopped time doesn't last there.
-  - **Moongates**: a new game starts with both moons at phase 4 (so no Dawn yet), and the new-moon gate stands at (8, 8). A gate takes the party at the end of any turn it is under it, so one that rises where the party stands (a pass, a refused step, a command) sends it on too. Monsters never step or appear on the visible gate, nor on Dawn while it shows. The gate tiles inside Castle British and Castle Exodus can be walked onto, and each sends the party to a random grass tile of that castle.
-  - **New characters** start with a readied Dagger and Cloth (on top of 150 food and 150 gold), and a name keeps at most 12 letters.
-  - **Forming a party starts a new game**: on foot at the start square, no moves made, the world reset. While a party is in play (saved), the roster screen shows it and won't add, remove or embark anyone; `X` disperses it first, writing what each member gained back to their roster slot (Journey Onward then has nothing to resume).
-  - **Saving** (LairWare's classic AutoSave): one save slot. Besides `Q` on Sosaria, the game saves itself on entering a town, castle or dungeon (Castle Exodus included, so the last save is usually the one just before the castle; a death inside the castle saves too), on leaving one, on the whirlpool trip to Ambrosia and back, each time a member dies (in a fight too), and when the whole party is wiped, before the game over (Journey Onward then finds no living party and opens the roster, where those characters lie dead). Each save also writes the party's characters into their roster slots, so the roster always matches the party. A save is always made as the game stands on Sosaria: from a town or dungeon it holds the entrance square, from Ambrosia the spot the whirlpool took the party from. Never inside a fight otherwise, never after the ending, and never in headless runs, batches, tests or while autoplay is on.
-  - **The roster** knows each character by its slot, not its name: two characters may share a name and join the same party, and deleting one removes the one you picked.
-  - **Party panel**: a card per member (race, class, sex and level in words; HP and MP bars; food, gold, stats, experience, weapon and armor; a colored edge and tag when poisoned, dead or ashes), then party supplies, quest chips for marks, cards and exotics (a mark or an Exotic lights only once every member has it; a card once anyone holds it, since one holder can insert it), and location, turn, autoplay (with its goal) and autocombat.
-  - **Ship cannons** (`F`, aboard ship): any of the four directions, up to 3 tiles, wrapping round the map; the first monster in the path is destroyed half the time (a pirate a quarter); the whirlpool doesn't stop the shot. No heading, no broadsides-only rule.
-  - **Pirates and dragons fire back**: each turn, half the time, one within 3 tiles along a row, column or diagonal hits the whole party for 8-127 HP each; mountains and walls stop the shot, and so does any square hidden from your view (behind forest, mountains or walls), so cover protects you. Ships have no hull and cannot sink (only the whirlpool destroys a parked one).
-  - **The whirlpool**: Sosaria has one, starting at (47, 17). It drifts on its own clock, one step about every third of a second of play while the game waits for your command (not with your moves, and not while a prompt is open), along its heading (any of eight directions), taking a new heading one time in eight or when land or a monster is in the way; it runs over a parked ship ("A ship was destroyed!") and takes a ship with the party aboard, even if you are standing still. Horse, ship and stopped time don't slow it. Nothing removes it: it is no monster, so a cannon shot, an attack or a bribe passes through it.
-  - **A new game starts with no monsters** on Sosaria; they arrive one at a time, a 7-in-135 chance each turn (the map used to start nearly full).
-  - **Sosaria keeps its monsters**: they and the whirlpool wait out a trip to Ambrosia where they were (the whirlpool that took you moves off to (2, 62)), and a save keeps every one of them, not just the first 8, and every parked ship, horse and chest, not just 24.
-  - **Dungeon turns**: every dungeon command takes exactly one turn (food, the torch, the chance of a fight), whether it works, is refused (a wall, no ladder) or is cancelled, turning and `Z` included; the party can't turn while standing in a doorway (step on or back out); a dungeon is entered at (1, 1) facing east. Hand (`H`), Join Gold (`J`), Negate Time (`N`) and Yell (`Y`, a word that works as an Other command) work in dungeons too. `A`, `B`, `E`, `F`, `L`, `Q`, `S`, `T`, `U` and `X` are refused there ("NOT A DNG CMD!") and still take the turn.
-  - **Dungeon traps and gremlins**: a trap is sprung or evaded for the whole party on the first member's DEX roll (Thieves best, then Barbarians, Illusionists, Rangers and Alchemists), dead or alive; sprung, it costs every living member 8-127 HP. Gremlins pick a random member and, unless that one is dead, take 100 of their food (someone with less than 100 loses nothing). Both are gone once found.
-  - **Dungeon fixtures act after every command** while the party stands on them (there is no Search; `S` and `L` are not dungeon commands): a fountain asks who will drink, and asks again after each drink until you press a key other than 1-4 (the answers take no turn); the red-hot rod asks who will touch it, marking one member (and burning 50 HP) per command (a dead member takes no mark: picking one does nothing, a deliberate change from LairWare, which marks the dead too); the Time Lord and the misty writing speak each time; the strange wind puts the torch out each time.
-  - **Dungeon fountains and chests** serve only the living: the dead and ashes can't drink ("Can't") or open a chest ("Incapacitated!").
-  - **Dungeon fixtures come from the map's own bytes**: a mark's kind and a fountain's kind follow the tile's column (x & 3), so the Time dungeon's mark at (11, 15) on level 8 is the Mark of Kings, not Fire, and the Snake dungeon's writing on level 5 is a writing again, not a fountain.
-  - **Ignite** (`I`, in a dungeon) asks whose torch; that member burns one ("None left!" when they have none) and the light is fresh (255 turns) whether a torch was burning or not. `I` never puts a torch out.
-  - **Dungeon fights**: no monsters roam the dungeons. Every command that leaves the party on an empty tile has a (3 + level)-in-(131 + level) chance of a fight (about 2% on the first level, 7% on the eighth): orcs, skeletons and giants on the first level, then daemons, pinchers, dragons and balrons further down (balrons from the fifth). A chest is left on that tile before the fight, whatever its end.
-  - **Monster variants**: half of Sosaria's wanderers come as a named variant: Brigands and Cutpurses, Goblins and Trolls, Ghouls and Zombies, Golems and Titans, Gargoyles and Manes, Snatches and Bradles, Griffons and Wyverns, Orcuses and Devils. Same stats, new name, their own art.
-- **Other classic references**: the Game Boy Color port (`u3gbc`) for moongate routing and ship-battle cannon barrages; the NES `MoonGateTbl` for the 8-site moongate table.
+- **The complete game:** Sosaria and Ambrosia, the towns and castles, the dungeons, the moongates, ships and the whirlpool, the Marks, the Exotics, the Cards, and Castle Exodus.
+- **LairWare's rules.** The game logic follows LairWare's Mac port (`refs/ultima3`): monster movement and attacks, combat maths, spells, shops, wind, time and food, dungeon fixtures, autosaves and more. Where the Java port or the classic releases disagree with it, LairWare wins, apart from a few deliberate changes (listed below).
+- **Classic graphics:** LairWare's tile sheets, with the PC EGA set by default. The LairWare, Apple II, C64, MCGA and Ultima V sets are also available. Tiles animate as they do in LairWare.
+- **Its own look:** its own title art and intro, a party panel with cards for each member, and a quest tracker. The look and UI are deliberately not LairWare's.
+- **Auto-Combat (`TAB`):** each living member heals, cures, casts or attacks as LairWare's auto-combat would. You can take back control at any moment.
+- **Full Autoplay (`F9`):** plays the whole game through the real UI, pressing the same keys you would.
 
----
+## Installation & running
 
-## Auto-Combat (`TAB`)
-
-Borrowed in concept from the LairWare port: **`TAB`** (or `F2`) during any battle toggles tactical Auto-Combat. Each living member picks healing and cures when needed, offensive magic, or ranged/melee attacks; you can take back control at any moment. As in LairWare, a Wizard, Lark, Alchemist, Druid or Ranger with 5+ MP and no Bow +2 or +4 never melees: it casts Mittar at the nearest living monster on its row or column (seen or hidden), at any range and next to it too, and otherwise walks to the nearest square that lines one up (the bolt flies over walls and a ship's rail), one no monster stands next to if it can; with no such square in reach it moves as before. The rest follows LairWare too (user rulings 2026-11-25), in classic mode (rows and columns, no diagonals):
-- **Flee**: a member under 50 HP (whatever its maximum) with a monster on any of its eight neighbouring squares steps south, west, east or north, the first free square no monster neighbours; with none, it fights. While under 50 HP it never walks back toward a monster: it attacks or shoots only what it can reach from where it stands, and otherwise passes. The last living member never flees and still closes in, and so does every member when nobody alive has 50 HP or more.
-- **Healing**: a Cleric, Paladin, Illusionist, Druid or Ranger with 10+ MP casts Sanctu (never Sanctu Mani) on the living member with the lowest HP, only when that HP is under 75. Healing outside combat is unchanged.
-- **Missiles**: a sling or bow (+2 and +4 too) shoots the nearest monster on its row or column, at any range, next to it too. A dagger is a hand weapon in Auto-Combat and is never thrown.
-- **Spare Bow** (user ruling 2026-11-25): a member holding the Exotic with a plain Bow in its pack readies the Bow (`R`, which takes its turn) when no monster is next to it and no walk on open ground leads to one, such as a Man-O-War in the water beside a ship's hull; it then shoots like any bow, walking first, like a Mittar caster, to a square that lines up a shot. It readies the Exotic again once a monster is next to it. In Castle Exodus, where only Exotics hit, it never readies the Bow.
-
-## Full Autoplay / Watch Mode (`F9`)
-
-**`F9`** (or `--autoplay`) hands the game to `AutoPlayController`, which presses real keys through the live UI, so everything it does goes through the same rules you play by. **`[`** / **`]`** slow it down or speed it up. What it does, in order:
-
-- **Tested party only**: autoplay has been tested and tuned with one party alone, the one `scripts/reset_new_game.py` writes to the roster and the headless batches build: SHADOW, Elf Thief (STR 15, DEX 25, INT 5, WIS 5); GRUMM, Dwarf Fighter (25/15/5/5); SERENA, Bobbit Cleric (15/5/5/25); ZIRCON, Fuzzy Wizard (15/5/25/5), 50 points each as LairWare allows, each with the readied Dagger and Cloth every new character gets (batches before 2026-11-25 started without them, so their win rates are not comparable). Batches before 2026-11-22 (up to `775884a`) gave the same four 60 points each. Started on an empty roster, autoplay creates this same party. How it fares with any other party is untested.
-- **Party & outfitting**: creates a Thief / Fighter / Cleric / Wizard party, buys starter gear and armor upgrades, keeps food and gold balanced across members: a member under 10 food is handed half the difference from the member with the most (LairWare's Hand, `H` then `F`) before anything else, living members first and then the dead, so a member raised by a healer isn't starved straight back to death. Only a member who is neither dead nor in ashes buys, sells, pays a healer or bribes (LairWare refuses the others: "Incapacitated!"); the gold is joined to them first. Shopkeepers wander behind their counters (Montor East's shops have two each), so before Transacting it walks along the counter to the spot facing one. Food runs go to Britain, Yew, Grey, Fawn and (while it's open) Dawn; on the way to a grocer it waits out people who wander across the only way in (Fawn's grocery has four thieves on its doorstep row) rather than walking back out. On the way out of a town with weapon and armour shops (never as a trip of its own), it sells spare gear: anything no living member would ready or wear over what they have, which the shop stocks, keeping a dead member's things for the resurrection. A member whose own weapon is the Exotic and who can use a plain Bow (in the tested party the Thief and the Fighter) buys one as a spare for fights where nothing can be reached (see Auto-Combat), on the way out of a town with a weapon shop (never as a trip of its own) and only with gold to spare: never the 500 kept for a resurrection, nor gold that would take it back under an Ambrosia trip's target it already holds. The Bow is never sold, and it never replaces the Exotic: after a fight that ended with it readied, the Exotic is readied again (R): in a dungeon before anything else; on the surface and in towns at the party's next gear check, which comes after any threat escape, a healing cast, and on the surface a dropped chest to pick up (in a town after Lord British's levelling). The spare Bow is never handed to another member, and neither it nor any other spare that no member would take keeps the rest of its holder's spare gear (armour included) from being handed on.
-- **Marks & exotics**: levels for the Mark of Kings, captures a frigate (a hunt that stops closing in, say on a pirate shadowing it along the coast, walks straight through the firing lane, unlocking any door on the way, when every member can take two broadsides, over 254 HP each, and otherwise, or when no foot route reaches a tile beside the pirate (one snagged on the coast never comes: monsters only step toward the party), leaves that pirate alone for a while and patrols the coast; stranded on Death Gulch's strip, whose only way off is a ship, it buys its food from Death Gulch's grocer only while it holds 2 keys and the bribe gold, unlocking the two doors and bribing the two guards on the way; short of either it keeps hunting or patrolling for a pirate), sails (wind- and pirate-aware, never onto a parked ship; on foot with its trip wanting a ship and the trip's frigate (or, for a capture, one on the same water) up to 3 steps away with a pirate's firing lane on the way (never a dragon's), it walks there through the lanes and boards when every member can take a worst-case broadside for each turn the walk ends in a lane, starting only with nobody under 40% HP (a hit on the way doesn't turn it back), so a pirate stuck behind the party's own ship can't keep it pacing beside the ship, as one did outside Fawn until the party starved; 60 turns on one tile, whatever the replans, bars the next tile of its route for a while and plans around it, though never the destination itself) to dig the Exotic weapons and armor, and clears the dungeons for the Marks of Fire, Force and Snake: Kings first, then Fire and Force together in the Fires of Hell, then Snake (every mark beyond Kings is on a dungeon's level 8, so depth can't order them; user ruling 2026-11-25). Those three wait until every living member is level 9 or more: a level-8 fight is four times in ten a Balron, and the member in front must hold about 24 average Balron hits (37 each at 950 max HP, three fights between heal fountains) plus the 50 HP flee line; the user's wipe there came at levels 5/5/3/5. It doesn't buy gems or peer: it already knows the dungeon layouts (as it knows plenty a new player wouldn't), so the gem it used to peer on every level was only a conceit, and it's gone. In dungeons it steps around gremlins where it can (each can take 100 food from a member), opens chests it walks over only the safe way (APPAR UNEM, or the Thief when no caster lives), and heads for the exit the moment anyone's food reaches 0 with no other member able to spare them any. Poisoned in a dungeon, it carries the poison on toward the mark (using only a cure fountain within 4 moves on its level) until a poisoned member falls under that level's bar (below), and from then until cured or out of the dungeon it casts ALCORT when a Cleric or Druid has the 35 MP, else walks to the nearest cure fountain (a heal fountain never cures; turning back or too weak for the next level down, only one on its level or above, and a heal fountain first when HP is the need); really hurt (under the level's turn-back bar, below), it drinks at a heal fountain on its level or the next one up or down first: it knows each fountain's kind from the map (by its position), never drinks from an acid or poison one, and has each member who needs it drink once. On the way to a mark it turns back when a living member falls under the bar for the next level down (6 maximum hits of the hardest monster that level can bring, at most two thirds of max HP; for its own level, half that): a fountain within a level first, then a heal on the spot, otherwise out to rest (only when resting outside would heal it), and it goes back down only once everyone is over the mark level's bar plus a twentieth of max HP, so it never see-saws on a ladder. It goes down a ladder only with the healer's two Sanctus (20 MP), waiting on the ladder for them (it lights the way only when it moves: a torch, else the Wizard, else the Cleric only from MP over that reserve; a wait that can't end in 160 turns gives up and heads out), and never walks into a mark dungeon under the first bar: it rests first.
-- **Gold**: raids Death Gulch (with 4 keys for its doors, bought first if short: once at the guild it stocks up for every raid still to come, a key per 850 gold short of the target, as far as the gold allows above the bribe money; levelling parties buy them too, and a raid for a return trip runs 500 gold past the trip's cost so the food eaten on the way can't send it back, and 400 gold for the guards' bribes, and only with the Cleric's MP full: it waits at the gate, where MP returns four times faster than inside), opening chests safely with APPAR UNEM (waiting in place for MP), routing patiently around the moving townspeople, and bribing guards only where they block the way. Because a town fight sets every guard hunting (eight guards come to that fight, and Lord British can't be hurt), it keeps out of reach of hostile townspeople (in Death Gulch it leaves the armour shop's chests next to the merchant's counter; a roaming one, like Grey's thief, is only avoided while some route around it reaches the errand, otherwise the party goes anyway), and if the guards ever do hunt, it bribes one that reaches it (if one member holds the 100 gold) and walks straight out of town, never stepping next to a hunter where another step will do. With the Cleric dead, the Thief opens chests (then the Fighter, the Wizard last) so the party can still earn the gold to resurrect.
-- **Ambrosia**: sails into the whirlpool for the four Cards as soon as it holds a full trip's gold (the shrine budget plus the food and keys still to buy; the grocer then fills only to the trip's 200 rations, so buying never drops it back under; once everyone holds 150, the food no longer counts, so meals on the way out don't either) once it has the Mark of Kings, before or between the other marks, and again whenever the gold is back while a return-trip step of the plan is left (gold left unspent goes on food during long grinds; Death Gulch raids remain one way to earn it). Only when the weakest member can take the trip's fights: Ambrosia spawns nothing and loads the same hunting monsters at the same tiles every visit, so it counts those within 8 tiles of the route (arrival, the card sites and shrines the trip needs, the way out by a pirate's ship) and wants every member's max HP to hold 8 average hits of the worst of them (+48 a hit on Ambrosia) plus the 50 HP flee line: level 6 when a Balron is near the route. Then it makes return trips for shrine stats in plan order (Cleric WIS to its race maximum first, for ALCORT and the biggest APPAR UNEM pool; DEX 40 for all; Wizard INT 50/75/99; Fighter and Thief STR). A return trip raids only for what the remaining stats cost (at most about 8,500), and buys only the entry food, so stocking up doesn't send it back to raid. Each trip, cards or stats, budgets the gold, the food and 8 keys (Ambrosia's doors relock between visits, and the Moons card alone is behind three), and leaves while it still has a key for the water door.
-- **Levels**: grinds every member to 25, starting on a loop near Britain's healer and Lord British and widening to the whole continent when nothing shows up for 150 moves; after 150 grind turns with no fight and no monster within 8 tiles it also stops walking toward monsters farther off (a monster stuck behind water 12 tiles away once kept a party pacing two tiles for thousands of turns) and takes the wide patrol until a fight or a monster in sight. Below level 8 the grind doesn't go after dragons (a chased party still fights them); from level 8, at full strength, it walks up to a dragon instead of dodging its fire. Otherwise (a member below level 8, anyone poisoned, or anyone under 40% of max HP), on foot with a dragon chasing (within 8 tiles), it walks into a town or castle gate up to 6 steps away when it gets there before any monster can reach it (never Death Gulch, Exodus or Dawn), since a dragon moves as fast as the party and dodging its fire never gets out of range; the dragon waits outside, so there is at most one such refuge in 200 turns, and coming out to the dragon still in view, a party with nobody under 40% that can take two blasts goes and fights it. With no refuge, once it has dodged for 4 turns with the dragon still in view and its HP falling, a party with nobody under 40% that can take two blasts stops running and fights. The Mark of Kings (needed to pass level 5) waits for three of the four at level 5, not all four. Lagging casters open fights with their strongest area spell so they earn the kills. In a town or castle it rests (or its healer casts) only once a member is under 70% of max HP, as on the surface, and then goes on to 85%: a level from Lord British (100 more max HP, no healing) alone rarely holds it there. Chests dropped on the surface are picked up straight away, errands included, unless that would court disaster: a weak party with no safe opener, a chest inside a firing lane, a poisoned member near death on the way to the cure, or a badly hurt party with monsters closing in. Hurt, it takes only chests within four steps; healthy and grinding, it fetches any it can reach. A chest a fight drops ashore while the party is on its ship is fetched too (leave ship, open, board again) when no sea monster is near.
-- **Sailing**: follows the shortest route while the wind allows its next heading. Against a headwind it first takes any heading the wind allows that is just as short; with none, it waits for the wind, at most 20 turns in a row (or as many as the wind-allowed detour would add, if fewer), then sails the detour and keeps to it while that wind holds, unless the detour adds more than 60 turns (round a continent): the wind changes on its own clock, so waiting is cheaper there. Locked water doors count as open to a ship with a key. It doesn't leave its ship with the whirlpool within 2 tiles of it (two straight moves sink a parked ship before a walk ashore and back is over): it waits aboard, standing off a tile (wind permitting) when the whirlpool comes alongside, for at most 32 turns from the wait's start, even if the whirlpool drifts out of reach and back, then goes ashore anyway (no new wait for 200 turns after that). Ashore, with the whirlpool next to the ship and the ship at most 3 steps away, it cuts the errand short and boards again (at most once in 200 turns). Stranded without a ship on an island no monster can walk to, only a pirate can take it off, and none comes once Sosaria's 32 monster slots are full of land monsters (as in LairWare).
-- **The red-hot rod**: touches a mark's rod (50 HP) only with a member left at half health or better. A member who falls short is healed first: Sanctu by a Cleric, Druid or Paladin, or Sanctu Mani by a Cleric or Druid for a big gap. With no MP for that, the party waits on the rod while a healer's MP or its own HP comes back in time (well fed, not poisoned); a heal fountain within a level of the mark comes before waiting. Otherwise (no healer, and poisoned or short of food, with no fountain to help) it leaves the mark and does not step back on while that holds, and it does not walk back into the dungeon for it until something has changed. A mark counts as done only when every living member has it, so the party comes back for a member who missed one.
-- **The dead first**: with a member dead, food waits (until someone is down to 40) so the gold goes to the resurrection.
-- **Poison**: a Cleric or Druid who can reach ALCORT's 35 MP cures on the spot once the MP is back, as long as the poisoned can afford the wait; otherwise a healer (100 gold).
-- **Endgame**: only once every planned stat is bought, and with 200 rations a member (it buys them first when it has 700 gold or more; never once past the serpent), yells `EVOCARE` to pass the Great Earth Serpent, heals everyone to full HP and waits for every caster's MP to fill at the castle gate, fights through Castle Exodus and inserts the four Cards. Its ship from the serpent ends in the castle's five-tile pond, often behind the frigate it ferried across in last time: it leaves the ship there, steps onto the frigate, boards it and sails on.
-- **Moongates**: a trip takes a gate when that is the cheapest way. Waiting for the opening it wants, it roams near the gate fighting what comes and is beside it in time, but never steps onto or stands on any gate site except to go through: the moon can turn on that very step, and a gate opening the wrong way under the party would carry it off. Waiting there is never taken for being stuck (the 60-turns-on-one-tile rule leaves a gate leg alone within 5 tiles of its gate). Two full moon cycles (192 turns) near a gate without getting through, and the trip gives that gate up for a while and plans another way; where the gate is the only way out, it tries it again once the bar runs out.
-- **After the win**: once the four Cards are in, autoplay has no goal left and switches itself off: it leaves the ending to the player and doesn't resume a save from the title screen. A headless batch counts the run as WON there.
-
-### Status
-
-- **Wins from a fresh game, no cheats.** The latest 100-seed batch (`775884a`, LairWare combat rules, the final castle fighting back) won **58**, wiped 37 and hit the step cap 5 times, matching the easier-rules batch before it (`bbceab3`: 58 won, 39 wiped, 3 step caps). 34 of the 37 wipes are parties at level 10 or below. Live runs on 2026-11-22 won with every member at level 25.
-- **Open fronts**: early-game wipes (being measured by the next 100-seed batch).
-
----
-
-## Controls & Hotkeys
-
-- **Movement**: arrow keys or numpad (ships sail straight off in any direction the wind allows; in dungeons `DOWN` steps backward). **Enter** / **Space** confirm and advance; **Esc** cancels.
-- **`F1`**: Book of Lore, spell books and command reference, from any screen.
-- **`TAB`** (or **`F2`**): Auto-Combat on/off in battle.
-- **`F9`**: Full Autoplay on/off (**`[`** slower, **`]`** faster).
-- **`F10`** *(with `--debug`)*: debug cheat menu.
-
----
-
-## Installation & Running
-
-Managed with [uv](https://docs.astral.sh/uv/) and a committed `uv.lock` (Python 3.10+, tested through 3.14):
+Managed with [uv](https://docs.astral.sh/uv/) and a committed `uv.lock`. Needs Python 3.10 or later, tested through 3.14.
 
 ```bash
 git clone https://github.com/jbff/py-exodus.git
@@ -153,22 +35,56 @@ python3 -m py_exodus
 
 | Flag | Effect |
 |---|---|
-| `--autoplay` | Start in Full Autoplay (Watch Mode); `F9` still toggles it. |
-| `--trace` | Record the run to `traces/trace_<time>.jsonl.gz` (written when the game exits). |
-| `--tiles NAME` | Tile set, from LairWare's sheets: `ega` (default), `lairware`, `apple2`, `c64`, `mcga`, `ultima5` (`--tiles list` prints them, the default first, marked `[default]`). |
-| `--debug` | Enable the debug cheat harness (`F10`). |
+| `--autoplay` | Start in Full Autoplay. `F9` still toggles it. |
+| `--trace` | Record the run to `traces/trace_<time>.jsonl.gz`, written when the game exits. |
+| `--tiles NAME` | Tile set: `ega` (default), `lairware`, `apple2`, `c64`, `mcga` or `ultima5`. `--tiles list` prints them. |
+| `--debug` | Enable the debug cheat menu (`F10`). |
 
-Live play runs on wall-clock time and the `[` / `]` speed keys change it, so a live run can't be replayed exactly. There is no `--seed` flag.
+## Controls
+
+- **Movement:** arrow keys or the numpad. In dungeons, `DOWN` steps backward.
+- **Commands:** the classic single-letter commands, as in LairWare. Examples are `A`ttack, `B`oard, `C`ast, `E`nter, `G`et, `H`and, `I`gnite, `J`oin gold, `K`limb, `L`ook, `N`egate time, `O`ther, `P`eer, `Q`uit & save, `R`eady, `S`teal, `T`ransact, `U`nlock, `W`ear, `X`-it, `Y`ell and `Z`tats.
+- **Confirming and cancelling:** `Enter` or `Space` confirms, and `Esc` cancels.
+- **`F1`:** the Book of Lore, the spell books and the command reference, from any screen.
+- **`TAB`** (or `F2`): Auto-Combat on or off during a battle.
+- **`F9`:** Full Autoplay on or off. `[` slows it down and `]` speeds it up.
+- **`F10`:** the debug menu, with `--debug` only.
+
+Saving follows LairWare's classic AutoSave, with one save slot. The game saves when you enter or leave a town, castle or dungeon, on the whirlpool trip, and when a member dies. `Q` also saves, on Sosaria only. Nothing is saved while autoplay is on, or after the ending.
+
+## Autoplay
+
+**Auto-Combat** follows LairWare's rules:
+- casters cast Mittar along rows and columns;
+- a member under 50 HP steps away from adjacent monsters;
+- healers cast Sanctu on anyone under 75 HP;
+- bows and slings shoot the nearest monster in line.
+
+**Full Autoplay** runs a goal planner. It works through these steps:
+1. outfits the party;
+2. earns gold by raiding Death Gulch;
+3. levels the party, including Lord British's level-ups;
+4. captures a frigate and digs up the Exotics;
+5. clears the dungeons for the Marks;
+6. sails through the whirlpool to Ambrosia for the Cards and shrine stats;
+7. passes the Great Earth Serpent and wins in Castle Exodus.
+
+It only knows what a seasoned player would know, such as the dungeon layouts and where the treasure is. When the four Cards are in, it switches itself off and leaves the ending to you.
+
+- **Tested party:** autoplay is tuned and tested with one party: a Thief, a Fighter, a Cleric and a Wizard. `scripts/reset_new_game.py` writes this party to the roster. Autoplay is meant to run without crashing or looping with any party, but other parties are untested.
+- **Results:** 77 of 100 headless runs won from a fresh game, with no cheats. The 100 seeds ran as ten batches of ten while fixes landed (November 2026). Most of the losses were early-game wipes at levels 1–5.
 
 ### Headless batches and traces
-
-Reproducible autoplay runs, one trace per seed, no window:
 
 ```bash
 uv run python -m py_exodus.autoplay.batch --seeds 0-99 --workers 2 --out-dir traces/batch
 ```
 
-Each seed prints `WON@<steps>`, `WIPED@<steps>` or `STEP_CAP@<steps>`. A trace row records position, the game turn (`moves`, the turn count the game shows), goal, party state, the key pressed and **`why`**: the autoplay functions and lines that chose it. In towns it also lists the people within 4 tiles. Standing still writes a short repeat row (the key, `why`, a count and the game turn) whenever the key changes and every 100 turns, and rows carry each member's marks. So a loop or a stall in a trace names the code that caused it.
+- **Output:** each seed prints `WON@<steps>`, `WIPED@<steps>` or `STEP_CAP@<steps>`, and writes a trace.
+- **Trace rows:** each row records the position, the game turn, the goal, the party's state, the key pressed, and `why`, which names the autoplay code that chose that key. A loop or stall in a trace therefore points at the code that caused it.
+- **Utilities:**
+  - `scripts/autoplay_atlas.py` summarizes traces.
+  - `scripts/render_maps.py` renders the JSON maps to PNGs in `maps_rendered/`.
 
 ### Tests
 
@@ -176,35 +92,95 @@ Each seed prints `WON@<steps>`, `WIPED@<steps>` or `STEP_CAP@<steps>`. A trace r
 uv run python -m pytest
 ```
 
-**2,146 tests** covering mechanics, LairWare/Java/GBC parity, vendors, dungeons, combat, rendering and autoplay regressions (most autoplay fixes come with a test that fails on the old code).
+There are **2,146 tests**. They cover the mechanics, parity with LairWare, Java and the Game Boy Color port, the shops, the dungeons, combat, rendering and autoplay. Most autoplay fixes come with a test that fails on the old code.
 
 ---
 
-## Deliberate Deviations
+## Deliberate deviations from LairWare
 
-1. **Wireframe dungeons**: a classic first-person wireframe view instead of Java's 3D pipeline (mechanics match). The wireframe makes depth hard to judge accurately, so the dungeon map overlay stays on by default (`P` hides it), even though the original has no such map.
-2. **Fixed spell letters (A–P)**: spell menus keep the original A–P slots; an invalid cast refuses with `"Not Here!"` or the MP message.
-3. **Classic GBC/LairWare rulings**: slow/fast moongate table, party-wide ship cannon barrage. Druids regain 2 MP a tick to their maximum (the Book of Lore; LairWare gives 1 per half they are under).
-4. **Quality of life**: no quick-start party; `Q` saves only on the Sosaria overworld (the automatic saves above follow LairWare); `APPAR UNEM` opens the chest underfoot without a direction prompt; saves and rosters are JSON only; a shopkeeper's question is asked once, as the input prompt, with the answer on the same line (Java printed it and then prompted it again).
-5. **LairWare oddities not ported**: a dungeon trap is avoided by a good DEX roll (LairWare's code springs it on a good roll and spares the party on a bad one); a force field lets the party through only when every living member has the Mark of Force (LairWare lets everyone through once a marked member comes before the one it strikes); cancelling Fal Divi's cleric prompt, or picking a cleric spell that can't be cast here, charges nothing more (LairWare could charge for a cancelled choice).
-6. **Wind display**: reads `Wind NORTH` etc. in words, without arrow glyphs (`Wind NORTH` blows from the north, as LairWare's NORTH WIND does).
-7. **The dead take no mark** (ledger D-26): at the red-hot rod, picking a dead member does nothing, like a key outside 1-4. LairWare's brand case (UltimaDngn.c:300-318) has no alive check, so it marks and burns the dead too.
+The rest of the rules follow LairWare. Every rule decision, with its LairWare source lines, is recorded in the parity ledger, [`docs/superpowers/plans/lw-parity-ledger.md`](docs/superpowers/plans/lw-parity-ledger.md); its "User rulings" section lists the deliberate changes.
 
-## Known Open Items
+1. **The game ends when Exodus falls,** as in the 8-bit originals. LairWare's play after the win is not ported.
+2. **No starter party:** the roster starts empty. The Magical Orbs are gone.
+3. **Dungeons:** they are drawn as a first-person wireframe, with a map overlay on by default (`P` hides it).
+4. **Spells:** spell menus keep fixed A–P letters.
+5. **Moongates:** they use the Game Boy Color and NES moongate tables.
+6. **Ship cannons:** they fire a barrage at the whole party, as in the Game Boy Color port.
+7. **Druids:** they regain 2 MP per tick, as the Book of Lore says.
+8. **LairWare bugs not copied:**
+   - a dungeon trap is avoided by a *good* DEX roll;
+   - a force field needs the Mark of Force on every living member;
+   - a cancelled Fal Divi charges nothing more;
+   - the red-hot rod doesn't mark the dead.
+9. **Quality of life:**
+   - `Q` saves only on Sosaria;
+   - `APPAR UNEM` opens the chest underfoot without asking for a direction;
+   - saves and rosters are JSON;
+   - a shopkeeper asks each question once;
+   - the wind is named in words.
 
-1. **Audio**: the poison/fire field sound cues (`Sound.POISON_EFFECT`, `Sound.FIREFIELD`) aren't wired yet.
-2. **Input**: keyboard only.
-3. **Autoplay**: early-game wipes are the main loss; see Status above.
+## Planned (look & feel)
+
+- **The victory ending:** LairWare-style colour flashes, an "EXODUS VANQUISHED" page with the move count, then the epilogue in serif lettering. The design is chosen.
+- **A new dungeon view:** "Stone" style, with solid torchlit walls, fog with distance, and close-up pictures for fountains and the red-hot rod. The map overlay will then be off by default. The design is chosen.
+- **A Ztats window** over the map. The design is chosen.
+- **Quick-reference cards on `F3` or `F4`:** the letter commands, and the Cleric and Wizard spells.
+- **Peer Gem maps** drawn in the style of the rendered map PNGs, in towns and castles too.
+- **The wind and moon strip** centred, as in LairWare, and still shown in towns.
+- **The Book of Lore** reformatted, so it is no longer about 128 pages in a giant font.
+
+## Possible loose ends
+
+These are small things noted in development and left for now. Some of them may already be moot.
+
+**Autoplay**
+- **The Death Gulch strip:** a party stranded there with no ship and fewer than 2 keys can only wait for a pirate to capture. It can starve waiting.
+- **A stuck pirate:** a pirate pinned somewhere the party can't reach may still keep a capture hunt waiting on the coast.
+- **The Cleric falls behind in level:** in most combat losses the Cleric is the lowest-level member and dies first. Changing this would mean changing autoplay tactics.
+- **Odd parties:** without a Cleric, Thief or Wizard, some routines use rough fallbacks.
+- **Batch seeds** don't always replay exactly the same game. One replay went a different way at a sell choice.
+- **Small autoplay edge cases:**
+  - joining gold just before a bribe costs a turn;
+  - the "not enough room" check reads 25 lines of message history;
+  - the Grey exit walk ignores the roaming thief's reach after a second pass.
+
+**Rules**
+- **Missed turns:** LairWare runs a turn on entering a new map, and after a fight or an entry that a command started. The port skips both.
+- **The town exit step** ages the party at town pace. LairWare uses Sosaria's pace, so an Exodus fireball is possible on that step.
+- **Moongate sites:** LairWare wipes objects on the eight gate sites every Sosaria turn, and the port doesn't.
+- **Stopped time:** the overworld countdown may be off by one turn, and some commands skip it.
+- **Food:** the food clock resets and loses a fraction of a ration, so rations last about 10% longer than in LairWare.
+- **Hand (`H`)** accepts a negative amount.
+- **The oracle and the pub:** an empty or non-digit answer to the oracle counts as an offering of 1. An empty answer in the pub pays 7 gold; LairWare treats it as 0 and throws you out.
+- **Dor Acron and Rec Du:** refused on a dungeon's lowest level, they print no "Failed".
+- **Yell in a dungeon** doesn't check for a living member.
+- **Join gold (`J`)** says nothing for an invalid member.
+- **`Z` on Sosaria and in towns** ends the turn before the stats close. LairWare ends it after.
+- **The roster:** a free roster slot can collide with a party member's slot, which is rare. Disperse hides save errors.
+
+**Housekeeping**
+- **The parity ledger's close-out:** a few rows still need their final status, and some cites need correcting.
+- **Untested cases:**
+  - a member holding a Card dies inside Castle Exodus;
+  - fights on horseback in ship-battle code.
+- **Stale comments and tests:**
+  - old two-whirlpool notes;
+  - a camouflage test that asserts nothing;
+  - outdated test names and cites.
+- **Audio:** the poison and fire field sound cues aren't wired up.
+- **The `.venv` torch and triton packages** were removed by a `uv sync`. Only the `neural-net` branch needs them; reinstall them there.
 
 ---
 
-## Utilities
+## References & credits
 
-- `scripts/render_maps.py`: renders the JSON maps to top-down PNGs in `maps_rendered/`.
-- `scripts/autoplay_atlas.py`: summarizes autoplay traces.
-
----
+- **Original game:** [*Ultima III: Exodus*](https://wiki.ultimacodex.com/wiki/Ultima_III:_Exodus) (1983) by Richard Garriott and Origin Systems.
+- **Rules authority:** LairWare's Mac port of Ultima III (`refs/ultima3`, MIT). It also supplies the tile sheets, some sounds and the intro data.
+- **Port base:** [pantinor/gdx-exodus](https://github.com/pantinor/gdx-exodus), Paul Antinori's LibGDX version. py-exodus began as a port of it, and it supplied the sound effects, the soundtrack, the XML definitions, and the maps and rosters (now JSON).
+- **Other references:** the Game Boy Color port (`u3gbc`) for moongate routing and ship cannon barrages, and the NES `MoonGateTbl`.
+- **Font:** [Barlow Semi Condensed](https://github.com/jpt/barlow) (SIL Open Font License).
+- **Project history:** design notes, plans and the parity ledger are in [`docs/`](docs/). The git history holds the reasoning behind each change. Earlier versions of this README describe every ported rule in detail.
 
 ## License
 
-py-exodus's own code is [MIT](LICENSE). Material from elsewhere keeps its own terms; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md): LairWare's port (MIT), the Barlow font (OFL), and assets still derived from gdx-exodus, which publishes no license and which are being replaced with LairWare-derived equivalents. *Ultima III: Exodus* itself remains copyright © Richard Garriott / Origin Systems; this is an unofficial, non-commercial fan port.
+py-exodus's own code is [MIT](LICENSE). Material from elsewhere keeps its own terms; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). That covers LairWare's port (MIT), the Barlow font (OFL), and the assets still derived from gdx-exodus. gdx-exodus publishes no license, and those assets are being replaced with LairWare-derived ones. *Ultima III: Exodus* itself remains copyright © Richard Garriott / Origin Systems. This is an unofficial, non-commercial fan port.
