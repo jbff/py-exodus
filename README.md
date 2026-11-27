@@ -29,6 +29,24 @@ A Python 3 / Pygame-CE reimplementation of *Ultima III: Exodus* (1983), by Richa
 |---|---|
 | ![Sosaria: the party by the coast with a ship, beside the party panel with member cards, quest marks and the moons and wind](docs/screenshots/sosaria.png) | ![The Dungeon of the Snake in the Stone view: a torchlit corridor with a chest, beside the party panel](docs/screenshots/dungeon.png) |
 
+### The interface
+
+| The party and roster | A new adventurer |
+|---|---|
+| ![THE PARTY: four party cards, the roster list, and the chosen character's sheet with stats against their race's maximum](docs/screenshots/roster.png) | ![A NEW ADVENTURER: an Elf Druid's preview card and the stats step, sharing 50 points with bars](docs/screenshots/creation.png) |
+
+| Ztats (`Z`) | Peer at a gem (`P`) |
+|---|---|
+| ![Ztats: the Wizard's full sheet over the map, with stats, gear, marks, cards and the spells castable now](docs/screenshots/ztats.png) | ![Peer: the whole of Sosaria in shrunken tiles over the map pane](docs/screenshots/peer.png) |
+
+| The Book of Lore (`F1`): contents | The Book of Lore: a spread |
+|---|---|
+| ![The Book of Lore's contents page: 18 chapters with their keys](docs/screenshots/book_contents.png) | ![An open-book spread of the Combat chapter](docs/screenshots/book_spread.png) |
+
+| Commands card (`F3`) | Spell cards (`F4`) |
+|---|---|
+| ![The commands card: every letter command, what it does and where it works](docs/screenshots/card_commands.png) | ![The Wizard spells card: each spell's MP, where it works and what it does](docs/screenshots/card_wizard.png) |
+
 ## Download
 
 Ready-to-play builds are attached to each [release](https://github.com/jbff/py-exodus/releases), with no Python needed:
@@ -117,7 +135,7 @@ uv run python -m py_exodus.autoplay.batch --seeds 0-99 --workers 2 --out-dir tra
 - **Utilities:**
   - `scripts/autoplay_atlas.py` summarizes traces.
   - `scripts/render_maps.py` renders the JSON maps to PNGs in `maps_rendered/`.
-  - `scripts/readme_screenshots.py` renders the screenshots above into `docs/screenshots/`.
+  - `scripts/readme_screenshots.py` renders the README screenshots into `docs/screenshots/`.
 
 ### Tests
 
