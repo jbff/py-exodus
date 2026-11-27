@@ -47,6 +47,12 @@ A Python 3 / Pygame-CE reimplementation of *Ultima III: Exodus* (1983), by Richa
 |---|---|
 | ![The commands card: every letter command, what it does and where it works](docs/screenshots/card_commands.png) | ![The Wizard spells card: each spell's MP, where it works and what it does](docs/screenshots/card_wizard.png) |
 
+## Videos
+
+- **[Trailer](https://youtu.be/NSkHrhCzFNI)** (2 minutes)
+- **[The whole game, played by Full Autoplay](https://youtu.be/fbnxUt94lIw)** (2 h 52 min, with chapters): one complete game from Castle British's gate to the fall of Exodus, with no one at the keyboard.
+- **[The same game as a timelapse](https://youtu.be/0SD7NINuQpg)** (4 minutes)
+
 ## Download
 
 Ready-to-play builds are attached to each [release](https://github.com/jbff/py-exodus/releases), with no Python needed:
